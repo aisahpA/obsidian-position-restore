@@ -30,16 +30,11 @@
 
 ## 安装
 
-插件尚未上架 Obsidian 官方社区插件市场，可通过以下两种方式安装。
+### 通过 Obsidian 社区插件市场安装（推荐）
 
-### 通过 BRAT 安装（推荐）
-
-1. 先安装并启用 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 插件
-2. 打开命令面板（`Ctrl/Cmd + P`），执行 **BRAT: Add a beta plugin for testing**
-3. 输入仓库地址 `aisahpA/obsidian-position-restore` 并确认
-4. 在 **设置** → **第三方插件** 中启用 **Position Restore**
-
-> 之后 BRAT 会自动检测并提示更新，无需手动重新下载。
+1. 打开 **设置** → **第三方插件**，关闭安全模式（受限模式）
+2. 点击 **浏览**，搜索 **Position Restore**
+3. 点击 **安装** 并启用插件
 
 ### 手动安装
 

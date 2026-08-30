@@ -1,7 +1,33 @@
-import { App, MarkdownView, WorkspaceLeaf } from 'obsidian';
+import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { CursorPositionDatabase } from './database';
 import { PositionState, OpenKind } from './position-state';
+
+// The view/ephemeral state payloads flowing through setViewState on opens
+// are internal and untyped; declare the minimal fields this plugin reads.
+interface OpenViewState {
+	type: unknown;
+	state?: {
+		file?: unknown;
+		mode?: unknown;
+	};
+}
+
+// The same ephemeral-state argument also carries caller-submitted targets
+// (search match, outline/backlinks' is-flashing) on top of the position
+// fields.
+type OpenEphemeralState = EphemeralState & {
+	match?: unknown;
+	'is-flashing'?: unknown;
+};
+
+type SetViewState = (
+	this: WorkspaceLeaf,
+	viewState: OpenViewState,
+	eState?: OpenEphemeralState,
+) => unknown;
+
+type OpenLinkText = (this: Workspace, ...args: unknown[]) => Promise<void>;
 
 // Installs the patches restore relies on — setViewState (inject saved
 // position into the open's ephemeral state; the primary flicker-free
@@ -30,12 +56,14 @@ export class OpenPatcher {
 	}
 
 	private patchSetViewState(registerCleanup: (fn: () => void) => void) {
-		const leafProto: any = WorkspaceLeaf.prototype;
+		const leafProto = WorkspaceLeaf.prototype as {
+			setViewState?: SetViewState;
+		};
 		const originalSetViewState = leafProto.setViewState;
-		if (typeof originalSetViewState !== 'function')
+		if (!originalSetViewState)
 			return;
 		const patcher = this;
-		leafProto.setViewState = function (this: WorkspaceLeaf, viewState: any, eState?: any) {
+		leafProto.setViewState = function (this: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) {
 			eState = patcher.injectEphemeralStateOnOpen(this, viewState, eState);
 			return originalSetViewState.call(this, viewState, eState);
 		};
@@ -49,12 +77,16 @@ export class OpenPatcher {
 	}
 
 	private patchOpenLinkText(registerCleanup: (fn: () => void) => void) {
-		const workspace: any = this.app.workspace;
+		const workspace = this.app.workspace as Workspace & { openLinkText: OpenLinkText };
+		// Intentionally captured unbound: the wrapper re-binds it per call
+		// (`originalOpenLinkText.apply(this, args)`) so core's chosen `this`
+		// is preserved.
+		// eslint-disable-next-line @typescript-eslint/unbound-method -- intentional capture for per-call rebinding
 		const originalOpenLinkText = workspace.openLinkText;
 		if (typeof originalOpenLinkText !== 'function')
 			return;
 		const patcher = this;
-		workspace.openLinkText = async function (this: any, ...args: any[]) {
+		workspace.openLinkText = async function (this: Workspace, ...args: unknown[]) {
 			// Stash the link kind in the transient pendingLinkKind slot
 			// (openLinkText doesn't know the target leaf yet) — promoted onto
 			// pendingOpenKind by the setViewState patch in this call stack.
@@ -91,11 +123,11 @@ export class OpenPatcher {
 	// paint. This is the ONLY place a source-mode restore can be flicker-free
 	// — 'file-open' is emitted through a debounced (setTimeout 0) callback,
 	// i.e. after the note has already been painted at its default position.
-	private injectEphemeralStateOnOpen(leaf: WorkspaceLeaf, viewState: any, eState: any): any {
+	private injectEphemeralStateOnOpen(leaf: WorkspaceLeaf, viewState: OpenViewState, eState: OpenEphemeralState | undefined): OpenEphemeralState | undefined {
 		if (!viewState || typeof viewState.type !== 'string')
 			return eState;
-		const filePath = viewState.state && viewState.state.file;
-		if (!filePath)
+		const filePath = viewState.state?.file;
+		if (typeof filePath !== 'string' || !filePath)
 			return eState;
 
 		this.resetLeafOpenState(leaf);
@@ -156,7 +188,7 @@ export class OpenPatcher {
 	// for this open: returns it when the open should yield to a non-saved target,
 	// and as a side effect sets pendingOpenKind so restoreEphemeralState can
 	// dispatch. Otherwise clears nothing and returns undefined.
-	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: any): OpenKind | undefined {
+	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: OpenEphemeralState | undefined): OpenKind | undefined {
 		// Promote the transient link kind (set by the openLinkText patch, which
 		// doesn't know the target leaf yet) onto this leaf's pending entry,
 		// then clear the transient slot. Link nav wins over the saved position
@@ -183,7 +215,7 @@ export class OpenPatcher {
 		return undefined;
 	}
 
-	private hasCallerTarget(eState: any): boolean {
+	private hasCallerTarget(eState: OpenEphemeralState | undefined): boolean {
 		return !!(eState && (eState.match || eState.cursor || eState.scroll != null || eState['is-flashing']));
 	}
 
@@ -233,13 +265,14 @@ export class OpenPatcher {
 	// current markdown view's mode (covers same-leaf reopens); a brand-new leaf
 	// has no view yet, so fall back to Obsidian's native default-view-mode
 	// setting.
-	private isSourceModeOpen(leaf: WorkspaceLeaf, viewState: any): boolean {
+	private isSourceModeOpen(leaf: WorkspaceLeaf, viewState: OpenViewState): boolean {
 		const mode = viewState.state?.mode;
 		if (mode === 'source' || mode === 'preview')
 			return mode === 'source';
 		const view = leaf.view;
 		if (view instanceof MarkdownView)
 			return view.getMode() === 'source';
-		return (this.app.vault as any).getConfig('defaultViewMode') !== 'preview';
+		const vault = this.app.vault as Vault & { getConfig(key: string): unknown };
+		return vault.getConfig('defaultViewMode') !== 'preview';
 	}
 }

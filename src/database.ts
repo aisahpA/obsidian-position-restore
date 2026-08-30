@@ -99,7 +99,7 @@ export class CursorPositionDatabase {
 	) {
 		this.app = plugin.app;
 		this.plugin = plugin;
-		this.manifestDir = plugin.manifest!.dir!;
+		this.manifestDir = plugin.manifest.dir!;
 		this.settings = settings;
 	}
 
@@ -128,9 +128,9 @@ export class CursorPositionDatabase {
 			if (!(await this.app.vault.adapter.exists(parentFolder)))
 				await this.app.vault.adapter.mkdir(parentFolder);
 		} catch (e) {
-			console.error("Can't create db folder: " + e);
+			console.error("Can't create db folder:", e);
 			this.settings.dbFileName = '';
-			this.plugin.saveSettings();
+			void this.plugin.saveSettings();
 		}
 	}
 
@@ -177,7 +177,7 @@ export class CursorPositionDatabase {
 			if (await adapter.exists(currentPath))
 				await adapter.rename(currentPath, targetPath);
 		} catch (e) {
-			console.error("Can't switch database file: " + e);
+			console.error("Can't switch database file:", e);
 			new Notice(t('dbMoveFailed', String(e)));
 			return false;
 		}
@@ -274,7 +274,7 @@ export class CursorPositionDatabase {
 			this.db = db;
 			await this.cacheDiskMtime();
 		} catch (e) {
-			console.error("Can't read database: " + e);
+			console.error("Can't read database:", e);
 			this.db = {};
 		}
 	}
@@ -284,7 +284,10 @@ export class CursorPositionDatabase {
 	// object format (per-entry lastModified), which the caller may want to
 	// migrate to the compact format on its next write.
 	private parseDb(data: string): { db: CursorDatabase; legacy: boolean } {
-		const raw = JSON.parse(data);
+		const parsed: unknown = JSON.parse(data);
+		// A malformed file (not an object) degrades to an empty db.
+		const raw: Record<string, unknown> =
+			parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
 		const db: CursorDatabase = {};
 
 		// Decide once, before the loops, whether this file is in the new
@@ -293,8 +296,11 @@ export class CursorPositionDatabase {
 		const keys = Object.keys(raw);
 		if (keys.length > 0 && Array.isArray(raw[keys[0]])) {
 			// Compact on-disk format.
-			for (const key of keys)
-				db[key] = decodeValue(raw[key]);
+			for (const key of keys) {
+				const value = raw[key];
+				if (Array.isArray(value))
+					db[key] = decodeValue(value as number[]);
+			}
 			return { db, legacy: false };
 		}
 
@@ -314,7 +320,7 @@ export class CursorPositionDatabase {
 		try {
 			const st = await this.app.vault.adapter.stat(this.getDbPath());
 			this.lastDiskMtime = st ? st.mtime : 0;
-		} catch (e) {
+		} catch {
 			this.lastDiskMtime = 0;
 		}
 	}
@@ -342,7 +348,7 @@ export class CursorPositionDatabase {
 				if (!st)
 					return; // file missing — nothing to merge, keep what we have
 				mtime = st.mtime;
-			} catch (e) {
+			} catch {
 				return; // file unreadable — keep what we have
 			}
 			if (mtime === this.lastDiskMtime)
@@ -360,7 +366,7 @@ export class CursorPositionDatabase {
 				this.lastKey = null;
 				this.lastDiskMtime = mtime;
 			} catch (e) {
-				console.error("Can't merge external db changes: " + e);
+				console.error("Can't merge external db changes:", e);
 			}
 		} finally {
 			this.merging = false;
@@ -395,14 +401,14 @@ export class CursorPositionDatabase {
 		try {
 			// Fast path: the folder (almost always) already exists.
 			await this.app.vault.adapter.write(dbPath, data);
-		} catch (e) {
+		} catch {
 			// Slow path: folder likely missing — ensure it (or fall back to the
 			// default path) and retry once.
 			await this.ensureDbFolder();
 			try {
 				await this.app.vault.adapter.write(this.getDbPath(), data);
 			} catch (e2) {
-				console.error("Can't write database: " + e2);
+				console.error("Can't write database:", e2);
 				return;
 			}
 		}

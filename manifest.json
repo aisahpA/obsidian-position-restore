@@ -3,7 +3,7 @@
 	"name": "Position Restore",
 	"version": "1.0.0",
 	"minAppVersion": "1.13.0",
-	"description": "Restore each note's cursor and scroll position across sessions and devices, in both editing and reading view, with flicker-free native recovery in the editor",
+	"description": "Restore each note's cursor and scroll position across sessions and devices, in both editing and reading view, with flicker-free native recovery in the editor.",
 	"author": "aisahpA",
 	"authorUrl": "https://github.com/aisahpA",
 	"isDesktopOnly": false

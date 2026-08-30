@@ -13,6 +13,13 @@ interface FlashTarget {
 	cursor: boolean;
 }
 
+// Minimal shape of the CodeMirror 6 EditorView the editor wraps —
+// `editor.cm` is internal, absent from Obsidian's typings.
+interface Cm6EditorView {
+	state: { doc: { lines: number; line(n: number): { from: number } } };
+	domAtPos(pos: number): { node: Node; offset: number };
+}
+
 	// The post-restore orientation cue: a transient highlight on the landing line
 	// (the saved scroll is quantized to a line top, so "landing" = the top of the
 	// viewport) plus a section breadcrumb in a small chip centered in the note on
@@ -89,7 +96,7 @@ export class RestoreCue {
 		// Hide the base style immediately so the element can never pop back to
 		// full opacity if the removal timer or animation is interrupted; the
 		// fade animation holds its end state via fill:forwards.
-		chip.style.opacity = '0';
+		chip.setCssStyles({ opacity: '0' });
 		chip.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
 		window.setTimeout(() => chip.remove(), 220);
 	}
@@ -113,7 +120,7 @@ export class RestoreCue {
 			return { element: el ?? view.contentEl, line: scroll, cursor: false };
 		}
 
-		const cm = (view.editor as any)?.cm;
+		const cm = (view.editor as unknown as { cm?: Cm6EditorView }).cm;
 		if (!cm)
 			return null;
 		const cursor = view.editor?.getCursor();
@@ -134,12 +141,12 @@ export class RestoreCue {
 	// editor wraps. domAtPos returns the innermost node at the line start;
 	// walking up to '.cm-line' normalizes it. Only rendered lines exist in the
 	// DOM, so this also doubles as the "is the line on screen" check.
-	private sourceLineElement(cm: any, line: number): HTMLElement | null {
+	private sourceLineElement(cm: Cm6EditorView, line: number): HTMLElement | null {
 		try {
 			const doc = cm.state.doc;
 			const n = Math.min(Math.max(0, line), doc.lines - 1) + 1;
 			const dom = cm.domAtPos(doc.line(n).from);
-			const node = dom.node instanceof Element ? dom.node : dom.node.parentElement;
+			const node = dom.node.instanceOf(Element) ? dom.node : dom.node.parentElement;
 			return (node?.closest('.cm-line') as HTMLElement | null) ?? null;
 		} catch {
 			return null;
@@ -274,7 +281,7 @@ export class RestoreCue {
 
 		const content = view.contentEl;
 		if (getComputedStyle(content).position === 'static')
-			content.style.position = 'relative';
+			content.setCssStyles({ position: 'relative' });
 		const mobile = Platform.isMobileApp;
 
 		const chip = content.createDiv({ cls: 'rcp-cue' });
@@ -314,22 +321,21 @@ export class RestoreCue {
 		for (let i = 0; i < path.length; i++) {
 			if (i > 0) {
 				const sep = chip.createSpan({ text: ' / ' });
-				sep.style.opacity = '0.5';
-				sep.style.whiteSpace = 'nowrap';
+				sep.setCssStyles({ opacity: '0.5', whiteSpace: 'nowrap' });
 			}
 			const span = chip.createSpan({ text: path[i] });
-			span.style.whiteSpace = 'normal';
+			span.setCssStyles({ whiteSpace: 'normal' });
 			if (i === path.length - 1) {
-				span.style.fontWeight = '600';
+				span.setCssStyles({ fontWeight: '600' });
 			} else {
-				span.style.opacity = '0.75';
+				span.setCssStyles({ opacity: '0.75' });
 			}
 		}
 		chip.setAttribute('title', path.join(' / '));
 		this.chip = chip;
 
 		chip.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
-		chip.style.opacity = '1';
+		chip.setCssStyles({ opacity: '1' });
 	}
 
 	private removeChip() {

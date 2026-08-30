@@ -100,7 +100,7 @@ export class SettingTab extends PluginSettingTab {
 						type: 'page',
 						name: t('foldersName'),
 						desc: (() => {
-							const frag = document.createDocumentFragment();
+							const frag = createFragment();
 							frag.createDiv({ text: t('foldersDesc') });
 							const folders = this.plugin.settings.excludedFolders;
 							if (folders.length === 0) {
@@ -122,10 +122,9 @@ export class SettingTab extends PluginSettingTab {
 								items: this.plugin.settings.excludedFolders.map((folder) => ({
 									name: folder + '/',
 								})),
-								onDelete: async (index) => {
+								onDelete: (index) => {
 									const folders = this.plugin.settings.excludedFolders.filter((_, i) => i !== index);
-									await this.setControlValue('excludedFolders', folders);
-									this.update();
+									void this.setControlValue('excludedFolders', folders).then(() => this.update());
 								},
 								addItem: {
 									name: t('addFolder'),
@@ -135,7 +134,7 @@ export class SettingTab extends PluginSettingTab {
 											this.plugin.settings.excludedFolders,
 											(path) => {
 												const folders = [...this.plugin.settings.excludedFolders, path];
-												this.setControlValue('excludedFolders', folders)
+												void this.setControlValue('excludedFolders', folders)
 													.then(() => this.update());
 											}
 										).open();
@@ -177,7 +176,7 @@ export class SettingTab extends PluginSettingTab {
 							const confirm = async () => {
 								const value = text.getValue().trim();
 								if (await this.plugin.database.switchDbFile(value)) {
-									this.setControlValue('dbFileName', value);
+									void this.setControlValue('dbFileName', value);
 									new Notice(value === '' ? t('dbDefault') : t('dbSet', value));
 									this.update();
 								}
@@ -188,7 +187,7 @@ export class SettingTab extends PluginSettingTab {
 								t.setValue(this.plugin.settings.dbFileName || '');
 							}).addExtraButton((btn) => {
 								btn.setIcon('check').setTooltip(t('confirmTooltip'))
-									.onClick(() => { confirm(); });
+									.onClick(() => { void confirm(); });
 							});
 						},
 					},

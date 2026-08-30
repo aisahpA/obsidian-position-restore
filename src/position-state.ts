@@ -108,7 +108,6 @@ export class PositionState {
 	// leaf.id is part of Obsidian's runtime API but absent from its public
 	// typings, so the cast collapses the per-site @ts-ignore noise.
 	leafId(leaf: WorkspaceLeaf): string {
-		//@ts-ignore
-		return leaf.id;
+		return (leaf as unknown as { id: string }).id;
 	}
 }

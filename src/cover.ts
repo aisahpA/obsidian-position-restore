@@ -6,6 +6,12 @@ import { MarkdownView, WorkspaceLeaf } from 'obsidian';
 // top).
 const COVER_SAFETY_MS = 1200;
 
+// WorkspaceLeaf.containerEl is internal — absent from Obsidian's public
+// typings.
+function leafContainer(leaf: WorkspaceLeaf): HTMLElement {
+	return (leaf as unknown as { containerEl: HTMLElement }).containerEl;
+}
+
 // Hides an open before its first paint. 'file-open' fires through a
 // debounced (setTimeout 0) callback — after the view has already painted at
 // the top — so the restore cover alone can't hide that first frame. The
@@ -43,7 +49,7 @@ export class OpenCover {
 		// built .view-content is hidden before its first frame can show the
 		// un-restored top. Stops once the restore reveals (or the safety timer
 		// lifted) the cover — both go through uncover().
-		requestAnimationFrame(() => this.reapplyCover(leaf));
+		window.requestAnimationFrame(() => this.reapplyCover(leaf));
 	}
 
 	uncover(leaf: WorkspaceLeaf): void {
@@ -52,14 +58,11 @@ export class OpenCover {
 			return; // not covered: no timer to clear, no DOM to restore
 		window.clearTimeout(pending);
 		this.pendingTimers.delete(leaf);
-		// @ts-ignore no-official-API
-		const vc = leaf.containerEl.querySelector('.view-content');
+		const vc = leafContainer(leaf).querySelector('.view-content');
 		if (vc instanceof HTMLElement)
-			vc.style.opacity = '';
-		// @ts-ignore no-official-API
-		leaf.containerEl.style.opacity = '';
-		// @ts-ignore no-official-API
-		leaf.containerEl.style.backgroundColor = '';
+			vc.setCssStyles({ opacity: '' });
+		leafContainer(leaf).setCssStyles({ opacity: '' });
+		leafContainer(leaf).setCssStyles({ backgroundColor: '' });
 	}
 
 	// maskedRestore hides a restore under construction by setting the view's
@@ -69,7 +72,7 @@ export class OpenCover {
 	// methods below are the restore cover. Both are keyed per leaf and revealed
 	// through their own cleanup paths.
 	restoreCover(view: MarkdownView): void {
-		view.contentEl.style.opacity = '0';
+		view.contentEl.setCssStyles({ opacity: '0' });
 	}
 
 	// Lift a restore cover. A superseded maskedRestore leaves contentEl hidden
@@ -81,7 +84,7 @@ export class OpenCover {
 	// core's already-applied state, so revealing here can never flash the
 	// un-restored top.
 	revealRestoreCover(view: MarkdownView): void {
-		view.contentEl.style.opacity = '';
+		view.contentEl.setCssStyles({ opacity: '' });
 	}
 
 	// Hides the open without exposing the theme's page background. Making
@@ -96,16 +99,13 @@ export class OpenCover {
 	//          false when only the container background was painted (vc not
 	//          built yet).
 	private coverLeaf(leaf: WorkspaceLeaf): boolean {
-		// @ts-ignore no-official-API
-		const vc = leaf.containerEl.querySelector('.view-content');
+		const vc = leafContainer(leaf).querySelector('.view-content');
 		if (vc instanceof HTMLElement) {
-			vc.style.opacity = '0';
-			// @ts-ignore no-official-API
-			leaf.containerEl.style.backgroundColor = '';
+			vc.setCssStyles({ opacity: '0' });
+			leafContainer(leaf).setCssStyles({ backgroundColor: '' });
 			return true;
 		}
-		// @ts-ignore no-official-API
-		leaf.containerEl.style.backgroundColor = 'var(--background-primary)';
+		leafContainer(leaf).setCssStyles({ backgroundColor: 'var(--background-primary)' });
 		return false;
 	}
 
@@ -122,6 +122,6 @@ export class OpenCover {
 		// burning a DOM query per frame until the reveal.
 		if (this.coverLeaf(leaf))
 			return;
-		requestAnimationFrame(() => this.reapplyCover(leaf));
+		window.requestAnimationFrame(() => this.reapplyCover(leaf));
 	}
 }

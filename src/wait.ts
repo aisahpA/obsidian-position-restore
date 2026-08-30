@@ -20,7 +20,7 @@ export const CONTENT_READY_MAX_MS = 2000;
 export const RESTORE_PAINT_DEADLINE = 600;
 
 export function delay(ms: number): Promise<void> {
-	return new Promise(resolve => setTimeout(resolve, ms));
+	return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
 // Resolves on the next animation frame — the earliest moment a pending
@@ -29,17 +29,17 @@ export function delay(ms: number): Promise<void> {
 export function nextPaint(): Promise<void> {
 	return new Promise(resolve => {
 		let done = false;
-		const timeout = setTimeout(() => {
+		const timeout = window.setTimeout(() => {
 			if (done) return;
 			done = true;
 			resolve();
 		}, 100);
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			if (done) return;
 			done = true;
 			// The rAF won the race: drop the dangling timeout so restore
 			// loops that call this every frame don't pile up dead timers.
-			clearTimeout(timeout);
+			window.clearTimeout(timeout);
 			resolve();
 		});
 	});
@@ -186,12 +186,12 @@ export async function animateScrollTop(
 			const eased = (1 - Math.cos(Math.PI * t)) / 2;
 			el.scrollTop = from + dist * eased;
 			if (t < 1)
-				requestAnimationFrame(step);
+				window.requestAnimationFrame(step);
 			else
 				resolve();
 		};
-		requestAnimationFrame(step);
-		setTimeout(resolve, duration + 100);
+		window.requestAnimationFrame(step);
+		window.setTimeout(resolve, duration + 100);
 	});
 }
 

@@ -31,12 +31,12 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	//    layout shift slightly below the saved value re-introduces one-way
 	//    downward drift. Only a symmetric dead zone absorbs noise in both
 	//    directions. (Obsidian's own outline sync also uses Math.round here.)
-	let state: EphemeralState = { scroll: Math.round(scroll) };
+	const state: EphemeralState = { scroll: Math.round(scroll) };
 
-	let editor = view.editor;
+	const editor = view.editor;
 	if (editor) {
-		let from = editor.getCursor("anchor");
-		let to = editor.getCursor("head");
+		const from = editor.getCursor("anchor");
+		const to = editor.getCursor("head");
 		// A collapsed cursor at (0,0) is where the editor opens anyway — omit it
 		// so such records stay minimal ([0] tombstones / scroll-only records).
 		if (from && to && (from.line !== 0 || from.ch !== 0 || to.line !== 0 || to.ch !== 0)) {
@@ -82,10 +82,10 @@ export function isEphemeralStatesEquals(state1: EphemeralState, state2: Ephemera
 }
 
 export function setCursorToEnd(view: MarkdownView) {
-	let editor = view.editor;
+	const editor = view.editor;
 	if (editor) {
-		let lastLine = editor.lastLine();
-		let lastLineLength = editor.getLine(lastLine).length;
+		const lastLine = editor.lastLine();
+		const lastLineLength = editor.getLine(lastLine).length;
 		editor.setCursor({ line: lastLine, ch: lastLineLength });
 		editor.scrollIntoView({ from: { line: lastLine, ch: 0 }, to: { line: lastLine, ch: lastLineLength } }, true);
 	}

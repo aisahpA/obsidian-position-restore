@@ -30,16 +30,11 @@ Tired of manually hunting for where you left off every time you reopen a note? *
 
 ## Installation
 
-This plugin is not yet available in the official Obsidian community plugin store. Two ways to install:
+### From Obsidian Community Plugins (recommended)
 
-### Via BRAT (recommended)
-
-1. Install and enable the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin first
-2. Open the command palette (`Ctrl/Cmd + P`) and run **BRAT: Add a beta plugin for testing**
-3. Enter the repository address `aisahpA/obsidian-position-restore` and confirm
-4. Enable **Position Restore** in **Settings** → **Community plugins**
-
-> BRAT will automatically check for updates afterwards — no manual re-downloading needed.
+1. Open **Settings** → **Community plugins** and turn off Restricted mode (safe mode)
+2. Click **Browse** and search for **Position Restore**
+3. Click **Install** and enable the plugin
 
 ### Manual installation
 

@@ -34,7 +34,8 @@ export default class RememberCursorPosition extends Plugin {
 	//----------------------------------------------------------------------------------------
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loaded = (await this.loadData()) as Partial<PluginSettings>;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 	}
 
 	async saveSettings() {
@@ -79,7 +80,7 @@ export default class RememberCursorPosition extends Plugin {
 	 */
 	private registerDbFlush() {
 		this.registerInterval(
-			window.setInterval(() => this.database.writeDb(), SAFE_DB_FLUSH_INTERVAL)
+			window.setInterval(() => { void this.database.writeDb(); }, SAFE_DB_FLUSH_INTERVAL)
 		);
 	}
 
@@ -115,7 +116,7 @@ export default class RememberCursorPosition extends Plugin {
 			// saved, keeping the pre-search anchor intact across suspension.
 			if (!this.manager.isSearchAnchored())
 				this.manager.checkEphemeralStateChanged();
-			this.database.writeDb();
+			void this.database.writeDb();
 		};
 		this.registerDomEvent(document, 'visibilitychange', () => {
 			if (document.hidden)

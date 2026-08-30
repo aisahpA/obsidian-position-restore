@@ -476,7 +476,7 @@ export class Restorer {
 			return;
 		}
 		const prevBehavior = liveScroller.style.scrollBehavior;
-		liveScroller.style.scrollBehavior = 'auto'; // no theme can turn frames into anims
+		liveScroller.setCssStyles({ scrollBehavior: 'auto' }); // no theme can turn frames into anims
 		try {
 			// Fixed short transition: ramps to ~1200px/s and caps at 600ms,
 			// so a deep note can't take long — an orientation cue and soft
