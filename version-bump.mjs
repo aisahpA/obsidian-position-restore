@@ -21,6 +21,12 @@ const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 pkg.version = next;
 writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
 
+// package-lock.json: update root package version (2-space indented)
+const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+lock.version = next;
+lock.packages[""].version = next;
+writeFileSync("package-lock.json", JSON.stringify(lock, null, 2) + "\n");
+
 // versions.json: map plugin version -> minAppVersion (tab indented)
 const versions = JSON.parse(readFileSync("versions.json", "utf8"));
 versions[next] = manifest.minAppVersion;
