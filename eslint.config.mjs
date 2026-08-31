@@ -7,11 +7,13 @@ import obsidianmd from 'eslint-plugin-obsidianmd';
 // `recommended` already bundles eslint core + typescript-eslint type-checked
 // rules + Obsidian-specific rules — don't add those presets separately.
 export default defineConfig([
-	{ ignores: ['main.js', 'node_modules/'] },
+	// The vitest suite lives outside the build tsconfig (excluded there), so
+	// the type-checked rules can't resolve it; lint covers shipped sources.
+	{ ignores: ['main.js', 'node_modules/', 'tests/', 'vitest.config.mts'] },
 	...obsidianmd.configs.recommended,
 	{
 		// Node-only build scripts: Obsidian runtime rules don't apply.
-		files: ['rollup.config.js', 'version-bump.mjs'],
+		files: ['rollup.config.mjs', 'version-bump.mjs'],
 		languageOptions: {
 			globals: { ...globals.node },
 		},
@@ -27,7 +29,7 @@ export default defineConfig([
 				projectService: {
 					allowDefaultProject: [
 						'eslint.config.*',
-						'rollup.config.js',
+						'rollup.config.mjs',
 						'version-bump.mjs',
 					],
 				},

@@ -2,7 +2,7 @@
 
 English | [简体中文](README-zh.md)
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Obsidian](https://img.shields.io/badge/Obsidian-%3E%3D1.13.0-8A6BE8)
+![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FaisahpA%2Fobsidian-position-restore%2Fmain%2Fmanifest.json&query=%24.version&label=version&color=blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Obsidian](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FaisahpA%2Fobsidian-position-restore%2Fmain%2Fmanifest.json&query=%24.minAppVersion&label=Obsidian&color=8A6BE8&prefix=%3E%3D)
 
 Tired of manually hunting for where you left off every time you reopen a note? **Position Restore** remembers the cursor and scroll position for each note and drops you right back — the saved position is handed to Obsidian's native restore as part of the file open: flicker-free in source mode, no top flash in reading mode.
 

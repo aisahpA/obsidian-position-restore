@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Obsidian](https://img.shields.io/badge/Obsidian-%3E%3D1.13.0-8A6BE8)
+![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FaisahpA%2Fobsidian-position-restore%2Fmain%2Fmanifest.json&query=%24.version&label=version&color=blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Obsidian](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FaisahpA%2Fobsidian-position-restore%2Fmain%2Fmanifest.json&query=%24.minAppVersion&label=Obsidian&color=8A6BE8&prefix=%3E%3D)
 
 每次切回一篇笔记，还要手动翻找上次看到的地方？**Position Restore** 为每篇笔记记住光标与滚动位置，重新打开即落在原处——保存的位置随文件打开流程交给 Obsidian 原生应用，源码模式零闪烁，阅读模式无顶部闪跳。
 

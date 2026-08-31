@@ -16,5 +16,6 @@
     "inlineSources": false,
     "lib": ["dom", "es2019"]
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts"],
+  "exclude": ["tests"]
 }
