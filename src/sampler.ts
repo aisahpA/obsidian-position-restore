@@ -14,7 +14,11 @@ import { PositionState } from './position-state';
 //    no capture listener because WKWebView coalesces/drops scroll events.
 //  - onScrollCapture: a capture-phase scroll listener on the workspace root
 //    (desktop only), which catches every pane (active and background) that
-//    the poll misses.
+//    the poll misses. It refuses two kinds of noise: scrolls originating
+//    inside embedded renderers (dataview blocks, ![[embed]] — recording
+//    those would write the HOST editor's state over movement the embedded
+//    content made), and scroll deltas with no recent user input
+//    (programmatic re-renders / plugin-driven scrolls).
 // Owns the per-leaf capture baseline and the exclusion-path memoization; the
 // plugin polls it via PositionManager, which stays the single entry point.
 export class Sampler {
@@ -46,6 +50,23 @@ export class Sampler {
 	private readonly SEARCH_ANCHOR_GRACE_MS = 250;
 
 	private searchGraceTimer = 0;
+
+	// Desktop scroll-capture intent window: a scroll delta whose last user
+	// input (wheel/pointerdown/keydown) is older than this is programmatic
+	// movement — dynamic re-render layout shifts (dataview dashboards), lazy
+	// embed loads, plugin-driven scrolls — and must never overwrite the saved
+	// record. Generous enough to cover trackpad momentum tails; a genuine
+	// user scroll always carries one of the tracked input events.
+	private readonly SCROLL_INTENT_WINDOW_MS = 2000;
+
+	// Scroll targets inside these boundaries belong to embedded renderers —
+	// ![[note]]/image embeds (the .internal-embed family), interactive code
+	// widgets (.cm-embed-block), dataview-style rendered blocks
+	// (.block-language-*) — not to the view's own scroller. Recording such a
+	// scroll would write the HOST editor's cursor/scroll (readEphemeralState
+	// only sees the view) over movement the embedded content made: the
+	// misattributed record that breaks dynamically-rendered dashboards.
+	private readonly EMBED_BOUNDARY_SELECTOR = '.internal-embed, .cm-embed-block, [class*="block-language"]';
 
 	// Mobile reflow guard: scroll-only deltas within this window after the
 	// last recording anchor that no user touch accounts for are treated as
@@ -169,10 +190,27 @@ export class Sampler {
 		// the saved record. Skip while a search session is live.
 		if (this.state.isSearchAnchored()) return;
 
+		// Desktop user-intent guard: a scroll with no recent user input is
+		// programmatic movement (re-render layout shift, plugin-driven
+		// scroll), not a user choice — absorb it. Symmetric with the mobile
+		// poll's isTrustedMobileScroll.
+		if (Date.now() - this.state.lastUserInputAt > this.SCROLL_INTENT_WINDOW_MS)
+			return;
+
 		// Resolve the scroll target to its owning leaf/view first...
 		const leaf = this.findOwnerLeaf(target);
 		const view = leaf?.view;
 		if (!leaf || !(view instanceof FileView) || !view.file)
+			return;
+
+		// ...then refuse scrolls owned by embedded renderers: the target sits
+		// inside an embed boundary within the view, so the movement belongs to
+		// the embedded content (dataview dashboard, ![[embed]]), not the host
+		// scroller. Recording it would write the host state — wrong by
+		// construction. The host state didn't change, so the baseline needs
+		// no adjustment either.
+		const embedBoundary = target.closest(this.EMBED_BOUNDARY_SELECTOR);
+		if (embedBoundary && view.containerEl.contains(embedBoundary))
 			return;
 
 		// ...then record. Common exclusion gate first: excluded paths (and,
@@ -278,6 +316,28 @@ export class Sampler {
 		registerCleanup(() =>
 			container.removeEventListener('scroll', onScroll, { capture: true })
 		);
+	}
+
+	// Desktop only. Stamps user input (wheel / pointerdown / keydown) so the
+	// scroll-capture listener can separate user-driven scrolls from programmatic
+	// movement — the desktop counterpart of the mobile touch listener feeding
+	// isTrustedMobileScroll. Capture phase + passive: pure timestamping, never
+	// interferes with the scrolling itself. All user-scroll entry points are
+	// covered (trackpad/mouse = wheel, scrollbar drag / touch = pointerdown,
+	// keyboard = keydown); keydown also covers typing, which is safe — editor
+	// auto-scrolls during typing arrive alongside cursor movement the poll
+	// records anyway.
+	installUserIntentTracker(registerCleanup: (fn: () => void) => void) {
+		const container = this.app.workspace.containerEl;
+		const markUserInput = () => { this.state.lastUserInputAt = Date.now(); };
+		container.addEventListener('wheel', markUserInput, { capture: true, passive: true });
+		container.addEventListener('pointerdown', markUserInput, { capture: true, passive: true });
+		document.addEventListener('keydown', markUserInput, { capture: true });
+		registerCleanup(() => {
+			container.removeEventListener('wheel', markUserInput, { capture: true });
+			container.removeEventListener('pointerdown', markUserInput, { capture: true });
+			document.removeEventListener('keydown', markUserInput, { capture: true });
+		});
 	}
 
 	// Whether a scroll-only delta observed by the mobile poll can be trusted as

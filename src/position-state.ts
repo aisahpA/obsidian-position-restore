@@ -58,6 +58,13 @@ export class PositionState {
 	// a user scroll). Lives here because both collaborators share this
 	// coordination state.
 	lastTouchAt = 0;
+
+	// Timestamp of the last user input on the workspace (desktop: wheel /
+	// pointerdown / keydown, written by the sampler's input tracker). Lets
+	// the desktop scroll capture separate user-driven scrolls from
+	// programmatic movement (dynamic re-render layout shifts, plugin-driven
+	// scrolls), mirroring the mobile touch-based guard.
+	lastUserInputAt = 0;
 	handledLeafIdMap: Map<string, string> = new Map(); // leaf.id -> filePath already restored
 
 	// ===== Open-kind tracking (transient flags passed between patches) =====

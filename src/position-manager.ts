@@ -43,6 +43,10 @@ export class PositionManager {
 		this.sampler.installSearchAnchor(registerCleanup);
 		if (Platform.isDesktopApp) {
 			this.sampler.installScrollCapture(registerCleanup);
+			// Desktop counterpart of the mobile touch listener: stamp user
+			// input so scroll capture can tell real scrolls from programmatic
+			// movement (see Sampler.installUserIntentTracker).
+			this.sampler.installUserIntentTracker(registerCleanup);
 		} else {
 			// Mobile: no scroll capture (WKWebView drops the events), but the
 			// poll needs a reliable "user touched the view" signal to tell
