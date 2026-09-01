@@ -258,25 +258,28 @@ export class OpenPatcher {
 		return merged;
 	}
 
-	// Cover opens whose first frame could otherwise paint the un-restored top.
-	// Only brand-new SOURCE-mode views with a scroll injection need it: their
-	// editor is constructed later, measures its document, then the injected
-	// scroll lands — the first frame would show the default top. A cursor-only
-	// injection never moves the viewport (the note opens at its top and stays
-	// there), so the first frame is already the final state and covering it
-	// would only add a blank period. Reading opens are never covered — the
-	// note renders visibly from the top and glideRestore scrolls to the saved
-	// line, so masking would only add a blank period. Existing source-mode
-	// markdown views need no cover — setViewState applies scroll/cursor
-	// atomically. The injected branch of restoreEphemeralState waits for the
-	// position to paint, then lifts the cover; the safety timer bounds it for
-	// background opens.
+	// Cover opens whose first frames could otherwise paint the un-restored
+	// top or the settle's corrections. EVERY source-mode open with a scroll
+	// injection is covered — brand-new leaves AND same-leaf switches alike:
+	//  - a brand-new leaf's editor is constructed later, measures its
+	//    document, then the injected scroll lands — the first frame would
+	//    show the default top;
+	//  - a same-leaf switch rides core's staged open pipeline (its own
+	//    position, then the injected one) and its post-swap re-measure can
+	//    shift pixels after the atomic apply — the settle corrections that
+	//    fix this must run hidden, or each reads as a visible jump.
+	// A cursor-only injection never moves the viewport (the note opens at
+	// its top and stays there), so the first frame is already the final
+	// state and covering it would only add a blank period. Reading opens
+	// are never covered — the note renders visibly from the top and
+	// glideRestore scrolls to the saved line, so masking would only add a
+	// blank period. The injected branch of restoreEphemeralState waits for
+	// the position to settle, then lifts the cover; the safety timer bounds
+	// it for background opens.
 	private maybeCoverOpen(leaf: WorkspaceLeaf, hasScroll: boolean) {
 		if (!hasScroll)
 			return;
-		const newLeaf = !(leaf.view instanceof MarkdownView);
-		if (newLeaf)
-			this.state.cover.cover(leaf);
+		this.state.cover.cover(leaf);
 	}
 
 	// The explicit mode is usually absent from the open's view state — it's

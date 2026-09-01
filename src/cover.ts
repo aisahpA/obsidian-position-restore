@@ -1,10 +1,12 @@
 import { MarkdownView, WorkspaceLeaf } from 'obsidian';
 
 // Worst-case bound for the first-paint cover; only fires if a restore never
-// runs or completes. Larger than the sum of the two waits above so a slow
-// restore is never cut off mid-paint (which would flash the un-restored
-// top).
-const COVER_SAFETY_MS = 1200;
+// runs or completes. Must outlive the whole covered phase — content-ready /
+// painted wait + settle + the pre-reveal quiet hold (SETTLE_HOLD_MAX_MS
+// 1250ms from restore entry) — with margin, so a slow restore is never cut
+// off mid-paint or mid-hold (which would flash the un-restored top or a
+// mid-correction frame).
+const COVER_SAFETY_MS = 2000;
 
 // WorkspaceLeaf.containerEl is internal — absent from Obsidian's public
 // typings.
@@ -44,11 +46,13 @@ export class OpenCover {
 		}, COVER_SAFETY_MS));
 
 		// A brand-new leaf creates its .view-content only inside the incoming
-		// view's constructor, which runs after this patch returns. Keep
-		// re-applying the cover on every frame (ahead of paint) so the freshly
-		// built .view-content is hidden before its first frame can show the
-		// un-restored top. Stops once the restore reveals (or the safety timer
-		// lifted) the cover — both go through uncover().
+		// view's constructor, which runs after this patch returns; a
+		// same-leaf switch can REPLACE the covered .view-content node with
+		// the incoming view's own. Keep re-applying the cover on every frame
+		// (ahead of paint) until the reveal, so any freshly built/replaced
+		// .view-content is hidden before its first frame can show the
+		// un-restored top. Stops once the restore reveals (or the safety
+		// timer lifted) the cover — both go through uncover().
 		window.requestAnimationFrame(() => this.reapplyCover(leaf));
 	}
 
@@ -110,18 +114,15 @@ export class OpenCover {
 	}
 
 	// Re-applies the pre-paint cover on every frame while an open is still
-	// covered. Catches the freshly built .view-content of a first open so no
-	// frame of the un-restored top is ever shown. Stops as soon as the cover
-	// is lifted (the restore reveal or the safety timer), both of which go
-	// through uncover().
+	// covered. Catches the freshly built .view-content of a first open and
+	// the REPLACED .view-content of a same-leaf view swap — a replaced node
+	// is born unhidden, so "hidden once" is not "hidden until the reveal".
+	// uncover() is the only exit: the restore reveal or the safety timer,
+	// both of which go through it.
 	private reapplyCover(leaf: WorkspaceLeaf): void {
 		if (!this.pendingTimers.has(leaf))
 			return;
-		// .view-content now exists and is hidden: only uncover() can clear it,
-		// so per-frame re-application is redundant — stop the loop instead of
-		// burning a DOM query per frame until the reveal.
-		if (this.coverLeaf(leaf))
-			return;
+		this.coverLeaf(leaf);
 		window.requestAnimationFrame(() => this.reapplyCover(leaf));
 	}
 }

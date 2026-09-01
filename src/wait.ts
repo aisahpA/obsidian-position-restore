@@ -194,34 +194,3 @@ export async function animateScrollTop(
 		window.setTimeout(resolve, duration + 100);
 	});
 }
-
-// Resolves once an injected open's position is confirmed painted, then the
-// caller lifts the cover. Core applied the state in setViewState, so we
-// only observe — never re-apply, which would fight core's own open
-// pipeline. A new source editor measures its document before its scroll can
-// land, so wait until the readback reports the position (short bound
-// covers the measure frame; a failure to land just reveals at the default
-// position instead of blanking the note). An 'end' default-position open
-// (no record) has nothing to wait on beyond a paint: scroll-to-end is one
-// synchronous editor op, and a note too short to scroll is already fully
-// visible.
-export async function waitForInjectedRestorePainted(view: MarkdownView, st: EphemeralState | undefined, isCurrent: () => boolean) {
-	if (!st) {
-		await nextPaint();
-		await nextPaint();
-		return;
-	}
-	const deadline = Date.now() + 200;
-	let stableFrames = 0;
-	while (Date.now() < deadline && isCurrent()) {
-		await nextPaint();
-		if (!isCurrent())
-			return;
-		if (isRestoreStuck(view, st)) {
-			if (++stableFrames >= 2)
-				return;
-		} else {
-			stableFrames = 0;
-		}
-	}
-}
