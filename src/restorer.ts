@@ -683,8 +683,15 @@ export class Restorer {
 	// tab activation.
 	private pruneStaleLeafIds(): void {
 		const liveIds = new Set<string>();
-		this.app.workspace.iterateAllLeaves((leaf) =>
-			liveIds.add(this.state.leafId(leaf)));
+		// Block body on purpose: this callback MUST return undefined.
+		// Obsidian's iterate helpers treat the callback result as an
+		// early-interrupt signal (documented on iterateRefs), so an
+		// expression body returning the Set aborts the scan after a few
+		// leaves — liveIds under-collects and live entries get wrongly
+		// pruned (debugged 2026-09: 3 of 16 leaves visited).
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			liveIds.add(this.state.leafId(leaf));
+		});
 		for (const id of this.state.handledLeafIdMap.keys())
 			if (!liveIds.has(id))
 				this.state.handledLeafIdMap.delete(id);

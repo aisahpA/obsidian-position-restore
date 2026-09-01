@@ -130,7 +130,24 @@ export class OpenPatcher {
 		if (typeof filePath !== 'string' || !filePath)
 			return eState;
 
+		// Switch to an already-existing tab: this leaf+file combo is still in
+		// handledLeafIdMap, so this setViewState is Obsidian re-applying the
+		// tab's OWN cached view state (position included) — flicker-free on
+		// its own. Stay out entirely: no injection, no cover, and — crucially
+		// BEFORE resetLeafOpenState — no dropping of the handled marker, so
+		// the file-open handler dedups this switch into a tracking-only
+		// update (skipRestoreAndAnchor) and Obsidian completes the switch
+		// itself. (leaf.view can't detect this: at patch time the tab's view
+		// is not installed yet, so a view-based check never matches.)
+		if (this.state.handledLeafIdMap.get(this.state.leafId(leaf)) === filePath)
+			return eState;
+
+		// Any other setViewState replaces this leaf's content (a different
+		// file, or no file at all — the 'empty' state after closing the last
+		// tab): prior open bookkeeping is stale, drop it so a later reopen of
+		// the same file restores again.
 		this.resetLeafOpenState(leaf);
+		
 		if (this.takeOverridingOpenKind(leaf, eState))
 			return eState;
 
@@ -163,11 +180,14 @@ export class OpenPatcher {
 		return { ...merged, ...eState };
 	}
 
-	// Every open supersedes this leaf's prior open bookkeeping — markdown and
-	// other FileViews alike —: setViewState runs once per open — never on
-	// mere tab activation (that fires only 'file-open') — so dropping the
-	// handled entry here lets a close-and-reopen of the same file restore
-	// again instead of being wrongly deduped, and dropping a stale
+	// Every content change on this leaf supersedes its prior open bookkeeping
+	// — markdown and other FileViews alike. setViewState ALSO fires when
+	// Obsidian re-asserts an already-open tab's cached state (tab switch);
+	// injectEphemeralStateOnOpen returns before this for that same-file case,
+	// keeping the handled marker so the switch dedups to a tracking-only
+	// update in restoreEphemeralState. Here (different file, or no file):
+	// dropping the handled entry lets a close-and-reopen of the same file
+	// restore again instead of being wrongly deduped, and dropping a stale
 	// pendingOpenKind marker from an open that never fired 'file-open' can't
 	// misdirect this open's restore. Per-leaf only — other leaves' markers
 	// stay until their tab is activated.
