@@ -12,12 +12,16 @@ export type OpenKind = 'anchorLink' | 'startPlainLink' | 'callerTarget';
 // all live here and the collaborators (Restorer / OpenPatcher) take this
 // instance.
 export class PositionState {
-	// Files whose saved position was injected into the open's ephemeral state
+	// Leaves whose saved position was injected into the open's ephemeral state
 	// (setViewState patch) and therefore must not be restored a second time by
-	// the file-open handler. Consumed when the matching file-open arrives; a
-	// background open (active:false) produces no file-open, so its entry stays
-	// until that tab is activated — which is exactly when it is needed.
-	injectedOpenPaths = new Set<string>();
+	// the file-open handler. Keyed by LEAF ID, not file path: with the same
+	// file open in two tabs each tab injects its own (per-tab) position and
+	// needs its own settle/reveal on first activation — a shared path key let
+	// the first tab's file-open consume the marker and dedup the second's.
+	// Consumed when the matching file-open arrives; a background open
+	// (active:false) produces no file-open, so its entry stays until that tab
+	// is activated — which is exactly when it is needed.
+	injectedOpenLeafIds = new Set<string>();
 
 	// ===== Restore run tracking =====
 	restoreRun = 0;     // bumped per restore; stale restores detect supersession

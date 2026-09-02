@@ -199,8 +199,10 @@ export class OpenPatcher {
 		this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
 		// Let the file-open handler know the restore was applied here, so it
 		// re-anchors bookkeeping without re-applying (bookkeeping ownership
-		// stays in restoreEphemeralState).
-		this.state.injectedOpenPaths.add(filePath);
+		// stays in restoreEphemeralState). Keyed by leaf id: with the same
+		// file open in two tabs, each tab's file-open must consume its own
+		// marker and run its own settle/reveal.
+		this.state.injectedOpenLeafIds.add(leafId);
 		// The injected open's file-open runs restoreInjectedSource (settle +
 		// cover reveal) via the injected marker; recording the pair NOW keeps
 		// later activations deduped even when this open is a background one

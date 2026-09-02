@@ -81,7 +81,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toMatchObject({ scroll: 10 });
 		expect(state.cover.isCovered(leaf)).toBe(true);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(true);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
 	});
@@ -94,7 +94,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toBe(eState);
 		expect(state.cover.isCovered(leaf)).toBe(false);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(false);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
 	});
@@ -120,7 +120,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toMatchObject({ scroll: 10 });
 		expect(state.cover.isCovered(leaf)).toBe(true);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(true);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		// The replay keeps the handled marker and sets no open kind: the
 		// follow-up file-open must reach the injected body, not the openKind
 		// early return.
@@ -147,7 +147,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toBeUndefined();
 		expect(state.cover.isCovered(leaf)).toBe(false);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(false);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 	});
 

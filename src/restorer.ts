@@ -130,8 +130,11 @@ export class Restorer {
 
 		// Consumed before the reveal gating and the dedup check so a dedup
 		// hit (mere tab activation) still clears the marker and a later
-		// re-open of the same file restores again.
-		const injected = isMarkdown && this.state.injectedOpenPaths.delete(filePath);
+		// re-open of the same file restores again. Keyed by leaf id — with
+		// the same file in two tabs each tab's marker is consumed by its own
+		// file-open (see injectedOpenLeafPaths).
+		const injected = isMarkdown
+			&& this.state.injectedOpenLeafIds.delete(this.state.leafId(view.leaf));
 
 		// Lift any stale restore cover left by a superseded restore; the
 		// dispatch body re-covers as needed. Bases restores never cover. An
@@ -319,6 +322,11 @@ export class Restorer {
 		for (const id of this.state.handledLeafIdMap.keys())
 			if (!liveIds.has(id))
 				this.state.handledLeafIdMap.delete(id);
+		// Also drop injected markers of closed leaves (the background open
+		// whose file-open never fired) so the set can't grow without bound.
+		for (const id of this.state.injectedOpenLeafIds)
+			if (!liveIds.has(id))
+				this.state.injectedOpenLeafIds.delete(id);
 		// Also drop pending open-kind markers of closed leaves so the map
 		// can't retain WorkspaceLeaf references forever.
 		for (const leaf of this.state.pendingOpenKind.keys())
