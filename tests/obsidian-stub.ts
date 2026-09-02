@@ -5,6 +5,9 @@
 export class FileView {}
 export class MarkdownView extends FileView {}
 
+// database.ts fires notices on failure paths (switchDbFile validation etc.).
+export class Notice {}
+
 export const Platform = { isDesktopApp: true, isMobileApp: false };
 
 // The sampler wraps its capture listener with debounce(fn, interval, reset);

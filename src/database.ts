@@ -137,13 +137,17 @@ export class CursorPositionDatabase {
 	// Switch the database file to newPath; an empty newPath resets to the
 	// default location (manifest folder), keeping settings.dbFileName as ''.
 	// newPath may also be a bare file name, which places the db at the vault
-	// root (adapter paths are vault-relative). Validation first: format check,
-	// the parent folder must already exist (no auto-creation), and the target
-	// file must not exist (never overwrites) — each failure is surfaced to the
-	// user via a Notice here.
-	// On success the current db file is moved to the new location and
-	// settings.dbFileName is updated; the caller should persist settings
-	// afterwards.
+	// root (adapter paths are vault-relative). Validation first: format check
+	// and the parent folder must already exist (no auto-creation) — each
+	// failure is surfaced to the user via a Notice here.
+	// If the target file already exists it is usually a db file synced from
+	// another device, so instead of refusing, it is parsed and adopted: its
+	// records are merged into the in-memory db with the same conflict rule as
+	// mergeExternalChanges() (disk wins, except keys touched locally after
+	// our last flush), and the old file is removed — the same end state as a
+	// move. Only an unreadable target still blocks the switch.
+	// On success settings.dbFileName is updated; the caller should persist
+	// settings afterwards.
 	// @returns true on success (including "already using newPath").
 	async switchDbFile(newPath: string): Promise<boolean> {
 		const targetPath = newPath === '' ? this.defaultDbFileName : newPath;
@@ -158,6 +162,30 @@ export class CursorPositionDatabase {
 		if (targetPath === currentPath)
 			return true;
 
+		// Parses an already-existing target file and merges it into the
+		// in-memory db; removes the old db file once its records are merged
+		// (move semantics). @returns the number of records adopted from disk,
+		// or null when the target is unreadable — then the caller refuses.
+		const adoptExisting = async (): Promise<number | null> => {
+			try {
+				const diskDb = this.parseDb(await adapter.read(targetPath));
+				// The old file must go, or its stale copy would linger next to
+				// the adopted one; do it before mutating in-memory state so a
+				// failure here aborts the whole switch cleanly.
+				if (await adapter.exists(currentPath))
+					await adapter.remove(currentPath);
+
+				const adopted = this.mergeDiskDb(diskDb);
+				// The merged records must reach the new file; flush happens on
+				// the next natural write (the settings save that follows).
+				this.dbDirty = true;
+				return adopted;
+			} catch (e) {
+				console.error("Can't adopt existing database file:", e);
+				return null;
+			}
+		};
+
 		try {
 			// No slash → vault root: the adapter writes directly there, so
 			// there is no parent folder to check.
@@ -168,14 +196,17 @@ export class CursorPositionDatabase {
 				return false;
 			}
 			if (await adapter.exists(targetPath)) {
-				new Notice(t('dbExists'));
-				return false;
-			}
-
-			// Atomic move; rename fails if the target exists, which the
-			// dbExists check above has already ruled out.
-			if (await adapter.exists(currentPath))
+				const adopted = await adoptExisting();
+				if (adopted === null) {
+					new Notice(t('dbExists'));
+					return false;
+				}
+				new Notice(t('dbMerged', String(adopted)));
+			} else if (await adapter.exists(currentPath)) {
+				// Atomic move; rename fails if the target exists, which the
+				// adoptExisting branch above has already ruled out.
 				await adapter.rename(currentPath, targetPath);
+			}
 		} catch (e) {
 			console.error("Can't switch database file:", e);
 			new Notice(t('dbMoveFailed', String(e)));
@@ -267,11 +298,7 @@ export class CursorPositionDatabase {
 
 		try {
 			const data = await this.app.vault.adapter.read(this.getDbPath());
-			const { db, legacy } = this.parseDb(data);
-			// Legacy object format is migrated to compact on the next flush.
-			if (legacy)
-				this.dbDirty = true;
-			this.db = db;
+			this.db = this.parseDb(data);
 			await this.cacheDiskMtime();
 		} catch (e) {
 			console.error("Can't read database:", e);
@@ -280,40 +307,19 @@ export class CursorPositionDatabase {
 	}
 
 	// Parses raw db file content into the in-memory map. Shared by the startup
-	// read and the external-change merge. Returns legacy=true for the old
-	// object format (per-entry lastModified), which the caller may want to
-	// migrate to the compact format on its next write.
-	private parseDb(data: string): { db: CursorDatabase; legacy: boolean } {
+	// read and the external-change merge. A malformed file (not an object)
+	// degrades to an empty db.
+	private parseDb(data: string): CursorDatabase {
 		const parsed: unknown = JSON.parse(data);
-		// A malformed file (not an object) degrades to an empty db.
 		const raw: Record<string, unknown> =
 			parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
 		const db: CursorDatabase = {};
-
-		// Decide once, before the loops, whether this file is in the new
-		// compact format or the legacy object format. The whole file is
-		// written in a single format, so the first entry is representative.
-		const keys = Object.keys(raw);
-		if (keys.length > 0 && Array.isArray(raw[keys[0]])) {
-			// Compact on-disk format.
-			for (const key of keys) {
-				const value = raw[key];
-				if (Array.isArray(value))
-					db[key] = decodeValue(value as number[]);
-			}
-			return { db, legacy: false };
+		for (const key of Object.keys(raw)) {
+			const value = raw[key];
+			if (Array.isArray(value))
+				db[key] = decodeValue(value as number[]);
 		}
-
-		// Legacy object format. Sort by lastModified (oldest → newest) so
-		// insertion order reflects recency — the compact format relies on
-		// that order for trimming, so we must rebuild it instead of copying
-		// in arbitrary JSON order.
-		const lastModified = (st: unknown) =>
-			(st as { lastModified?: number }).lastModified ?? 0;
-		keys.sort((a, b) => lastModified(raw[a]) - lastModified(raw[b]));
-		for (const key of keys)
-			db[key] = raw[key] as EphemeralState;
-		return { db, legacy: true };
+		return db;
 	}
 
 	private async cacheDiskMtime(): Promise<void> {
@@ -325,14 +331,33 @@ export class CursorPositionDatabase {
 		}
 	}
 
-	// Picks up a db file replaced externally by a device-sync client while we
-	// run. A stat() whose mtime differs from our cached value means the file
-	// changed behind our back; read it and reconcile per key:
-	//   disk-only keys   -> adopted (the other device's new records)
+	// Reconciles a freshly-parsed disk db against the in-memory one, per key:
+	//   disk-only keys   -> adopted
 	//   memory-only keys -> kept (ours, incl. session-only tombstones)
 	//   shared keys      -> disk wins, unless the key was touched locally
 	//                       after our last flush (then ours is definitely
 	//                       newer — the disk copy predates our flush)
+	// Replaces this.db with the merged result and resets lastKey.
+	// @returns the number of disk records that survived the merge.
+	private mergeDiskDb(diskDb: CursorDatabase): number {
+		let adopted = Object.keys(diskDb).length;
+		for (const key of Object.keys(this.db)) {
+			const localTouched = (this.keyTouchedAt.get(key) ?? 0) > this.lastFlushTime;
+			if (diskDb[key] === undefined || localTouched) {
+				if (diskDb[key] !== undefined)
+					adopted--;
+				diskDb[key] = this.db[key];
+			}
+		}
+		this.db = diskDb;
+		this.lastKey = null;
+		return adopted;
+	}
+
+	// Picks up a db file replaced externally by a device-sync client while we
+	// run. A stat() whose mtime differs from our cached value means the file
+	// changed behind our back; read it and reconcile per key (see
+	// mergeDiskDb for the conflict rule).
 	// Never marks the db dirty: adopted records are already on disk, and kept
 	// local records ride out on the next natural flush. merge is a no-op (one
 	// stat call) when nothing changed. A file that is torn mid-sync fails
@@ -356,14 +381,7 @@ export class CursorPositionDatabase {
 
 			try {
 				const data = await this.app.vault.adapter.read(this.getDbPath());
-				const diskDb = this.parseDb(data).db;
-				for (const key of Object.keys(this.db)) {
-					const localTouched = (this.keyTouchedAt.get(key) ?? 0) > this.lastFlushTime;
-					if (diskDb[key] === undefined || localTouched)
-						diskDb[key] = this.db[key];
-				}
-				this.db = diskDb;
-				this.lastKey = null;
+				this.mergeDiskDb(this.parseDb(data));
 				this.lastDiskMtime = mtime;
 			} catch (e) {
 				console.error("Can't merge external db changes:", e);
