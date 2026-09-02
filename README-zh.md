@@ -4,16 +4,17 @@
 
 ![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FaisahpA%2Fobsidian-position-restore%2Fmain%2Fmanifest.json&query=%24.version&label=version&color=blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Obsidian](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FaisahpA%2Fobsidian-position-restore%2Fmain%2Fmanifest.json&query=%24.minAppVersion&label=Obsidian&color=8A6BE8&prefix=%3E%3D)
 
-每次切回一篇笔记，还要手动翻找上次看到的地方？**Position Restore** 为每篇笔记记住光标与滚动位置，重新打开即落在原处——保存的位置随文件打开流程交给 Obsidian 原生应用，源码模式零闪烁，阅读模式无顶部闪跳。
+每次切回一篇笔记，还要手动翻找上次看到的地方？**Position Restore** 为每篇笔记记住光标与滚动位置，重新打开即落在原处——恢复在文件打开过程内完成，短暂空白之下先校准落点、确认稳定再揭开：无顶部闪跳，无二次跳动。亦可视为 Remember Cursor Position 插件的优化替代。
 
 ![Position Restore 演示](docs/demo.gif)
 
 ## 为什么选它
 
-- **源码模式零闪烁** — 插件把保存的位置合并进 Obsidian 打开文件时的 ephemeral state，由其原生恢复流程直接应用，编辑器首帧即绘制在目标位置，观感与原生打开毫无差别；阅读模式同样在渲染前应用，消除了"先顶部后跳转"的闪跳（渲染期间以短暂空白过渡）
+- **精确落位、无闪跳** — 恢复在文件打开过程内完成：位置应用与像素级校准都隐藏在短暂空白之下，确认稳定后才揭开；既没有"先顶部后跳转"的闪屏，也没有恢复后的二次跳动，揭开即精确呈现
 - **光标、滚动一个不落** — 精确回到上次编辑的行列；记录随 vault 持久化，重启 Obsidian、换设备（同步 vault）都不丢
 - **顺滑的打开体验** — 源码 / 阅读模式可分别选择立即恢复或平滑滚动（glide）恢复；可选恢复提示（面包屑），恢复完成后显示当前所在的目录层级位置
-- **干净、可控的数据库** — 紧凑数组存储 + 自动按最近访问裁剪；可跳过短文件和指定文件夹
+- **灵活的记录过滤** — 可指定排除文件夹（及其子文件夹）跳过记录，并可设置最小行数，短文件（临时便签等）不记录位置
+- **干净、可控的数据库** — 紧凑数组存储 + 自动按最近访问裁剪
 
 ## 功能与配置
 
@@ -53,7 +54,7 @@
 
 ## 工作原理
 
-每当你在笔记中移动光标或滚动时，插件都会记录当前状态。再次打开同一篇笔记时，插件把保存的位置合并进 Obsidian 打开文件时的 ephemeral state，由 Obsidian 原生恢复流程应用：源码模式首帧即落在目标位置，无感完成；阅读模式则以短暂空白替代了"先顶部后跳转"的闪屏。相比原插件"打开后延时跳转"的方式，恢复在打开过程中就已一次到位，从机制上避免了闪跳。
+每当你在笔记中移动光标或滚动时，插件都会记录当前状态。再次打开同一篇笔记时，插件在打开过程内应用保存的位置：短暂空白先遮住画面，落点经像素级校准、确认稳定后揭开——既看不到"先顶部后跳转"的闪屏，也不会有恢复后的二次跳动。源码模式（立即恢复）下，位置还会合并进 Obsidian 打开文件时的 ephemeral state，由原生恢复流程应用，即使标签在后台打开也已落位正确。相比原插件"打开后延时跳转"的方式，恢复在打开过程中就已一次到位，从机制上避免了闪跳。
 
 ## 来源与致谢
 

@@ -1,3 +1,10 @@
+// Version bump script
+// Usage: node version-bump.mjs [patch|minor|major]
+//   - patch (default): x.y.Z +1
+//   - minor: x.Y.0
+//   - major: X.0.0
+// Updates manifest.json / package.json / package-lock.json / versions.json
+// and prints the new version to stdout.
 import { readFileSync, writeFileSync } from "fs";
 
 // Bump type: "patch" (default), "minor" or "major".
