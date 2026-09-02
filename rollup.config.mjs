@@ -10,7 +10,9 @@ if you want to view the source visit the plugins github repository
 */
 `;
 
-const isProd = !process.env.ROLLUP_WATCH;
+// PROD=1 (set by `npm run build` via --environment) → production: minified, no sourcemap.
+// Otherwise (`npm run dev`, reload.sh without prod arg) → dev: inline sourcemap in single main.js.
+const isProd = process.env.PROD === '1';
 
 export default {
   input: 'main.ts',

@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "dev": "rollup --config rollup.config.mjs -w",
-    "build": "rollup --config rollup.config.mjs",
+    "build": "rollup --config rollup.config.mjs --environment PROD:1",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",

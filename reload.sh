@@ -7,6 +7,8 @@ set -euo pipefail
 #   echo 'VAULT_DIR=/path/to/vault' > reload.local.sh
 # Env still wins: VAULT_DIR=/path/to/vault bash reload.sh
 # Everything else (vault name, plugin id, plugin dir) is derived.
+# First arg "prod" → production build (npm run build, minified, no sourcemap).
+# Default (dev) → one-shot dev build with inline sourcemap (like npm run dev, but no watch).
 # ------------------------------------------------------------------
 VAULT_DIR="${VAULT_DIR:-}"
 
@@ -36,8 +38,14 @@ if ! command -v obsidian >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Building plugin ($PLUGIN_ID) ..."
-npm run build
+BUILD_MODE="${1:-dev}"
+
+echo "→ Building plugin ($PLUGIN_ID, mode=$BUILD_MODE) ..."
+if [ "$BUILD_MODE" = "prod" ]; then
+  npm run build
+else
+  npx rollup --config rollup.config.mjs
+fi
 
 echo "→ Copying build outputs to $PLUGIN_DIR ..."
 mkdir -p "$PLUGIN_DIR"
