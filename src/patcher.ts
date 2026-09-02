@@ -129,27 +129,37 @@ export class OpenPatcher {
 		const filePath = viewState.state?.file;
 		if (typeof filePath !== 'string' || !filePath)
 			return eState;
+		const leafId = this.state.leafId(leaf);
 
-		// Switch to an already-existing tab: this leaf+file combo is still in
-		// handledLeafIdMap, so this setViewState is Obsidian re-applying the
-		// tab's OWN cached view state (position included) — flicker-free on
-		// its own. Stay out entirely: no injection, no cover, and — crucially
-		// BEFORE resetLeafOpenState — no dropping of the handled marker, so
-		// the file-open handler dedups this switch into a tracking-only
-		// update (skipRestoreAndAnchor) and Obsidian completes the switch
-		// itself. (leaf.view can't detect this: at patch time the tab's view
-		// is not installed yet, so a view-based check never matches.)
-		if (this.state.handledLeafIdMap.get(this.state.leafId(leaf)) === filePath)
-			return eState;
+		// A setViewState for an already-handled leaf+file is Obsidian
+		// REPLAYING the leaf's own cached view state, not a new open: the
+		// deferred-view rebuild when an inactive tab is first activated (its
+		// cached eState — which includes the position injected at startup —
+		// comes back here), or a same-file re-assert (quick switcher re-pick:
+		// setViewState with an empty eState and NO following file-open).
+		// (leaf.view can't detect this: at patch time the tab's view is not
+		// installed yet, so a view-based check never matches.) Keep the
+		// handled marker — no resetLeafOpenState — and drop any pending open
+		// kind that never met its file-open.
+		const isReplay = this.state.handledLeafIdMap.get(leafId) === filePath;
+		if (isReplay) {
+			this.state.pendingOpenKind.delete(leaf);
+		} else {
+			// Any other setViewState replaces this leaf's content (a
+			// different file, or no file at all — the 'empty' state after
+			// closing the last tab): prior open bookkeeping is stale, drop
+			// it so a later reopen of the same file restores again.
+			this.resetLeafOpenState(leaf);
+		}
 
-		// Any other setViewState replaces this leaf's content (a different
-		// file, or no file at all — the 'empty' state after closing the last
-		// tab): prior open bookkeeping is stale, drop it so a later reopen of
-		// the same file restores again.
-		this.resetLeafOpenState(leaf);
-		
-		if (this.takeOverridingOpenKind(leaf, eState))
+		if (this.takeOverridingOpenKind(leaf, eState, isReplay)) {
+			// A yielded open (link/caller target) needs no file-open restore
+			// body — record the pair so later switches and re-asserts dedup
+			// into tracking-only updates, even when this open never fires
+			// 'file-open' (a background target open).
+			this.state.handledLeafIdMap.set(leafId, filePath);
 			return eState;
+		}
 
 		// Non-markdown FileViews (pdf, image, ...): their restore is
 		// scroll-only, applied by restoreFileViewScroll from the file-open
@@ -171,11 +181,31 @@ export class OpenPatcher {
 		if (merged.scroll === undefined && merged.cursor === undefined)
 			return eState;
 
+		// A replay re-injects (re-covering the deferred rebuild's editor gap)
+		// only when the replayed eState echoes the saved record — the
+		// signature of our own earlier injection (or an equal native cache)
+		// coming back through core's leaf cache. Anything else stays native:
+		// an eState-less re-assert would cover an open that never fires
+		// 'file-open' (cover stuck until the safety timer — e.g. the quick
+		// switcher re-picking the current file), and a diverged position must
+		// not yank the user back to the record.
+		if (isReplay && !(
+			!!eState
+			&& (eState.scroll ?? 0) === (merged.scroll ?? 0)
+			&& (eState.cursor?.from.line ?? -1) === (merged.cursor?.from.line ?? -1)
+		))
+			return eState;
+
 		this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
 		// Let the file-open handler know the restore was applied here, so it
 		// re-anchors bookkeeping without re-applying (bookkeeping ownership
 		// stays in restoreEphemeralState).
 		this.state.injectedOpenPaths.add(filePath);
+		// The injected open's file-open runs restoreInjectedSource (settle +
+		// cover reveal) via the injected marker; recording the pair NOW keeps
+		// later activations deduped even when this open is a background one
+		// whose file-open never fires.
+		this.state.handledLeafIdMap.set(leafId, filePath);
 
 		return { ...merged, ...eState };
 	}
@@ -183,14 +213,14 @@ export class OpenPatcher {
 	// Every content change on this leaf supersedes its prior open bookkeeping
 	// — markdown and other FileViews alike. setViewState ALSO fires when
 	// Obsidian re-asserts an already-open tab's cached state (tab switch);
-	// injectEphemeralStateOnOpen returns before this for that same-file case,
-	// keeping the handled marker so the switch dedups to a tracking-only
-	// update in restoreEphemeralState. Here (different file, or no file):
-	// dropping the handled entry lets a close-and-reopen of the same file
-	// restore again instead of being wrongly deduped, and dropping a stale
-	// pendingOpenKind marker from an open that never fired 'file-open' can't
-	// misdirect this open's restore. Per-leaf only — other leaves' markers
-	// stay until their tab is activated.
+	// injectEphemeralStateOnOpen takes its replay branch before this for that
+	// same-file case, keeping the handled marker so the switch dedups to a
+	// tracking-only update in restoreEphemeralState. Here (different file, or
+	// no file): dropping the handled entry lets a close-and-reopen of the
+	// same file restore again instead of being wrongly deduped, and dropping
+	// a stale pendingOpenKind marker from an open that never fired 'file-open'
+	// can't misdirect this open's restore. Per-leaf only — other leaves'
+	// markers stay until their tab is activated.
 	private resetLeafOpenState(leaf: WorkspaceLeaf) {
 		this.state.handledLeafIdMap.delete(this.state.leafId(leaf));
 		this.state.pendingOpenKind.delete(leaf);
@@ -208,7 +238,7 @@ export class OpenPatcher {
 	// for this open: returns it when the open should yield to a non-saved target,
 	// and as a side effect sets pendingOpenKind so restoreEphemeralState can
 	// dispatch. Otherwise clears nothing and returns undefined.
-	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: OpenEphemeralState | undefined): OpenKind | undefined {
+	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: OpenEphemeralState | undefined, isReplay: boolean): OpenKind | undefined {
 		// Promote the transient link kind (set by the openLinkText patch, which
 		// doesn't know the target leaf yet) onto this leaf's pending entry,
 		// then clear the transient slot. Link nav wins over the saved position
@@ -227,7 +257,10 @@ export class OpenPatcher {
 		// the ephemeral-state argument meaning "open here", so merging the
 		// saved position on top would override it. Anchor at core's target
 		// instead of restoring (see anchorToTargetSettled).
-		if (this.hasCallerTarget(eState)) {
+		// On a replay the eState is the leaf's OWN cached ephemeral state, so
+		// its bare cursor/scroll is that cached position, not a caller target
+		// — only the distinctive markers (match / is-flashing) count there.
+		if (this.hasCallerTarget(eState, isReplay)) {
 			this.state.pendingOpenKind.set(leaf, 'callerTarget');
 			return 'callerTarget';
 		}
@@ -235,8 +268,14 @@ export class OpenPatcher {
 		return undefined;
 	}
 
-	private hasCallerTarget(eState: OpenEphemeralState | undefined): boolean {
-		return !!(eState && (eState.match || eState.cursor || eState.scroll != null || eState['is-flashing']));
+	private hasCallerTarget(eState: OpenEphemeralState | undefined, isReplay = false): boolean {
+		if (!eState)
+			return false;
+		if (eState.match || eState['is-flashing'])
+			return true;
+		if (isReplay)
+			return false;
+		return !!(eState.cursor || eState.scroll != null);
 	}
 
 	// Build the merged state to inject: saved position wins when present;

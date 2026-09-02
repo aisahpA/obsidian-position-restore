@@ -168,8 +168,14 @@ export class Restorer {
 		// Dedup: Obsidian fires 'file-open' repeatedly (pane switching,
 		// workspace restore, mere tab activation). Restore each leaf+file
 		// combination only once, otherwise the cursor would keep jumping back
-		// to the saved position.
-		if (this.hasOpenedLeafPath(view.leaf, filePath)) {
+		// to the saved position. Injected opens bypass the dedup: their
+		// file-open must run restoreInjectedSource (settle + cover reveal +
+		// re-anchor) even when the pair is already handled — the patcher
+		// records handled pairs at injection time, so a replayed open (e.g. a
+		// background tab's first activation) would otherwise be deduped into
+		// skipRestoreAndAnchor, which lifts the first-paint cover before the
+		// settle has run.
+		if (!injected && this.hasOpenedLeafPath(view.leaf, filePath)) {
 			// Mere re-activation of an already-restored leaf+file (pane
 			// switching, workspace restore, duplicate 'file-open' events —
 			// frequent on Android). Leave an already-showing cue alone: its

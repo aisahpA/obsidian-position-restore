@@ -65,7 +65,13 @@ export class PositionState {
 	// programmatic movement (dynamic re-render layout shifts, plugin-driven
 	// scrolls), mirroring the mobile touch-based guard.
 	lastUserInputAt = 0;
-	handledLeafIdMap: Map<string, string> = new Map(); // leaf.id -> filePath already restored
+	// leaf.id -> filePath whose open is fully handled: restored, injected, or
+	// yielded to a caller/link target. Written by the file-open dedup path
+	// AND by the setViewState patch (yielded opens, injected opens) so pairs
+	// whose open never fires 'file-open' (background opens, startup restore)
+	// still dedup later switches and re-asserts — the replay recognition the
+	// patch depends on.
+	handledLeafIdMap: Map<string, string> = new Map();
 
 	// ===== Open-kind tracking (transient flags passed between patches) =====
 
