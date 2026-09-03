@@ -1,5 +1,5 @@
 import { WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from './types';
+import { EphemeralState, TabStateRecord, PluginSettings } from './types';
 import { OpenCover } from './cover';
 import { RestoreCue } from './cue';
 
@@ -23,9 +23,28 @@ export class PositionState {
 	// is activated — which is exactly when it is needed.
 	injectedOpenLeafIds = new Set<string>();
 
+	// File path of the leaf active before the most recent 'active-leaf-change'.
+	// The event fires with only the NEW leaf — there is no oldLeaf argument —
+	// so Restorer.completeInjectedRestore needs this sliding track to tell a
+	// same-file activation (no 'file-open' will follow; restore here) from a
+	// genuine file switch (its own 'file-open' owns the restore). Slid on every
+	// activation, markdown or not.
+	lastActiveFilePath: string | undefined = undefined;
+
 	// ===== Restore run tracking =====
 	restoreRun = 0;     // bumped per restore; stale restores detect supersession
 	private activeRestores = 0; // restore chains in flight
+
+	// Leaf id -> { filePath, run } of the restore currently in flight for
+	// that leaf (restoreOpen entry until its chain unwinds). Lets a duplicate
+	// re-assert for the same leaf+file detect that the restore is already
+	// running and skip instead of superseding it — a second entry would
+	// otherwise take the non-injected path and reveal the first-paint cover
+	// mid-settle. This is the guard between the two restore entry points
+	// ('file-open' and the 'active-leaf-change' completion), which can both
+	// fire for one open. Keyed by leaf because rapid file switching reuses
+	// the same view; the run discriminates the winning restore on cleanup.
+	inFlightRestoreLeafRuns: Map<string, { filePath: string; run: number }> = new Map();
 
 	// True while any file restore is in flight (from open until the landing is
 	// anchored). Recording (polling + scroll capture) skips while this holds,
@@ -44,6 +63,11 @@ export class PositionState {
 	restoreEnded() {
 		this.activeRestores--;
 	}
+
+	// Leaf id -> whose restore must skip the anchor (background restores:
+	// the recording baseline belongs to the active leaf only). Set by
+	// BackgroundSettler, cleared in its finally; anchorToSettledState reads it.
+	noAnchorLeafIds = new Set<string>();
 
 	// ===== Recording baseline: written by restore, read by polling =====
 	lastEphemeralState: EphemeralState | undefined;
@@ -76,6 +100,9 @@ export class PositionState {
 	// still dedup later switches and re-asserts — the replay recognition the
 	// patch depends on.
 	handledLeafIdMap: Map<string, string> = new Map();
+
+	// Device-local per-leaf last state position records.
+	lastStateByLeaf: Map<string, TabStateRecord> = new Map();
 
 	// ===== Open-kind tracking (transient flags passed between patches) =====
 
