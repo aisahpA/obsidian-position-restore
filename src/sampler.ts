@@ -26,14 +26,6 @@ export class Sampler {
 	private database: CursorPositionDatabase;
 	private exclusions: ExclusionChecker;
 	private state: PositionState;
-
-	// Per-leaf capture baseline for the scroll listener (the 100ms poll keeps
-	// its own global baseline for the active view). Keyed by leaf id so each
-	// open pane is deduped independently. The baseline carries the file path:
-	// one leaf can host different files over time, and a baseline from the
-	// previous file must never dedupe the current one.
-	private lastStateByLeaf = new Map<string, { filePath: string; st: EphemeralState }>();
-
 	private settings: PluginSettings;
 
 	private readonly STORE_INTERVAL = 97;
@@ -161,7 +153,15 @@ export class Sampler {
 			// the first deliberate move after the session ends records normally.
 
 			if (write) {
-				this.database.setState(filePath, write);
+				// Record through the shared per-leaf baseline (saveLeafState),
+				// not just the per-file db: on mobile there is no scroll-capture
+				// listener (desktop-only), so this poll is the ONLY writer of
+				// lastStateByLeaf there — without it, the same file open in two
+				// tabs would restore both to the same per-file record after a
+				// restart instead of each tab's own spot. On desktop the poll
+				// only moves the cursor baseline; saveLeafState dedups against
+				// the per-leaf record either way.
+				this.saveLeafState(this.state.leafId(view.leaf), filePath, write);
 				// The user moved away from the restored spot: dismiss the cue
 				// (grace-guarded in RestoreCue so mobile's post-restore jitter
 				// can't flash it away).
@@ -222,7 +222,7 @@ export class Sampler {
 
 		if (this.exclusions.shouldSkipRecording(view)) {
 			this.database.deleteFile(filePath);
-			this.lastStateByLeaf.delete(leafId);
+			this.state.lastStateByLeaf.delete(leafId);
 			return;
 		}
 
@@ -248,7 +248,7 @@ export class Sampler {
 		// same-device positions); other FileViews (image...) have no useful
 		// scroll. Either way, just clear the baseline.
 		if (view.getViewType() !== 'bases' || !this.settings.recordBaseScroll) {
-			this.lastStateByLeaf.delete(leafId);
+			this.state.lastStateByLeaf.delete(leafId);
 			return;
 		}
 		this.saveLeafState(leafId, filePath, { scroll: Math.round(target.scrollTop) });
@@ -284,7 +284,7 @@ export class Sampler {
 	// no-op scroll doesn't trigger a needless db write; afterwards save only
 	// on change.
 	private saveLeafState(leafId: string, filePath: string, st: EphemeralState): void {
-		const prev = this.lastStateByLeaf.get(leafId);
+		const prev = this.state.lastStateByLeaf.get(leafId);
 		const sameFile = prev !== undefined && prev.filePath === filePath;
 		if (sameFile && isEphemeralStatesEquals(prev.st, st))
 			return;
@@ -292,12 +292,12 @@ export class Sampler {
 		if (!sameFile) {
 			const existing = this.database.db[filePath];
 			if (existing && isEphemeralStatesEquals(existing, st)) {
-				this.lastStateByLeaf.set(leafId, { filePath, st });
+				this.state.lastStateByLeaf.set(leafId, { filePath, st });
 				return;
 			}
 		}
 
-		this.lastStateByLeaf.set(leafId, { filePath, st });
+		this.state.lastStateByLeaf.set(leafId, { filePath, st });
 		this.database.setState(filePath, st);
 	}
 

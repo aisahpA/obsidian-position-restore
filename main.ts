@@ -21,6 +21,7 @@ export default class RememberCursorPosition extends Plugin {
 		this.addSettingTab(new SettingTab(this.app, this));
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
+		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
 
 		this.registerWorkspaceEvents();
 		this.registerPolling();
@@ -52,9 +53,10 @@ export default class RememberCursorPosition extends Plugin {
 	 */
 	private registerWorkspaceEvents() {
 		this.registerEvent(this.app.workspace.on('file-open', () => this.manager.restoreEphemeralState()));
+		this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => this.manager.completeInjectedRestore(leaf)));
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.manager.renameFile(file, oldPath)));
 		this.registerEvent(this.app.vault.on('delete', (file) => this.manager.deleteFile(file)));
-		this.registerEvent(this.app.workspace.on('quit', () => { void this.database.writeDb(); }));
+		this.registerEvent(this.app.workspace.on('quit', () => this.manager.storePositionData()));
 	}
 
 	/**
@@ -80,7 +82,7 @@ export default class RememberCursorPosition extends Plugin {
 	 */
 	private registerDbFlush() {
 		this.registerInterval(
-			window.setInterval(() => { void this.database.writeDb(); }, SAFE_DB_FLUSH_INTERVAL)
+			window.setInterval(() => { void this.manager.storePositionData(); }, SAFE_DB_FLUSH_INTERVAL)
 		);
 	}
 
@@ -116,7 +118,7 @@ export default class RememberCursorPosition extends Plugin {
 			// saved, keeping the pre-search anchor intact across suspension.
 			if (!this.manager.isSearchAnchored())
 				this.manager.checkEphemeralStateChanged();
-			void this.database.writeDb();
+			this.manager.storePositionData();
 		};
 		this.registerDomEvent(document, 'visibilitychange', () => {
 			if (document.hidden)

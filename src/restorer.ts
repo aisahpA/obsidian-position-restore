@@ -1,6 +1,6 @@
 import { App, FileView, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
-import { CursorPositionDatabase } from './database';
+import { TabStore } from './tab-store';
 import { getScroller, nextPaint } from './wait';
 import { PositionState } from './position-state';
 import { RestoreModes } from './restore-modes';
@@ -14,17 +14,17 @@ import { RestoreModes } from './restore-modes';
 // this class takes.
 export class Restorer {
 	private app: App;
-	private database: CursorPositionDatabase;
 	private settings: PluginSettings;
 	private state: PositionState;
+	private tabStore: TabStore;
 	private modes: RestoreModes;
 
-	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings, state: PositionState) {
+	constructor(app: App, settings: PluginSettings, tabStore: TabStore) {
 		this.app = app;
-		this.database = database;
 		this.settings = settings;
-		this.state = state;
-		this.modes = new RestoreModes(settings, state);
+		this.tabStore = tabStore;
+		this.state = tabStore.state;
+		this.modes = new RestoreModes(settings, this.state);
 	}
 
 	// Dispatcher for restore. Markdown views delegate to restoreMarkdown;
@@ -53,6 +53,61 @@ export class Restorer {
 			this.state.cue.hide();
 	}
 
+	// Completes the restore of an open that never fired 'file-open' on the
+	// freshly-activated leaf — two cases, distinguished by an injected marker:
+	//
+	//  1. Injected marker (injectedOpenLeafIds): a background open or startup
+	//     background tab injected the position at setViewState time, but only
+	//     first activation builds the deferred view and the active file is
+	//     unchanged, so no 'file-open' follows.
+	//  2. Unmarked same-file activation: reading/source-glide tabs never
+	//     inject, but a same-file activation is guaranteed file-open-less
+	//     ('file-open' fires only when the active FILE changes), so only this
+	//     active-leaf-change can restore it. Genuine opens fire their own
+	//     'file-open' and are never handled here, so no race with the
+	//     debounced 'file-open'.
+	//
+	// 'active-leaf-change' carries only the NEW leaf, so the previous active
+	// file comes from state.lastActiveFilePath, slid synchronously below
+	// (pre-await). Deferred one frame and re-resolved against the CURRENT
+	// active view. Exact-once is not left to timer ordering — the genuine
+	// open's debounced 'file-open' (setTimeout(0)) is not guaranteed to run
+	// before this rAF. Unmarked branch: the pre-await slide means a genuine
+	// open's new file never matches, so it no-ops. Marked branch: if this
+	// runs first it restores the CURRENT file through restoreOpen, which
+	// consumes the marker and whose inflight + dedup guards make the genuine
+	// open's own 'file-open' a no-op.
+	async completeInjectedRestore(leaf: WorkspaceLeaf | null) {
+		if (!this.app.workspace.layoutReady)
+			return;
+		// Slide the track synchronously (pre-await) so the NEXT activation
+		// sees the correct previous file even across rapid switches.
+		const oldFilePath = this.state.lastActiveFilePath;
+		const newFilePath = (leaf?.view as FileView | undefined)?.file?.path;
+		this.state.lastActiveFilePath = newFilePath;
+		await nextPaint();
+		const fv = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!fv?.file)
+			return;
+		const leafId = this.state.leafId(fv.leaf);
+		const filePath = fv.file.path;
+		if (this.state.injectedOpenLeafIds.has(leafId)) {
+			// Marker still present -> no file-open will consume it: run the
+			// injected restore (settle under the still-up first-paint cover,
+			// then reveal + anchor) via the shared pipeline.
+			await this.restoreEphemeralState();
+			return;
+		}
+		// Unmarked branch: a same-file activation of an unhandled leaf (its
+		// deferred view was just built). Its own restore must run via the
+		// shared pipeline, which handles the active leaf's anchor + dedup.
+		if (oldFilePath !== filePath)
+			return;
+		if (this.state.handledLeafIdMap.get(leafId) === filePath)
+			return;
+		await this.restoreEphemeralState();
+	}
+
 	// Markdown restore body: the shared restoreOpen pipeline owns the open
 	// bookkeeping (cue, covers, jumps, dedup, run token); this only dispatches
 	// by view mode — glideRestore (show the top, glide to the saved line),
@@ -65,7 +120,7 @@ export class Restorer {
 			return;
 
 		await this.restoreOpen(view, filePath, async (isCurrent, injected) => {
-			const st = this.database.db[filePath];
+		const st = this.tabStore.getRestoreSt(view.leaf, filePath);
 			const mode = view.getMode();
 
 			// Dispatch by view mode; each branch owns its own no-record /
@@ -127,11 +182,25 @@ export class Restorer {
 		body: (isCurrent: () => boolean, injected: boolean) => Promise<void>,
 	) {
 		const isMarkdown = view instanceof MarkdownView;
+		const leafId = this.state.leafId(view.leaf);
+
+		// A restore for this exact leaf+file is already in flight — a
+		// duplicate re-assert ('file-open' landing while the active-leaf-change
+		// completion, or an earlier duplicate 'file-open', runs the settle, or
+		// vice versa). The running restore owns the reveal: skip entirely — no
+		// supersede, no reveal (which would lift the first-paint cover
+		// mid-settle), no re-anchor. A DIFFERENT file on the same leaf (rapid
+		// switch) still supersedes below.
+		const inflight = this.state.inFlightRestoreLeafRuns.get(leafId);
+		if (inflight && inflight.filePath === filePath)
+			return;
 
 		// Consumed before the reveal gating and the dedup check so a dedup
 		// hit (mere tab activation) still clears the marker and a later
-		// re-open of the same file restores again.
-		const injected = isMarkdown && this.state.injectedOpenPaths.delete(filePath);
+		// re-open of the same file restores again. Keyed by leaf id — with
+		// the same file in two tabs each tab's marker is consumed by its own
+		// file-open (see injectedOpenLeafPaths).
+		const injected = isMarkdown && this.state.injectedOpenLeafIds.delete(leafId);
 
 		// Lift any stale restore cover left by a superseded restore; the
 		// dispatch body re-covers as needed. Bases restores never cover. An
@@ -197,11 +266,18 @@ export class Restorer {
 		const isCurrent = () => run === this.state.restoreRun && view.file?.path === filePath;
 
 		this.state.restoreStarted();
+		this.state.inFlightRestoreLeafRuns.set(leafId, { filePath, run });
 		try {
 			this.state.lastEphemeralState = undefined;
 			this.state.lastLoadedFilePath = filePath;
 			await body(isCurrent, injected);
 		} finally {
+			// Only the winning restore removes its entry: a superseded
+			// (stale) restore's run no longer matches, so it must not drop
+			// the newer entry for the same leaf.
+			const cur = this.state.inFlightRestoreLeafRuns.get(leafId);
+			if (cur && cur.run === run)
+				this.state.inFlightRestoreLeafRuns.delete(leafId);
 			this.state.restoreEnded();
 		}
 	}
@@ -215,7 +291,8 @@ export class Restorer {
 	// re-applies are throttled so a value the content can't reach yet (or
 	// ever) doesn't churn every frame.
 	private async landBaseScroll(view: FileView, filePath: string, isCurrent: () => boolean) {
-		const scroll = this.database.db[filePath]?.scroll ?? 0;
+		const st = this.tabStore.getRestoreSt(view.leaf, filePath);
+		const scroll = st?.scroll ?? 0;
 		if (scroll <= 0)
 			return;
 
@@ -304,8 +381,13 @@ export class Restorer {
 	// view.file, which flips to the new file before 'file-open' fires.
 	// Iterates ALL leaves, not just markdown ones: pdf/image leaves hold
 	// dedup entries too, and pruning theirs would re-scroll the file on every
-	// tab activation.
-	private pruneStaleLeafIds(): void {
+	// tab activation. Runs on fresh opens (dedup check) AND at persist points
+	// (PositionManager.storePositionData): closing a leaf can't update
+	// lastStateByLeaf (no dedicated close event), so without the persist-side
+	// call dead records would reach the quit/suspend snapshot.
+	// Returns whether any lastStateByLeaf entry was dropped, so the caller
+	// can mark the snapshot dirty.
+	public pruneStaleLeafIds(): boolean {
 		const liveIds = new Set<string>();
 		// Block body on purpose: this callback MUST return undefined.
 		// Obsidian's iterate helpers treat the callback result as an
@@ -319,10 +401,25 @@ export class Restorer {
 		for (const id of this.state.handledLeafIdMap.keys())
 			if (!liveIds.has(id))
 				this.state.handledLeafIdMap.delete(id);
+		// Also drop injected markers of closed leaves (the background open
+		// whose file-open never fired) so the set can't grow without bound.
+		for (const id of this.state.injectedOpenLeafIds)
+			if (!liveIds.has(id))
+				this.state.injectedOpenLeafIds.delete(id);
 		// Also drop pending open-kind markers of closed leaves so the map
 		// can't retain WorkspaceLeaf references forever.
 		for (const leaf of this.state.pendingOpenKind.keys())
 			if (!liveIds.has(this.state.leafId(leaf)))
 				this.state.pendingOpenKind.delete(leaf);
+		// Also drop last state markers of closed leaves: closing a leaf can't
+		// update lastStateByLeaf, so its record would otherwise linger until
+		// the next fresh open — and reach the quit/suspend snapshot.
+		let droppedLastState = false;
+		for (const id of this.state.lastStateByLeaf.keys())
+			if (!liveIds.has(id)) {
+				this.state.lastStateByLeaf.delete(id);
+				droppedLastState = true;
+			}
+		return droppedLastState;
 	}
 }

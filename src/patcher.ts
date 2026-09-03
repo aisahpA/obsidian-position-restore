@@ -1,6 +1,6 @@
 import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
-import { CursorPositionDatabase } from './database';
+import { TabStore } from './tab-store';
 import { PositionState, OpenKind } from './position-state';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
@@ -37,15 +37,15 @@ type OpenLinkText = (this: Workspace, ...args: unknown[]) => Promise<void>;
 // shared PositionState this class takes.
 export class OpenPatcher {
 	private app: App;
-	private database: CursorPositionDatabase;
 	private settings: PluginSettings;
 	private state: PositionState;
+	private tabStore: TabStore;
 
-	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings, state: PositionState) {
+	constructor(app: App, settings: PluginSettings, tabStore: TabStore) {
 		this.app = app;
-		this.database = database;
 		this.settings = settings;
-		this.state = state;
+		this.tabStore = tabStore;
+		this.state = tabStore.state;
 	}
 
 	// Installs the patches the restore relies on. registerCleanup must undo
@@ -173,7 +173,9 @@ export class OpenPatcher {
 		if (!isSourceMode)
 			return eState;
 
-		const st = this.database.db[filePath];
+		// the same file open in two tabs must restore each tab's own spot after
+		// a restart.
+		const st = this.tabStore.getRestoreSt(leaf, filePath);
 		if (this.shouldGlideSource(st))
 			return eState;
 
@@ -189,18 +191,36 @@ export class OpenPatcher {
 		// 'file-open' (cover stuck until the safety timer — e.g. the quick
 		// switcher re-picking the current file), and a diverged position must
 		// not yank the user back to the record.
+		//
+		// EXCEPTION — the startup rebuild (debugged 2026-09): before
+		// layout-ready, core re-asserts the ACTIVE leaf's state through a
+		// second setViewState whose eState is EMPTY (it re-opens the file
+		// fresh instead of replaying the leaf cache, unlike a background
+		// tab's replay, which echoes the cached eState back). The rebuilt
+		// editor lands at the top and the injection is lost; the following
+		// file-open's restore can't recover it (its settle only fine-tunes
+		// a rendered target line, never launches an off-viewport landing).
+		// Pre-layout-ready the user cannot have diverged yet and no
+		// quick-switcher re-assert can occur, so an empty eState there is
+		// always that rebuild — re-inject; the file-open that follows for
+		// the active leaf runs the settle/reveal.
+		const replayIsEmptyRebuild = !this.app.workspace.layoutReady
+			&& !eState?.scroll && !eState?.cursor;
 		if (isReplay && !(
 			!!eState
 			&& (eState.scroll ?? 0) === (merged.scroll ?? 0)
 			&& (eState.cursor?.from.line ?? -1) === (merged.cursor?.from.line ?? -1)
-		))
+		) && !replayIsEmptyRebuild)
 			return eState;
 
 		this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
+
 		// Let the file-open handler know the restore was applied here, so it
 		// re-anchors bookkeeping without re-applying (bookkeeping ownership
-		// stays in restoreEphemeralState).
-		this.state.injectedOpenPaths.add(filePath);
+		// stays in restoreEphemeralState). Keyed by leaf id: with the same
+		// file open in two tabs, each tab's file-open must consume its own
+		// marker and run its own settle/reveal.
+		this.state.injectedOpenLeafIds.add(leafId);
 		// The injected open's file-open runs restoreInjectedSource (settle +
 		// cover reveal) via the injected marker; recording the pair NOW keeps
 		// later activations deduped even when this open is a background one

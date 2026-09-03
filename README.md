@@ -12,6 +12,7 @@ Tired of manually hunting for where you left off every time you reopen a note? *
 
 - **Exact, jump-free restore** — the restore completes within the file open, under a brief blank: the position is applied and the landing pixel-calibrated before the blank lifts; neither the "top-first then jump" flash nor a corrective jump afterward — when the blank lifts, the note is exactly where you left off
 - **Cursor and scroll, both restored** — back to the exact line and column; records persist with the vault and survive app restarts and device switches (via vault sync)
+- **Independent per-tab positions** — the same note open in several tabs keeps a separate cursor position per tab (device-local); background tabs auto-settle their saved landing after a restart instead of drifting until first activated
 - **Smooth opening experience** — source / reading mode can each choose instant or glide (smooth scroll) restore; an optional restore breadcrumb shows your current position in the folder hierarchy after a restore
 - **Flexible recording filters** — exclude selected folders (and their subfolders) from recording, and set a minimum line count so short files (scratch notes, etc.) are never recorded
 - **Clean, controllable database** — compact array storage with automatic recency-based pruning
@@ -54,7 +55,7 @@ This plugin's data format differs from [dy-sh/obsidian-remember-cursor-position]
 
 ## How it works
 
-Each time you move the cursor or scroll in a note, the plugin records that state. When the note is reopened, the plugin applies the saved position within the open itself: a brief blank covers the screen while the landing is pixel-calibrated, and the reveal shows the note exactly in place — no "top-first then jump" flash, no corrective jump. In source mode (instant restore) the position is additionally merged into the ephemeral state of the file open and applied by Obsidian's native restore, so even tabs opened in the background land correctly. Unlike the original plugin's "delay after open, then jump" approach, the restore completes within the open itself, avoiding the jump at the mechanism level.
+Each time you move the cursor or scroll in a note, the plugin records that state. When the note is reopened, the plugin applies the saved position within the open itself: a brief blank covers the screen while the landing is pixel-calibrated, and the reveal shows the note exactly in place — no "top-first then jump" flash, no corrective jump. In source mode (instant restore) the position is additionally merged into the ephemeral state of the file open and applied by Obsidian's native restore, so even tabs opened in the background land correctly. Each tab also tracks its own position independently (device-local): the same note open in several tabs restores every tab to where *that tab* left off, and restart-restored background tabs auto-settle under their own cover so they don't sit at a drifted position until first activated. Unlike the original plugin's "delay after open, then jump" approach, the restore completes within the open itself, avoiding the jump at the mechanism level.
 
 ## Credits
 

@@ -18,8 +18,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { OpenPatcher } from '../src/patcher';
+import { TabStore } from '../src/tab-store';
 import { PositionState } from '../src/position-state';
-import { DEFAULT_SETTINGS } from '../src/types';
+import { TabStateRecord,DEFAULT_SETTINGS } from '../src/types';
 
 // injectEphemeralStateOnOpen is private; tests drive it through this alias.
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };
@@ -57,12 +58,25 @@ const SOURCE_OPEN_A = (file = 'a.md'): ViewState => ({
 	state: { file, mode: 'source' },
 });
 
+beforeEach(() => {
+	window.localStorage.clear();
+});
+
 let disposables: Array<() => void> = [];
 
-function makeHarness(db: Record<string, unknown> = {}) {
+function makeHarness(
+	db: Record<string, unknown> = {},
+	lastStateByLeaf: Map<string, TabStateRecord> = new Map(),
+	layoutReady = true,
+) {
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const leaf = makeLeaf('leaf-1');
-	const patcher = new OpenPatcher({} as never, { db } as never, DEFAULT_SETTINGS, state);
+	const app = { workspace: { layoutReady } } as never;
+	const tabStore = new TabStore(app, { db } as never, state);
+	// The TabStore constructor loads lastStateByLeaf from storage; tests with
+	// a preset map re-assign it after construction.
+	state.lastStateByLeaf = lastStateByLeaf;
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
 	return { state, leaf, inject };
@@ -81,7 +95,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toMatchObject({ scroll: 10 });
 		expect(state.cover.isCovered(leaf)).toBe(true);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(true);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
 	});
@@ -94,7 +108,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toBe(eState);
 		expect(state.cover.isCovered(leaf)).toBe(false);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(false);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
 	});
@@ -120,7 +134,7 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toMatchObject({ scroll: 10 });
 		expect(state.cover.isCovered(leaf)).toBe(true);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(true);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		// The replay keeps the handled marker and sets no open kind: the
 		// follow-up file-open must reach the injected body, not the openKind
 		// early return.
@@ -147,8 +161,36 @@ describe('OpenPatcher open classification', () => {
 
 		expect(result).toBeUndefined();
 		expect(state.cover.isCovered(leaf)).toBe(false);
-		expect(state.injectedOpenPaths.has('a.md')).toBe(false);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
+	});
+	
+	it('a startup replay with a position-less eState ({focus:true} rebuild) re-injects', () => {
+		// Debugged 2026-09: before layout-ready, core re-asserts the ACTIVE
+		// leaf with a second setViewState whose eState carries only
+		// {focus:true} — the rebuilt editor loses the injected position and
+		// lands at the top. Pre-layout-ready an empty eState is always that
+		// rebuild, so the saved position must be injected again.
+		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD }, new Map(), false);
+		state.handledLeafIdMap.set('leaf-1', 'a.md');
+
+		const result = inject(leaf, SOURCE_OPEN_A(), { focus: true }) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: 10 });
+		expect(state.cover.isCovered(leaf)).toBe(true);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
+		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
+	});
+
+	it('a caller-target eState carrying focus still yields on a startup replay', () => {
+		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD }, new Map(), false);
+		state.handledLeafIdMap.set('leaf-1', 'a.md');
+		const eState = { focus: true, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
+
+		const result = inject(leaf, SOURCE_OPEN_A(), eState);
+
+		expect(result).toBe(eState);
+		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 
 	it('a replay whose cached position diverged from the record stays native', () => {
@@ -183,5 +225,38 @@ describe('OpenPatcher open classification', () => {
 		// No record for b.md, default position: nothing to inject.
 		expect(result).toBeUndefined();
 		expect(state.handledLeafIdMap.has('leaf-1')).toBe(false);
+	});
+
+	it('a per-tab record wins over the per-file record', () => {
+		// Per-file says scroll 10; this tab was at scroll 99 when Obsidian quit.
+		const { leaf, inject } = makeHarness(
+			{ 'a.md': RECORD },
+			new Map([['leaf-1', { filePath: 'a.md', st: { scroll: 99 } }]]),
+		);
+
+		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: 99 });
+	});
+
+	it('a per-tab record does not shadow a caller target', () => {
+		const { leaf, inject } = makeHarness(
+			{ 'a.md': RECORD },
+			new Map([['leaf-1', { filePath: 'a.md', st: { scroll: 99 } }]]),
+		);
+		const eState = { match: {} };
+
+		expect(inject(leaf, SOURCE_OPEN_A(), eState)).toBe(eState);
+	});
+
+	it('a per-tab record whose file changed reads as no record (path guard)', () => {
+		const { leaf, inject } = makeHarness(
+			{ 'b.md': RECORD },
+			new Map([['leaf-1', { filePath: 'a.md', st: { scroll: 99 } }]]),
+		);
+
+		const result = inject(leaf, SOURCE_OPEN_A('b.md'), undefined) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: 10 });
 	});
 });

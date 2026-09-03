@@ -26,34 +26,58 @@ export class RestoreModes {
 	// core's setViewState. Core applied it synchronously; here we settle the
 	// landing under the leaf first-paint cover (applied for every scroll
 	// injection — brand-new leaves and same-leaf switches alike), lift the
-	// cover, and re-anchor. The cover can already be gone here only when the
-	// safety timer lifted it first (a background open activated before its
-	// restore ran): anchor only — the post-reveal one-shot check in
-	// anchorToSettledState guards gross errors. Reading view never injects,
-	// so this per-leaf cover check must not skip its masked restore.
+	// cover, and re-anchor.
+	//
+	// The cover can already be gone here when the safety timer lifted it
+	// first (a background open activated after ~2s): the injected landing
+	// has still drifted (CM's estimate-based apply on a freshly built
+	// editor, debugged 2026-09: line 30 saved → 27.6 landed, half a screen
+	// possible on worse estimates), so the settle still runs — uncovered,
+	// bounded, and only on this first file-open (the injected marker makes
+	// later activations dedup into tracking-only updates). Reading view
+	// never injects, so this per-leaf cover check must not skip its masked
+	// restore.
 	async restoreInjectedSource(view: MarkdownView, st: EphemeralState | undefined, isCurrent: () => boolean) {
 		const entryAt = Date.now();
 		// One touch baseline shared by settle and hold: a touch newer than
 		// the open's own tap means the user took over — never hold the cover
 		// over their scrolling.
 		const touchBaseline = this.state.lastTouchAt;
-		if (this.state.cover.isCovered(view.leaf)) {
-			try {
-				// One merged decision loop owns the whole covered phase: it
-				// verifies with REAL pixel geometry (the getScroll() readback
-				// this path used to wait for just echoes the request — pure
-				// dead wait), reveals as soon as the landing is quiet AND
-				// aligned (minimal blank), keeps the cover through a
-				// correction when it is not. Bounded from restore entry so
-				// the cover safety timer stays the outer bound.
-				if (isCurrent() && st?.scroll)
-					await this.pixels.settleAndHold(view, st.scroll, isCurrent, touchBaseline, entryAt + SETTLE_HOLD_MAX_MS);
-			} finally {
-				if (isCurrent())
-					this.state.cover.uncover(view.leaf);
-			}
+		try {
+			// One merged decision loop owns the whole covered phase: it
+			// verifies with REAL pixel geometry (the getScroll() readback
+			// this path used to wait for just echoes the request — pure
+			// dead wait), reveals as soon as the landing is quiet AND
+			// aligned (minimal blank), keeps the cover through a
+			// correction when it is not. Bounded from restore entry so
+			// the cover safety timer stays the outer bound.
+			if (isCurrent() && st?.scroll)
+				await this.pixels.settleAndHold(view, st.scroll, isCurrent, touchBaseline, entryAt + SETTLE_HOLD_MAX_MS);
+		} finally {
+			if (isCurrent())
+				this.state.cover.uncover(view.leaf);
 		}
 		await this.anchorToSettledState(view, st, isCurrent);
+	}
+
+	// Background-tab variant of restoreInjectedSource for an injected open
+	// that never fired 'file-open' (a restart-restored split whose view IS
+	// built): the injected landing drifts exactly like the active tab's, but
+	// nothing settles it until first activation — the tab sits at the drifted
+	// spot until clicked. Runs the same settle+reveal, WITHOUT
+	// anchorToSettledState: that writes the single-slot recording baseline
+	// (lastLoadedFilePath / lastEphemeralState) and the cue, which belong to
+	// the ACTIVE leaf only.
+	async settleInjectedReveal(view: MarkdownView, st: EphemeralState | undefined, isCurrent: () => boolean) {
+		const entryAt = Date.now();
+		const touchBaseline = this.state.lastTouchAt;
+		try {
+			if (isCurrent() && st?.scroll)
+				await this.pixels.settleAndHold(view, st.scroll, isCurrent, touchBaseline, entryAt + SETTLE_HOLD_MAX_MS);
+		} finally {
+			if (isCurrent())
+				this.state.cover.uncover(view.leaf);
+		}
 	}
 
 	// Masked restore skeleton shared by saved-position and default-position
@@ -189,8 +213,7 @@ export class RestoreModes {
 			// Note isn't scrollable: let Obsidian's own applyScroll place it.
 			applyEphemeralState(view, st);
 			await nextPaint();
-			if (isCurrent())
-				await this.anchorToSettledState(view, st, isCurrent);
+			await this.anchorToSettledState(view, st, isCurrent);
 			return;
 		}
 
@@ -245,8 +268,7 @@ export class RestoreModes {
 			// Note too short to scroll / saved line off the end: the state
 			// already applied is the right landing.
 			await nextPaint();
-			if (isCurrent())
-				await this.anchorToSettledState(view, st, isCurrent);
+			await this.anchorToSettledState(view, st, isCurrent);
 			return;
 		}
 		const prevBehavior = liveScroller.style.scrollBehavior;
@@ -286,6 +308,8 @@ export class RestoreModes {
 	// treat that layout-shift jump as a user scroll and overwrite the saved
 	// position. ANCHOR_SETTLE_DELAY lets layout shifts settle first.
 	private async anchorToSettledState(view: MarkdownView, st: EphemeralState | undefined, isCurrent: () => boolean) {
+		if (this.state.noAnchorLeafIds.has(this.state.leafId(view.leaf)))
+			return;
 		await delay(ANCHOR_SETTLE_DELAY);
 		// A superseded restore must never anchor: lastEphemeralState would
 		// describe the wrong file and the polling loop would write it to the db.

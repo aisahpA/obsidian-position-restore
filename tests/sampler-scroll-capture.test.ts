@@ -250,3 +250,97 @@ describe('environment sanity', () => {
 		expect(Platform.isMobileApp).toBe(false);
 	});
 });
+
+// checkEphemeralStateChanged is the mobile-only writer of per-tab records
+// (lastStateByLeaf): on mobile there is no scroll-capture listener, so the
+// 100ms poll must feed the per-tab baseline too, or the same file open in
+// two tabs restores both to the same per-file record after a restart.
+describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () => {
+	// A markdown view whose scroll is settable, so one harness can simulate
+	// two tabs of the same file at different positions.
+	function makeScrollingView(path: string, scroll: number, leafId: string): MarkdownView {
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path },
+			containerEl: document.createElement('div'),
+			currentMode: { getScroll: () => scroll },
+			editor: {
+				lineCount: () => 100,
+				getCursor: () => ({ line: 3, ch: 7 }),
+			},
+			getViewType: () => 'markdown',
+		}) as MarkdownView;
+		(view as unknown as { leaf: unknown }).leaf = { id: leafId, view };
+		return view;
+	}
+
+	function makeMobileHarness() {
+		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
+		const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
+		const state = new PositionState(settings);
+		let activeView = makeScrollingView('a.md', 42, 'leaf-1');
+		const app = {
+			workspace: {
+				getActiveViewOfType: () => activeView,
+				iterateAllLeaves: () => undefined,
+				containerEl: document.createElement('div'),
+			},
+		};
+		const sampler = new Sampler(app as never, database as never, settings, state);
+		const poll = () => sampler.checkEphemeralStateChanged();
+		return {
+			sampler, state, database,
+			activate(view: MarkdownView) { activeView = view; },
+			poll,
+		};
+	}
+
+	it('records each tab of the same file at its own position (scroll-only, trusted)', () => {
+		const origMobile = Platform.isMobileApp;
+		Platform.isMobileApp = true;
+		try {
+			const h = makeMobileHarness();
+			h.state.lastLoadedFilePath = 'a.md';
+			// Seed a baseline that differs from both tabs so the first poll
+			// records tab 1 instead of only seeding the baseline.
+			h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
+			h.state.lastAnchorAt = Date.now();
+			h.poll();
+			// Trust the next scroll delta as user-driven. Must be strictly newer
+			// than lastAnchorAt: both Date.now() calls can land in the same
+			// millisecond, which would leave touch == anchor and absorb the delta.
+			h.state.lastTouchAt = h.state.lastAnchorAt + 1;
+
+			// Second tab of the same file scrolled to 99, now active.
+			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
+			h.poll();
+
+			expect(h.state.lastStateByLeaf.get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
+			expect(h.state.lastStateByLeaf.get('leaf-2')).toEqual({ filePath: 'a.md', st: { scroll: 99, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
+			expect(h.database.setState).toHaveBeenCalledTimes(2);
+		} finally {
+			Platform.isMobileApp = origMobile;
+		}
+	});
+
+	it('leaves the per-tab baseline untouched for an absorbed scroll-only delta', () => {
+		const origMobile = Platform.isMobileApp;
+		Platform.isMobileApp = true;
+		try {
+			const h = makeMobileHarness();
+			h.state.lastLoadedFilePath = 'a.md';
+			h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
+			h.state.lastAnchorAt = Date.now(); // fresh anchor keeps the reflow guard armed
+			h.poll();
+			h.state.lastTouchAt = 0; // no touch: the next delta is passive reflow
+
+			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
+			h.poll();
+
+			// Absorbed: leaf-1's record stands, leaf-2 never appears.
+			expect(h.state.lastStateByLeaf.has('leaf-2')).toBe(false);
+			expect(h.database.setState).toHaveBeenCalledTimes(1);
+		} finally {
+			Platform.isMobileApp = origMobile;
+		}
+	});
+});

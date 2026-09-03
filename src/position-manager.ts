@@ -1,7 +1,9 @@
-import { App, TAbstractFile, Platform } from 'obsidian';
+import { App, TAbstractFile, Platform, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from './types';
 import { CursorPositionDatabase } from './database';
+import { TabStore } from './tab-store';
 import { PositionState } from './position-state';
+import { BackgroundSettler } from './background-settle';
 import { Restorer } from './restorer';
 import { OpenPatcher } from './patcher';
 import { Sampler } from './sampler';
@@ -18,20 +20,22 @@ import { Sampler } from './sampler';
 export class PositionManager {
 	private app: App;
 	private database: CursorPositionDatabase;
-	private settings: PluginSettings;
 	private state: PositionState;
+	private tabStore: TabStore;
 	private restorer: Restorer;
 	private patcher: OpenPatcher;
 	private sampler: Sampler;
+	private backgroundSettler: BackgroundSettler;
 
 	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings) {
 		this.app = app;
 		this.database = database;
-		this.settings = settings;
 		this.state = new PositionState(settings);
-		this.restorer = new Restorer(app, database, settings, this.state);
-		this.patcher = new OpenPatcher(app, database, settings, this.state);
+		this.tabStore = new TabStore(app, database, this.state);
+		this.restorer = new Restorer(app, settings, this.tabStore);
+		this.patcher = new OpenPatcher(app, settings, this.tabStore);
 		this.sampler = new Sampler(app, database, settings, this.state);
+		this.backgroundSettler = new BackgroundSettler(app, settings, this.tabStore);
 	}
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
@@ -60,8 +64,37 @@ export class PositionManager {
 			.catch(e => console.error('Position Restore: restore failed:', e));
 	}
 
+	// 'active-leaf-change' completion for opens that never fired 'file-open'
+	// (background opens, restart-restored tabs, same-file deferred-tab
+	// activations) — see Restorer.completeInjectedRestore.
+	completeInjectedRestore(leaf: WorkspaceLeaf | null): void {
+		void this.restorer.completeInjectedRestore(leaf)
+			.catch(e => console.error('Position Restore: complete injected restore failed:', e));
+	}
+
+	// Startup sweep for background split tabs whose open never fired
+	// 'file-open' — see BackgroundSettler.start / completeBackgroundRestores.
+	// Bounded poll; stops when no built leaf still needs work or the deadline
+	// passes.
+	installBackgroundSettle(registerCleanup: (fn: () => void) => void) {
+		this.backgroundSettler.start(registerCleanup);
+	}
+
 	checkEphemeralStateChanged() {
 		this.sampler.checkEphemeralStateChanged();
+	}
+
+	storePositionData() {
+		// Closing a leaf can't update lastStateByLeaf (no dedicated close
+		// event), so dead records survive until the next fresh open's prune.
+		// Prune at every persist point instead — quit, suspend flush, and the
+		// periodic db flush all funnel here.
+		const droppedLastState = this.restorer.pruneStaleLeafIds();
+		if(this.database.dbDirty || droppedLastState) {
+			this.tabStore.persistLastStateByLeaf(this.state.lastStateByLeaf);
+		}
+
+		void this.database.writeDb();
 	}
 
 	// True while a search session is live (a search input holds, or just

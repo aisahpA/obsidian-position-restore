@@ -15,6 +15,12 @@ interface EphemeralState {
 	},
 }
 
+// Device-local per-tab position records.
+interface TabStateRecord {
+	filePath: string;
+	st: EphemeralState;
+}
+
 interface PluginSettings {
 	dbFileName: string;
 	minLinesToRecord: number; // 0 = disabled, do not record positions for files with fewer lines
@@ -50,5 +56,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 export {
 	CursorPos,
 	EphemeralState,
+	TabStateRecord,
 	PluginSettings,
 };
