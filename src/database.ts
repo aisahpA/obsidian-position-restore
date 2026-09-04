@@ -1,5 +1,6 @@
-import { App, Notice } from 'obsidian';
+import { App, Notice, TFile } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
+import { frontmatterDecisionFor } from './frontmatter';
 import type RememberCursorPosition from '../main';
 import { t } from './i18n';
 
@@ -227,6 +228,7 @@ export class CursorPositionDatabase {
 		const beforeLength = Object.keys(this.db).length;
 
 		this.removeExcludedFolders();
+		this.removeFrontmatterExcluded();
 
 		this.trimToLimit();
 
@@ -247,6 +249,23 @@ export class CursorPositionDatabase {
 			)) {
 				delete this.db[key];
 			}
+		}
+	}
+
+	// Same rationale as removeExcludedFolders for frontmatter-based exclusion
+	// (escape hatch `position-restore: false` or the configured B property
+	// present): restore does not check frontmatter, so a stale record would
+	// wrongly re-position. Files the metadata cache has not parsed yet (lazy
+	// parsing) are skipped here — the recording gate drops their record on the
+	// next open/poll once the metadata lands.
+	private removeFrontmatterExcluded(): void {
+		for (const key of Object.keys(this.db)) {
+			const file = this.app.vault.getAbstractFileByPath(key);
+			if (!(file instanceof TFile))
+				continue;
+			const decision = frontmatterDecisionFor(this.app, file, this.settings);
+			if (decision?.skip)
+				delete this.db[key];
 		}
 	}
 

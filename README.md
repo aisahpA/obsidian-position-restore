@@ -14,7 +14,7 @@ Tired of manually hunting for where you left off every time you reopen a note? *
 - **Cursor and scroll, both restored** — back to the exact line and column; records persist with the vault and survive app restarts and device switches (via vault sync)
 - **Independent per-tab positions** — the same note open in several tabs keeps a separate cursor position per tab (device-local); background tabs auto-settle their saved landing after a restart instead of drifting until first activated
 - **Smooth opening experience** — source / reading mode can each choose instant or glide (smooth scroll) restore; an optional restore breadcrumb shows your current position in the folder hierarchy after a restore
-- **Flexible recording filters** — exclude selected folders (and their subfolders) from recording, and set a minimum line count so short files (scratch notes, etc.) are never recorded
+- **Flexible recording filters** — exclude selected folders (and their subfolders) from recording, set a minimum line count so short files (scratch notes, etc.) are never recorded, exclude whole classes of files via an existing frontmatter property (e.g. `publish: true`), or opt a single file out/in with the per-file `position-restore` property
 - **Clean, controllable database** — compact array storage with automatic recency-based pruning
 
 ## Features & options
@@ -27,8 +27,22 @@ Tired of manually hunting for where you left off every time you reopen a note? *
 | Restore indicator | Off / breadcrumb / breadcrumb + notice, showing your current position in the folder hierarchy after a restore |
 | Excluded folders | Skip files in selected folders (and their subfolders) |
 | Minimum length filter | Short files (scratch notes, etc.) are never recorded |
+| Frontmatter property exclusion | Never record files whose frontmatter matches a configured entry — either a property name (`publish`, any file that has it) or `name: value` (`publish: true`, only when the value matches). The properties usually already exist for another plugin, so no file needs editing |
+| Per-file override property | Any file can opt out with `position-restore: false` in its frontmatter (overrides every rule) or opt in with `position-restore: true` (records despite excluded folders, the minimum-length filter and the property rule) |
 | Bases scroll recording | Optionally record scroll position in Obsidian Bases views |
 | Database file | Customizable storage path; entry count shown in settings |
+
+### Recording filters, in detail
+
+The recording rules stack as follows (the first matching line wins):
+
+1. `position-restore: false` in the file's frontmatter — **never** record this file, and drop any saved record (overrides everything below)
+2. `position-restore: true` — **always** record this file (overrides the folder, length and property rules below)
+3. The file is inside an excluded folder (or subfolder)
+4. The file has fewer lines than the minimum-length filter
+5. The file's frontmatter matches a configured exclusion entry. An entry is either a bare property name (`publish` — *presence-only*, any file that has the property is excluded, whatever its value) or `name: value` (`publish: true` — excluded only when the property equals that value). Booleans accept yes/no/on/off aliases, and arrays match when any element matches. The properties usually already exist for another plugin, so no file needs editing
+
+> Beware bare property names: an entry like `tags` would match nearly every note.
 
 ## Installation
 

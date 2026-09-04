@@ -1,8 +1,9 @@
-import { App, FileView, MarkdownView, Platform, WorkspaceLeaf, debounce } from 'obsidian';
+import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { CursorPositionDatabase } from './database';
 import { readEphemeralState, isEphemeralStatesEquals, isCursorStatesEqual } from './ephemeral';
 import { ExclusionChecker } from './exclusion';
+import { frontmatterDecisionFor } from './frontmatter';
 import { PositionState } from './position-state';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
@@ -73,7 +74,7 @@ export class Sampler {
 		this.app = app;
 		this.database = database;
 		this.settings = settings;
-		this.exclusions = new ExclusionChecker(settings);
+		this.exclusions = new ExclusionChecker(app, settings);
 		this.state = state;
 	}
 
@@ -415,5 +416,30 @@ export class Sampler {
 	// the excluded-folders list may have changed.
 	clearExclusionCache() {
 		this.exclusions.clearPathCache();
+		this.exclusions.clearFrontmatterCache();
+	}
+
+	// Frontmatter reactivation. Two jobs, one event:
+	//  - the memoized frontmatter decisions must follow re-parses (metadata
+	//    cache 'changed' fires after a file's metadata — incl. frontmatter —
+	//    lands or changes), otherwise an edited marker would keep its stale
+	//    value for the life of the memo;
+	//  - the moment a file becomes frontmatter-excluded, drop its db record
+	//    right away instead of waiting for the next poll tick (active view
+	//    only) or a scroll (background tabs): editing a file to
+	//    `position-restore: false` must not leave a record that restores once
+	//    later. Non-frontmatter exclusions (folders, min lines) are unchanged:
+	//    the poll / scroll-capture gate already handles them.
+	installFrontmatterWatch(registerCleanup: (fn: () => void) => void) {
+		const onCacheChanged = (file: TFile) => {
+			this.exclusions.invalidateFrontmatter(file.path);
+			const decision = frontmatterDecisionFor(this.app, file, this.settings);
+			if (decision?.skip)
+				this.database.deleteFile(file.path);
+		};
+		const ref = this.app.metadataCache.on('changed', onCacheChanged);
+		registerCleanup(() => {
+			this.app.metadataCache.offref(ref);
+		});
 	}
 }

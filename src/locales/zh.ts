@@ -49,6 +49,22 @@ export const zh: En = {
 	searchFolders: '输入以搜索文件夹…',
 	noFoldersFound: '未找到文件夹',
 
+	frontmatterExcludeName: '按 frontmatter 属性/值排除',
+	frontmatterExcludeDesc:
+		'frontmatter 匹配任一这些条目的文件不记录位置。条目可以是属性名（`publish`）——只要含该属性即排除；也可以是 `属性: 值`（`publish: true`）——仅当属性值等于该值才排除（yes/no/on/off 视为布尔，数组命中任一元素即匹配）。这些属性通常已为其他插件而存在，因此无需修改任何文件。删除全部条目以关闭此功能。注意裸属性名：填 "tags" 会排除几乎全部笔记。',
+	listNoProperties: '未排除任何属性',
+	addProperty: '添加属性',
+	searchProperties: '输入以搜索属性…',
+	noPropertiesFound: '未找到属性',
+	propertyValueTitle: '{0} 等于以下值时排除',
+	propertyValueName: '值',
+	propertyValueDesc: '留空表示只要文件含该属性即排除，无论其值如何。',
+	propertyValuePlaceholder: '如 true',
+	propertyDuplicate: '{0} 已在列表中',
+	escapeHatchName: '单文件覆盖属性',
+	escapeHatchDesc:
+		'任何文件也可单独开启或关闭记录，无需改动设置：`{0}: false` 表示绝不记录（优先于上方所有规则），`{0}: true` 表示总是记录（优先于排除的文件夹、最短行数过滤与属性规则）。其他值一律忽略。',
+
 	dbName: '数据文件',
 	dbDesc: '保存位置记录的 JSON 文件路径，从仓库根目录开始填写，留空使用插件目录下的 positions.json。',
 	confirmTooltip: '确认并验证',
