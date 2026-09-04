@@ -62,16 +62,15 @@ export class OpenPatcher {
 		const originalSetViewState = leafProto.setViewState;
 		if (!originalSetViewState)
 			return;
-		const patcher = this;
+		// Arrow keeps `this` lexical (no-this-alias): the wrapper below must
+		// stay a plain function so core's `this` (the leaf) is preserved.
+		const injectOnOpen = (leaf: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) =>
+			this.injectEphemeralStateOnOpen(leaf, viewState, eState);
 		leafProto.setViewState = function (this: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) {
-			eState = patcher.injectEphemeralStateOnOpen(this, viewState, eState);
+			eState = injectOnOpen(this, viewState, eState);
 			return originalSetViewState.call(this, viewState, eState);
 		};
 		registerCleanup(() => {
-			// Restores the method captured at install time. If another plugin
-			// wrapped our patch after us, its wrapper is dropped too — an
-			// accepted limitation of prototype patching (uninstall order is
-			// opaque to us).
 			leafProto.setViewState = originalSetViewState;
 		});
 	}
@@ -85,7 +84,11 @@ export class OpenPatcher {
 		const originalOpenLinkText = workspace.openLinkText;
 		if (typeof originalOpenLinkText !== 'function')
 			return;
-		const patcher = this;
+		// Capture the dependencies directly (no-this-alias: don't alias `this`
+		// itself) — the wrapper must stay a plain function so core's `this`
+		// (the workspace) is preserved for openLinkText.
+		const state = this.state;
+		const settings = this.settings;
 		workspace.openLinkText = async function (this: Workspace, ...args: unknown[]) {
 			// Stash the link kind in the transient pendingLinkKind slot
 			// (openLinkText doesn't know the target leaf yet) — promoted onto
@@ -94,21 +97,21 @@ export class OpenPatcher {
 			// (open at file start, leave saved record untouched). Clear first
 			// so a stale entry from a previous openLinkText that never reached
 			// setViewState can't contaminate this one.
-			patcher.state.pendingLinkKind = undefined;
+			state.pendingLinkKind = undefined;
 			const linktext: unknown = args[0];
 			const hasTarget = typeof linktext === 'string'
 				&& (linktext.includes('#') || linktext.includes('^'));
 			if (hasTarget) {
-				patcher.state.pendingLinkKind = 'anchorLink';
-			} else if (patcher.settings.linkOpenPosition === 'start') {
-				patcher.state.pendingLinkKind = 'startPlainLink';
+				state.pendingLinkKind = 'anchorLink';
+			} else if (settings.linkOpenPosition === 'start') {
+				state.pendingLinkKind = 'startPlainLink';
 			}
 			try {
 				return await originalOpenLinkText.apply(this, args);
 			} finally {
-				window.clearTimeout(patcher.state.pendingLinkKindTimeout);
-				patcher.state.pendingLinkKindTimeout = window.setTimeout(() => {
-					patcher.state.pendingLinkKind = undefined;
+				window.clearTimeout(state.pendingLinkKindTimeout);
+				state.pendingLinkKindTimeout = window.setTimeout(() => {
+					state.pendingLinkKind = undefined;
 				}, 500);
 			}
 		};
