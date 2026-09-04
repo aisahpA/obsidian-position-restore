@@ -1,7 +1,7 @@
 {
 	"id": "position-restore",
 	"name": "Position Restore",
-	"version": "1.2.0",
+	"version": "1.3.0",
 	"minAppVersion": "1.13.0",
 	"description": "Restore cursor and scroll position for each note across sessions and devices — exact landing, no jump. An optimized alternative to Remember Cursor Position.",
 	"author": "aisahpA",
