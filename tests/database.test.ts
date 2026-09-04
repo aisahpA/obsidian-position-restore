@@ -437,6 +437,36 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 1 });
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
+
+	it('a flush does not clobber a foreign file while a sync merge is in flight', async () => {
+		const { db, adapter, externalWrite, files } = makeHarness();
+		db.setState('a.md', { scroll: 1 });
+		await db.writeDb();
+
+		// Another device lands a new record while we run.
+		externalWrite(DB_PATH, JSON.stringify({ 'a.md': [1], 'c.md': [7] }));
+
+		// Stall the first read so the sync merge and the flush's pre-write
+		// merge overlap. The flush must wait for the merge, not bail and
+		// write over the newer file.
+		const origRead = adapter.read.getMockImplementation()!;
+		let reads = 0;
+		adapter.read.mockImplementation(async (p: string) => {
+			const data = await origRead(p);
+			if (++reads === 1)
+				await new Promise(res => setTimeout(res, 20));
+			return data;
+		});
+
+		db.setState('b.md', { scroll: 2 }); // a local change makes the flush dirty
+		const inFlight = db.mergeExternalChanges(); // do not await yet
+		await db.writeDb();
+		await inFlight;
+
+		const written = JSON.parse(files[DB_PATH]);
+		expect(written['c.md']).toEqual([7]); // foreign record survived
+		expect(written['b.md']).toEqual([2]);
+	});
 });
 
 describe('switchDbFile', () => {
