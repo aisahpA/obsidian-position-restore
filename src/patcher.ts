@@ -1,7 +1,7 @@
 import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { TabStore } from './tab-store';
-import { PositionState, OpenKind } from './position-state';
+import { PositionState, OpenKind, LANDING_ABSORB_MS } from './position-state';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
 // are internal and untyped; declare the minimal fields this plugin reads.
@@ -161,6 +161,15 @@ export class OpenPatcher {
 			// into tracking-only updates, even when this open never fires
 			// 'file-open' (a background target open).
 			this.state.handledLeafIdMap.set(leafId, filePath);
+			// Arm the landing absorb synchronously with the open: the jump to
+			// core's target lands asynchronously (file load + scroll/cursor
+			// to the match or link), and recording must stay in absorb mode
+			// until it settles or the jump itself gets written as user
+			// movement. This MUST live here, not in the restorer's file-open
+			// handler: a same-file search-result click fires no 'file-open',
+			// so the restorer never runs and the jump would be recorded.
+			// See PositionState.searchAnchorUntil / Sampler stability expiry.
+			this.state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 			return eState;
 		}
 

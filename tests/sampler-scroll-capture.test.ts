@@ -387,3 +387,48 @@ describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () =
 		}
 	});
 });
+
+// The stuck-anchor safety net in checkEphemeralStateChanged must not run
+// during the post-blur grace window: a normal blur also leaves activeElement
+// on body, and clearing the Infinity there would cut SEARCH_ANCHOR_GRACE_MS
+// short, letting the search jump's landing overwrite the saved position.
+describe('Sampler.checkEphemeralStateChanged — search-anchor grace window', () => {
+	function makeAnchorHarness() {
+		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
+		const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
+		const state = new PositionState(settings);
+		const app = {
+			workspace: {
+				getActiveViewOfType: () => makeFakeMarkdownView('a.md', document.createElement('div')),
+				iterateAllLeaves: () => undefined,
+				containerEl: document.createElement('div'),
+			},
+			metadataCache: { getFileCache: () => null }, // no frontmatter by default
+		};
+		const sampler = new Sampler(app as never, database as never, settings, state);
+		return { sampler, state, poll: () => sampler.checkEphemeralStateChanged() };
+	}
+
+	it('keeps the anchor armed through the post-blur grace window', () => {
+		const h = makeAnchorHarness();
+		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
+		// A normal blur scheduled the grace timer; activeElement has already
+		// reverted to body, but the pending timer must keep the anchor armed
+		// until the search jump registers.
+		(h.sampler as unknown as { searchGraceTimer: number }).searchGraceTimer = 1;
+
+		h.poll();
+
+		expect(h.state.searchAnchorUntil).toBe(Number.POSITIVE_INFINITY);
+	});
+
+	it('rescues a stuck anchor when no grace timer is pending (input removed from DOM)', () => {
+		const h = makeAnchorHarness();
+		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
+		(h.sampler as unknown as { searchGraceTimer: number }).searchGraceTimer = 0;
+
+		h.poll();
+
+		expect(h.state.searchAnchorUntil).toBe(0);
+	});
+});
