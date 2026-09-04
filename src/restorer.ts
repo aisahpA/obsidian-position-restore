@@ -225,6 +225,10 @@ export class Restorer {
 			// show, so drop any chip the previous file left. This is not a
 			// mere re-activation, so hiding is safe here.
 			this.state.cue.hide();
+			// The landing is absorbed via the anchor the patcher armed at
+			// setViewState time (see patcher.injectEphemeralStateOnOpen) —
+			// arming here too would be redundant and would MISS same-file
+			// search jumps, which never fire 'file-open'.
 			this.skipRestoreAndAnchor(view, filePath);
 			return;
 		}

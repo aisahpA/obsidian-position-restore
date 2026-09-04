@@ -1,7 +1,7 @@
 import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { TabStore } from './tab-store';
-import { PositionState, OpenKind } from './position-state';
+import { PositionState, OpenKind, LANDING_ABSORB_MS } from './position-state';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
 // are internal and untyped; declare the minimal fields this plugin reads.
@@ -62,16 +62,15 @@ export class OpenPatcher {
 		const originalSetViewState = leafProto.setViewState;
 		if (!originalSetViewState)
 			return;
-		const patcher = this;
+		// Arrow keeps `this` lexical (no-this-alias): the wrapper below must
+		// stay a plain function so core's `this` (the leaf) is preserved.
+		const injectOnOpen = (leaf: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) =>
+			this.injectEphemeralStateOnOpen(leaf, viewState, eState);
 		leafProto.setViewState = function (this: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) {
-			eState = patcher.injectEphemeralStateOnOpen(this, viewState, eState);
+			eState = injectOnOpen(this, viewState, eState);
 			return originalSetViewState.call(this, viewState, eState);
 		};
 		registerCleanup(() => {
-			// Restores the method captured at install time. If another plugin
-			// wrapped our patch after us, its wrapper is dropped too — an
-			// accepted limitation of prototype patching (uninstall order is
-			// opaque to us).
 			leafProto.setViewState = originalSetViewState;
 		});
 	}
@@ -85,7 +84,11 @@ export class OpenPatcher {
 		const originalOpenLinkText = workspace.openLinkText;
 		if (typeof originalOpenLinkText !== 'function')
 			return;
-		const patcher = this;
+		// Capture the dependencies directly (no-this-alias: don't alias `this`
+		// itself) — the wrapper must stay a plain function so core's `this`
+		// (the workspace) is preserved for openLinkText.
+		const state = this.state;
+		const settings = this.settings;
 		workspace.openLinkText = async function (this: Workspace, ...args: unknown[]) {
 			// Stash the link kind in the transient pendingLinkKind slot
 			// (openLinkText doesn't know the target leaf yet) — promoted onto
@@ -94,21 +97,21 @@ export class OpenPatcher {
 			// (open at file start, leave saved record untouched). Clear first
 			// so a stale entry from a previous openLinkText that never reached
 			// setViewState can't contaminate this one.
-			patcher.state.pendingLinkKind = undefined;
+			state.pendingLinkKind = undefined;
 			const linktext: unknown = args[0];
 			const hasTarget = typeof linktext === 'string'
 				&& (linktext.includes('#') || linktext.includes('^'));
 			if (hasTarget) {
-				patcher.state.pendingLinkKind = 'anchorLink';
-			} else if (patcher.settings.linkOpenPosition === 'start') {
-				patcher.state.pendingLinkKind = 'startPlainLink';
+				state.pendingLinkKind = 'anchorLink';
+			} else if (settings.linkOpenPosition === 'start') {
+				state.pendingLinkKind = 'startPlainLink';
 			}
 			try {
 				return await originalOpenLinkText.apply(this, args);
 			} finally {
-				window.clearTimeout(patcher.state.pendingLinkKindTimeout);
-				patcher.state.pendingLinkKindTimeout = window.setTimeout(() => {
-					patcher.state.pendingLinkKind = undefined;
+				window.clearTimeout(state.pendingLinkKindTimeout);
+				state.pendingLinkKindTimeout = window.setTimeout(() => {
+					state.pendingLinkKind = undefined;
 				}, 500);
 			}
 		};
@@ -158,6 +161,15 @@ export class OpenPatcher {
 			// into tracking-only updates, even when this open never fires
 			// 'file-open' (a background target open).
 			this.state.handledLeafIdMap.set(leafId, filePath);
+			// Arm the landing absorb synchronously with the open: the jump to
+			// core's target lands asynchronously (file load + scroll/cursor
+			// to the match or link), and recording must stay in absorb mode
+			// until it settles or the jump itself gets written as user
+			// movement. This MUST live here, not in the restorer's file-open
+			// handler: a same-file search-result click fires no 'file-open',
+			// so the restorer never runs and the jump would be recorded.
+			// See PositionState.searchAnchorUntil / Sampler stability expiry.
+			this.state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 			return eState;
 		}
 

@@ -68,7 +68,11 @@ function makeDashboardDom() {
 	return { containerEl, hostScroller, embed };
 }
 
-function makeHarness(options?: { excludedFolders?: string[] }) {
+function makeHarness(options?: {
+	excludedFolders?: string[];
+	frontmatterExcludeProperties?: string[];
+	frontmatters?: Record<string, unknown>;
+}) {
 	const dom = makeDashboardDom();
 	const view = makeFakeMarkdownView('dashboard.md', dom.containerEl);
 	const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
@@ -78,10 +82,17 @@ function makeHarness(options?: { excludedFolders?: string[] }) {
 			iterateAllLeaves: () => undefined,
 			containerEl: dom.containerEl,
 		},
+		metadataCache: {
+			getFileCache: (file: { path: string }) =>
+				options?.frontmatters && file.path in options.frontmatters
+					? { frontmatter: options.frontmatters[file.path] }
+					: null,
+		},
 	};
 	const settings = {
 		...DEFAULT_SETTINGS,
 		excludedFolders: options?.excludedFolders ?? [],
+		frontmatterExcludeProperties: options?.frontmatterExcludeProperties ?? [],
 	} as PluginSettings;
 	const state = new PositionState(settings);
 	const sampler = new Sampler(app as never, database as never, settings, state);
@@ -199,6 +210,36 @@ describe('Sampler.onScrollCapture — guard ordering with the pre-existing gates
 		expect(h.database.deleteFile).toHaveBeenCalledWith('dashboard.md');
 	});
 
+	it('frontmatter B rule drops the db record on a host scroll of a matching file', () => {
+		const h = makeHarness({
+			frontmatterExcludeProperties: ['publish: true'],
+			frontmatters: { 'dashboard.md': { publish: true } },
+		});
+		h.capture(makeEvent(h.dom.hostScroller));
+		expect(h.database.setState).not.toHaveBeenCalled();
+		expect(h.database.deleteFile).toHaveBeenCalledWith('dashboard.md');
+	});
+
+	it('frontmatter B rule keeps the db record when the value does not match', () => {
+		const h = makeHarness({
+			frontmatterExcludeProperties: ['publish: true'],
+			frontmatters: { 'dashboard.md': { publish: false } },
+		});
+		h.capture(makeEvent(h.dom.hostScroller));
+		expect(h.database.setState).toHaveBeenCalled();
+		expect(h.database.deleteFile).not.toHaveBeenCalled();
+	});
+
+	it('escape-hatch `position-restore: true` records despite an excluded folder', () => {
+		const h = makeHarness({
+			excludedFolders: ['dashboard.md'],
+			frontmatters: { 'dashboard.md': { 'position-restore': true } },
+		});
+		h.capture(makeEvent(h.dom.hostScroller));
+		expect(h.database.setState).toHaveBeenCalledTimes(1);
+		expect(h.database.deleteFile).not.toHaveBeenCalled();
+	});
+
 	it('an embed scroll of an excluded file is pure noise: no write, no delete', () => {
 		const h = makeHarness({ excludedFolders: ['dashboard.md'] });
 		const inner = appendEmbed(h, 'cm-embed-block');
@@ -230,6 +271,7 @@ describe('Sampler.onScrollCapture — non-markdown views', () => {
 				iterateAllLeaves: () => undefined,
 				containerEl,
 			},
+			metadataCache: { getFileCache: () => null }, // no frontmatter by default
 		};
 		const settings = { ...DEFAULT_SETTINGS, recordBaseScroll: true } as PluginSettings;
 		const state = new PositionState(settings);
@@ -284,6 +326,7 @@ describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () =
 				iterateAllLeaves: () => undefined,
 				containerEl: document.createElement('div'),
 			},
+			metadataCache: { getFileCache: () => null }, // no frontmatter by default
 		};
 		const sampler = new Sampler(app as never, database as never, settings, state);
 		const poll = () => sampler.checkEphemeralStateChanged();
@@ -342,5 +385,50 @@ describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () =
 		} finally {
 			Platform.isMobileApp = origMobile;
 		}
+	});
+});
+
+// The stuck-anchor safety net in checkEphemeralStateChanged must not run
+// during the post-blur grace window: a normal blur also leaves activeElement
+// on body, and clearing the Infinity there would cut SEARCH_ANCHOR_GRACE_MS
+// short, letting the search jump's landing overwrite the saved position.
+describe('Sampler.checkEphemeralStateChanged — search-anchor grace window', () => {
+	function makeAnchorHarness() {
+		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
+		const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
+		const state = new PositionState(settings);
+		const app = {
+			workspace: {
+				getActiveViewOfType: () => makeFakeMarkdownView('a.md', document.createElement('div')),
+				iterateAllLeaves: () => undefined,
+				containerEl: document.createElement('div'),
+			},
+			metadataCache: { getFileCache: () => null }, // no frontmatter by default
+		};
+		const sampler = new Sampler(app as never, database as never, settings, state);
+		return { sampler, state, poll: () => sampler.checkEphemeralStateChanged() };
+	}
+
+	it('keeps the anchor armed through the post-blur grace window', () => {
+		const h = makeAnchorHarness();
+		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
+		// A normal blur scheduled the grace timer; activeElement has already
+		// reverted to body, but the pending timer must keep the anchor armed
+		// until the search jump registers.
+		(h.sampler as unknown as { searchGraceTimer: number }).searchGraceTimer = 1;
+
+		h.poll();
+
+		expect(h.state.searchAnchorUntil).toBe(Number.POSITIVE_INFINITY);
+	});
+
+	it('rescues a stuck anchor when no grace timer is pending (input removed from DOM)', () => {
+		const h = makeAnchorHarness();
+		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
+		(h.sampler as unknown as { searchGraceTimer: number }).searchGraceTimer = 0;
+
+		h.poll();
+
+		expect(h.state.searchAnchorUntil).toBe(0);
 	});
 });

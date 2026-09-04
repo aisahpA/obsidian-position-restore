@@ -1,5 +1,6 @@
-import { App, Notice } from 'obsidian';
+import { App, Notice, TFile } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
+import { frontmatterDecisionFor } from './frontmatter';
 import type RememberCursorPosition from '../main';
 import { t } from './i18n';
 
@@ -78,10 +79,14 @@ export class CursorPositionDatabase {
 	private lastFlushTime = 0;
 	private keyTouchedAt = new Map<string, number>();
 
-	// Reentrancy guard: the window-focus trigger and writeDb()'s pre-flush
-	// merge can overlap; two concurrent read-modify passes over this.db
-	// would interleave and corrupt the mtime bookkeeping.
-	private merging = false;
+	// Reentrancy serialization: the window-focus trigger and writeDb()'s
+	// pre-flush merge can overlap; two concurrent read-modify passes over
+	// this.db would interleave and corrupt the mtime bookkeeping. Each
+	// caller queues behind any in-flight pass and runs its own once that
+	// resolves — a concurrent caller is never dropped, which matters for
+	// writeDb(): skipping its pre-flush reconcile would let the whole-file
+	// write clobber a newer foreign file.
+	private mergeChain: Promise<void> = Promise.resolve();
 
 	// Tracks the last key in insertion order. Used so setState() can skip the
 	// delete+insert (which moves a key to the end to mark it fresh) when the key
@@ -227,6 +232,7 @@ export class CursorPositionDatabase {
 		const beforeLength = Object.keys(this.db).length;
 
 		this.removeExcludedFolders();
+		this.removeFrontmatterExcluded();
 
 		this.trimToLimit();
 
@@ -247,6 +253,23 @@ export class CursorPositionDatabase {
 			)) {
 				delete this.db[key];
 			}
+		}
+	}
+
+	// Same rationale as removeExcludedFolders for frontmatter-based exclusion
+	// (escape hatch `position-restore: false` or the configured B property
+	// present): restore does not check frontmatter, so a stale record would
+	// wrongly re-position. Files the metadata cache has not parsed yet (lazy
+	// parsing) are skipped here — the recording gate drops their record on the
+	// next open/poll once the metadata lands.
+	private removeFrontmatterExcluded(): void {
+		for (const key of Object.keys(this.db)) {
+			const file = this.app.vault.getAbstractFileByPath(key);
+			if (!(file instanceof TFile))
+				continue;
+			const decision = frontmatterDecisionFor(this.app, file, this.settings);
+			if (decision?.skip)
+				delete this.db[key];
 		}
 	}
 
@@ -363,31 +386,33 @@ export class CursorPositionDatabase {
 	// stat call) when nothing changed. A file that is torn mid-sync fails
 	// JSON.parse, keeps its old mtime cache, and is retried on a later check.
 	async mergeExternalChanges(): Promise<void> {
-		if (this.merging)
-			return;
-		this.merging = true;
-		try {
-			let mtime: number;
-			try {
-				const st = await this.app.vault.adapter.stat(this.getDbPath());
-				if (!st)
-					return; // file missing — nothing to merge, keep what we have
-				mtime = st.mtime;
-			} catch {
-				return; // file unreadable — keep what we have
-			}
-			if (mtime === this.lastDiskMtime)
-				return;
+		const pass = this.mergeChain.then(() => this.runMergePass());
+		this.mergeChain = pass.catch(() => {});
+		await pass;
+	}
 
-			try {
-				const data = await this.app.vault.adapter.read(this.getDbPath());
-				this.mergeDiskDb(this.parseDb(data));
-				this.lastDiskMtime = mtime;
-			} catch (e) {
-				console.error("Can't merge external db changes:", e);
-			}
-		} finally {
-			this.merging = false;
+	// One reconcile pass: stat the db file and merge any change since we last
+	// observed it. Guarded so it never throws (torn file / unreadable); the
+	// chain wrapper only serializes, it does not add retry semantics.
+	private async runMergePass(): Promise<void> {
+		let mtime: number;
+		try {
+			const st = await this.app.vault.adapter.stat(this.getDbPath());
+			if (!st)
+				return; // file missing — nothing to merge, keep what we have
+			mtime = st.mtime;
+		} catch {
+			return; // file unreadable — keep what we have
+		}
+		if (mtime === this.lastDiskMtime)
+			return;
+
+		try {
+			const data = await this.app.vault.adapter.read(this.getDbPath());
+			this.mergeDiskDb(this.parseDb(data));
+			this.lastDiskMtime = mtime;
+		} catch (e) {
+			console.error("Can't merge external db changes:", e);
 		}
 	}
 

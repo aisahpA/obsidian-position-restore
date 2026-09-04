@@ -25,6 +25,10 @@ interface PluginSettings {
 	dbFileName: string;
 	minLinesToRecord: number; // 0 = disabled, do not record positions for files with fewer lines
 	excludedFolders: string[]; // do not record positions for files in these folders and their subfolders
+	// B rule: do not record positions for files whose frontmatter contains ANY
+	// of these property names (value ignored — the properties usually already
+	// exist for another plugin). Empty array = disabled.
+	frontmatterExcludeProperties: string[];
 	defaultPosition: 'default' | 'fileEnd';
 	linkOpenPosition: 'restore' | 'start'; // where to open a plain file link (no #/^ target): saved position, or file start
 	sourceRestoreMethod: 'instant' | 'glide'; // how to restore a saved position in source mode
@@ -45,6 +49,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	dbFileName: '',
 	minLinesToRecord: 20,
 	excludedFolders: [],
+	frontmatterExcludeProperties: [],
 	defaultPosition: 'default',
 	linkOpenPosition: 'restore',
 	sourceRestoreMethod: 'instant',

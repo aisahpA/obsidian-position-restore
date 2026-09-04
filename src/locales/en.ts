@@ -47,6 +47,22 @@ export const en = {
 	searchFolders: 'Type to search folders...',
 	noFoldersFound: 'No folders found',
 
+	frontmatterExcludeName: 'Exclude by frontmatter property/value',
+	frontmatterExcludeDesc:
+		'Don\'t record files whose frontmatter matches any of these entries. An entry is either a property name (`publish`) — any file that merely has the property is excluded — or `name: value` (`publish: true`), which only excludes files whose property equals that value (yes/no/on/off count as booleans; arrays match when any element does). The properties usually already exist for another plugin, so no file needs editing. Remove all entries to disable. Beware bare names: "tags" would exclude nearly every note.',
+	listNoProperties: 'No properties excluded',
+	addProperty: 'Add property',
+	searchProperties: 'Type to search properties...',
+	noPropertiesFound: 'No properties found',
+	propertyValueTitle: 'Exclude when {0} equals',
+	propertyValueName: 'Value',
+	propertyValueDesc: 'Leave empty to exclude any file that has this property, whatever its value.',
+	propertyValuePlaceholder: 'e.g. true',
+	propertyDuplicate: '{0} is already in the list',
+	escapeHatchName: 'Per-file override property',
+	escapeHatchDesc:
+		'Any file can also opt out or in individually without touching settings: `{0}: false` never records it (overrides every rule above), `{0}: true` always records it (overrides excluded folders, the minimum-length filter and the property rule). Any other value is ignored.',
+
 	dbName: 'Database file',
 	dbDesc:
 		'Path to the JSON file storing positions, relative to the vault root. Leave empty for the default positions.json in the plugin directory.',

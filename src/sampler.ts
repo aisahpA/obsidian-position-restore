@@ -1,8 +1,9 @@
-import { App, FileView, MarkdownView, Platform, WorkspaceLeaf, debounce } from 'obsidian';
+import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { CursorPositionDatabase } from './database';
 import { readEphemeralState, isEphemeralStatesEquals, isCursorStatesEqual } from './ephemeral';
 import { ExclusionChecker } from './exclusion';
+import { frontmatterDecisionFor } from './frontmatter';
 import { PositionState } from './position-state';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
@@ -43,6 +44,14 @@ export class Sampler {
 
 	private searchGraceTimer = 0;
 
+	// Landing-absorb early-expiry state. A finite searchAnchorUntil (armed by
+	// the patcher at an open-kind jump, or by this grace) is a ceiling: once
+	// the view stops moving the landing is over, so expire a couple ticks
+	// later instead of running out the full window — that would otherwise
+	// swallow the user's first deliberate moves after the jump.
+	private searchSettledTicks = 0;
+	private lastAnchorDeadline = 0;
+
 	// Desktop scroll-capture intent window: a scroll delta whose last user
 	// input (wheel/pointerdown/keydown) is older than this is programmatic
 	// movement — dynamic re-render layout shifts (dataview dashboards), lazy
@@ -73,7 +82,7 @@ export class Sampler {
 		this.app = app;
 		this.database = database;
 		this.settings = settings;
-		this.exclusions = new ExclusionChecker(settings);
+		this.exclusions = new ExclusionChecker(app, settings);
 		this.state = state;
 	}
 
@@ -85,7 +94,12 @@ export class Sampler {
 		// recording for the rest of the session. Expire it the moment no
 		// search input holds focus. The finite grace value written by
 		// onFocusOut is left alone; this only rescues the stuck Infinity.
-		if (this.state.searchAnchorUntil === Number.POSITIVE_INFINITY) {
+		// Must NOT run while the post-blur grace timer is pending: a normal
+		// blur also returns activeElement to body, so clearing Infinity here
+		// would cut SEARCH_ANCHOR_GRACE_MS short and the search jump landing
+		// after the blur would be recorded as a user scroll, overwriting the
+		// saved position.
+		if (this.state.searchAnchorUntil === Number.POSITIVE_INFINITY && !this.searchGraceTimer) {
 			const active = document.activeElement;
 			if (!active || !active.closest(this.SEARCH_INPUT_SELECTOR))
 				this.state.searchAnchorUntil = 0;
@@ -113,6 +127,28 @@ export class Sampler {
 			return;
 
 		const prev = this.state.lastEphemeralState;
+
+		// Reset the settle counter whenever the absorb deadline changes (a new
+		// arm or an expiry): a stale tick count from a previous landing must
+		// not expire the next landing's window early.
+		if (this.state.searchAnchorUntil !== this.lastAnchorDeadline) {
+			this.lastAnchorDeadline = this.state.searchAnchorUntil;
+			this.searchSettledTicks = 0;
+		}
+
+		// Early-expire a FINITE absorb once the view stops moving: the jump
+		// has landed. Infinity (a live search input) is left to the
+		// stuck-anchor safety net above.
+		if (Number.isFinite(this.state.searchAnchorUntil) && this.state.isSearchAnchored()) {
+			if (prev && isEphemeralStatesEquals(st, prev)) {
+				if (++this.searchSettledTicks >= 2) {
+					this.state.searchAnchorUntil = Date.now();
+					this.searchSettledTicks = 0;
+				}
+			} else {
+				this.searchSettledTicks = 0;
+			}
+		}
 		let write: EphemeralState | undefined;
 
 		if (prev) {
@@ -399,6 +435,13 @@ export class Sampler {
 			if (this.searchGraceTimer) window.clearTimeout(this.searchGraceTimer);
 			this.searchGraceTimer = window.setTimeout(() => {
 				this.searchGraceTimer = 0;
+				// A finite future anchor means the restorer re-armed recording
+				// for an open-kind jump landing (restorer.ts restoreOpen) whose
+				// async arrival can exceed this grace window — expiring it here
+				// would record the landing. Only expire the Infinity this blur
+				// closed out.
+				if (Number.isFinite(this.state.searchAnchorUntil))
+					return;
 				this.state.searchAnchorUntil = Date.now(); // expired
 			}, this.SEARCH_ANCHOR_GRACE_MS);
 		};
@@ -415,5 +458,30 @@ export class Sampler {
 	// the excluded-folders list may have changed.
 	clearExclusionCache() {
 		this.exclusions.clearPathCache();
+		this.exclusions.clearFrontmatterCache();
+	}
+
+	// Frontmatter reactivation. Two jobs, one event:
+	//  - the memoized frontmatter decisions must follow re-parses (metadata
+	//    cache 'changed' fires after a file's metadata — incl. frontmatter —
+	//    lands or changes), otherwise an edited marker would keep its stale
+	//    value for the life of the memo;
+	//  - the moment a file becomes frontmatter-excluded, drop its db record
+	//    right away instead of waiting for the next poll tick (active view
+	//    only) or a scroll (background tabs): editing a file to
+	//    `position-restore: false` must not leave a record that restores once
+	//    later. Non-frontmatter exclusions (folders, min lines) are unchanged:
+	//    the poll / scroll-capture gate already handles them.
+	installFrontmatterWatch(registerCleanup: (fn: () => void) => void) {
+		const onCacheChanged = (file: TFile) => {
+			this.exclusions.invalidateFrontmatter(file.path);
+			const decision = frontmatterDecisionFor(this.app, file, this.settings);
+			if (decision?.skip)
+				this.database.deleteFile(file.path);
+		};
+		const ref = this.app.metadataCache.on('changed', onCacheChanged);
+		registerCleanup(() => {
+			this.app.metadataCache.offref(ref);
+		});
 	}
 }

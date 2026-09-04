@@ -5,6 +5,16 @@ import { RestoreCue } from './cue';
 
 export type OpenKind = 'anchorLink' | 'startPlainLink' | 'callerTarget';
 
+// How long recording stays in absorb mode after an open-kind jump
+// (anchorLink/startPlainLink/callerTarget) is dispatched at setViewState
+// time (patcher.injectEphemeralStateOnOpen). The jump lands asynchronously
+// (file load + scroll/cursor to the match or link target); during this
+// window the poll re-baselines lastEphemeralState without writing and scroll
+// capture skips, so the landing itself is never recorded as user movement.
+// The sampler additionally expires the absorb early once the view stops
+// moving (stability check), so this is a ceiling, not a hard delay.
+export const LANDING_ABSORB_MS = 3000;
+
 // Single owner of the cross-phase coordination state shared by recording,
 // restore, and the open patches. The transient flags below are read and
 // written across restore, inject, and the polling loop — fragmenting them
@@ -125,11 +135,16 @@ export class PositionState {
 	pendingLinkKindTimeout = 0;
 
 	// ===== Search anchor (search-driven jump guard) =====
-	// Deadline until which recording treats view movement as search-driven:
+	// Deadline until which recording treats view movement as not the user's:
 	// while a search input (editor find, quick switcher, search panel) holds
 	// focus this is Infinity, and the sampler keeps it there for a short
 	// grace window after the input blurs before expiring it to Date.now().
-	// The poll arms/clears it — see Sampler.installSearchAnchor.
+	// The patcher also sets it to a finite future value (LANDING_ABSORB_MS)
+	// when an open-kind jump (anchorLink/startPlainLink/callerTarget — a
+	// search-result match or link target) is dispatched, so the async landing
+	// is absorbed into the baseline instead of recorded. The sampler expires
+	// the finite value early once the view stops moving. The poll arms/clears
+	// it — see Sampler.installSearchAnchor.
 	searchAnchorUntil = 0;
 
 	isSearchAnchored(): boolean {

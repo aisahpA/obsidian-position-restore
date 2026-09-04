@@ -45,6 +45,9 @@ export class PositionManager {
 		// saved position — see Sampler.installSearchAnchor. Platform-neutral:
 		// both the desktop and the mobile poll take the guard.
 		this.sampler.installSearchAnchor(registerCleanup);
+		// Frontmatter recording rules: keep the exclusion memo in sync with
+		// metadata re-parses and drop records the moment a file opts out.
+		this.sampler.installFrontmatterWatch(registerCleanup);
 		if (Platform.isDesktopApp) {
 			this.sampler.installScrollCapture(registerCleanup);
 			// Desktop counterpart of the mobile touch listener: stamp user

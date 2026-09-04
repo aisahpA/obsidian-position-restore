@@ -4,6 +4,7 @@
 // tests themselves — see these classes for their instanceof checks.
 export class FileView {}
 export class MarkdownView extends FileView {}
+export class TFile {}
 
 // database.ts fires notices on failure paths (switchDbFile validation etc.).
 export class Notice {}

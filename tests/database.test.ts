@@ -7,6 +7,8 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
+import { TFile } from 'obsidian';
+
 // i18n resolves the locale from window.moment at module load; provide a
 // stand-in before src/database (and its i18n import) is evaluated.
 vi.hoisted(() => {
@@ -53,14 +55,32 @@ function makeHarness(files: Record<string, string> = {}, settings: Partial<Plugi
 		mkdir: vi.fn(async () => undefined),
 		stat: vi.fn(async (p: string) => (p in files ? { mtime } : null)),
 	};
+	// frontmatters maps vault file paths to the frontmatter the metadata
+	// cache reports for them; a path missing from the map means "file does not
+	// exist / not parsed yet". Tests mutate the map to simulate frontmatter
+	// edits and lazy parsing.
+	const frontmatters: Record<string, unknown> = {};
+	const app = {
+		vault: {
+			adapter,
+			getAbstractFileByPath: vi.fn((p: string) =>
+				p in frontmatters ? Object.assign(Object.create(TFile.prototype), { path: p }) : null
+			),
+		},
+		metadataCache: {
+			getFileCache: vi.fn((f: { path: string }) =>
+				f.path in frontmatters ? { frontmatter: frontmatters[f.path] } : null
+			),
+		},
+	};
 	const plugin = {
-		app: { vault: { adapter } },
+		app,
 		manifest: { dir: '.obsidian/plugins/position-restore' },
 		saveSettings: vi.fn(),
 	};
 	const merged = { ...DEFAULT_SETTINGS, ...settings };
 	const db = new CursorPositionDatabase(plugin as never, merged);
-	return { db, adapter, files, externalWrite, settings: merged };
+	return { db, frontmatters, adapter, files, externalWrite, settings: merged };
 }
 
 afterEach(() => {
@@ -231,6 +251,90 @@ describe('folder exclusions', () => {
 	});
 });
 
+describe('frontmatter exclusions', () => {
+	it('removes records for the escape-hatch `position-restore: false`', () => {
+		const h = makeHarness();
+		h.db.setState('a.md', { scroll: 1 });
+		h.frontmatters['a.md'] = { 'position-restore': false };
+
+		expect(h.db.pruneDb()).toBe(1);
+		expect(Object.keys(h.db.db)).toEqual([]);
+	});
+
+	it('removes records for files containing the configured exclusion property, whatever its value', () => {
+		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
+		h.db.setState('a.md', { scroll: 1 });
+		h.db.setState('b.md', { scroll: 1 });
+		h.frontmatters['a.md'] = { publish: false };
+		h.frontmatters['b.md'] = { publish: true };
+
+		expect(h.db.pruneDb()).toBe(2);
+		expect(Object.keys(h.db.db)).toEqual([]);
+	});
+
+	it('removes records only when the exclusion property matches its configured value', () => {
+		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish: true'] });
+		h.db.setState('a.md', { scroll: 1 });
+		h.db.setState('b.md', { scroll: 1 });
+		h.frontmatters['a.md'] = { publish: true };
+		h.frontmatters['b.md'] = { publish: false };
+
+		expect(h.db.pruneDb()).toBe(1);
+		expect(Object.keys(h.db.db)).toEqual(['b.md']);
+	});
+
+	it('removes records matching ANY of several configured properties', () => {
+		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish', 'status: draft'] });
+		h.db.setState('a.md', { scroll: 1 });
+		h.db.setState('b.md', { scroll: 1 });
+		h.db.setState('c.md', { scroll: 1 });
+		h.frontmatters['a.md'] = { status: 'draft' };
+		h.frontmatters['b.md'] = { publish: true };
+		h.frontmatters['c.md'] = { title: 'x' };
+
+		expect(h.db.pruneDb()).toBe(2);
+		expect(Object.keys(h.db.db)).toEqual(['c.md']);
+	});
+
+	it('keeps records the escape hatch explicitly forces (`position-restore: true`)', () => {
+		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
+		h.db.setState('a.md', { scroll: 1 });
+		h.frontmatters['a.md'] = { 'position-restore': true, publish: true };
+
+		expect(h.db.pruneDb()).toBe(0);
+		expect(Object.keys(h.db.db)).toEqual(['a.md']);
+	});
+
+	it('ignores escape-hatch values that are not boolean or "true"/"false" strings', () => {
+		const h = makeHarness();
+		h.db.setState('a.md', { scroll: 1 });
+		h.frontmatters['a.md'] = { 'position-restore': 1 };
+
+		expect(h.db.pruneDb()).toBe(0);
+		expect(Object.keys(h.db.db)).toEqual(['a.md']);
+	});
+
+	it('prunes records for the string marker `position-restore: "false"`', () => {
+		const h = makeHarness();
+		h.db.setState('a.md', { scroll: 1 });
+		// Obsidian's properties UI stores text-typed values quoted ("false").
+		h.frontmatters['a.md'] = { 'position-restore': 'false' };
+
+		expect(h.db.pruneDb()).toBe(1);
+		expect(Object.keys(h.db.db)).toEqual([]);
+	});
+
+	it('keeps records for files the metadata cache has not parsed yet (lazy parsing)', () => {
+		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
+		h.db.setState('a.md', { scroll: 1 });
+		// frontmatters stays empty → "not parsed" → the record survives here;
+		// the recording gate drops it on the file's next open/poll instead.
+
+		expect(h.db.pruneDb()).toBe(0);
+		expect(Object.keys(h.db.db)).toEqual(['a.md']);
+	});
+});
+
 describe('renameFile / deleteFile', () => {
 	it('moves the record and its touch stamp to the new path', () => {
 		const { db } = makeHarness();
@@ -332,6 +436,36 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		await db.mergeExternalChanges();
 		expect(db.db['a.md']).toEqual({ scroll: 1 });
 		expect(adapter.read).not.toHaveBeenCalled();
+	});
+
+	it('a flush does not clobber a foreign file while a sync merge is in flight', async () => {
+		const { db, adapter, externalWrite, files } = makeHarness();
+		db.setState('a.md', { scroll: 1 });
+		await db.writeDb();
+
+		// Another device lands a new record while we run.
+		externalWrite(DB_PATH, JSON.stringify({ 'a.md': [1], 'c.md': [7] }));
+
+		// Stall the first read so the sync merge and the flush's pre-write
+		// merge overlap. The flush must wait for the merge, not bail and
+		// write over the newer file.
+		const origRead = adapter.read.getMockImplementation()!;
+		let reads = 0;
+		adapter.read.mockImplementation(async (p: string) => {
+			const data = await origRead(p);
+			if (++reads === 1)
+				await new Promise(res => setTimeout(res, 20));
+			return data;
+		});
+
+		db.setState('b.md', { scroll: 2 }); // a local change makes the flush dirty
+		const inFlight = db.mergeExternalChanges(); // do not await yet
+		await db.writeDb();
+		await inFlight;
+
+		const written = JSON.parse(files[DB_PATH]);
+		expect(written['c.md']).toEqual([7]); // foreign record survived
+		expect(written['b.md']).toEqual([2]);
 	});
 });
 
