@@ -1,16 +1,36 @@
-import { defineConfig } from 'eslint/config';
-import globals from 'globals';
 import obsidianmd from 'eslint-plugin-obsidianmd';
+import globals from 'globals';
+import { globalIgnores, defineConfig } from 'eslint/config';
 
-// Official Obsidian plugin-review lint setup:
-// https://github.com/obsidianmd/eslint-plugin
-// `recommended` already bundles eslint core + typescript-eslint type-checked
-// rules + Obsidian-specific rules — don't add those presets separately.
-export default defineConfig([
-	// The vitest suite lives outside the build tsconfig (excluded there), so
-	// the type-checked rules can't resolve it; lint covers shipped sources.
-	{ ignores: ['main.js', 'node_modules/', 'tests/', 'vitest.config.mts'] },
+export default defineConfig(
+	globalIgnores([
+		'node_modules',
+		'dist',
+		// The vitest suite lives outside the build tsconfig (excluded there), so
+		// the type-checked rules can't resolve it; lint covers shipped sources.
+		'tests/',
+		'vitest.config.mts',
+		'main.js',
+		'versions.json',
+		'package.json',
+		'package-lock.json',
+		'tsconfig.json',
+	]),
 	...obsidianmd.configs.recommended,
+	{
+		languageOptions: {
+			globals: {
+				...globals.browser,
+			},
+			parserOptions: {
+				projectService: {
+					allowDefaultProject: ['eslint.config.mjs', 'manifest.json', 'rollup.config.mjs', 'version-bump.mjs'],
+				},
+				tsconfigRootDir: import.meta.dirname,
+				extraFileExtensions: ['.json'],
+			},
+		},
+	},
 	{
 		// Node-only build scripts: Obsidian runtime rules don't apply.
 		files: ['rollup.config.mjs', 'version-bump.mjs'],
@@ -23,29 +43,4 @@ export default defineConfig([
 			'obsidianmd/no-nodejs-modules': 'off',
 		},
 	},
-	{
-		languageOptions: {
-			parserOptions: {
-				projectService: {
-					allowDefaultProject: [
-						'eslint.config.*',
-						'rollup.config.mjs',
-						'version-bump.mjs',
-					],
-				},
-			},
-		},
-	},
-	{
-		// Prototype patches must stay real functions (their `this` is the
-		// leaf/workspace), so capturing the plugin instance under a fixed
-		// alias is intentional.
-		files: ['**/*.{ts,cts,mts,tsx}'],
-		rules: {
-			'@typescript-eslint/no-this-alias': [
-				'error',
-				{ allowedNames: ['patcher'] },
-			],
-		},
-	},
-]);
+);
