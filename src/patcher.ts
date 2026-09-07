@@ -2,6 +2,10 @@ import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { TabStore } from './tab-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from './position-state';
+import { readEphemeralState } from './ephemeral';
+import type { NavHistory } from './nav-history';
+import { isMainAreaLeaf } from './nav-history';
+import type { Sampler } from './sampler';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
 // are internal and untyped; declare the minimal fields this plugin reads.
@@ -40,11 +44,15 @@ export class OpenPatcher {
 	private settings: PluginSettings;
 	private state: PositionState;
 	private tabStore: TabStore;
+	private nav: NavHistory;
+	private sampler: Sampler;
 
-	constructor(app: App, settings: PluginSettings, tabStore: TabStore) {
+	constructor(app: App, settings: PluginSettings, tabStore: TabStore, nav: NavHistory, sampler: Sampler) {
 		this.app = app;
 		this.settings = settings;
 		this.tabStore = tabStore;
+		this.nav = nav;
+		this.sampler = sampler;
 		this.state = tabStore.state;
 	}
 
@@ -98,11 +106,13 @@ export class OpenPatcher {
 			// so a stale entry from a previous openLinkText that never reached
 			// setViewState can't contaminate this one.
 			state.pendingLinkKind = undefined;
+			state.pendingLinkText = undefined;
 			const linktext: unknown = args[0];
 			const hasTarget = typeof linktext === 'string'
 				&& (linktext.includes('#') || linktext.includes('^'));
 			if (hasTarget) {
 				state.pendingLinkKind = 'anchorLink';
+				state.pendingLinkText = linktext;
 			} else if (settings.linkOpenPosition === 'start') {
 				state.pendingLinkKind = 'startPlainLink';
 			}
@@ -112,6 +122,7 @@ export class OpenPatcher {
 				window.clearTimeout(state.pendingLinkKindTimeout);
 				state.pendingLinkKindTimeout = window.setTimeout(() => {
 					state.pendingLinkKind = undefined;
+					state.pendingLinkText = undefined;
 				}, 500);
 			}
 		};
@@ -153,6 +164,66 @@ export class OpenPatcher {
 			// closing the last tab): prior open bookkeeping is stale, drop
 			// it so a later reopen of the same file restores again.
 			this.resetLeafOpenState(leaf);
+		}
+
+		// Navigation history: every open that changes this leaf's file is a
+		// jump (native per-tab history records the same open); a replay is a
+		// jump only when it carries a same-file target (heading/block link,
+		// search match — outline/backlinks clicks on the open note fire no
+		// file-open). recordOpen applies its own gates (setting, traversal
+		// execution, startup, dedup keys).
+		// "Update on leave" first: the view being swapped away still holds
+		// the position the user is jumping from (for a same-file jump it IS
+		// the current view) — refresh the top entry so a later back/forward
+		// targeting it lands there. No-op when the top entry moved on.
+		const leavingView = leaf.view;
+		if (leavingView instanceof MarkdownView && leavingView.file) {
+			const fromSt = readEphemeralState(leavingView);
+			if (fromSt) {
+				this.nav.refreshTop(leavingView.file.path, leafId, fromSt);
+				// The record's regular writers lag (poll tick, debounced
+				// scroll capture): a move + quick jump-away inside that
+				// window loses the final position. Flush the exact leaving
+				// state to the record; dedup makes no-movement a no-op.
+				this.sampler.flushOnLeave(leavingView, leavingView.file.path, fromSt);
+			}
+		}
+		const sameFileTarget = !!eState?.match || !!eState?.['is-flashing'];
+		// Main-area leaves only — a sidebar panel's state re-assertion
+		// (outline/backlinks carrying the tracked file) is not a jump.
+		if (isMainAreaLeaf(this.app, leaf))
+			this.nav.recordOpen(filePath, leafId, {
+				// Caller-target jumps (search match, backlinks is-flashing)
+				// carry no linktext: key them uniquely so the entry takes the
+				// keyed precise-landing regime — the settle-capture backfills
+				// the landing, and later leaves never overwrite it.
+				key: this.state.pendingLinkText ?? (sameFileTarget ? `caller:${Date.now()}` : undefined),
+				force: sameFileTarget,
+			});
+
+		// A history traversal (NavHistory armed pendingHistoryNav, consumed
+		// here — single shot): inject THIS plugin's saved position over the
+		// native entry's eState, which carries only the cursor (no scroll).
+		// Bypasses the callerTarget yield and the glide choice on purpose:
+		// history traversal must land instantly, and its target is the
+		// per-file record, not the native cursor. No saved record → native
+		// target stands (callerTarget absorbs the landing below). Non-markdown
+		// traversals fall through untouched — their positions are native.
+		if (this.state.pendingHistoryNav) {
+			this.state.pendingHistoryNav = false;
+			window.clearTimeout(this.state.pendingHistoryNavTimeout);
+			if (!isReplay && viewState.type === 'markdown') {
+				const st = this.tabStore.getRestoreSt(leaf, filePath);
+				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
+					const merged = this.buildMergedState(st, this.isSourceModeOpen(leaf, viewState));
+					this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
+					this.state.injectedOpenLeafIds.add(leafId);
+					this.state.handledLeafIdMap.set(leafId, filePath);
+					return { ...eState, ...merged };
+				}
+			}
+			this.state.handledLeafIdMap.set(leafId, filePath);
+			return eState;
 		}
 
 		if (this.takeOverridingOpenKind(leaf, eState, isReplay)) {
@@ -280,6 +351,7 @@ export class OpenPatcher {
 		if (linkKind) {
 			this.state.pendingOpenKind.set(leaf, linkKind);
 			this.state.pendingLinkKind = undefined;
+			this.state.pendingLinkText = undefined;
 			window.clearTimeout(this.state.pendingLinkKindTimeout);
 			return linkKind;
 		}

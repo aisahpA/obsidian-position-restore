@@ -14,8 +14,9 @@
 //    file: setViewState, no following file-open) must stay native — covering
 //    it leaves the mask up until the safety timer (~2s blank).
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
+import { MarkdownView } from 'obsidian';
 
 import { OpenPatcher } from '../src/patcher';
 import { TabStore } from '../src/tab-store';
@@ -42,10 +43,10 @@ beforeEach(() => {
 	});
 });
 
-function makeLeaf(id: string): WorkspaceLeaf {
+function makeLeaf(id: string, containerEl: ParentNode = document.createElement('div')): WorkspaceLeaf {
 	return {
 		id,
-		containerEl: document.createElement('div'),
+		containerEl,
 	} as unknown as WorkspaceLeaf;
 }
 
@@ -71,15 +72,24 @@ function makeHarness(
 ) {
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const leaf = makeLeaf('leaf-1');
-	const app = { workspace: { layoutReady } } as never;
+	const app = {
+		workspace: {
+			layoutReady,
+			// Main area = the container this test leaf lives in.
+			rootSplit: { containerEl: { contains: (el: unknown) => el === leaf.containerEl } },
+		},
+	} as never;
 	const tabStore = new TabStore(app, { db } as never, state);
 	// The TabStore constructor loads lastStateByLeaf from storage; tests with
 	// a preset map re-assign it after construction.
 	state.lastStateByLeaf = lastStateByLeaf;
-	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore);
+	const recordOpen = vi.fn();
+	const nav = { recordOpen, refreshTop: () => undefined };
+	const flushOnLeave = vi.fn();
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, nav as never, { flushOnLeave } as never);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
-	return { state, leaf, inject };
+	return { state, leaf, inject, flushOnLeave, recordOpen };
 }
 
 afterEach(() => {
@@ -90,7 +100,6 @@ afterEach(() => {
 describe('OpenPatcher open classification', () => {
 	it('a fresh open injects the saved position, covers, and records the pair', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
-
 		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
 
 		expect(result).toMatchObject({ scroll: 10 });
@@ -98,6 +107,20 @@ describe('OpenPatcher open classification', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
+	});
+
+	it('flushes the leaving view state to the record on an open (rapid-move loss window)', () => {
+		const { leaf, inject, flushOnLeave } = makeHarness();
+		const leavingView = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'b.md' },
+			currentMode: { getScroll: () => 2.6 },
+			editor: { getCursor: () => ({ line: 0, ch: 0 }) },
+		});
+		(leaf as unknown as { view: unknown }).view = leavingView;
+
+		inject(leaf, SOURCE_OPEN_A(), undefined);
+
+		expect(flushOnLeave).toHaveBeenCalledWith(leavingView, 'b.md', { scroll: 3 });
 	});
 
 	it('a fresh open with a caller target (search match) yields and records the pair', () => {
@@ -258,5 +281,22 @@ describe('OpenPatcher open classification', () => {
 		const result = inject(leaf, SOURCE_OPEN_A('b.md'), undefined) as Record<string, unknown>;
 
 		expect(result).toMatchObject({ scroll: 10 });
+	});
+
+	it('a sidebar panel state re-assertion (outline carrying the tracked file) does not record', () => {
+		const { leaf, inject, recordOpen } = makeHarness();
+
+		// The outline panel re-asserts its view state with the tracked file
+		// in state.file; its leaf is not in the main area → no record.
+		inject(
+			makeLeaf('outline-leaf', document.createElement('aside')),
+			{ type: 'outline', state: { file: 'a.md' } },
+			undefined,
+		);
+		expect(recordOpen).not.toHaveBeenCalled();
+
+		// Control: a main-area open records.
+		inject(leaf, SOURCE_OPEN_A(), undefined);
+		expect(recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
 });

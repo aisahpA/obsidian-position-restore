@@ -133,6 +133,20 @@ export class PositionState {
 	// for openLinkText calls that never reach setViewState.
 	pendingLinkKind: OpenKind | undefined;
 	pendingLinkKindTimeout = 0;
+	// The raw linktext of the pending openLinkText call, stashed alongside
+	// pendingLinkKind. Used as the navigation-history dedup key for same-file
+	// anchor jumps (repeated outline clicks to the same heading push only
+	// one entry). Cleared together with pendingLinkKind.
+	pendingLinkText: string | undefined;
+
+	// One-shot flag armed by NavHistory right before it invokes the native
+	// app:go-back / app:go-forward command: the resulting setViewState must
+	// inject THIS plugin's saved position over the native entry's eState
+	// (which carries only the cursor, never the scroll). Consumed by the
+	// setViewState patch; the timeout is the safety net for a command that
+	// never reached setViewState.
+	pendingHistoryNav = false;
+	pendingHistoryNavTimeout = 0;
 
 	// ===== Search anchor (search-driven jump guard) =====
 	// Deadline until which recording treats view movement as not the user's:

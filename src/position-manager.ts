@@ -7,6 +7,7 @@ import { BackgroundSettler } from './background-settle';
 import { Restorer } from './restorer';
 import { OpenPatcher } from './patcher';
 import { Sampler } from './sampler';
+import { NavHistory } from './nav-history';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
@@ -14,6 +15,8 @@ import { Sampler } from './sampler';
 //    position changes (see sampler.ts).
 //  - Sampler: the polling-loop observer plus scroll listener that persists
 //  - Restorer: restores a saved position after an open.
+//  - NavHistory: the VSCode-style back/forward stack (records via the patch
+//    and the poll, executes through the native per-tab history).
 //  - File rename/delete bookkeeping.
 // All cross-phase coordination flags live in the shared PositionState, so the
 // collaborators never desync. main.ts only talks to this class.
@@ -26,20 +29,26 @@ export class PositionManager {
 	private patcher: OpenPatcher;
 	private sampler: Sampler;
 	private backgroundSettler: BackgroundSettler;
+	private nav: NavHistory;
 
 	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings) {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
+		this.nav = new NavHistory(app, settings, this.state);
 		this.tabStore = new TabStore(app, database, this.state);
 		this.restorer = new Restorer(app, settings, this.tabStore);
-		this.patcher = new OpenPatcher(app, settings, this.tabStore);
-		this.sampler = new Sampler(app, database, settings, this.state);
+		this.sampler = new Sampler(app, database, settings, this.state, this.nav);
+		this.patcher = new OpenPatcher(app, settings, this.tabStore, this.nav, this.sampler);
 		this.backgroundSettler = new BackgroundSettler(app, settings, this.tabStore);
 	}
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
 		this.patcher.installPatches(registerCleanup);
+		// Outline panel clicks as in-file nav steps (reading mode — the one
+		// jump path the patches and the poll cannot see). Silent no-op when
+		// the outline DOM can't be resolved.
+		this.nav.installOutlineCapture(registerCleanup);
 		// Search anchor: armed by focus on a search input (editor find,
 		// switcher, search panel) so search-driven jumps don't overwrite the
 		// saved position — see Sampler.installSearchAnchor. Platform-neutral:
@@ -54,6 +63,10 @@ export class PositionManager {
 			// input so scroll capture can tell real scrolls from programmatic
 			// movement (see Sampler.installUserIntentTracker).
 			this.sampler.installUserIntentTracker(registerCleanup);
+			// In-file jump detection at per-selection-event granularity
+			// (VSCode's 10-line threshold) instead of the poll's 100ms
+			// quantization — see Sampler.installTeleportWatcher.
+			this.sampler.installTeleportWatcher(registerCleanup);
 		} else {
 			// Mobile: no scroll capture (WKWebView drops the events), but the
 			// poll needs a reliable "user touched the view" signal to tell
@@ -83,8 +96,8 @@ export class PositionManager {
 		this.backgroundSettler.start(registerCleanup);
 	}
 
-	checkEphemeralStateChanged() {
-		this.sampler.checkEphemeralStateChanged();
+	sampleActiveView() {
+		this.sampler.sampleActiveView();
 	}
 
 	storePositionData() {
@@ -97,7 +110,36 @@ export class PositionManager {
 			this.tabStore.persistLastStateByLeaf(this.state.lastStateByLeaf);
 		}
 
+		// Navigation history rides the same persist points (dirty-checked
+		// against the last written snapshot, so unchanged rounds cost one
+		// stringify).
+		this.nav.persist();
+
 		void this.database.writeDb();
+	}
+
+	// Navigate back/forward through the recorded jump history (VSCode-style).
+	navigateBack() {
+		void this.nav.navigate(-1)
+			.catch(e => console.error('Position Restore: navigate back failed:', e));
+	}
+
+	navigateForward() {
+		void this.nav.navigate(1)
+			.catch(e => console.error('Position Restore: navigate forward failed:', e));
+	}
+
+	// Command availability for back/forward (checkCallback). True also when a
+	// sidebar holds focus but the last file tab can be reactivated — see
+	// NavHistory.canNavigate.
+	canNavigate(dir: -1 | 1): boolean {
+		return this.nav.canNavigate(dir);
+	}
+
+	// Tab/pane activation records a nav step (VSCode semantics) — see
+	// NavHistory.recordActivation.
+	recordActivation(leaf: WorkspaceLeaf | null): void {
+		this.nav.recordActivation(leaf);
 	}
 
 	// True while a search session is live (a search input holds, or just
@@ -109,12 +151,14 @@ export class PositionManager {
 
 	renameFile(file: TAbstractFile, oldPath: string) {
 		this.database.renameFile(file.path, oldPath);
+		this.nav.renameFile(oldPath, file.path);
 		if (this.state.lastLoadedFilePath == oldPath)
 			this.state.lastLoadedFilePath = file.path;
 	}
 
 	deleteFile(file: TAbstractFile) {
 		this.database.deleteFile(file.path);
+		this.nav.deleteFile(file.path);
 	}
 
 	clearExclusionCache() {

@@ -95,7 +95,7 @@ function makeHarness(options?: {
 		frontmatterExcludeProperties: options?.frontmatterExcludeProperties ?? [],
 	} as PluginSettings;
 	const state = new PositionState(settings);
-	const sampler = new Sampler(app as never, database as never, settings, state);
+	const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 	const capture = (sampler as unknown as { onScrollCapture: ScrollCapture }).onScrollCapture;
 	// Simulate "user just interacted": by default the intent guard is satisfied.
 	state.lastUserInputAt = Date.now();
@@ -275,7 +275,7 @@ describe('Sampler.onScrollCapture — non-markdown views', () => {
 		};
 		const settings = { ...DEFAULT_SETTINGS, recordBaseScroll: true } as PluginSettings;
 		const state = new PositionState(settings);
-		const sampler = new Sampler(app as never, database as never, settings, state);
+		const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 		const capture = (sampler as unknown as { onScrollCapture: ScrollCapture }).onScrollCapture;
 		state.lastUserInputAt = Date.now();
 
@@ -293,11 +293,11 @@ describe('environment sanity', () => {
 	});
 });
 
-// checkEphemeralStateChanged is the mobile-only writer of per-tab records
+// sampleActiveView is the mobile-only writer of per-tab records
 // (lastStateByLeaf): on mobile there is no scroll-capture listener, so the
 // 100ms poll must feed the per-tab baseline too, or the same file open in
 // two tabs restores both to the same per-file record after a restart.
-describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () => {
+describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 	// A markdown view whose scroll is settable, so one harness can simulate
 	// two tabs of the same file at different positions.
 	function makeScrollingView(path: string, scroll: number, leafId: string): MarkdownView {
@@ -328,8 +328,8 @@ describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () =
 			},
 			metadataCache: { getFileCache: () => null }, // no frontmatter by default
 		};
-		const sampler = new Sampler(app as never, database as never, settings, state);
-		const poll = () => sampler.checkEphemeralStateChanged();
+		const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		const poll = () => sampler.sampleActiveView();
 		return {
 			sampler, state, database,
 			activate(view: MarkdownView) { activeView = view; },
@@ -388,11 +388,11 @@ describe('Sampler.checkEphemeralStateChanged — mobile per-tab recording', () =
 	});
 });
 
-// The stuck-anchor safety net in checkEphemeralStateChanged must not run
+// The stuck-anchor safety net in sampleActiveView must not run
 // during the post-blur grace window: a normal blur also leaves activeElement
 // on body, and clearing the Infinity there would cut SEARCH_ANCHOR_GRACE_MS
 // short, letting the search jump's landing overwrite the saved position.
-describe('Sampler.checkEphemeralStateChanged — search-anchor grace window', () => {
+describe('Sampler.sampleActiveView — search-anchor grace window', () => {
 	function makeAnchorHarness() {
 		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
 		const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
@@ -405,8 +405,8 @@ describe('Sampler.checkEphemeralStateChanged — search-anchor grace window', ()
 			},
 			metadataCache: { getFileCache: () => null }, // no frontmatter by default
 		};
-		const sampler = new Sampler(app as never, database as never, settings, state);
-		return { sampler, state, poll: () => sampler.checkEphemeralStateChanged() };
+		const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		return { sampler, state, poll: () => sampler.sampleActiveView() };
 	}
 
 	it('keeps the anchor armed through the post-blur grace window', () => {

@@ -88,9 +88,10 @@ function makePollHarness() {
 	};
 	const settings = DEFAULT_SETTINGS as PluginSettings;
 	const state = new PositionState(settings);
-	const sampler = new Sampler(app as never, database as never, settings, state);
+	const nav = { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() };
+	const sampler = new Sampler(app as never, database as never, settings, state, nav as never);
 	state.lastLoadedFilePath = 'a.md';
-	return { sampler, state, database, view };
+	return { sampler, state, database, view, refreshTop: nav.refreshTop };
 }
 
 function setCursor(view: MarkdownView, line: number, ch: number) {
@@ -104,7 +105,7 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
 		const tabStore = new TabStore(app, { db: {} } as never, state);
-		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore);
+		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
 		// Search-result clicks pass eState.match (verified against core's
@@ -126,7 +127,7 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
 		const tabStore = new TabStore(app, { db: { 'a.md': { scroll: 5 } } } as never, state);
-		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore);
+		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
 		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
@@ -144,13 +145,13 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
 		// Tick 1: baseline seed (pre-landing state, cursor at 3:7).
-		sampler.checkEphemeralStateChanged();
+		sampler.sampleActiveView();
 		expect(database.setState).not.toHaveBeenCalled();
 		expect(state.lastEphemeralState?.cursor).toMatchObject({ from: { line: 3, ch: 7 } });
 
 		// The jump lands: cursor hops to the search match.
 		setCursor(view, 12, 3);
-		sampler.checkEphemeralStateChanged();
+		sampler.sampleActiveView();
 		// Absorbed: no db write, baseline tracks the landing.
 		expect(database.setState).not.toHaveBeenCalled();
 		expect(state.lastEphemeralState?.cursor).toMatchObject({ from: { line: 12, ch: 3 } });
@@ -158,22 +159,28 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 		// Absorb expired: the first deliberate user move records normally.
 		state.searchAnchorUntil = Date.now() - 1;
 		setCursor(view, 20, 0);
-		sampler.checkEphemeralStateChanged();
+		sampler.sampleActiveView();
 		expect(database.setState).toHaveBeenCalledTimes(1);
 	});
 
-	it('expires the finite absorb early once the view stops moving', () => {
-		const { sampler, state } = makePollHarness();
+	it('expires the finite absorb early once the view stops moving and captures the landing', () => {
+		const { sampler, state, refreshTop } = makePollHarness();
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
 		// Seed the baseline (prev undefined on tick 1).
-		sampler.checkEphemeralStateChanged();
+		sampler.sampleActiveView();
 		expect(state.searchAnchorUntil).toBeGreaterThan(Date.now());
 
-		// Two consecutive stable ticks = the landing has settled -> expire.
-		sampler.checkEphemeralStateChanged();
-		sampler.checkEphemeralStateChanged();
+		// Two consecutive stable ticks = the landing has settled -> expire,
+		// and the settled read attaches as the landing entry's precise
+		// position (settle-capture).
+		sampler.sampleActiveView();
+		sampler.sampleActiveView();
 		expect(state.searchAnchorUntil).toBeLessThanOrEqual(Date.now());
+		expect(refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
+			scroll: 42,
+			cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } },
+		});
 	});
 });
 
@@ -193,7 +200,7 @@ describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', (
 	function makeAnchorHarness() {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
-		const sampler = new Sampler({} as never, database as never, DEFAULT_SETTINGS, state);
+		const sampler = new Sampler({} as never, database as never, DEFAULT_SETTINGS, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 		sampler.installSearchAnchor((fn) => cleanups.push(fn));
 		return { sampler, state };
 	}

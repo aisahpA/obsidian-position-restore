@@ -77,6 +77,18 @@ export const en = {
 	entriesName: 'Entry count',
 	entriesDesc:
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
+	
+
+	navHistoryHeading: 'Navigation history',
+	navHistoryName: 'Navigation history',
+	navHistoryDesc:
+		'VSCode-style "Navigate back" / "Navigate forward" across file switches and in-file jumps (links, outline, search results, large cursor moves). Always on — it only needs hotkeys, none are pre-assigned. Same-tab file switches ride Obsidian\'s native per-tab history (PDF, canvas and other views included); the stack (max 50 entries) is device-local and survives restarts.',
+	navHotkeyBack: 'Back',
+	navHotkeyForward: 'Forward',
+	navHotkeyUnbound: 'Not bound — click the button to set it up',
+	navHotkeyOpenSettings: 'Open hotkey settings',
+	cmdNavigateBack: 'Navigate back',
+	cmdNavigateForward: 'Navigate forward',
 };
 
 export type En = typeof en;

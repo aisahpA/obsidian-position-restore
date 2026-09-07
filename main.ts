@@ -3,6 +3,7 @@ import { SettingTab } from './src/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './src/types';
 import { CursorPositionDatabase } from './src/database';
 import { PositionManager } from './src/position-manager';
+import { t } from './src/i18n';
 
 
 export default class RememberCursorPosition extends Plugin {
@@ -22,6 +23,7 @@ export default class RememberCursorPosition extends Plugin {
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
+		this.registerCommands();
 
 		this.registerWorkspaceEvents();
 		this.registerPolling();
@@ -48,12 +50,45 @@ export default class RememberCursorPosition extends Plugin {
 	// comments document WHY, the names document WHAT.
 
 	/**
+	 * VSCode-style navigation. No default hotkeys — bind in Obsidian's hotkey
+	 * settings. Works on any file view: same-tab file switches ride
+	 * Obsidian's native per-tab history (PDF/canvas included), cross-tab
+	 * traversals reactivate the original tab, in-file jumps apply the
+	 * recorded position directly. Also available while a sidebar (file
+	 * explorer, search…) holds focus: the traversal reactivates the last
+	 * file tab and starts from there.
+	 */
+	private registerCommands() {
+		this.addCommand({
+			id: 'navigate-back',
+			name: t('cmdNavigateBack'),
+			checkCallback: (checking) => {
+				if (!this.manager.canNavigate(-1)) return false;
+				if (!checking) this.manager.navigateBack();
+				return true;
+			},
+		});
+		this.addCommand({
+			id: 'navigate-forward',
+			name: t('cmdNavigateForward'),
+			checkCallback: (checking) => {
+				if (!this.manager.canNavigate(1)) return false;
+				if (!checking) this.manager.navigateForward();
+				return true;
+			}
+		});
+	}
+
+	/**
 	 * Workspace reactions: restore on open, persist on quit, and keep the db
 	 * keyed by current paths across vault renames/deletes.
 	 */
 	private registerWorkspaceEvents() {
 		this.registerEvent(this.app.workspace.on('file-open', () => this.manager.restoreEphemeralState()));
-		this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => this.manager.completeInjectedRestore(leaf)));
+		this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+			this.manager.completeInjectedRestore(leaf);
+			this.manager.recordActivation(leaf);
+		}));
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.manager.renameFile(file, oldPath)));
 		this.registerEvent(this.app.vault.on('delete', (file) => this.manager.deleteFile(file)));
 		this.registerEvent(this.app.workspace.on('quit', () => this.manager.storePositionData()));
@@ -71,7 +106,7 @@ export default class RememberCursorPosition extends Plugin {
 	 */
 	private registerPolling() {
 		this.registerInterval(
-			window.setInterval(() => this.manager.checkEphemeralStateChanged(), 100)
+			window.setInterval(() => this.manager.sampleActiveView(), 100)
 		);
 	}
 
@@ -117,7 +152,7 @@ export default class RememberCursorPosition extends Plugin {
 			// guard skips the write anyway) and only persist what is already
 			// saved, keeping the pre-search anchor intact across suspension.
 			if (!this.manager.isSearchAnchored())
-				this.manager.checkEphemeralStateChanged();
+				this.manager.sampleActiveView();
 			this.manager.storePositionData();
 		};
 		this.registerDomEvent(document, 'visibilitychange', () => {

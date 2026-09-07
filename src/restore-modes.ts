@@ -190,6 +190,23 @@ export class RestoreModes {
 		});
 	}
 
+	// In-file history jump (Navigate back/forward landing in the SAME note):
+	// the view is already rendered — nothing to cover, no open pipeline to
+	// wait for. Apply the entry position, run the source pixel correction
+	// (the same estimate-drift a fresh open suffers, minus the fresh open),
+	// then the shared anchor (baseline re-anchor + drift loop + cue). Runs
+	// inside NavHistory's restore bracket, so the poll cannot record the
+	// applies as user movement.
+	async historyJumpApply(view: MarkdownView, st: EphemeralState, isCurrent: () => boolean) {
+		applyEphemeralState(view, st);
+		await nextPaint();
+		if (!isCurrent())
+			return;
+		if (view.getMode() === 'source' && (st.scroll ?? 0) > 0)
+			await this.pixels.settleSourcePixels(view, st, isCurrent, SETTLE_MAX_MS);
+		await this.anchorToSettledState(view, st, isCurrent);
+	}
+
 	// glide restore: no mask, so no blank period. The note
 	// renders visibly from the top (async render is Obsidian's own, not
 	// hidden by us); once the renderer has produced content we scroll to the

@@ -78,4 +78,16 @@ export const zh: En = {
 	entriesName: '记录数',
 	entriesDesc:
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',
+
+
+	navHistoryHeading: '导航历史',
+	navHistoryName: '导航历史',
+	navHistoryDesc:
+		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈（最多 50 条）按设备保存在 localStorage，重启保留。',
+	navHotkeyBack: '后退',
+	navHotkeyForward: '前进',
+	navHotkeyUnbound: '未绑定——点击右侧按钮设置',
+	navHotkeyOpenSettings: '打开快捷键设置',
+	cmdNavigateBack: '后退',
+	cmdNavigateForward: '前进',
 };

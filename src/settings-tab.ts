@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TextComponent, Notice } from 'obsidian';
+import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
 import type RememberCursorPosition from '../main';
 import { ESCAPE_HATCH_PROPERTY } from './frontmatter';
 import { t } from './i18n';
@@ -265,6 +265,27 @@ export class SettingTab extends PluginSettingTab {
 					},
 				],
 			},
+			{
+				type: 'group',
+				heading: t('navHistoryHeading'),
+				items: [
+					{
+						name: t('navHistoryName'),
+						render: (setting) => {
+							const frag = createFragment();
+							frag.createDiv({ text: t('navHistoryDesc') });
+							const list = frag.createEl('ul', { cls: 'mod-muted' });
+							list.createEl('li', { text: `${t('navHotkeyBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
+							list.createEl('li', { text: `${t('navHotkeyForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
+							setting.setDesc(frag);
+							setting.addExtraButton((btn) => {
+								btn.setIcon('keyboard').setTooltip(t('navHotkeyOpenSettings'))
+									.onClick(() => openHotkeySettings(this.plugin));
+							});
+						},
+					},
+				],
+			},
 		];
 	}
 }
@@ -379,4 +400,73 @@ class PropertyValueModal extends Modal {
 	onClose() {
 		this.contentEl.empty();
 	}
+}
+
+// Formats one hotkey for display: modifier symbols on macOS, text elsewhere,
+// in Obsidian's canonical modifier order.
+function formatHotkey(hk: Hotkey): string {
+	const isMac = Platform.isMacOS;
+	const symbol: Record<Modifier, string> = {
+		Mod: isMac ? '⌘' : 'Ctrl',
+		Ctrl: isMac ? '⌃' : 'Ctrl',
+		Meta: isMac ? '⌘' : 'Win',
+		Shift: isMac ? '⇧' : 'Shift',
+		Alt: isMac ? '⌥' : 'Alt',
+	};
+	const mods = (['Mod', 'Ctrl', 'Meta', 'Shift', 'Alt'] as Modifier[])
+		.filter((m) => hk.modifiers.includes(m))
+		.map((m) => symbol[m]);
+	const text = mods.join(isMac ? ' ' : '+');
+	let keyShow;
+	if (hk.key === 'ArrowLeft')
+		keyShow = '←';
+	else if (hk.key === 'ArrowRight')
+		keyShow = '→';
+	else
+		keyShow = hk.key;
+	return text ? `${text}${isMac ? ' ' : '+'}${keyShow}` : keyShow;
+}
+
+// Reads the user-configured hotkeys for one of this plugin's commands.
+// (hotkeyManager is runtime API absent from the public typings — same cast
+// family as MetadataCache.getAllPropertyInfos above.)
+function currentHotkeyText(plugin: RememberCursorPosition, commandId: string): string {
+	const manager = (plugin.app as unknown as {
+		hotkeyManager?: { getHotkeys(id: string): Hotkey[] | null };
+	}).hotkeyManager;
+	const hotkeys = manager?.getHotkeys(`${plugin.manifest.id}:${commandId}`);
+	if (!hotkeys || hotkeys.length === 0)
+		return t('navHotkeyUnbound');
+	return hotkeys.map(formatHotkey).join(' / ');
+}
+
+// Opens Obsidian's hotkey settings on this plugin's commands. Only
+// reachable from this plugin's settings row, so the settings modal is
+// already open — calling open() again would stack a second modal (Obsidian
+// does not guard re-entry) and the tab swap would land on the invisible
+// instance. The tab swap from inside a click handler completes
+// asynchronously (activeTab still points at the old tab when the handler
+// returns), so the query prefill retries until the hotkeys tab is live.
+// All runtime APIs here are untyped — a missing member or exhausted
+// retries degrade silently to an unfiltered list.
+function openHotkeySettings(plugin: RememberCursorPosition): void {
+	const setting = (plugin.app as unknown as {
+		setting?: {
+			openTabById(id: string): void;
+			activeTab?: { id?: string; setQuery?(query: string): void };
+		};
+	}).setting;
+	if (!setting)
+		return;
+	setting.openTabById('hotkeys');
+	const prefill = (retries: number): void => {
+		const tab = setting.activeTab;
+		if (tab?.id === 'hotkeys' && tab.setQuery) {
+			tab.setQuery(plugin.manifest.name);
+			return;
+		}
+		if (retries > 0)
+			window.setTimeout(() => prefill(retries - 1), 50);
+	};
+	prefill(20);
 }
