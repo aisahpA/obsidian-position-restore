@@ -163,3 +163,17 @@ body.is-mobile .rcp-cue {
 	text-overflow: ellipsis;
 	color: var(--text-muted);
 }
+
+/* Narrow phones: three columns don't fit — keep file name + line number
+   only. The cells stay in the DOM; CSS drops the extra tracks. */
+@media (max-width: 480px) {
+	.position-restore-nav-head,
+	.position-restore-nav-row {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+	.position-restore-nav-row .nav-row-anchor,
+	.position-restore-nav-row .nav-row-badge,
+	.position-restore-nav-head .nav-row-badge {
+		display: none;
+	}
+}
