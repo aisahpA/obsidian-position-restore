@@ -10,9 +10,9 @@ import { delay } from './wait';
 // One global stack of entries `{ path, leafId, st?, key? }` with a current
 // index. Every recorded jump (any file switch, tab/pane activation,
 // in-file anchor/search/large cursor jumps) pushes; back/forward move the
-// index; a fresh jump truncates the forward part; the history-browser jump
-// lifts its target to the top (back returns to the jump's origin). Two
-// position regimes:
+// index; a fresh jump — recorded or picked from the history browser —
+// truncates the forward part, and the browser jump re-pushes its target on
+// top so back returns to the jump's origin. Two position regimes:
 // keyed entries (teleport:<line>, outline:<heading>, anchor linktext) carry
 // the jump's precise landing — written at push time (teleport) or when the
 // landing settles (outline/anchor) — and are never overwritten afterwards
@@ -379,10 +379,11 @@ export class NavHistory {
 	}
 
 	// Time travel to an arbitrary entry (the history browser). Same bracket
-	// as navigate. The jump is a fresh navigation (VSCode/IDEA record the
-	// origin as a back step): the chosen entry is lifted to the stack top so
-	// back returns to where the user was; the displaced middle stays in
-	// place, walkable via back — nothing is truncated here. Clicking the
+	// as navigate. The jump is a fresh navigation branching from the current
+	// entry (VSCode/IDEA semantics): the forward part is truncated and the
+	// target re-pushed on top, so the origin is always the entry right below
+	// and back returns to where the user was. The target goes in as a shallow
+	// copy — the original step keeps its own leave-position. Clicking the
 	// current row just re-lands (keyed entries re-apply their landing).
 	async jumpTo(index: number): Promise<void> {
 		if (index < 0 || index >= this.entries.length)
@@ -393,11 +394,8 @@ export class NavHistory {
 			// verification); multi-step jumps never match the native stack's
 			// next entry, so the value is a formality beyond ±1 hops.
 			const dir: -1 | 1 = index > this.index ? 1 : -1;
-			if (index !== this.index) {
-				if (index !== this.entries.length - 1)
-					this.entries.push(this.entries.splice(index, 1)[0]);
-				this.index = this.entries.length - 1;
-			}
+			if (index !== this.index)
+				this.push({ ...this.entries[index] });
 			await this.execute(this.entries[this.index], dir);
 		});
 	}
@@ -439,26 +437,35 @@ export class NavHistory {
 	private async traverse(dir: -1 | 1): Promise<void> {
 		let activeView = this.app.workspace.getActiveViewOfType(FileView);
 		if (!activeView?.file) {
-			// The stack's current entry is a view step (graph active): there
-			// is no file leaf to reactivate — traversal moves from it
-			// directly.
+			// The stack's current entry is a view step (graph active): the
+			// current location is on screen — traversal moves from it
+			// directly. (A closed graph leaf has nothing to re-land either:
+			// no path, no position to restore.)
 			if (!this.entries[this.index]?.path) {
 				this.index += dir;
 				await this.execute(this.entries[this.index], dir);
 				return;
 			}
-			// A sidebar (file explorer, search, outline…) can hold focus with
-			// no file view active. The stack's current entry still describes
-			// the last file tab — reactivate its leaf so traversal starts from
-			// where the user actually was (this also restores focus, and the
-			// unfocused editor keeps its cursor/scroll state readable).
+			// A sidebar (file explorer, search, outline…) or the empty
+			// "new tab" page can hold focus with no file view active. The
+			// stack's current entry still describes the last file tab —
+			// reactivate its leaf so traversal starts from where the user
+			// actually was (this also restores focus, and the unfocused
+			// editor keeps its cursor/scroll state readable).
 			const startLeaf = this.startLeaf();
 			if (!startLeaf)
 				return;
 			this.app.workspace.setActiveLeaf(startLeaf, { focus: true });
 			activeView = this.app.workspace.getActiveViewOfType(FileView);
-			if (!activeView?.file)
+			if (!activeView?.file) {
+				// Only the new-tab page: the current entry's tab was closed —
+				// an unrecorded step OFF the stack, so the history pointer
+				// still sits on that entry. The first hop re-lands it (index
+				// unchanged, no step skipped — same for back and forward);
+				// from the next press on, traversal walks index±1 as usual.
+				await this.execute(this.entries[this.index], dir);
 				return;
+			}
 		}
 
 		// Refresh the entry we are leaving with the exact current position,
@@ -487,7 +494,11 @@ export class NavHistory {
 
 	private async execute(target: NavHistoryEntry, dir: -1 | 1) {
 		const activeView = this.app.workspace.getActiveViewOfType(FileView);
-		const activeLeaf = activeView?.leaf;
+		// No file view anywhere (only the new-tab page): fall back to the
+		// last main-area leaf — the empty tab — so the traversal can still
+		// open its target there (openInLeaf) instead of no-oping.
+		const activeLeaf = activeView?.leaf
+			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
 		const targetLeaf = this.findLeafById(target.leafId);
 
 		// View step (graph tab): reaching it means the leaf must SHOW that
@@ -531,6 +542,14 @@ export class NavHistory {
 		const leaf = targetLeaf ?? activeLeaf;
 		if (!leaf)
 			return;
+		// The entry's own leaf is gone and the step fell back to another
+		// leaf (the new-tab page's, or the most recently active): re-point
+		// the entry at the leaf its file actually lives in now. The open's
+		// post-traversal activation record carries THAT leaf id — against
+		// the stale one it would miss this entry's dedup and push a phantom
+		// duplicate, truncating the real forward part of the stack.
+		if (!targetLeaf)
+			target.leafId = this.state.leafId(leaf);
 		if (leaf.isDeferred)
 			await leaf.loadIfDeferred();
 		const curFile = (leaf.view as FileView | undefined)?.file;

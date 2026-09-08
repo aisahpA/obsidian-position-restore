@@ -68,7 +68,8 @@ export function describeNavEntry(
 
 // "Browse navigation history" modal: the stack newest-first, the current
 // entry highlighted, click a row to time-travel to it (NavHistory.jumpTo —
-// the row is lifted to the stack top, so back returns to where you were).
+// the jump branches from the current entry: the row is re-pushed on top, so
+// back returns to where you were).
 export class NavHistoryModal extends Modal {
 	private rows: HTMLElement[] = [];
 	private selected = -1;

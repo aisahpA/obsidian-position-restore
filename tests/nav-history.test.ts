@@ -383,7 +383,7 @@ describe('NavHistory.navigate', () => {
 		expect(nav.entries[1].st).toMatchObject({ scroll: 42 });
 	});
 
-	it('jumpTo lifts the chosen entry to the top; back returns to the origin', async () => {
+	it('jumpTo branches from the current entry; back returns to the origin', async () => {
 		const leaf = { id: 'leaf-1', isDeferred: false, view: { file: { path: 'a.md' } } };
 		const applied: unknown[] = [];
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
@@ -414,21 +414,21 @@ describe('NavHistory.navigate', () => {
 
 		await nav.jumpTo(0);
 
-		// the chosen entry is now the stack top (fresh-navigation semantics)
-		expect(nav.index).toBe(2);
-		expect(nav.entries.map(e => e.key)).toEqual(['teleport:60', 'teleport:300', undefined]);
+		// the target is re-pushed on top of the current entry (branch semantics)
+		expect(nav.index).toBe(3);
+		expect(nav.entries.map(e => e.key)).toEqual([undefined, 'teleport:60', 'teleport:300', undefined]);
+		// the pushed entry is a copy — the original step keeps its own position
+		expect(nav.entries[3]).not.toBe(nav.entries[0]);
 		// applied the chosen entry's recorded position
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
-		// nothing truncated: the displaced middle stays walkable via back
-		expect(nav.entries.length).toBe(3);
+		// the origin is the entry right below — back one step returns to it
 		expect(nav.canGoBack()).toBe(true);
 		expect(nav.canGoForward()).toBe(false);
 		// the bracket released — traversal is immediately available again
 		expect(nav.canNavigate(-1)).toBe(true);
 
-		// back one step lands on the origin entry, refreshed at leave time
 		await nav.navigate(-1);
-		expect(nav.index).toBe(1);
+		expect(nav.index).toBe(2);
 		expect(applied[1]).toMatchObject({ scroll: 42 });
 		// the landing cue is suppressed for the traversal (armed at jumpTo
 		// and again at the same-file apply)
