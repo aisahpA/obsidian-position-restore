@@ -13,6 +13,12 @@ interface EphemeralState {
 		from: CursorPos,
 		to: CursorPos
 	},
+	// Trimmed text of the primary line (scroll line, else cursor line) at
+	// capture time. Lets a stale line number (the file was edited after the
+	// position was recorded) be re-mapped to the line that now carries this
+	// text before the position is applied. Never persisted to the position
+	// database (its on-disk format reads only scroll/cursor).
+	anchor?: string,
 }
 
 // Device-local per-tab position records.

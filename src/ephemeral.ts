@@ -31,10 +31,21 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	//    layout shift slightly below the saved value re-introduces one-way
 	//    downward drift. Only a symmetric dead zone absorbs noise in both
 	//    directions. (Obsidian's own outline sync also uses Math.round here.)
-	const state: EphemeralState = { scroll: Math.round(scroll) };
+	const topLine = Math.round(scroll);
+	const state: EphemeralState = { scroll: topLine };
 
 	const editor = view.editor;
 	if (editor) {
+		// Anchor: the primary line's trimmed text at capture time. A recorded
+		// position goes stale when the file is edited afterwards (inserts and
+		// deletes above shift every line below) — remapAnchoredState uses this
+		// text to re-find the line before the position is applied. Blank lines
+		// carry no anchor (an empty match would match every blank line).
+		if (topLine >= 0 && topLine <= (editor.lastLine?.() ?? -1)) {
+			const text = editor.getLine(topLine).trim().slice(0, 80);
+			if (text)
+				state.anchor = text;
+		}
 		const from = editor.getCursor("anchor");
 		const to = editor.getCursor("head");
 		// A collapsed cursor at (0,0) is where the editor opens anyway — omit it
@@ -48,6 +59,52 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	}
 
 	return state;
+}
+
+// ponytail: nearest-match heuristic — an edited anchor line or a fully
+// rewritten region finds no match and keeps the stale line (native-history
+// behavior); heavily duplicated lines resolve to the nearest copy. Upgrade
+// path: live CM change deltas on top of the anchors.
+const REMAP_WINDOW = 30;
+
+// Re-map a stale recorded position to the file's current lines: the entry
+// text anchor (see readEphemeralState) locates the line that used to sit at
+// the recorded line number. Nearest-first scan around it; no match applies
+// the position as recorded. Returns a shifted copy — callers' entries stay
+// immutable (keyed-entry semantics), the original anchor stays with the
+// entry for the next apply.
+export function remapAnchoredState(
+	editor: { getLine(line: number): string; lastLine(): number },
+	st: EphemeralState,
+): EphemeralState {
+	const anchor = st.anchor;
+	if (!anchor)
+		return st;
+	const line = st.scroll ?? st.cursor?.from.line;
+	if (line === undefined || line < 0)
+		return st;
+	const last = editor.lastLine();
+	if (line <= last && editor.getLine(line).trim() === anchor)
+		return st;
+	for (let d = 1; d <= REMAP_WINDOW; d++) {
+		for (const at of [line + d, line - d]) {
+			if (at < 0 || at > last)
+				continue;
+			if (editor.getLine(at).trim() === anchor) {
+				const delta = at - line;
+				const mapped: EphemeralState = { ...st, anchor: undefined };
+				if (mapped.scroll !== undefined)
+					mapped.scroll = Math.max(0, mapped.scroll + delta);
+				if (mapped.cursor)
+					mapped.cursor = {
+						from: { ...mapped.cursor.from, line: mapped.cursor.from.line + delta },
+						to: { ...mapped.cursor.to, line: mapped.cursor.to.line + delta },
+					};
+				return mapped;
+			}
+		}
+	}
+	return st;
 }
 
 export function applyEphemeralState(view: MarkdownView, state: EphemeralState) {
