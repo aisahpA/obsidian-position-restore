@@ -1,4 +1,4 @@
-import { MarkdownView, Platform } from 'obsidian';
+import { MarkdownView } from 'obsidian';
 import { PluginSettings } from './types';
 import { getScroller } from './wait';
 
@@ -25,8 +25,9 @@ interface Cm6EditorView {
 	// viewport) plus a section breadcrumb in a small chip centered in the note on
 	// both desktop and mobile, allowed to wrap to two lines for deep heading
 	// chains. Both are cosmetic — every failure path degrades to showing nothing.
-	// Cues are pure Web Animations API / inline styles: the plugin ships no
-	// styles.css and the rollup build copies nothing, so no CSS file is added.
+	// nothing. The highlight is Web Animations API; the chip's appearance
+	// lives in styles.css (.rcp-cue*). The mobile/desktop placement split
+	// is body.is-mobile in styles.css, matching Obsidian's own flag.
 export class RestoreCue {
 	private settings: PluginSettings;
 	private chip: HTMLElement | null = null;
@@ -273,7 +274,9 @@ export class RestoreCue {
 	// bars, and allowed to wrap to two lines for deep heading chains. Appended
 	// to view.contentEl (not the line itself) so CodeMirror's line recycling
 	// can never remove it. Cosmetic only; every failure path degrades to
-	// showing nothing.
+	// showing nothing. All appearance is in styles.css (.rcp-cue*); the
+	// mobile/desktop placement split is body.is-mobile there, matching
+	// Obsidian's own flag.
 	private showCueAtLine(view: MarkdownView, target: FlashTarget) {
 		const path = this.outlinePathAtLine(view.data ?? '', target.line);
 		if (path.length === 0)
@@ -281,55 +284,14 @@ export class RestoreCue {
 
 		const content = view.contentEl;
 		if (getComputedStyle(content).position === 'static')
-			content.setCssStyles({ position: 'relative' });
-		const mobile = Platform.isMobileApp;
+			content.addClass('rcp-cue-host');
 
 		const chip = content.createDiv({ cls: 'rcp-cue' });
-		// Mobile pins both horizontal insets instead of using a percentage
-		// max-width: on mobile WebViews the percentage never took effect on
-		// this absolutely-positioned shrink-to-fit chip, so a long breadcrumb
-		// chain stayed on one line and got clipped at the screen edges. With
-		// left+right both set the used width is exactly 92% of the note.
-		// Desktop keeps the shrink-to-fit chip capped at 44ch.
-		chip.style.cssText = [
-			'position:absolute',
-			'top:30%',
-			...(mobile
-				? ['left:4%', 'right:4%', 'transform:translateY(-50%)']
-				: ['left:50%', 'transform:translate(-50%,-50%)', 'max-width:44ch']),
-			'z-index:100',
-			'display:flex',
-			'flex-wrap:wrap',
-			'align-items:center',
-			'justify-content:center',
-			'text-align:center',
-			// Long unbreakable heading words must be allowed to wrap inside
-			// their span, or overflow:hidden clips them at the chip edge.
-			'overflow-wrap:anywhere',
-			'overflow:hidden',
-			'font-size:var(--font-ui-large)',
-			'color:var(--text-normal)',
-			'background:var(--background-secondary)',
-			'border:1px solid var(--background-modifier-border)',
-			'border-radius:6px',
-			'padding:4px 12px',
-			'box-shadow:var(--shadow-s)',
-			'opacity:0',
-			'pointer-events:none',
-		].join(';');
-
 		for (let i = 0; i < path.length; i++) {
-			if (i > 0) {
-				const sep = chip.createSpan({ text: ' / ' });
-				sep.setCssStyles({ opacity: '0.5', whiteSpace: 'nowrap' });
-			}
-			const span = chip.createSpan({ text: path[i] });
-			span.setCssStyles({ whiteSpace: 'normal' });
-			if (i === path.length - 1) {
-				span.setCssStyles({ fontWeight: '600' });
-			} else {
-				span.setCssStyles({ opacity: '0.75' });
-			}
+			if (i > 0)
+				chip.createSpan({ text: ' / ', cls: 'rcp-cue-sep' });
+			const isLast = i === path.length - 1;
+			chip.createSpan({ text: path[i], cls: isLast ? 'rcp-cue-seg is-deepest' : 'rcp-cue-seg' });
 		}
 		chip.setAttribute('title', path.join(' / '));
 		this.chip = chip;

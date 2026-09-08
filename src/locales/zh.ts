@@ -96,6 +96,7 @@ export const zh: En = {
 	navTypeOutline: '大纲',
 	navTypeLink: '链接',
 	navTypeGraph: '图形',
+	navGraphName: '关系图谱',
 	navMissing: '已删除',
 	navAnchorTip: '跳转落点所在行的文本，便于辨认位置',
 	navColFile: '文件',

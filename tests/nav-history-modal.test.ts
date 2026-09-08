@@ -81,7 +81,7 @@ describe('describeNavEntry', () => {
 		expect(link.type).toBe(t('navTypeLink'));
 		const graph = describeNavEntry({ viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
 		expect(graph.type).toBe(t('navTypeGraph'));
-		expect(graph.file).toBe('');
+		expect(graph.file).toBe(t('navGraphName'));
 		expect(graph.line).toBeUndefined();
 	});
 

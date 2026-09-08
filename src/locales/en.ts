@@ -95,6 +95,7 @@ export const en = {
 	navTypeOutline: 'Outline',
 	navTypeLink: 'Link',
 	navTypeGraph: 'Graph',
+	navGraphName: 'Graph view',
 	navMissing: 'missing',
 	navAnchorTip: 'Text of the line the jump lands on, for quick recognition',
 	navColFile: 'File',

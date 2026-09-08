@@ -28,7 +28,7 @@ export function describeNavEntry(
 ): NavEntryDescription {
 	if (!entry.path) {
 		return {
-			file: '',
+			file: t('navGraphName'),
 			title: entry.viewType ?? '',
 			type: t('navTypeGraph'),
 			missing: false,
@@ -78,6 +78,7 @@ export class NavHistoryModal extends Modal {
 	}
 
 	onOpen() {
+		this.modalEl.addClass('position-restore-nav-modal');
 		this.titleEl.setText(t('navHistoryName'));
 		this.contentEl.empty();
 		if (this.nav.entries.length === 0) {
@@ -107,8 +108,8 @@ export class NavHistoryModal extends Modal {
 	private header(): void {
 		const head = this.contentEl.createDiv({ cls: 'position-restore-nav-head' });
 		head.createSpan({ text: t('navColFile') });
-		head.createSpan({ text: t('navColType'), cls: 'nav-row-badge' });
 		head.createSpan({ text: t('navColPos') });
+		head.createSpan({ text: t('navColType'), cls: 'nav-row-badge' });
 	}
 
 	private move(d: number): void {
@@ -149,10 +150,6 @@ export class NavHistoryModal extends Modal {
 			cls: 'nav-row-file',
 			attr: { title: d.title },
 		});
-		row.createSpan({
-			text: d.missing ? t('navMissing') : d.type,
-			cls: `nav-row-badge${d.missing ? ' nav-row-missing' : ''}`,
-		});
 		const pos = row.createDiv({ cls: 'nav-row-pos' });
 		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
@@ -162,6 +159,10 @@ export class NavHistoryModal extends Modal {
 				cls: 'nav-row-anchor',
 				attr: { title: `${t('navAnchorTip')}\n${d.anchor}` },
 			});
+		row.createSpan({
+			text: d.missing ? t('navMissing') : d.type,
+			cls: `nav-row-badge${d.missing ? ' nav-row-missing' : ''}`,
+		});
 		return row;
 	}
 }

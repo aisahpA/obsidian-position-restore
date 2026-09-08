@@ -1,3 +1,66 @@
+/* Restore cue (RestoreCue): a transient chip naming the landing section,
+   centered in the note so it clears the editor's chrome and the mobile bars,
+   and allowed to wrap to two lines for deep heading chains. Long unbreakable
+   heading words must wrap inside their span, or overflow:hidden clips them
+   at the chip edge. */
+.rcp-cue {
+	position: absolute;
+	top: 30%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	max-width: 44ch;
+	z-index: 100;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	overflow-wrap: anywhere;
+	overflow: hidden;
+	font-size: var(--font-ui-large);
+	color: var(--text-normal);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 4px 12px;
+	box-shadow: var(--shadow-s);
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* Mobile pins both horizontal insets instead of using a percentage
+   max-width: on mobile WebViews the percentage never took effect on
+   this absolutely-positioned shrink-to-fit chip, so a long breadcrumb
+   chain stayed on one line and got clipped at the screen edges. With
+   left+right both set the used width is exactly 92% of the note. */
+body.is-mobile .rcp-cue {
+	left: 4%;
+	right: 4%;
+	transform: translateY(-50%);
+	max-width: none;
+}
+
+.rcp-cue-host {
+	position: relative;
+}
+
+/* " / " separators never wrap; heading segments may. Non-deepest segments
+   are dimmed, the deepest is bolded — it names the target section. */
+.rcp-cue-sep {
+	opacity: 0.5;
+	white-space: nowrap;
+}
+
+.rcp-cue-seg {
+	white-space: normal;
+	opacity: 0.75;
+}
+
+.rcp-cue-seg.is-deepest {
+	opacity: 1;
+	font-weight: 600;
+}
+
 /* History browser (NavHistoryModal): a label header, then one row per stack
    entry, newest first. Header and rows share one fixed grid template so the
    columns align — its em tracks resolve against the element's own font size,
@@ -8,9 +71,9 @@
 .position-restore-nav-row {
 	display: grid;
 	grid-template-columns:
+		minmax(0, 1.4fr)
 		minmax(0, 1fr)
-		4.8em
-		minmax(0, 1.4fr);
+		4.8em;
 	gap: 8px;
 	align-items: center;
 	white-space: nowrap;
@@ -31,6 +94,14 @@
 	border-radius: var(--radius-s);
 	cursor: pointer;
 	overflow: hidden;
+}
+
+/* The file name is the row's identity; at the stock modal width it held only
+   a handful of characters, so this modal runs a bit wider (min() keeps
+   phones at the stock near-full width). */
+.modal.position-restore-nav-modal {
+	width: min(630px, 92vw);
+	max-width: min(630px, 92vw);
 }
 
 .position-restore-nav-row:hover {
