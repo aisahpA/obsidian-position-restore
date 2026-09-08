@@ -19,6 +19,20 @@ interface EphemeralState {
 	// text before the position is applied. Never persisted to the position
 	// database (its on-disk format reads only scroll/cursor).
 	anchor?: string,
+	// Trimmed text of the CURSOR line at capture time (source mode only —
+	// a reading capture's cursor is the stale pre-preview one). Display-only:
+	// the history browser shows the landing line's own text, while the remap
+	// anchor above always belongs to the viewport top line. Never persisted
+	// to the position database.
+	cursorAnchor?: string,
+	// The view mode at capture time ('source' | 'preview'), stamped by
+	// readEphemeralState. Display-only (the history browser shows the cursor
+	// line for edit captures, the viewport top line for reading ones): a
+	// reading-mode capture carries the editor's stale pre-preview cursor, so
+	// the mode cannot be inferred from the state's shape. Consumers that read
+	// only cursor/scroll/anchor ignore it; pre-upgrade persisted nav entries
+	// lack it and fall back to the cursor-first heuristic.
+	mode?: 'source' | 'preview',
 }
 
 // Device-local per-tab position records.

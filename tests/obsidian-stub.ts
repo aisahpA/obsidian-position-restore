@@ -6,6 +6,10 @@ export class FileView {}
 export class MarkdownView extends FileView {}
 export class TFile {}
 
+// The history browser (nav-history-modal) extends this; its tests only use
+// the pure describeNavEntry, so a bare class is enough.
+export class Modal {}
+
 // database.ts fires notices on failure paths (switchDbFile validation etc.).
 export class Notice {}
 

@@ -35,7 +35,10 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	//    downward drift. Only a symmetric dead zone absorbs noise in both
 	//    directions. (Obsidian's own outline sync also uses Math.round here.)
 	const topLine = Math.round(scroll);
-	const state: EphemeralState = { scroll: topLine };
+	// getMode is optional-called: the mode stamp is display-only and must
+	// never be able to crash the recording path on a view-like object that
+	// lacks it (missing mode reads as the cursor-first heuristic).
+	const state: EphemeralState = { scroll: topLine, mode: view.getMode?.() };
 
 	const editor = view.editor;
 	if (editor) {
@@ -57,6 +60,16 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 			state.cursor = {
 				from: { ch: from.ch, line: from.line },
 				to: { ch: to.ch, line: to.line }
+			}
+			// History-browser display: the cursor line's own text — the line
+			// the jump lands on. Reading captures are excluded: their cursor
+			// is the stale pre-preview one (the viewport anchor covers them).
+			// Best-effort like the anchor above: a view-like object without
+			// getLine must never crash the recording path.
+			if (state.mode !== 'preview' && typeof editor.getLine === 'function') {
+				const landing = editor.getLine(from.line)?.trim().slice(0, 80);
+				if (landing)
+					state.cursorAnchor = landing;
 			}
 		}
 	}

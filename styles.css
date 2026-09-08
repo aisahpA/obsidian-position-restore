@@ -1,0 +1,94 @@
+/* History browser (NavHistoryModal): a label header, then one row per stack
+   entry, newest first. Header and rows share one fixed grid template so the
+   columns align — its em tracks resolve against the element's own font size,
+   which is why the header's smaller font lives on its spans, never on the
+   grid element itself. */
+
+.position-restore-nav-head,
+.position-restore-nav-row {
+	display: grid;
+	grid-template-columns:
+		minmax(0, 1fr)
+		4.8em
+		minmax(0, 1.4fr);
+	gap: 8px;
+	align-items: center;
+	white-space: nowrap;
+}
+
+.position-restore-nav-head {
+	padding: 0 8px 6px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.position-restore-nav-head > span {
+	font-size: var(--font-ui-smaller);
+}
+
+.position-restore-nav-row {
+	padding: 4px 8px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	overflow: hidden;
+}
+
+.position-restore-nav-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+/* The current entry: accent bar on the left edge, no marker glyph. */
+.position-restore-nav-row.is-current {
+	font-weight: 600;
+	background-color: var(--background-modifier-active-hover);
+	box-shadow: inset 2px 0 0 0 var(--interactive-accent);
+}
+
+/* Keyboard selection (arrows + Enter): outline so it stacks with the
+   is-current accent bar's box-shadow instead of replacing it. */
+.position-restore-nav-row.is-selected {
+	outline: 1px solid var(--interactive-accent);
+}
+
+.position-restore-nav-row .nav-row-file {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Status column: how the entry was reached, or "missing". Plain text on
+   purpose — it is a label, not a control. */
+.position-restore-nav-row .nav-row-badge,
+.position-restore-nav-head .nav-row-badge {
+	font-size: var(--font-ui-smaller);
+	text-align: center;
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.position-restore-nav-row .nav-row-missing {
+	color: var(--text-error);
+}
+
+/* Position column: the line number, then the quoted text of that line. */
+.position-restore-nav-row .nav-row-pos {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+	overflow: hidden;
+}
+
+.position-restore-nav-row .nav-row-line {
+	flex: 0 0 auto;
+	min-width: 4ch; /* "L" + three digits — anchors align across rows */
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.position-restore-nav-row .nav-row-anchor {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--text-muted);
+}

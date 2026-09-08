@@ -206,15 +206,15 @@ export class NavHistory {
 	// recording path: core resolves an item click into setActiveLeaf +
 	// view.setEphemeralState({ line }) — no openLinkText, no setViewState,
 	// and preview has no cursor for the poll's teleport — so nothing pushes.
-	// This capture listener records the jump from the click itself. It runs
-	// before core's handlers (capture phase on the workspace root), which is
-	// what lets refreshTop see the exact pre-click position and lets the
-	// following active-leaf-change dedup into the keyed entry. Source mode is
-	// skipped: the selection-event watcher (desktop) / poll teleport (mobile)
-	// already covers it there, and recording both would double-push one click.
-	// Every resolution step degrades silently: unknown DOM,
-	// missing outline view, unresolvable target leaf — the hook does nothing
-	// and the standard pipeline covers the not-open case on its own.
+	// Source mode is recorded here TOO: the capture itself pushes the keyed
+	// outline entry, and the landing-absorb window it arms gates the
+	// imminent cursor jump on both teleport paths (selection event / poll),
+	// so one click pushes exactly one entry (no teleport double-record).
+	// This capture listener runs before core's handlers (capture phase on
+	// the workspace root), which is what lets refreshTop see the exact
+	// pre-click position. Every resolution step degrades silently: unknown
+	// DOM, missing outline view, unresolvable target leaf — the hook does
+	// nothing and the standard pipeline covers the not-open case on its own.
 	installOutlineCapture(registerCleanup: (fn: () => void) => void) {
 		this.app.workspace.containerEl.addEventListener('click', this.onOutlineClick, { capture: true });
 		registerCleanup(() =>
@@ -277,7 +277,7 @@ export class NavHistory {
 			if (active instanceof MarkdownView && active.file === outlineFile)
 				view = active;
 		}
-		if (!view || view.getMode() !== 'preview' || !view.file)
+		if (!view || !view.file)
 			return;
 		// "Update on leave" with the exact pre-click position (nothing has
 		// scrolled yet) so a later back lands where the user actually was.
@@ -355,19 +355,40 @@ export class NavHistory {
 	}
 
 	async navigate(dir: -1 | 1): Promise<void> {
-		if (this.executing)
-			return;
 		if (dir < 0 ? !this.canGoBack() : !this.canGoForward())
 			return;
-		// The traversal itself is one position change, not new jumps. The
-		// bracket must cover the startLeaf activation too: its
-		// active-leaf-change fires recordActivation, and when the top entry's
-		// leafId is stale (closed-leaf fallback, ids restored from storage)
-		// the dedup misses — the command itself would push a "current
-		// location" entry before any gate was up. The bracket also stops the
-		// poll/scroll capture from recording the programmatic applies as
-		// user movement (the restores this open triggers run their own
-		// brackets inside).
+		await this.runBracketed(() => this.traverse(dir));
+	}
+
+	// Time travel to an arbitrary entry (the history browser). Same bracket
+	// as navigate; the forward part is NOT truncated — back/forward continue
+	// from the landing, only fresh jumps truncate as usual.
+	async jumpTo(index: number): Promise<void> {
+		if (index < 0 || index >= this.entries.length)
+			return;
+		await this.runBracketed(async () => {
+			this.refreshTopFromActiveView();
+			// Only feeds delegateNative's direction (command id + landing
+			// verification); multi-step jumps never match the native stack's
+			// next entry, so the value is a formality beyond ±1 hops.
+			const dir: -1 | 1 = index > this.index ? 1 : -1;
+			this.index = index;
+			await this.execute(this.entries[index], dir);
+		});
+	}
+
+	// The bracket shared by navigate/jumpTo: one position change, not new
+	// jumps. It must cover the startLeaf activation too: its
+	// active-leaf-change fires recordActivation, and when the top entry's
+	// leafId is stale (closed-leaf fallback, ids restored from storage)
+	// the dedup misses — the command itself would push a "current
+	// location" entry before any gate was up. The bracket also stops the
+	// poll/scroll capture from recording the programmatic applies as
+	// user movement (the restores this open triggers run their own
+	// brackets inside).
+	private async runBracketed(step: () => Promise<void>): Promise<void> {
+		if (this.executing)
+			return;
 		this.executing = true;
 		this.state.restoreStarted();
 		// Watchdog and the finally share one settle: exactly one restoreEnded
@@ -384,7 +405,7 @@ export class NavHistory {
 		};
 		const watchdog = window.setTimeout(settle, NAV_WATCHDOG_MS);
 		try {
-			await this.traverse(dir);
+			await step();
 		} finally {
 			settle();
 		}
@@ -416,20 +437,27 @@ export class NavHistory {
 		}
 
 		// Refresh the entry we are leaving with the exact current position,
-		// so forward returns to where the user actually was. Only when the
-		// top entry really describes this leaf+file (a non-file view
-		// activation — search, graph — records nothing, so the stack can
-		// point at the last file view while something else is active).
-		// refreshTop keeps a teleport top's landing.
+		// so forward returns to where the user actually was. refreshTop
+		// keeps a teleport top's landing.
+		this.refreshTopFromActiveView();
+
+		this.index += dir;
+		await this.execute(this.entries[this.index], dir);
+	}
+
+	// The leave-refresh of a traversal/jump: the top entry gets the exact
+	// current position so a return lands where the user actually was. Only
+	// when the top entry really describes the active leaf+file (a non-file
+	// view activation — search, graph — records nothing, so the stack can
+	// point at the last file view while something else is active).
+	private refreshTopFromActiveView() {
+		const activeView = this.app.workspace.getActiveViewOfType(FileView);
 		const cur = this.entries[this.index];
-		if (cur && cur.leafId === this.state.leafId(activeView.leaf)
+		if (cur && activeView?.file && cur.leafId === this.state.leafId(activeView.leaf)
 			&& cur.path === activeView.file.path && activeView instanceof MarkdownView) {
 			const st = readEphemeralState(activeView);
 			if (st) this.refreshTop(cur.path, cur.leafId, st);
 		}
-
-		this.index += dir;
-		await this.execute(this.entries[this.index], dir);
 	}
 
 	private async execute(target: NavHistoryEntry, dir: -1 | 1) {

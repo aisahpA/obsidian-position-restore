@@ -8,6 +8,7 @@ import { Restorer } from './restorer';
 import { OpenPatcher } from './patcher';
 import { Sampler } from './sampler';
 import { NavHistory } from './nav-history';
+import { NavHistoryModal } from './nav-history-modal';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
@@ -134,6 +135,12 @@ export class PositionManager {
 	// NavHistory.canNavigate.
 	canNavigate(dir: -1 | 1): boolean {
 		return this.nav.canNavigate(dir);
+	}
+
+	// "Browse navigation history" modal (main.ts command) — see
+	// NavHistoryModal / NavHistory.jumpTo.
+	openNavHistoryModal() {
+		new NavHistoryModal(this.app, this.nav).open();
 	}
 
 	// Tab/pane activation records a nav step (VSCode semantics) — see

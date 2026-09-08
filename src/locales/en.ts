@@ -89,6 +89,18 @@ export const en = {
 	navHotkeyOpenSettings: 'Open hotkey settings',
 	cmdNavigateBack: 'Navigate back',
 	cmdNavigateForward: 'Navigate forward',
+	cmdBrowseNavHistory: 'Browse navigation history',
+	navTypeOpen: 'Open',
+	navTypeTeleport: 'Jump',
+	navTypeOutline: 'Outline',
+	navTypeLink: 'Link',
+	navTypeGraph: 'Graph',
+	navMissing: 'missing',
+	navAnchorTip: 'Text of the line the jump lands on, for quick recognition',
+	navColFile: 'File',
+	navColType: 'Type',
+	navColPos: 'Location',
+	navHistoryEmpty: 'Navigation history is empty.',
 };
 
 export type En = typeof en;

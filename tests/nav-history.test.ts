@@ -351,6 +351,48 @@ describe('NavHistory.navigate', () => {
 		expect(nav.entries[1].st).toMatchObject({ scroll: 42 });
 	});
 
+	it('jumpTo lands on the chosen entry and keeps the forward part', async () => {
+		const leaf = { id: 'leaf-1', isDeferred: false, view: { file: { path: 'a.md' } } };
+		const applied: unknown[] = [];
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 42.3 },
+			editor: {
+				getCursor: () => ({ line: 3, ch: 7 }),
+				lineCount: () => 200,
+			},
+			setEphemeralState: (st: unknown) => { applied.push(st); },
+		});
+		const app = makeApp();
+		(app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => view;
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		}).iterateAllLeaves = (cb) => cb(leaf);
+
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordTeleport('a.md', 'leaf-1', 60);
+		nav.recordTeleport('a.md', 'leaf-1', 300);
+		nav.entries[0].st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		expect(nav.index).toBe(2);
+
+		await nav.jumpTo(0);
+
+		expect(nav.index).toBe(0);
+		// applied entry 0's recorded position
+		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
+		// time travel: the forward part is kept, back/forward continue from here
+		expect(nav.entries.length).toBe(3);
+		expect(nav.canGoForward()).toBe(true);
+		expect(nav.canGoBack()).toBe(false);
+		// the bracket released — traversal is immediately available again
+		expect(nav.canNavigate(1)).toBe(true);
+	});
+
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {
 		const targetLeaf = {
 			id: 'leaf-2',

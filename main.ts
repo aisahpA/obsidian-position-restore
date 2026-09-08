@@ -77,6 +77,13 @@ export default class RememberCursorPosition extends Plugin {
 				return true;
 			}
 		});
+		// History browser: the stack newest-first, click a row to jump there
+		// (time travel — the forward part is kept). No availability gate.
+		this.addCommand({
+			id: 'browse-nav-history',
+			name: t('cmdBrowseNavHistory'),
+			callback: () => this.manager.openNavHistoryModal(),
+		});
 	}
 
 	/**
