@@ -61,6 +61,10 @@ interface PluginSettings {
 	// are never recorded: pdf is native-managed, the rest have no useful
 	// scroll.
 	recordBaseScroll: boolean;
+	// Navigation history (VSCode-style back/forward) tuning.
+	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
+	navRecordActivation: boolean; // tab/pane activation records as a navigation step
+	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation steps
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -76,6 +80,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	readingRestoreMethod: 'instant',
 	restoreIndicator: 'off',
 	recordBaseScroll: false,
+	navStackCap: 50,
+	navRecordActivation: true,
+	navRecordTeleport: true,
 };
 
 export {

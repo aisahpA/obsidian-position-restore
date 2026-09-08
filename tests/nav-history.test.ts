@@ -239,6 +239,38 @@ describe('NavHistory activation recording', () => {
 	});
 });
 
+describe('NavHistory recording settings', () => {
+	it('navStackCap caps the stack, oldest entries drop, index stays at the top', () => {
+		const nav = makeNav(makeApp(), { navStackCap: 2 });
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordOpen('b.md', 'leaf-1');
+		nav.recordOpen('c.md', 'leaf-1');
+		expect(nav.entries.map((e) => e.path)).toEqual(['b.md', 'c.md']);
+		expect(nav.index).toBe(1);
+	});
+
+	it('a hand-edited navStackCap below 1 clamps to 1', () => {
+		const nav = makeNav(makeApp(), { navStackCap: 0 });
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordOpen('b.md', 'leaf-1');
+		expect(nav.entries.map((e) => e.path)).toEqual(['b.md']);
+	});
+
+	it('navRecordActivation off: tab (and graph) activation records nothing', () => {
+		const nav = makeNav(makeApp(), { navRecordActivation: false });
+		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		nav.recordActivation(graphLeaf('leaf-g'));
+		expect(nav.entries.length).toBe(0);
+	});
+
+	it('navRecordTeleport off: cursor jumps record nothing', () => {
+		const nav = makeNav(makeApp(), { navRecordTeleport: false });
+		nav.recordTeleport('a.md', 'leaf-1', 42);
+		nav.recordTeleport('a.md', 'leaf-1', 300);
+		expect(nav.entries.length).toBe(0);
+	});
+});
+
 describe('NavHistory persistence', () => {
 	it('round-trips entries and index through localStorage', () => {
 		const nav = makeNav();

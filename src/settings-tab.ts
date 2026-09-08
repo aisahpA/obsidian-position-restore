@@ -275,13 +275,41 @@ export class SettingTab extends PluginSettingTab {
 							const frag = createFragment();
 							frag.createDiv({ text: t('navHistoryDesc') });
 							const list = frag.createEl('ul', { cls: 'mod-muted' });
-							list.createEl('li', { text: `${t('navHotkeyBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
-							list.createEl('li', { text: `${t('navHotkeyForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
+							list.createEl('li', { text: `${t('cmdNavigateBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
+							list.createEl('li', { text: `${t('cmdNavigateForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
+							list.createEl('li', { text: `${t('cmdBrowseNavHistory')}: ${currentHotkeyText(this.plugin, 'browse-nav-history')}` });
 							setting.setDesc(frag);
 							setting.addExtraButton((btn) => {
 								btn.setIcon('keyboard').setTooltip(t('navHotkeyOpenSettings'))
 									.onClick(() => openHotkeySettings(this.plugin));
 							});
+						},
+					},
+					{
+						name: t('navStackCapName'),
+						desc: t('navStackCapDesc'),
+						control: {
+							type: 'number',
+							key: 'navStackCap',
+							min: 10,
+							max: 500,
+							step: 1,
+						},
+					},
+					{
+						name: t('navActivationName'),
+						desc: t('navActivationDesc'),
+						control: {
+							type: 'toggle',
+							key: 'navRecordActivation',
+						},
+					},
+					{
+						name: t('navTeleportName'),
+						desc: t('navTeleportDesc'),
+						control: {
+							type: 'toggle',
+							key: 'navRecordTeleport',
 						},
 					},
 				],

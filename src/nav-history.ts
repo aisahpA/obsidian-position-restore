@@ -73,9 +73,6 @@ const HISTORY_NAV_TIMEOUT_MS = 1000;
 // delays), so slow-but-progressing traversals are never cut off.
 const NAV_WATCHDOG_MS = 5000;
 
-// Stack ceiling; on overflow the OLDEST entries drop.
-const STACK_CAP = 50;
-
 // Non-file main-area views recorded as steps: the global graph is a real
 // destination (note → graph → note hops, and its leaf can be shared with
 // files via node clicks / graph:open tab reuse). Whitelisted — sidebar
@@ -103,6 +100,9 @@ export class NavHistory {
 	private app: App;
 	private state: PositionState;
 	private modes: RestoreModes;
+	// Shared settings object (main.ts assigns once, settings-tab mutates in
+	// place): recording toggles and the stack cap stay live.
+	private settings: PluginSettings;
 
 	entries: NavHistoryEntry[] = [];
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
@@ -116,6 +116,7 @@ export class NavHistory {
 	constructor(app: App, settings: PluginSettings, state: PositionState) {
 		this.app = app;
 		this.state = state;
+		this.settings = settings;
 		const restored = NavHistory.load(app);
 		this.entries = restored.entries;
 		this.index = restored.index;
@@ -152,6 +153,8 @@ export class NavHistory {
 	// semantics: returning to this entry lands on the jump target itself,
 	// never on where the user had drifted by leave time.
 	recordTeleport(path: string, leafId: string, line: number, landing?: EphemeralState) {
+		if (!this.settings.navRecordTeleport)
+			return;
 		this.recordOpen(path, leafId, { key: `teleport:${line}` });
 		// Fill a fresh entry only: the top must be this exact teleport key
 		// (a gated call pushed nothing; a deduped repeat and a different
@@ -168,6 +171,8 @@ export class NavHistory {
 	// Non-file main-area views (graph) are steps too; sidebar panels are
 	// excluded above.
 	recordActivation(leaf: WorkspaceLeaf | null) {
+		if (!this.settings.navRecordActivation)
+			return;
 		const view = leaf?.view;
 		if (!leaf || !isMainAreaLeaf(this.app, leaf))
 			return;
@@ -320,8 +325,11 @@ export class NavHistory {
 		// A fresh jump discards the forward part (VSCode semantics).
 		this.entries.length = this.index + 1;
 		this.entries.push(entry);
-		if (this.entries.length > STACK_CAP)
-			this.entries.splice(0, this.entries.length - STACK_CAP);
+		// Stack ceiling (settings.navStackCap); on overflow the OLDEST
+		// entries drop. Clamp guards hand-edited data.json values.
+		const cap = Math.max(1, Math.floor(this.settings.navStackCap));
+		if (this.entries.length > cap)
+			this.entries.splice(0, this.entries.length - cap);
 		this.index = this.entries.length - 1;
 	}
 
