@@ -3,7 +3,10 @@ import { EphemeralState } from './types';
 
 export function readEphemeralState(view: MarkdownView): EphemeralState | undefined {
 	const scroll = view.currentMode?.getScroll();
-	if (scroll === undefined || isNaN(scroll))
+	// getScroll() reports null (not undefined) while the preview renderer has
+	// not caught up (see isContentReady) — isNaN(null) is false, so it would
+	// pass the old guard and Math.round(null) would read as "top of file".
+	if (scroll == null || !Number.isFinite(scroll))
 		return undefined;
 
 	// getScroll() returns a 0-based top visible line number plus a fraction of

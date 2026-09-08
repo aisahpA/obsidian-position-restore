@@ -7,7 +7,7 @@ declare global {
 	}
 }
 
-const lang: En = window.moment.locale().toLowerCase().startsWith('zh') ? zh : en;
+const lang: En = window.moment?.locale?.().toLowerCase().startsWith('zh') ? zh : en;
 
 export function t<K extends keyof En>(key: K, ...args: string[]): string {
 	let s = lang[key];

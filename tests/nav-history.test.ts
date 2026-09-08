@@ -277,6 +277,41 @@ describe('NavHistory.navigate', () => {
 		expect(nav.index).toBe(0);
 	});
 
+	it('watchdog releases the traversal bracket when an open hangs forever', async () => {
+		vi.useFakeTimers();
+		try {
+			const app = makeApp();
+			const nav = makeNav(app);
+			nav.recordOpen('a.md', 'leaf-1');
+			nav.recordOpen('b.md', 'leaf-1');
+			(nav as unknown as { index: number }).index = 0;
+			// Forward step b.md on the same leaf lands in openInLeaf →
+			// leaf.openFile, stubbed to never resolve.
+			const activeLeaf = { id: 'leaf-1', containerEl: 'main' } as unknown as WorkspaceLeaf;
+			const activeView = Object.assign(Object.create(FileView.prototype), {
+				file: { path: 'a.md' },
+				leaf: activeLeaf,
+			});
+			(activeLeaf as unknown as { view: unknown }).view = activeView;
+			(activeLeaf as unknown as { openFile: () => Promise<never> }).openFile =
+				() => new Promise<never>(() => undefined);
+			(app.workspace as unknown as { getActiveViewOfType: () => unknown })
+				.getActiveViewOfType = () => activeView;
+
+			void nav.navigate(1); // hangs inside openFile
+			expect(nav.canNavigate(-1)).toBe(false); // bracket up: traversal gated
+
+			await vi.advanceTimersByTimeAsync(5000); // watchdog fires
+
+			// Bracket released: a new traversal is no longer blocked.
+			expect(nav.canNavigate(-1)).toBe(true);
+			await nav.navigate(-1);
+			expect(nav.index).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('a same-file back applies the entry position to the view', async () => {
 		const leaf = { id: 'leaf-1', isDeferred: false, view: { file: { path: 'a.md' } } };
 		const applied: unknown[] = [];

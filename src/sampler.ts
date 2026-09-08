@@ -523,7 +523,7 @@ export class Sampler {
 		// thing that happened. ponytail: one rAF covers the deferred-measure
 		// case (CM's own measure rAF is registered first); a still-stale
 		// read after that is not corrected.
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			if (this.app.workspace.getActiveViewOfType(MarkdownView) !== view)
 				return;
 			if (view.file?.path !== filePath)

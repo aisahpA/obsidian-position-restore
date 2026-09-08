@@ -66,6 +66,13 @@ const NATIVE_LANDING_VERIFY_MS = 80;
 // setViewState (no history, rejected). Mirrors pendingLinkKindTimeout.
 const HISTORY_NAV_TIMEOUT_MS = 1000;
 
+// Watchdog releasing the navigate() bracket if a traversal await hangs
+// (openFile / loadIfDeferred never resolve): without it `executing` would
+// stay up forever and permanently disable back/forward. Sits above the
+// legit apply ceiling (SETTLE_MAX_MS 800 + RELAND_MAX_MS 3000 + anchor
+// delays), so slow-but-progressing traversals are never cut off.
+const NAV_WATCHDOG_MS = 5000;
+
 // Stack ceiling; on overflow the OLDEST entries drop.
 const STACK_CAP = 50;
 
@@ -363,11 +370,23 @@ export class NavHistory {
 		// brackets inside).
 		this.executing = true;
 		this.state.restoreStarted();
+		// Watchdog and the finally share one settle: exactly one restoreEnded
+		// per restoreStarted (restoreStarted/Ended keep a shared counter), and
+		// a hung traversal releases `executing` so back/forward stay usable.
+		// A late completion after the watchdog fired simply no-ops here.
+		let settled = false;
+		const settle = () => {
+			if (settled) return;
+			settled = true;
+			window.clearTimeout(watchdog);
+			this.state.restoreEnded();
+			this.executing = false;
+		};
+		const watchdog = window.setTimeout(settle, NAV_WATCHDOG_MS);
 		try {
 			await this.traverse(dir);
 		} finally {
-			this.state.restoreEnded();
-			this.executing = false;
+			settle();
 		}
 	}
 

@@ -28,6 +28,11 @@ export class BackgroundSettler {
 	private state: PositionState;
 	private tabStore: TabStore;
 	private modes: RestoreModes;
+	// Reentrancy guard: a pass routinely outlasts the 200ms poll (settleAndHold
+	// holds a quiet window per leaf; maskedRestore waits on the renderer), and
+	// overlapping passes would double-run settle/restoreBackground on leaves
+	// whose markers are only consumed at the end of each pass.
+	private settleInProgress = false;
 
 	constructor(app: App, settings: PluginSettings, tabStore: TabStore) {
 		this.app = app;
@@ -48,6 +53,10 @@ export class BackgroundSettler {
 	start(registerCleanup: (fn: () => void) => void) {
 		const deadline = Date.now() + 10000;
 		const interval = window.setInterval(() => {
+			// A pass still running: skip this tick — the running pass's own
+			// completion decides `done`, and a skipped tick just retries.
+			if (this.settleInProgress)
+				return;
 			void this.completeBackgroundRestores().then(done => {
 				if (done || Date.now() > deadline)
 					window.clearInterval(interval);
@@ -58,7 +67,19 @@ export class BackgroundSettler {
 
 	// Returns true when no built leaf still needs work, so the caller can stop
 	// polling; deferred leaves keep returning false until the caller's deadline.
+	// Overlapping calls return false immediately without touching any leaf.
 	async completeBackgroundRestores(): Promise<boolean> {
+		if (this.settleInProgress)
+			return false;
+		this.settleInProgress = true;
+		try {
+			return await this.completeBackgroundRestoresInner();
+		} finally {
+			this.settleInProgress = false;
+		}
+	}
+
+	private async completeBackgroundRestoresInner(): Promise<boolean> {
 		if (!this.app.workspace.layoutReady)
 			return false;
 		await nextPaint();

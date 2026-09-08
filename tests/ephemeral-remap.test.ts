@@ -1,12 +1,14 @@
-// Tests for remapAnchoredState (ephemeral.ts): a recorded position whose
-// anchor line text moved (edits above shifted lines) re-maps to the line that
-// now carries the anchor text; no anchor, an unmoved line, or no match
-// applies the position as recorded. The copy carries the shift; the input
-// stays untouched.
+// Tests for ephemeral.ts: remapAnchoredState (a recorded position whose
+// anchor line text moved re-maps to the line that now carries the anchor
+// text; the copy carries the shift, the input stays untouched) and
+// readEphemeralState's invalid-scroll guard (a null/NaN/undefined getScroll()
+// readback — e.g. the preview renderer not caught up yet — must yield
+// undefined, never a bogus "top of file" state).
 
 import { describe, it, expect } from 'vitest';
+import { MarkdownView } from 'obsidian';
 
-import { remapAnchoredState } from '../src/ephemeral';
+import { readEphemeralState, remapAnchoredState } from '../src/ephemeral';
 import { EphemeralState } from '../src/types';
 
 function editor(lines: string[]) {
@@ -17,6 +19,37 @@ function editor(lines: string[]) {
 }
 
 const BASE_LINES = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
+
+// Minimal view stub: readEphemeralState only touches currentMode.getScroll()
+// and (when present) the editor.
+function viewWithScroll(scroll: unknown): MarkdownView {
+	const view = new MarkdownView(undefined as never) as MarkdownView & Record<string, unknown>;
+	view.currentMode = { getScroll: () => scroll as number };
+	return view;
+}
+
+describe('readEphemeralState', () => {
+	it('returns undefined while the preview renderer reports a null scroll', () => {
+		// Regression: isNaN(null) is false and Math.round(null) is 0, so the
+		// old guard turned "renderer not caught up yet" into {scroll: 0} —
+		// a state the scroll capture / poll would then write over the
+		// saved record.
+		expect(readEphemeralState(viewWithScroll(null))).toBeUndefined();
+	});
+
+	it('returns undefined for NaN and undefined scrolls', () => {
+		expect(readEphemeralState(viewWithScroll(Number.NaN))).toBeUndefined();
+		expect(readEphemeralState(viewWithScroll(undefined))).toBeUndefined();
+	});
+
+	it('still records a genuine top-of-file scroll of 0', () => {
+		expect(readEphemeralState(viewWithScroll(0))).toEqual({ scroll: 0 });
+	});
+
+	it('quantizes a real scroll to whole lines', () => {
+		expect(readEphemeralState(viewWithScroll(10.4))).toEqual({ scroll: 10 });
+	});
+});
 
 describe('remapAnchoredState', () => {
 	it('returns the state as-is without an anchor', () => {

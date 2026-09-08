@@ -290,4 +290,34 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-bg')).toBe(false);
 		expect(state.cover.isCovered(leafObjs['leaf-bg'])).toBe(false);
 	});
+
+	it('refuses an overlapping pass while one is in flight', async () => {
+		const deferred = { id: 'leaf-def', view: makeSourceView('a.md') };
+		delete (deferred.view as { editor?: unknown }).editor;
+		const { state, settler, leafObjs } = makeHarness({ leaves: [deferred] });
+		markInjected(state, [leafObjs['leaf-def']]);
+
+		// Count sweep passes through the app mock's leaf iteration: a pass
+		// reaches it once, a refused pass never does.
+		const app = (settler as unknown as {
+			app: { workspace: { iterateAllLeaves: (cb: (leaf: unknown) => void) => void } };
+		}).app;
+		const originalIterate = app.workspace.iterateAllLeaves;
+		let sweeps = 0;
+		app.workspace.iterateAllLeaves = (cb) => {
+			sweeps++;
+			originalIterate(cb);
+		};
+
+		// The first pass stays pending (deferred leaf); the overlapping call
+		// must be refused instead of double-running the sweep.
+		const first = settler.completeBackgroundRestores();
+		expect(await settler.completeBackgroundRestores()).toBe(false);
+		await first;
+		expect(sweeps).toBe(1);
+
+		// Guard released: a fresh pass runs again.
+		expect(await settler.completeBackgroundRestores()).toBe(false);
+		expect(sweeps).toBe(2);
+	});
 });

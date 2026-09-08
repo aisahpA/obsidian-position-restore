@@ -34,6 +34,10 @@ export class OpenCover {
 	}
 
 	cover(leaf: WorkspaceLeaf): void {
+		// A re-cover while already covered (replayed re-inject) must not start
+		// a second reapplyCover loop — the running loop keeps covering until
+		// uncover(); only the safety timer below is refreshed.
+		const wasCovered = this.pendingTimers.has(leaf);
 		this.coverLeaf(leaf);
 		const existing = this.pendingTimers.get(leaf);
 		if (existing)
@@ -53,7 +57,8 @@ export class OpenCover {
 		// .view-content is hidden before its first frame can show the
 		// un-restored top. Stops once the restore reveals (or the safety
 		// timer lifted) the cover — both go through uncover().
-		window.requestAnimationFrame(() => this.reapplyCover(leaf));
+		if (!wasCovered)
+			window.requestAnimationFrame(() => this.reapplyCover(leaf));
 	}
 
 	uncover(leaf: WorkspaceLeaf): void {
