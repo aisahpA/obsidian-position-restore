@@ -125,13 +125,18 @@ export class Restorer {
 
 			// Dispatch by view mode; each branch owns its own no-record /
 			// default-position handling so the two don't leak across modes.
+			// Injected opens first: a history traversal injects and covers
+			// REGARDLESS of the glide choice ("must land instantly",
+			// patcher pendingHistoryNav) — dispatching it to glideRestore
+			// would run the glide under the first-paint cover it never
+			// lifts, blanking the leaf until the cover safety timer (~2s).
 			if (mode === 'source') {
 				if (!st && this.settings.defaultPosition === 'default')
 					return;
-				if (this.shouldGlideSource(st))
-					await this.modes.glideRestore(view, st, isCurrent);
-				else if (injected)
+				if (injected)
 					await this.modes.restoreInjectedSource(view, st, isCurrent);
+				else if (this.shouldGlideSource(st))
+					await this.modes.glideRestore(view, st, isCurrent);
 				else if (st)
 					await this.modes.maskedRestoreSt(view, st, isCurrent);
 				else

@@ -107,8 +107,8 @@ type Harness = {
 let coveredLeaves: WorkspaceLeaf[] = [];
 let harnessCovers: PositionState | undefined;
 
-function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMarkdown?: boolean; filePath?: string } = {}): Harness {
-	const { layoutReady = true, marker = true, activeIsMarkdown = true, filePath = 'a.md' } = opts;
+function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMarkdown?: boolean; filePath?: string; glideSource?: boolean } = {}): Harness {
+	const { layoutReady = true, marker = true, activeIsMarkdown = true, filePath = 'a.md', glideSource = false } = opts;
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const leaf = makeLeaf('leaf-1');
 	const view = activeIsMarkdown ? makeSourceView(leaf, filePath) : undefined;
@@ -125,7 +125,7 @@ function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMa
 	const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
 	const restorer = new Restorer(
 		app as never,
-		DEFAULT_SETTINGS,
+		glideSource ? { ...DEFAULT_SETTINGS, sourceRestoreMethod: 'glide' } : DEFAULT_SETTINGS,
 		tabStore,
 	);
 	if (marker) {
@@ -171,6 +171,20 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedOpenLeafIds.size).toBe(0);
 		expect(state.restoreRun).toBe(1);
 		expect(state.lastLoadedFilePath).toBe('a.md');
+		expect(state.cover.isCovered(leaf)).toBe(false);
+	});
+
+	it('glide setting does not turn a covered injected open into a glide (the cover must lift)', async () => {
+		// A history traversal (back/forward) injects and covers REGARDLESS of
+		// the glide setting ("must land instantly"). Dispatching it to
+		// glideRestore left the first-paint cover stuck — glideRestore never
+		// uncovers — blanking the leaf until the 2s cover safety timer: the
+		// long blank reported on navigate-back with edit-glide selected.
+		const { state, leaf, restorer } = makeHarness({ glideSource: true });
+
+		await restorer.completeInjectedRestore(leaf);
+
+		expect(state.injectedOpenLeafIds.size).toBe(0);
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 

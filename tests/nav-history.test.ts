@@ -463,6 +463,52 @@ describe('NavHistory.navigate', () => {
 		expect(targetLeaf.openFile.mock.calls[0][0]).toMatchObject({ path: 'a.md' });
 	});
 
+	it('a cross-tab open arms pendingHistoryNav so the traversal lands instantly', async () => {
+		// openInLeaf must arm the same flag delegateNative arms: the
+		// setViewState patch then injects the per-file record over the plain
+		// open and bypasses the glide choice (history traversals land
+		// instantly; a raw glide here swept blank through unrendered content).
+		vi.useFakeTimers();
+		try {
+			const targetLeaf = {
+				id: 'leaf-2',
+				isDeferred: false,
+				view: { file: undefined },
+				openFile: vi.fn().mockResolvedValue(undefined),
+			};
+			const activeLeaf = { id: 'leaf-1', isDeferred: false };
+			const view = Object.assign(Object.create(FileView.prototype), {
+				file: { path: 'c.md' },
+				leaf: activeLeaf,
+			});
+			const app = makeApp();
+			const ws = app.workspace as unknown as {
+				getActiveViewOfType: () => unknown;
+				iterateAllLeaves: (cb: (l: unknown) => void) => void;
+				setActiveLeaf: (l: unknown, opts?: unknown) => void;
+			};
+			ws.getActiveViewOfType = () => view;
+			ws.iterateAllLeaves = (cb) => { cb(activeLeaf); cb(targetLeaf); };
+
+			const nav = makeNav(app);
+			const state = (nav as unknown as { state: PositionState }).state;
+			let armedDuringOpen: boolean | undefined;
+			targetLeaf.openFile.mockImplementation(() => {
+				armedDuringOpen = state.pendingHistoryNav;
+				return Promise.resolve();
+			});
+			nav.recordOpen('a.md', 'leaf-2');
+			nav.recordOpen('c.md', 'leaf-1');
+			await nav.navigate(-1);
+
+			expect(armedDuringOpen).toBe(true);
+			vi.advanceTimersByTime(1000);
+			expect(state.pendingHistoryNav).toBe(false); // timeout cleared: no leak onto later opens
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('a same-tab file switch delegates to the native history when its next entry matches', async () => {
 		const leaf = {
 			id: 'leaf-1',

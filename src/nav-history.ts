@@ -563,8 +563,20 @@ export class NavHistory {
 		if (curFile?.path === target.path)
 			return;
 		const file = this.app.vault.getAbstractFileByPath(target.path);
-		if (file instanceof TFile)
+		if (file instanceof TFile) {
+			// A traversal that opens directly (cross-tab, or the native
+			// stack's next entry didn't match) must land instantly like the
+			// delegated one: arm the same flag delegateNative uses, so the
+			// setViewState patch injects the per-file record over the plain
+			// open and bypasses the glide choice. The timeout clears it when
+			// this open never reaches setViewState.
+			this.state.pendingHistoryNav = true;
+			window.clearTimeout(this.state.pendingHistoryNavTimeout);
+			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
+				this.state.pendingHistoryNav = false;
+			}, HISTORY_NAV_TIMEOUT_MS);
 			await leaf.openFile(file);
+		}
 	}
 
 	// Delegates one step to the native per-tab history — but only when the
