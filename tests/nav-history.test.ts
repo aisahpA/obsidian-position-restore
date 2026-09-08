@@ -383,7 +383,7 @@ describe('NavHistory.navigate', () => {
 		expect(nav.entries[1].st).toMatchObject({ scroll: 42 });
 	});
 
-	it('jumpTo lands on the chosen entry and keeps the forward part', async () => {
+	it('jumpTo lifts the chosen entry to the top; back returns to the origin', async () => {
 		const leaf = { id: 'leaf-1', isDeferred: false, view: { file: { path: 'a.md' } } };
 		const applied: unknown[] = [];
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
@@ -414,15 +414,22 @@ describe('NavHistory.navigate', () => {
 
 		await nav.jumpTo(0);
 
-		expect(nav.index).toBe(0);
-		// applied entry 0's recorded position
+		// the chosen entry is now the stack top (fresh-navigation semantics)
+		expect(nav.index).toBe(2);
+		expect(nav.entries.map(e => e.key)).toEqual(['teleport:60', 'teleport:300', undefined]);
+		// applied the chosen entry's recorded position
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
-		// time travel: the forward part is kept, back/forward continue from here
+		// nothing truncated: the displaced middle stays walkable via back
 		expect(nav.entries.length).toBe(3);
-		expect(nav.canGoForward()).toBe(true);
-		expect(nav.canGoBack()).toBe(false);
+		expect(nav.canGoBack()).toBe(true);
+		expect(nav.canGoForward()).toBe(false);
 		// the bracket released — traversal is immediately available again
-		expect(nav.canNavigate(1)).toBe(true);
+		expect(nav.canNavigate(-1)).toBe(true);
+
+		// back one step lands on the origin entry, refreshed at leave time
+		await nav.navigate(-1);
+		expect(nav.index).toBe(1);
+		expect(applied[1]).toMatchObject({ scroll: 42 });
 	});
 
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {

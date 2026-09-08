@@ -10,7 +10,9 @@ import { delay } from './wait';
 // One global stack of entries `{ path, leafId, st?, key? }` with a current
 // index. Every recorded jump (any file switch, tab/pane activation,
 // in-file anchor/search/large cursor jumps) pushes; back/forward move the
-// index; a fresh jump truncates the forward part. Two position regimes:
+// index; a fresh jump truncates the forward part; the history-browser jump
+// lifts its target to the top (back returns to the jump's origin). Two
+// position regimes:
 // keyed entries (teleport:<line>, outline:<heading>, anchor linktext) carry
 // the jump's precise landing — written at push time (teleport) or when the
 // landing settles (outline/anchor) — and are never overwritten afterwards
@@ -369,8 +371,11 @@ export class NavHistory {
 	}
 
 	// Time travel to an arbitrary entry (the history browser). Same bracket
-	// as navigate; the forward part is NOT truncated — back/forward continue
-	// from the landing, only fresh jumps truncate as usual.
+	// as navigate. The jump is a fresh navigation (VSCode/IDEA record the
+	// origin as a back step): the chosen entry is lifted to the stack top so
+	// back returns to where the user was; the displaced middle stays in
+	// place, walkable via back — nothing is truncated here. Clicking the
+	// current row just re-lands (keyed entries re-apply their landing).
 	async jumpTo(index: number): Promise<void> {
 		if (index < 0 || index >= this.entries.length)
 			return;
@@ -380,8 +385,12 @@ export class NavHistory {
 			// verification); multi-step jumps never match the native stack's
 			// next entry, so the value is a formality beyond ±1 hops.
 			const dir: -1 | 1 = index > this.index ? 1 : -1;
-			this.index = index;
-			await this.execute(this.entries[index], dir);
+			if (index !== this.index) {
+				if (index !== this.entries.length - 1)
+					this.entries.push(this.entries.splice(index, 1)[0]);
+				this.index = this.entries.length - 1;
+			}
+			await this.execute(this.entries[this.index], dir);
 		});
 	}
 
