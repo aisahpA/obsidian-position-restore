@@ -9,7 +9,7 @@
 //    flow; background leaves aren't built yet);
 //  - a non-markdown active view never completes.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileView, MarkdownView, type WorkspaceLeaf } from 'obsidian';
 
 import { Restorer } from '../src/restorer';
@@ -186,6 +186,25 @@ describe('Restorer.completeInjectedRestore', () => {
 
 		expect(state.injectedOpenLeafIds.size).toBe(0);
 		expect(state.cover.isCovered(leaf)).toBe(false);
+	});
+
+	it('skips the landing cue while a navigation traversal suppresses it', async () => {
+		// NavHistory arms cueSuppressUntil on back/forward: the restore still
+		// lands (and anchors) but must not show the position-restored chip.
+		const { state, leaf, restorer } = makeHarness();
+		const show = vi.spyOn(state.cue, 'show');
+		state.cueSuppressUntil = Date.now() + 1000;
+
+		await restorer.completeInjectedRestore(leaf);
+
+		expect(state.lastLoadedFilePath).toBe('a.md'); // restore ran and anchored
+		expect(show).not.toHaveBeenCalled();
+
+		// Expired deadline: the next ordinary restore shows the chip again.
+		state.injectedOpenLeafIds.add('leaf-1');
+		state.cueSuppressUntil = Date.now() - 1;
+		await restorer.completeInjectedRestore(leaf);
+		expect(show).toHaveBeenCalled();
 	});
 
 	it('skips a duplicate re-assert while the same leaf+file restore is in flight', async () => {

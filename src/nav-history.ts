@@ -68,6 +68,14 @@ const NATIVE_LANDING_VERIFY_MS = 80;
 // setViewState (no history, rejected). Mirrors pendingLinkKindTimeout.
 const HISTORY_NAV_TIMEOUT_MS = 1000;
 
+// How long a traversal's landing stays cue-suppressed: the cross-file
+// restore runs from the debounced 'file-open' handler (after the traversal
+// bracket closed) and ends with the settle (SETTLE_HOLD_MAX_MS 1250ms) plus
+// the anchor delay — 3s clears that with margin while staying tight enough
+// that a user's next unrelated open (quick switcher right after a hop)
+// shows its own cue again.
+const NAV_CUE_SUPPRESS_MS = 3000;
+
 // Watchdog releasing the navigate() bracket if a traversal await hangs
 // (openFile / loadIfDeferred never resolve): without it `executing` would
 // stay up forever and permanently disable back/forward. Sits above the
@@ -535,6 +543,7 @@ export class NavHistory {
 			// cross-tab case returned above.)
 			if (activeView instanceof MarkdownView && target.st) {
 				const isCurrent = () => activeView.file?.path === target.path;
+				this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
 				await this.modes.historyJumpApply(activeView, target.st, isCurrent);
 			}
 			return;
@@ -571,6 +580,7 @@ export class NavHistory {
 			// open and bypasses the glide choice. The timeout clears it when
 			// this open never reaches setViewState.
 			this.state.pendingHistoryNav = true;
+			this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
 			window.clearTimeout(this.state.pendingHistoryNavTimeout);
 			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
 				this.state.pendingHistoryNav = false;
@@ -607,6 +617,7 @@ export class NavHistory {
 		// arming it here would just leak 1s onto an unrelated later open.
 		if (targetPath !== undefined) {
 			this.state.pendingHistoryNav = true;
+			this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
 			window.clearTimeout(this.state.pendingHistoryNavTimeout);
 			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
 				this.state.pendingHistoryNav = false;

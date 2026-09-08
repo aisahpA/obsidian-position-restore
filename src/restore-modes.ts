@@ -346,8 +346,11 @@ export class RestoreModes {
 			this.state.lastAnchorAt = Date.now();
 			// Every real restore path ends here (masked/glide/injected/default
 			// jumps); dedup, link jumps, and native-default opens don't, so the
-			// cue only fires after an actual restore landed.
-			this.state.cue.show(view);
+			// cue only fires after an actual restore landed. NavHistory
+			// traversals (back/forward) arm cueSuppressUntil — the user chose
+			// the destination, no chip.
+			if (Date.now() >= this.state.cueSuppressUntil)
+				this.state.cue.show(view);
 		}
 	}
 }

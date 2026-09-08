@@ -148,6 +148,15 @@ export class PositionState {
 	pendingHistoryNav = false;
 	pendingHistoryNavTimeout = 0;
 
+	// Deadline until which a restore's landing cue is suppressed: NavHistory
+	// arms it at each moment a traversal triggers a restore (same-file
+	// historyJumpApply, delegateNative, openInLeaf), so back/forward hops
+	// land without the "position restored" chip — the user chose the
+	// destination themselves. Deadline-based (not a boolean) because the
+	// cross-file restore runs from the debounced 'file-open' handler, AFTER
+	// the traversal's own bracket has closed.
+	cueSuppressUntil = 0;
+
 	// ===== Search anchor (search-driven jump guard) =====
 	// Deadline until which recording treats view movement as not the user's:
 	// while a search input (editor find, quick switcher, search panel) holds

@@ -430,6 +430,10 @@ describe('NavHistory.navigate', () => {
 		await nav.navigate(-1);
 		expect(nav.index).toBe(1);
 		expect(applied[1]).toMatchObject({ scroll: 42 });
+		// the landing cue is suppressed for the traversal (armed at jumpTo
+		// and again at the same-file apply)
+		const state = (nav as unknown as { state: PositionState }).state;
+		expect(state.cueSuppressUntil).toBeGreaterThan(Date.now());
 	});
 
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {
@@ -504,6 +508,8 @@ describe('NavHistory.navigate', () => {
 			expect(armedDuringOpen).toBe(true);
 			vi.advanceTimersByTime(1000);
 			expect(state.pendingHistoryNav).toBe(false); // timeout cleared: no leak onto later opens
+			// the landing cue is suppressed for the traversal's restore
+			expect(state.cueSuppressUntil).toBeGreaterThan(0);
 		} finally {
 			vi.useRealTimers();
 		}
