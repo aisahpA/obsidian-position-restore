@@ -2,7 +2,7 @@ import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { TabStore } from './tab-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from './position-state';
-import { readEphemeralState } from './ephemeral';
+import { readNavEntryState } from './ephemeral';
 import type { NavHistory } from './nav-history';
 import { isMainAreaLeaf } from './nav-history';
 import type { Sampler } from './sampler';
@@ -178,7 +178,9 @@ export class OpenPatcher {
 		// targeting it lands there. No-op when the top entry moved on.
 		const leavingView = leaf.view;
 		if (leavingView instanceof MarkdownView && leavingView.file) {
-			const fromSt = readEphemeralState(leavingView);
+			// Nav read (low frequency): the entry's display fields are
+			// assembled here, at the save moment.
+			const fromSt = readNavEntryState(leavingView);
 			if (fromSt) {
 				this.nav.refreshTop(leavingView.file.path, leafId, fromSt);
 				// The record's regular writers lag (poll tick, debounced

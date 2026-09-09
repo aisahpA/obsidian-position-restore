@@ -18,10 +18,13 @@ export interface NavEntryDescription {
 // reading capture lands on the viewport top line (its remap anchor), an edit
 // capture lands on the cursor line (its cursorAnchor — never the viewport
 // top text, a different line; missing for blank cursor lines and legacy
-// entries). Line number semantics by capture mode (see EphemeralState.mode):
-// a reading capture carries the editor's stale pre-preview cursor, so only
-// the recorded mode disambiguates — pre-upgrade entries (no mode) fall back
-// to the cursor-first heuristic.
+// entries). An edit capture whose cursor sat OUTSIDE the viewport
+// (cursorOffscreen — source-mode scrolling leaves the cursor behind) falls
+// back to the viewport top line + anchor: the restore lands on the viewport,
+// so that is where the user actually was. Line number semantics by capture
+// mode (see NavEntryState.mode): a reading capture carries the editor's
+// stale pre-preview cursor, so only the recorded mode disambiguates —
+// pre-upgrade entries (no mode) fall back to the cursor-first heuristic.
 export function describeNavEntry(
 	entry: NavHistoryEntry,
 	hasFile: (path: string) => boolean,
@@ -48,7 +51,7 @@ export function describeNavEntry(
 		if (st.mode === 'preview') {
 			n = st.scroll;
 			anchor = st.anchor;
-		} else if (st.cursor) {
+		} else if (st.cursor && !st.cursorOffscreen) {
 			n = st.cursor.from.line;
 			anchor = st.cursorAnchor;
 		} else {

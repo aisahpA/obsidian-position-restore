@@ -911,6 +911,15 @@ describe('Sampler in-file teleport detection', () => {
 		expect(h.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 3, expect.anything());
 	});
 
+	it('navRecordTeleport off: the selection event path stays fully silent', () => {
+		const h = makeSamplerHarness({ navRecordTeleport: false });
+		h.onSelection(h.view.editor); // baseline: line 60
+		h.cursor.line = 3;
+		h.onSelection(h.view.editor); // 57-line jump, setting off
+		expect(h.recordTeleport).not.toHaveBeenCalled();
+		expect(h.refreshTop).not.toHaveBeenCalled();
+	});
+
 	it('flushOnLeave writes the exact leaving state; recording rules still gate it', () => {
 		const st = { scroll: 7, cursor: { from: { line: 5, ch: 0 }, to: { line: 5, ch: 0 } } };
 

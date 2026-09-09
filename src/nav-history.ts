@@ -1,8 +1,8 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from './types';
+import { NavEntryState, PluginSettings } from './types';
 import { PositionState, LANDING_ABSORB_MS } from './position-state';
 import { RestoreModes } from './restore-modes';
-import { readEphemeralState } from './ephemeral';
+import { readNavEntryState } from './ephemeral';
 import { delay } from './wait';
 
 // VSCode-style back/forward navigation.
@@ -40,8 +40,10 @@ export interface NavHistoryEntry {
 	// Same-file apply position (markdown only): the jump's precise landing
 	// for keyed entries (teleport/outline/anchor — written at push time or
 	// when the landing settles, immutable), the leave position for keyless
-	// open/activation entries (refreshed on every leave).
-	st?: EphemeralState;
+	// open/activation entries (refreshed on every leave). NavEntryState: the
+	// display fields (anchor/cursorAnchor/mode/cursorOffscreen) come from the
+	// low-frequency nav reads only.
+	st?: NavEntryState;
 	// Dedup key: the linktext of an anchor jump, or `teleport:<line>` for
 	// large cursor jumps. A push whose key equals the top entry's key is the
 	// same jump repeated (repeated outline clicks to one heading) and is
@@ -162,7 +164,7 @@ export class NavHistory {
 	// LANDING position (`landing`, the post-jump read) — precise-return
 	// semantics: returning to this entry lands on the jump target itself,
 	// never on where the user had drifted by leave time.
-	recordTeleport(path: string, leafId: string, line: number, landing?: EphemeralState) {
+	recordTeleport(path: string, leafId: string, line: number, landing?: NavEntryState) {
 		if (!this.settings.navRecordTeleport)
 			return;
 		this.recordOpen(path, leafId, { key: `teleport:${line}` });
@@ -205,7 +207,7 @@ export class NavHistory {
 	// Keyless open/activation entries are overwritten on every leave.
 	// Guarded by path+leaf: the top entry must still describe this view's
 	// leaf+file.
-	refreshTop(path: string, leafId: string, st: EphemeralState) {
+	refreshTop(path: string, leafId: string, st: NavEntryState) {
 		const top = this.entries[this.index];
 		if (!top || top.path !== path || top.leafId !== leafId)
 			return;
@@ -297,7 +299,7 @@ export class NavHistory {
 		// "Update on leave" with the exact pre-click position (nothing has
 		// scrolled yet) so a later back lands where the user actually was.
 		const leafId = this.state.leafId(view.leaf);
-		const fromSt = readEphemeralState(view);
+		const fromSt = readNavEntryState(view);
 		if (fromSt)
 			this.refreshTop(view.file.path, leafId, fromSt);
 		// Key = heading text (core renders the heading as the item's inner
@@ -487,7 +489,7 @@ export class NavHistory {
 		const cur = this.entries[this.index];
 		if (cur && activeView?.file && cur.leafId === this.state.leafId(activeView.leaf)
 			&& cur.path === activeView.file.path && activeView instanceof MarkdownView) {
-			const st = readEphemeralState(activeView);
+			const st = readNavEntryState(activeView);
 			if (st) this.refreshTop(cur.path, cur.leafId, st);
 		}
 	}

@@ -1,6 +1,11 @@
 import { MarkdownView } from 'obsidian';
-import { EphemeralState } from './types';
+import { EphemeralState, NavEntryState } from './types';
 
+// Hot read: the 100ms poll (Sampler), the scroll capture, and the restore
+// verification / reland loops run this every tick and every frame. Position
+// only — no doc-string reads, no layout. Nav display fields live in
+// readNavEntryState / withNavDisplay, which run only when a navigation step
+// is actually saved.
 export function readEphemeralState(view: MarkdownView): EphemeralState | undefined {
 	const scroll = view.currentMode?.getScroll();
 	// getScroll() reports null (not undefined) while the preview renderer has
@@ -35,23 +40,10 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	//    downward drift. Only a symmetric dead zone absorbs noise in both
 	//    directions. (Obsidian's own outline sync also uses Math.round here.)
 	const topLine = Math.round(scroll);
-	// getMode is optional-called: the mode stamp is display-only and must
-	// never be able to crash the recording path on a view-like object that
-	// lacks it (missing mode reads as the cursor-first heuristic).
-	const state: EphemeralState = { scroll: topLine, mode: view.getMode?.() };
+	const state: EphemeralState = { scroll: topLine };
 
 	const editor = view.editor;
 	if (editor) {
-		// Anchor: the primary line's trimmed text at capture time. A recorded
-		// position goes stale when the file is edited afterwards (inserts and
-		// deletes above shift every line below) — remapAnchoredState uses this
-		// text to re-find the line before the position is applied. Blank lines
-		// carry no anchor (an empty match would match every blank line).
-		if (topLine >= 0 && topLine <= (editor.lastLine?.() ?? -1)) {
-			const text = editor.getLine(topLine).trim().slice(0, 80);
-			if (text)
-				state.anchor = text;
-		}
 		const from = editor.getCursor("anchor");
 		const to = editor.getCursor("head");
 		// A collapsed cursor at (0,0) is where the editor opens anyway — omit it
@@ -61,20 +53,117 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 				from: { ch: from.ch, line: from.line },
 				to: { ch: to.ch, line: to.line }
 			}
-			// History-browser display: the cursor line's own text — the line
-			// the jump lands on. Reading captures are excluded: their cursor
-			// is the stale pre-preview one (the viewport anchor covers them).
-			// Best-effort like the anchor above: a view-like object without
-			// getLine must never crash the recording path.
-			if (state.mode !== 'preview' && typeof editor.getLine === 'function') {
-				const landing = editor.getLine(from.line)?.trim().slice(0, 80);
-				if (landing)
-					state.cursorAnchor = landing;
-			}
 		}
 	}
 
 	return state;
+}
+
+// Minimal CM6 surface for the cursor-visibility check. Same cast family as
+// pixels.ts CmLike / cue.ts Cm6EditorView — (editor).cm is runtime-only,
+// absent from the public typings. A local interface: pixels.ts imports this
+// module, so its CmLike cannot be borrowed without a cycle.
+interface CmView {
+	state: { doc: { lines: number; line(n: number): { from: number } } };
+	viewport: { from: number; to: number };
+	scrollDOM: HTMLElement;
+	coordsAtPos(pos: number): { top: number } | null;
+	defaultLineHeight: number;
+}
+
+// Whether the cursor line is actually on screen. Pixel geometry through
+// (editor).cm — never currentMode.getScroll(), which ECHOES the requested
+// value while the pixels sit elsewhere (pixels.ts:99-102). An unrendered
+// line (outside cm.viewport, CM's render margin included) is off screen by
+// definition; a rendered line's coordsAtPos is a real client rect, compared
+// against the scroller's box. Every undecidable step (no editor view, line
+// beyond EOF, coords not yet measured) returns true — assume visible, keep
+// today's display; never lose the label to a geometry hiccup.
+function cursorOnScreen(view: MarkdownView, line: number): boolean {
+	const cm = (view.editor as unknown as { cm?: CmView }).cm;
+	if (!cm?.scrollDOM)
+		return true;
+	if (line + 1 > cm.state.doc.lines)
+		return true;
+	const from = cm.state.doc.line(line + 1).from;
+	if (from < cm.viewport.from || from >= cm.viewport.to)
+		return false;
+	const coords = cm.coordsAtPos(from);
+	if (!coords)
+		return true;
+	const rect = cm.scrollDOM.getBoundingClientRect();
+	const lineHeight = cm.defaultLineHeight || 20;
+	return coords.top >= rect.top - lineHeight && coords.top < rect.bottom;
+}
+
+// The nav-display fields around a position: the viewport-top anchor
+// (functional — remapAnchoredState re-finds the line after later edits), the
+// cursor line's own text and the mode stamp (history-browser display), and
+// the offscreen flag. Cheap doc reads EXCEPT cursorOnScreen — this is the
+// only layout-forcing part of the nav read, and it never runs on the hot
+// path.
+function navDisplayFields(
+	view: MarkdownView,
+	topLine: number,
+	cursor: EphemeralState['cursor'],
+): Pick<NavEntryState, 'anchor' | 'cursorAnchor' | 'mode' | 'cursorOffscreen'> {
+	const display: Pick<NavEntryState, 'anchor' | 'cursorAnchor' | 'mode' | 'cursorOffscreen'> = {};
+	// getMode is optional-called: the mode stamp is display-only and must
+	// never be able to crash the recording path on a view-like object that
+	// lacks it (missing mode reads as the cursor-first heuristic).
+	const mode = view.getMode?.();
+	if (mode)
+		display.mode = mode;
+	const editor = view.editor;
+	if (!editor || typeof editor.getLine !== 'function')
+		return display;
+	// Anchor: the primary line's trimmed text at capture time. A recorded
+	// position goes stale when the file is edited afterwards (inserts and
+	// deletes above shift every line below) — remapAnchoredState uses this
+	// text to re-find the line before the position is applied. Blank lines
+	// carry no anchor (an empty match would match every blank line).
+	if (topLine >= 0 && topLine <= (editor.lastLine?.() ?? -1)) {
+		const text = editor.getLine(topLine).trim().slice(0, 80);
+		if (text)
+			display.anchor = text;
+	}
+	// cursorAnchor: the cursor line's own text — the line the jump lands on.
+	// Reading captures are excluded: their cursor is the stale pre-preview
+	// one (the viewport anchor covers them). Off-screen cursor: the history
+	// browser must describe the viewport instead of the invisible line.
+	if (cursor && mode !== 'preview') {
+		const landing = editor.getLine(cursor.from.line)?.trim().slice(0, 80);
+		if (landing)
+			display.cursorAnchor = landing;
+		if (!cursorOnScreen(view, cursor.from.line))
+			display.cursorOffscreen = true;
+	}
+	return display;
+}
+
+// Nav read — LOW frequency only (the leave-refresh on a file switch, the
+// outline pre-click read, the leave-refresh before back/forward, the
+// landing settle-capture, the teleport landing): the hot read plus the
+// display fields a NavHistory entry carries. Never a drop-in for
+// readEphemeralState on hot paths: the visibility check forces layout per
+// call.
+export function readNavEntryState(view: MarkdownView): NavEntryState | undefined {
+	const st = readEphemeralState(view);
+	if (!st)
+		return undefined;
+	return { ...st, ...navDisplayFields(view, st.scroll ?? -1, st.cursor) };
+}
+
+// Rebuild the nav-display fields around an ALREADY-READ position — the poll
+// baseline handed to refreshTop at a teleport. The pre-jump state cannot be
+// re-read (the cursor has already jumped; the scroll may already have
+// landed on mobile), so the display fields are reconstructed from the
+// current view against the recorded position: at most one poll tick stale,
+// and on desktop CM applies the jump's scrollIntoView AFTER the selection
+// event, so the visibility check sees the pre-jump viewport. Shallow copy —
+// never mutate the shared baseline (or any entry sharing it) in place.
+export function withNavDisplay(view: MarkdownView, st: EphemeralState): NavEntryState {
+	return { ...st, ...navDisplayFields(view, st.scroll ?? -1, st.cursor) };
 }
 
 // ponytail: nearest-match heuristic — an edited anchor line or a fully
@@ -84,15 +173,15 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 const REMAP_WINDOW = 30;
 
 // Re-map a stale recorded position to the file's current lines: the entry
-// text anchor (see readEphemeralState) locates the line that used to sit at
+// text anchor (see readNavEntryState) locates the line that used to sit at
 // the recorded line number. Nearest-first scan around it; no match applies
 // the position as recorded. Returns a shifted copy — callers' entries stay
 // immutable (keyed-entry semantics), the original anchor stays with the
 // entry for the next apply.
 export function remapAnchoredState(
 	editor: { getLine(line: number): string; lastLine(): number },
-	st: EphemeralState,
-): EphemeralState {
+	st: NavEntryState,
+): NavEntryState {
 	const anchor = st.anchor;
 	if (!anchor)
 		return st;
@@ -108,7 +197,7 @@ export function remapAnchoredState(
 				continue;
 			if (editor.getLine(at).trim() === anchor) {
 				const delta = at - line;
-				const mapped: EphemeralState = { ...st, anchor: undefined };
+				const mapped: NavEntryState = { ...st, anchor: undefined };
 				if (mapped.scroll !== undefined)
 					mapped.scroll = Math.max(0, mapped.scroll + delta);
 				if (mapped.cursor)

@@ -211,6 +211,39 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
 	});
 
+	it('flags a left entry whose cursor sat outside the viewport', () => {
+		// The user scrolled the cursor line off screen, then jumped away: the
+		// left entry must describe the viewport (cursorOffscreen → the panel
+		// falls back to scroll + anchor), not the invisible cursor line.
+		const h = makeHarness({ entries: [{ path: 'a.md', leafId: 'leaf-1' }] });
+		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
+		h.state.lastEphemeralState = pollRead;
+		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25 —
+		// the baseline cursor line is unrendered, i.e. off screen.
+		const editor = h.editor as unknown as Record<string, unknown>;
+		editor.getLine = (n: number) => `line ${n}`;
+		editor.lastLine = () => 1000;
+		editor.cm = {
+			state: { doc: { lines: 1000, line: (n: number) => ({ from: (n - 1) * 10 }) } },
+			viewport: { from: 0, to: 25 },
+			scrollDOM: document.createElement('div'),
+			coordsAtPos: () => null,
+			defaultLineHeight: 20,
+		};
+
+		h.onSelection(h.editor); // baseline: line 3
+		h.cursor.line = 500;
+		h.onSelection(h.editor);
+
+		expect(h.nav.refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
+			scroll: 10,
+			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
+			anchor: 'line 10',
+			cursorAnchor: 'line 3',
+			cursorOffscreen: true,
+		});
+	});
+
 	it('a rapid second jump leaves the first landing intact and pushes its own', () => {
 		const h = makeHarness();
 		// Stale poll read (both jumps happen inside one tick) — it must never

@@ -74,6 +74,18 @@ describe('describeNavEntry', () => {
 		expect(d.anchor).toBeUndefined();
 	});
 
+	it('an off-screen cursor capture falls back to the viewport line and anchor', () => {
+		// Source-mode scrolling left the cursor behind (cursorOffscreen): the
+		// restore lands on the viewport, so the row describes the viewport,
+		// never the invisible cursor line.
+		const d = describeNavEntry({
+			path: 'a.md', leafId: 'leaf-1',
+			st: { scroll: 499, mode: 'source', cursor: line(100), anchor: 'viewport top', cursorAnchor: 'cursor line', cursorOffscreen: true },
+		} as NavHistoryEntry, hasFile);
+		expect(d.line).toBe('L500');
+		expect(d.anchor).toBe('viewport top');
+	});
+
 	it('outline and anchor keys label their types; a pathless entry is the graph', () => {
 		const outline = describeNavEntry({ path: 'a.md', leafId: 'leaf-1', key: 'outline:第一章' } as NavHistoryEntry, hasFile);
 		expect(outline.type).toBe(t('navTypeOutline'));
