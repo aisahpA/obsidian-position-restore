@@ -554,8 +554,9 @@ export class Sampler {
 			if (editor.getCursor('anchor').line !== from.line)
 				return;
 			const top = this.nav.entries[this.nav.index];
-			if (!top || top.path !== filePath || top.leafId !== leafId
-				|| top.key !== `teleport:${from.line}`)
+			if (!top || top.kind !== 'teleport'
+				|| top.path !== filePath || top.leafId !== leafId
+				|| top.line !== from.line)
 				return;
 			const settled = readNavEntryState(view);
 			if (settled)

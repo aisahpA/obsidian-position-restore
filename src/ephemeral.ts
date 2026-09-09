@@ -4,7 +4,7 @@ import { EphemeralState, NavEntryState } from './types';
 // Hot read: the 100ms poll (Sampler), the scroll capture, and the restore
 // verification / reland loops run this every tick and every frame. Position
 // only — no doc-string reads, no layout. Nav display fields live in
-// readNavEntryState / withNavDisplay, which run only when a navigation step
+// readNavEntryState / withNavDisplay, which run only when a nav entry
 // is actually saved.
 export function readEphemeralState(view: MarkdownView): EphemeralState | undefined {
 	const scroll = view.currentMode?.getScroll();

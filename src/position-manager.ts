@@ -46,7 +46,7 @@ export class PositionManager {
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
 		this.patcher.installPatches(registerCleanup);
-		// Outline panel clicks as in-file nav steps (reading mode — the one
+		// Outline panel clicks as in-file nav jumps (reading mode — the one
 		// jump path the patches and the poll cannot see). Silent no-op when
 		// the outline DOM can't be resolved.
 		this.nav.installOutlineCapture(registerCleanup);
@@ -143,7 +143,7 @@ export class PositionManager {
 		new NavHistoryModal(this.app, this.nav).open();
 	}
 
-	// Tab/pane activation records a nav step (VSCode semantics) — see
+	// Tab/pane activation records a nav entry (VSCode semantics) — see
 	// NavHistory.recordActivation.
 	recordActivation(leaf: WorkspaceLeaf | null): void {
 		this.nav.recordActivation(leaf);

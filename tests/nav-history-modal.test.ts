@@ -16,7 +16,7 @@ const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } 
 
 describe('describeNavEntry', () => {
 	it('a file entry shows its basename and the key-derived jump type', () => {
-		const d = describeNavEntry({ path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
+		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
 		expect(d.file).toBe('a.md');
 		expect(d.title).toBe('notes/project/a.md');
 		expect(d.type).toBe(t('navTypeOpen'));
@@ -24,31 +24,45 @@ describe('describeNavEntry', () => {
 		expect(d.missing).toBe(false);
 	});
 
+	it('a tab-switch visit (via: switch) gets its own badge', () => {
+		const d = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', via: 'switch' } as NavHistoryEntry, hasFile);
+		expect(d.type).toBe(t('navTypeSwitch'));
+	});
+
 	it('an edit capture shows the cursor line and the cursor line text', () => {
 		const edit = describeNavEntry({
-			path: 'a.md', leafId: 'leaf-1', key: 'teleport:41',
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top', cursorAnchor: 'cursor line' },
 		} as NavHistoryEntry, hasFile);
 		expect(edit.type).toBe(t('navTypeTeleport'));
 		expect(edit.line).toBe('L100');
 		expect(edit.anchor).toBe('cursor line');
+		expect(edit.soft).toBe(true);
 	});
 
 	it('an edit capture without cursorAnchor (legacy entry, blank line) shows no text', () => {
 		// The viewport-top anchor belongs to another line — showing it next
 		// to the cursor line number would misdescribe the landing.
 		const edit = describeNavEntry({
-			path: 'a.md', leafId: 'leaf-1', key: 'teleport:41',
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
 		expect(edit.line).toBe('L100');
 		expect(edit.anchor).toBeUndefined();
 	});
 
+	it('a teleport whose landing never settled falls back to the recorded target line', () => {
+		const d = describeNavEntry({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
+		} as NavHistoryEntry, hasFile);
+		expect(d.type).toBe(t('navTypeTeleport'));
+		expect(d.line).toBe('L42');
+	});
+
 	it('a reading capture shows the viewport top line and its anchor', () => {
 		// the stale pre-preview cursor is ignored
 		const read = describeNavEntry({
-			path: 'a.md', leafId: 'leaf-1',
+			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, mode: 'preview', cursor: line(3), anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
 		expect(read.type).toBe(t('navTypeOpen'));
@@ -58,7 +72,7 @@ describe('describeNavEntry', () => {
 
 	it('a cursorless edit capture shows the viewport line and its anchor', () => {
 		const d = describeNavEntry({
-			path: 'a.md', leafId: 'leaf-1',
+			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, mode: 'source', anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
 		expect(d.line).toBe('L42');
@@ -67,7 +81,7 @@ describe('describeNavEntry', () => {
 
 	it('a pre-upgrade entry (no mode) falls back to cursor-first', () => {
 		const d = describeNavEntry({
-			path: 'a.md', leafId: 'leaf-1', key: 'teleport:41',
+			kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题',
 			st: { scroll: 42, cursor: line(99) },
 		} as NavHistoryEntry, hasFile);
 		expect(d.line).toBe('L100');
@@ -79,7 +93,7 @@ describe('describeNavEntry', () => {
 		// restore lands on the viewport, so the row describes the viewport,
 		// never the invisible cursor line.
 		const d = describeNavEntry({
-			path: 'a.md', leafId: 'leaf-1',
+			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 499, mode: 'source', cursor: line(100), anchor: 'viewport top', cursorAnchor: 'cursor line', cursorOffscreen: true },
 		} as NavHistoryEntry, hasFile);
 		expect(d.line).toBe('L500');
@@ -87,18 +101,18 @@ describe('describeNavEntry', () => {
 	});
 
 	it('outline and anchor keys label their types; a pathless entry is the graph', () => {
-		const outline = describeNavEntry({ path: 'a.md', leafId: 'leaf-1', key: 'outline:第一章' } as NavHistoryEntry, hasFile);
+		const outline = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:第一章' } as NavHistoryEntry, hasFile);
 		expect(outline.type).toBe(t('navTypeOutline'));
-		const link = describeNavEntry({ path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题' } as NavHistoryEntry, hasFile);
+		const link = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题' } as NavHistoryEntry, hasFile);
 		expect(link.type).toBe(t('navTypeLink'));
-		const graph = describeNavEntry({ viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
+		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
 		expect(graph.type).toBe(t('navTypeGraph'));
 		expect(graph.file).toBe(t('navGraphName'));
 		expect(graph.line).toBeUndefined();
 	});
 
 	it('a path that no longer resolves is marked missing', () => {
-		const d = describeNavEntry({ path: 'gone.md', leafId: 'leaf-1' } as NavHistoryEntry, () => false);
+		const d = describeNavEntry({ kind: 'visit', path: 'gone.md', leafId: 'leaf-1' } as NavHistoryEntry, () => false);
 		expect(d.missing).toBe(true);
 	});
 });

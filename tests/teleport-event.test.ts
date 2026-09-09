@@ -49,7 +49,7 @@ function makeHarness(options?: { entries?: NavHistoryEntry[] }) {
 		refreshTop: vi.fn((path: string, leafId: string, st: EphemeralState) => {
 			const top = entries[nav.index];
 			if (top && top.path === path && top.leafId === leafId) {
-				if (top.key) {
+				if (top.kind === 'jump' || top.kind === 'teleport') {
 					if (!top.st)
 						top.st = st;
 					return;
@@ -59,7 +59,7 @@ function makeHarness(options?: { entries?: NavHistoryEntry[] }) {
 		}),
 		recordTeleport: vi.fn((path: string, leafId: string, line: number, landing?: EphemeralState) => {
 			entries.length = nav.index + 1;
-			entries.push({ path, leafId, key: `teleport:${line}` });
+			entries.push({ kind: 'teleport', path, leafId, line });
 			nav.index = entries.length - 1;
 			const top = entries[nav.index];
 			if (landing && !top.st)
@@ -257,12 +257,12 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.onSelection(h.editor);
 
 		const first = h.entries[h.nav.index - 1];
-		expect(first.key).toBe('teleport:500');
+		expect((first as { line?: number }).line).toBe(500);
 		expect(first.st).toEqual({
 			scroll: 42,
 			cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 		});
-		expect(h.entries[h.nav.index].key).toBe('teleport:900');
+		expect((h.entries[h.nav.index] as { line?: number }).line).toBe(900);
 		expect(h.entries[h.nav.index].st).toEqual({
 			scroll: 42,
 			cursor: { from: { line: 900, ch: 0 }, to: { line: 900, ch: 0 } },
@@ -335,7 +335,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
-		expect(h.entries[h.nav.index].key).toBe('teleport:500');
+		expect((h.entries[h.nav.index] as { line?: number }).line).toBe(500);
 		expect(h.entries[h.nav.index].st).toBeUndefined();
 	});
 });

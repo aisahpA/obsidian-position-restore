@@ -141,6 +141,13 @@ body.is-mobile .rcp-cue {
 	color: var(--text-error);
 }
 
+/* An inferred teleport (not a deliberate jump): dimmer than the other
+   type badges to signal lower confidence. */
+.position-restore-nav-row .nav-row-soft {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
 /* Position column: the line number, then the quoted text of that line. */
 .position-restore-nav-row .nav-row-pos {
 	display: flex;

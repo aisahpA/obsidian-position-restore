@@ -12,6 +12,9 @@ export interface NavEntryDescription {
 	line?: string;
 	anchor?: string;
 	missing: boolean;
+	// An inferred entry (NavTeleport): the user did not deliberately jump
+	// there — the badge renders dimmed to signal lower confidence.
+	soft?: boolean;
 }
 
 // The row shows the line the restore lands on plus THAT line's text: a
@@ -29,21 +32,28 @@ export function describeNavEntry(
 	entry: NavHistoryEntry,
 	hasFile: (path: string) => boolean,
 ): NavEntryDescription {
-	if (!entry.path) {
+	if (entry.kind === 'view') {
 		return {
 			file: t('navGraphName'),
-			title: entry.viewType ?? '',
+			title: entry.viewType,
 			type: t('navTypeGraph'),
 			missing: false,
 		};
 	}
-	let type = t('navTypeOpen');
-	if (entry.key?.startsWith('teleport:'))
+	// Jump type from the entry kind; a keyless visit is an open by default
+	// and a tab/pane activation when tagged (via: 'switch'). A teleport is
+	// its own kind (an inferred move, not a deliberate jump).
+	let type: string;
+	if (entry.kind === 'jump') {
+		if (entry.key.startsWith('outline:'))
+			type = t('navTypeOutline');
+		else
+			type = t('navTypeLink');
+	} else if (entry.kind === 'teleport') {
 		type = t('navTypeTeleport');
-	else if (entry.key?.startsWith('outline:'))
-		type = t('navTypeOutline');
-	else if (entry.key)
-		type = t('navTypeLink');
+	} else {
+		type = entry.via === 'switch' ? t('navTypeSwitch') : t('navTypeOpen');
+	}
 	const st = entry.st;
 	let n: number | undefined;
 	let anchor: string | undefined;
@@ -58,6 +68,10 @@ export function describeNavEntry(
 			n = st.scroll;
 			anchor = st.anchor;
 		}
+	} else if (entry.kind === 'teleport') {
+		// A landing that never settled: the recorded target line is still
+		// where the restore will aim.
+		n = entry.line;
 	}
 	return {
 		file: entry.path.split('/').pop() ?? entry.path,
@@ -66,6 +80,7 @@ export function describeNavEntry(
 		line: n !== undefined ? `L${n + 1}` : undefined,
 		anchor,
 		missing: !hasFile(entry.path),
+		soft: entry.kind === 'teleport',
 	};
 }
 
@@ -163,9 +178,13 @@ export class NavHistoryModal extends Modal {
 				cls: 'nav-row-anchor',
 				attr: { title: `${t('navAnchorTip')}\n${d.anchor}` },
 			});
+		const badge = d.missing ? t('navMissing') : d.type;
+		const badgeCls = d.missing
+			? 'nav-row-missing'
+			: d.soft ? 'nav-row-soft' : '';
 		row.createSpan({
-			text: d.missing ? t('navMissing') : d.type,
-			cls: `nav-row-badge${d.missing ? ' nav-row-missing' : ''}`,
+			text: badge,
+			cls: `nav-row-badge${badgeCls ? ` ${badgeCls}` : ''}`,
 		});
 		return row;
 	}

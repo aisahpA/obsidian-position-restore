@@ -21,7 +21,7 @@ interface EphemeralState {
 
 // What a NavHistory entry carries beyond the position: the nav-display
 // fields, produced ONLY by the low-frequency nav reads (readNavEntryState /
-// withNavDisplay) at the moment a navigation step is saved — never by the
+// withNavDisplay) at the moment a navigation entry is saved — never by the
 // hot read. EphemeralState is structurally assignable, so baseline-fed
 // states and legacy persisted entries type-check against consumers typed
 // NavEntryState (their display fields are simply absent).
@@ -81,8 +81,8 @@ interface PluginSettings {
 	recordBaseScroll: boolean;
 	// Navigation history (VSCode-style back/forward) tuning.
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
-	navRecordActivation: boolean; // tab/pane activation records as a navigation step
-	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation steps
+	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
+	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
