@@ -1,19 +1,20 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from './types';
+import { NavEntryState, PluginSettings } from './types';
 import { PositionState, LANDING_ABSORB_MS } from './position-state';
 import { RestoreModes } from './restore-modes';
-import { readEphemeralState } from './ephemeral';
+import { readNavEntryState } from './ephemeral';
 import { delay } from './wait';
 
 // VSCode-style back/forward navigation.
 //
-// One global stack of entries `{ path, leafId, st?, key? }` with a current
+// One global stack of entries (NavJump | NavTeleport | NavVisit | NavView)
+// with a current
 // index. Every recorded jump (any file switch, tab/pane activation,
 // in-file anchor/search/large cursor jumps) pushes; back/forward move the
 // index; a fresh jump — recorded or picked from the history browser —
 // truncates the forward part, and the browser jump re-pushes its target on
 // top so back returns to the jump's origin. Two position regimes:
-// keyed entries (teleport:<line>, outline:<heading>, anchor linktext) carry
+// keyed entries (outline:<heading>, anchor linktext) and teleports carry
 // the jump's precise landing — written at push time (teleport) or when the
 // landing settles (outline/anchor) — and are never overwritten afterwards
 // (back/forward must return to the jump target itself); keyless open/
@@ -29,24 +30,67 @@ import { delay } from './wait';
 // patch injects this plugin's saved position over it (pendingHistoryNav).
 // Cross-tab traversals reactivate the original leaf (leafId); a closed leaf
 // falls back to the active one. Non-file main-area views (the graph tabs)
-// are steps too: their entries have no path, only a viewType — traversal
+// are recorded too: their entries have no path, only a viewType — traversal
 // just reactivates the leaf.
-export interface NavHistoryEntry {
-	// Undefined only for a view entry (viewType set).
-	path?: string;
-	leafId?: string;
-	// Non-file view destination (the global graph); a pathless entry.
-	viewType?: string;
-	// Same-file apply position (markdown only): the jump's precise landing
-	// for keyed entries (teleport/outline/anchor — written at push time or
-	// when the landing settles, immutable), the leave position for keyless
-	// open/activation entries (refreshed on every leave).
-	st?: EphemeralState;
-	// Dedup key: the linktext of an anchor jump, or `teleport:<line>` for
-	// large cursor jumps. A push whose key equals the top entry's key is the
-	// same jump repeated (repeated outline clicks to one heading) and is
-	// dropped.
-	key?: string;
+// One stack entry, four kinds — a discriminated union TAGGED by `kind`
+// ('jump' | 'visit' | 'view' | 'teleport'). Every consumer reads the tag, never field
+// presence: a malformed shape fails the type check and the load filter
+// instead of slipping through a property coincidence, and a new variant
+// flags every unexhausted switch. st (NavEntryState): its display fields
+// (anchor/cursorAnchor/mode/cursorOffscreen) come from the low-frequency
+// nav reads only.
+export type NavHistoryEntry = NavJump | NavVisit | NavView | NavTeleport;
+
+// A keyed jump — outline:<heading>, an anchor/caller linktext. Carries the
+// jump's precise landing: written when the landing settles, never
+// overwritten afterwards (back/forward must return to the jump target
+// itself). The key also dedups: a push whose key equals the top entry's
+// key is the same jump repeated (repeated outline clicks to one heading)
+// and is dropped.
+export interface NavJump {
+	kind: 'jump';
+	path: string;
+	leafId: string;
+	key: string;
+	st?: NavEntryState;
+}
+
+// A keyless visit — a file open or a tab/pane activation (VSCode records
+// active editor changes the same way, and an activation following an open
+// of the same file in the same leaf is absorbed by it). Carries no
+// position of its own: st is refreshed on every leave ("where the user
+// actually was"). via only feeds the history browser's badge (switch for an
+// activation, open by default); it never participates in dedup or
+// positioning.
+export interface NavVisit {
+	kind: 'visit';
+	path: string;
+	leafId: string;
+	st?: NavEntryState;
+	via?: 'switch';
+}
+
+// A non-file main-area view destination (the global graph); a pathless
+// entry — traversal just reactivates the leaf.
+export interface NavView {
+	kind: 'view';
+	leafId: string;
+	viewType: string;
+}
+
+// An INFERRED same-file cursor jump (large move, go-to-line, vim jump — the
+// sampler's heuristic, toggleable via navRecordTeleport): unlike the
+// deliberate NavJump sources (outline click, anchor link, search/backlinks
+// caller) the user may not perceive it as a jump at all, so it is its own
+// kind — deduped by target line, carrying the jump's precise landing (same
+// regime as NavJump: written at push time or when it settles, never
+// overwritten), and shown with its own (dimmed) badge in the browser.
+export interface NavTeleport {
+	kind: 'teleport';
+	path: string;
+	leafId: string;
+	line: number;
+	st?: NavEntryState;
 }
 
 // Native per-tab history entry (internal, untyped): { state: { type, state:
@@ -83,7 +127,7 @@ const NAV_CUE_SUPPRESS_MS = 3000;
 // delays), so slow-but-progressing traversals are never cut off.
 const NAV_WATCHDOG_MS = 5000;
 
-// Non-file main-area views recorded as steps: the global graph is a real
+// Non-file main-area views recorded as entries: the global graph is a real
 // destination (note → graph → note hops, and its leaf can be shared with
 // files via node clicks / graph:open tab reuse). Whitelisted — sidebar
 // panels are excluded by isMainAreaLeaf, the empty tab and dragged-in
@@ -91,13 +135,17 @@ const NAV_WATCHDOG_MS = 5000;
 // tracked file, which a pathless entry cannot restore).
 const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 
-// Only main-area leaves record as navigation steps. Sidebar panels
+// Persisted nav-history format version: a mismatched stored blob is
+// dropped whole on load — the history is disposable, no migrations.
+export const NAV_HISTORY_VERSION = 1;
+
+// Only main-area leaves record as navigation entries. Sidebar panels
 // (outline, backlinks, local graph…) track the active file in their own
 // view state: focusing the panel (or its state re-assertion) carries that
 // file through activation/setViewState, and recording it creates a phantom
-// step whose "leaf" is the panel — a traversal targeting it would only
+// entry whose "leaf" is the panel — a traversal targeting it would only
 // re-focus the panel. Hover previews and pop-out windows are equally not
-// steps of this workspace.
+// entries of this workspace.
 export function isMainAreaLeaf(app: App, leaf: WorkspaceLeaf): boolean {
 	// (rootSplit.containerEl and leaf.containerEl are runtime API absent
 	// from the public typings — same cast family as position-state.leafId.)
@@ -138,48 +186,68 @@ export class NavHistory {
 	// A file open (setViewState patch), an in-file jump marker, or a graph
 	// activation (pathless, opts.viewType). Gates shared with the jump
 	// pushers live here so every caller is uniform.
+	// Gates shared by every pusher, so all callers are uniform: a
+	// traversal's own opens are the traversal, not new jumps, and startup
+	// rebuild / workspace-restore setViewStates are not user navigation.
+	private canRecord(): boolean {
+		return !this.executing && this.app.workspace.layoutReady;
+	}
+
 	recordOpen(
 		path: string | undefined,
 		leafId: string,
-		opts: { key?: string; force?: boolean; viewType?: string } = {},
+		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' } = {},
 	) {
-		if (this.executing)
+		if (!this.canRecord())
 			return;
-		// Startup rebuild / workspace-restore setViewStates are not user
-		// navigation.
-		if (!this.app.workspace.layoutReady)
+		// The single entry construction site: the kind tag is written here
+		// and never mutated, so every downstream switch on it is exact.
+		if (opts.viewType) {
+			this.pushIfNew({ kind: 'view', leafId, viewType: opts.viewType }, opts.force);
 			return;
-		this.pushIfNew({ path, leafId, viewType: opts.viewType, key: opts.key }, opts.force);
+		}
+		// A pathless, typeless call has nothing to restore — no entry.
+		if (!path)
+			return;
+		this.pushIfNew(
+			opts.key
+				? { kind: 'jump', path, leafId, key: opts.key }
+				: { kind: 'visit', path, leafId, via: opts.via },
+			opts.force,
+		);
 	}
 
 	// Large same-file cursor jump (go-to-line, vim jump, far mouse click):
 	// per selection event on desktop (Sampler.onEditorSelection, 10-line
 	// threshold), per poll tick on mobile (Sampler.teleportLines, 50-line
 	// threshold). Search/anchor-jump landings are excluded by the sampler
-	// via the search-anchor gate. Keyed by target line: repeated jumps to
-	// the same line (re-clicking the same spot) dedup, jumps to different
-	// lines are distinct entries. The pushed entry carries the jump's
-	// LANDING position (`landing`, the post-jump read) — precise-return
-	// semantics: returning to this entry lands on the jump target itself,
-	// never on where the user had drifted by leave time.
-	recordTeleport(path: string, leafId: string, line: number, landing?: EphemeralState) {
-		if (!this.settings.navRecordTeleport)
+	// via the search-anchor gate. An INFERRED move, not a deliberate jump —
+	// its own entry kind (NavTeleport), gated by navRecordTeleport and
+	// deduped by target line: repeated jumps to the same line (re-clicking
+	// the same spot) dedup, jumps to different lines are distinct entries.
+	// The pushed entry carries the jump's LANDING position (`landing`, the
+	// post-jump read) — precise-return semantics: returning to this entry
+	// lands on the jump target itself, never on where the user had drifted
+	// by leave time.
+	recordTeleport(path: string, leafId: string, line: number, landing?: NavEntryState) {
+		if (!this.settings.navRecordTeleport || !this.canRecord())
 			return;
-		this.recordOpen(path, leafId, { key: `teleport:${line}` });
-		// Fill a fresh entry only: the top must be this exact teleport key
+		this.pushIfNew({ kind: 'teleport', path, leafId, line });
+		// Fill a fresh entry only: the top must be this exact teleport
 		// (a gated call pushed nothing; a deduped repeat and a different
 		// line keep what they have).
 		const top = this.entries[this.index];
-		if (landing && top && top.path === path && top.key === `teleport:${line}` && !top.st)
+		if (landing && top && top.kind === 'teleport'
+			&& top.path === path && top.line === line && !top.st)
 			top.st = landing;
 	}
 
 	// Tab/pane activation as navigation (VSCode records active editor changes
-	// the same way): a user clicking another tab is a "where I was" step.
+	// the same way): a user clicking another tab is a "where I was" entry.
 	// Gates and dedup are recordOpen's; keyless, so an activation that
 	// follows an open of the same file in the same leaf is absorbed by it.
-	// Non-file main-area views (graph) are steps too; sidebar panels are
-	// excluded above.
+	// via: 'switch' only marks the browser badge. Non-file main-area views
+	// (graph) are entries too; sidebar panels are excluded above.
 	recordActivation(leaf: WorkspaceLeaf | null) {
 		if (!this.settings.navRecordActivation)
 			return;
@@ -187,7 +255,7 @@ export class NavHistory {
 		if (!leaf || !isMainAreaLeaf(this.app, leaf))
 			return;
 		if (view instanceof FileView && view.file) {
-			this.recordOpen(view.file.path, this.state.leafId(leaf));
+			this.recordOpen(view.file.path, this.state.leafId(leaf), { via: 'switch' });
 			return;
 		}
 		const viewType = view?.getViewType();
@@ -205,11 +273,11 @@ export class NavHistory {
 	// Keyless open/activation entries are overwritten on every leave.
 	// Guarded by path+leaf: the top entry must still describe this view's
 	// leaf+file.
-	refreshTop(path: string, leafId: string, st: EphemeralState) {
+	refreshTop(path: string, leafId: string, st: NavEntryState) {
 		const top = this.entries[this.index];
-		if (!top || top.path !== path || top.leafId !== leafId)
+		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
-		if (top.key) {
+		if (top.kind === 'jump' || top.kind === 'teleport') {
 			if (!top.st)
 				top.st = st;
 			return;
@@ -297,7 +365,7 @@ export class NavHistory {
 		// "Update on leave" with the exact pre-click position (nothing has
 		// scrolled yet) so a later back lands where the user actually was.
 		const leafId = this.state.leafId(view.leaf);
-		const fromSt = readEphemeralState(view);
+		const fromSt = readNavEntryState(view);
 		if (fromSt)
 			this.refreshTop(view.file.path, leafId, fromSt);
 		// Key = heading text (core renders the heading as the item's inner
@@ -322,13 +390,30 @@ export class NavHistory {
 		const top = this.entries[this.index];
 		// Same location = same file in the SAME tab (+ same jump key). Two
 		// tabs of one file hold independent positions (tab-store is per-leaf),
-		// so a leaf switch between them is a real step (VSCode records editor
+		// so a leaf switch between them is a real entry (VSCode records editor
 		// identity, group included).
-		if (!force && top && top.path === entry.path && top.leafId === entry.leafId
-			&& top.viewType === entry.viewType
-			&& (!entry.key || entry.key === top.key))
+		if (!force && top && this.sameLocation(top, entry))
 			return;
 		this.push(entry);
+	}
+
+	// Same-location across kinds: view entries match view entries (same leaf
+	// view type), keyed jumps only the identical jump, and a keyless visit
+	// absorbs into any file entry of the same file+leaf — its st is
+	// refreshed on leave either way.
+	private sameLocation(top: NavHistoryEntry, entry: NavHistoryEntry): boolean {
+		if (top.leafId !== entry.leafId)
+			return false;
+		switch (entry.kind) {
+			case 'view':
+				return top.kind === 'view' && top.viewType === entry.viewType;
+			case 'jump':
+				return top.kind === 'jump' && top.path === entry.path && top.key === entry.key;
+			case 'teleport':
+				return top.kind === 'teleport' && top.path === entry.path && top.line === entry.line;
+			case 'visit':
+				return top.kind !== 'view' && top.path === entry.path;
+		}
 	}
 
 	private push(entry: NavHistoryEntry) {
@@ -383,7 +468,7 @@ export class NavHistory {
 	// entry (VSCode/IDEA semantics): the forward part is truncated and the
 	// target re-pushed on top, so the origin is always the entry right below
 	// and back returns to where the user was. The target goes in as a shallow
-	// copy — the original step keeps its own leave-position. Clicking the
+	// copy — the original entry keeps its own leave-position. Clicking the
 	// current row just re-lands (keyed entries re-apply their landing).
 	async jumpTo(index: number): Promise<void> {
 		if (index < 0 || index >= this.entries.length)
@@ -437,11 +522,12 @@ export class NavHistory {
 	private async traverse(dir: -1 | 1): Promise<void> {
 		let activeView = this.app.workspace.getActiveViewOfType(FileView);
 		if (!activeView?.file) {
-			// The stack's current entry is a view step (graph active): the
+			// The stack's current entry is a view entry (graph active): the
 			// current location is on screen — traversal moves from it
 			// directly. (A closed graph leaf has nothing to re-land either:
 			// no path, no position to restore.)
-			if (!this.entries[this.index]?.path) {
+			const cur = this.entries[this.index];
+			if (!cur || cur.kind === 'view') {
 				this.index += dir;
 				await this.execute(this.entries[this.index], dir);
 				return;
@@ -459,9 +545,9 @@ export class NavHistory {
 			activeView = this.app.workspace.getActiveViewOfType(FileView);
 			if (!activeView?.file) {
 				// Only the new-tab page: the current entry's tab was closed —
-				// an unrecorded step OFF the stack, so the history pointer
+				// an unrecorded hop OFF the stack, so the history pointer
 				// still sits on that entry. The first hop re-lands it (index
-				// unchanged, no step skipped — same for back and forward);
+				// unchanged, no hop skipped — same for back and forward);
 				// from the next press on, traversal walks index±1 as usual.
 				await this.execute(this.entries[this.index], dir);
 				return;
@@ -485,9 +571,10 @@ export class NavHistory {
 	private refreshTopFromActiveView() {
 		const activeView = this.app.workspace.getActiveViewOfType(FileView);
 		const cur = this.entries[this.index];
-		if (cur && activeView?.file && cur.leafId === this.state.leafId(activeView.leaf)
+		if (cur && cur.kind !== 'view' && activeView?.file
+			&& cur.leafId === this.state.leafId(activeView.leaf)
 			&& cur.path === activeView.file.path && activeView instanceof MarkdownView) {
-			const st = readEphemeralState(activeView);
+			const st = readNavEntryState(activeView);
 			if (st) this.refreshTop(cur.path, cur.leafId, st);
 		}
 	}
@@ -501,14 +588,12 @@ export class NavHistory {
 			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
 		const targetLeaf = this.findLeafById(target.leafId);
 
-		// View step (graph tab): reaching it means the leaf must SHOW that
+		// View entry (graph tab): reaching it means the leaf must SHOW that
 		// view — activate a different tab, and when the view was swapped
 		// out (a graph node click opens the file over the graph in the same
 		// leaf, or graph:open reuses the tab) re-assert it. A closed leaf
 		// has nothing to return to — no-op (never the active tab's file).
-		// (pathless ⟺ viewType set — one guard narrows both.)
-		const viewStep = target.path ? undefined : target.viewType;
-		if (viewStep) {
+		if (target.kind === 'view') {
 			const leaf = targetLeaf;
 			if (!leaf)
 				return;
@@ -517,18 +602,18 @@ export class NavHistory {
 			if (leaf.isDeferred)
 				await leaf.loadIfDeferred();
 			const viewType = (leaf.view as { getViewType?: () => string } | undefined)?.getViewType?.();
-			if (viewType === viewStep)
+			if (viewType === target.viewType)
 				return;
 			// The view was swapped out (a graph node click opens the file over
 			// the graph in the same leaf, or graph:open reuses the tab): ride
 			// the native per-tab history when its next entry IS the graph
 			// (keeps the two stacks aligned), else re-assert the view directly.
 			// A closed leaf falls through — never the active tab's file.
-			if (leaf === activeLeaf && await this.delegateNative(dir, leaf, undefined, viewStep))
+			if (leaf === activeLeaf && await this.delegateNative(dir, leaf, undefined, target.viewType))
 				return;
 			await (leaf as unknown as {
 				setViewState(vs: { type: string; state: object; active: boolean }): Promise<void>;
-			}).setViewState({ type: viewStep, state: {}, active: true });
+			}).setViewState({ type: target.viewType, state: {}, active: true });
 			return;
 		}
 
@@ -542,7 +627,7 @@ export class NavHistory {
 		const leaf = targetLeaf ?? activeLeaf;
 		if (!leaf)
 			return;
-		// The entry's own leaf is gone and the step fell back to another
+		// The entry's own leaf is gone and the entry fell back to another
 		// leaf (the new-tab page's, or the most recently active): re-point
 		// the entry at the leaf its file actually lives in now. The open's
 		// post-traversal activation record carries THAT leaf id — against
@@ -578,11 +663,9 @@ export class NavHistory {
 	// Opens the target file in `leaf` (activating it first when it is a
 	// different tab). The markdown open restores through the standard
 	// injection pipeline from the per-file records; non-markdown opens rely
-	// on each view's own position handling.
-	private async openInLeaf(leaf: WorkspaceLeaf, target: NavHistoryEntry) {
-		// View entries (graph) never route here — execute reactivates them.
-		if (!target.path)
-			return;
+	// on each view's own position handling. (View entries never route here
+	// — execute reactivates them; the parameter type enforces it.)
+	private async openInLeaf(leaf: WorkspaceLeaf, target: NavJump | NavVisit | NavTeleport) {
 		if (this.app.workspace.getActiveViewOfType(FileView)?.leaf !== leaf)
 			this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		if (leaf.isDeferred)
@@ -610,7 +693,7 @@ export class NavHistory {
 
 	// Delegates one step to the native per-tab history — but only when the
 	// native stack's next entry IS the target — a file path, or a view type
-	// for a view step (the graph) — so the two stacks can never disagree on
+	// for a view entry (the graph) — so the two stacks can never disagree on
 	// where a step lands (in-file jumps exist only on our stack, so
 	// mismatches happen legitimately; those run openInLeaf/setViewState
 	// instead). Returns whether the landing was verified.
@@ -631,7 +714,7 @@ export class NavHistory {
 
 		// pendingHistoryNav arms the setViewState patch to inject this
 		// plugin's saved position over the native entry's cursor-only
-		// eState — markdown file steps only. A view step's setViewState
+		// eState — markdown file entries only. A view entry's setViewState
 		// (graph) early-returns in the patch before the flag is read, so
 		// arming it here would just leak 1s onto an unrelated later open.
 		if (targetPath !== undefined) {
@@ -669,7 +752,7 @@ export class NavHistory {
 
 	renameFile(oldPath: string, newPath: string) {
 		for (const entry of this.entries)
-			if (entry.path === oldPath)
+			if (entry.kind !== 'view' && entry.path === oldPath)
 				entry.path = newPath;
 	}
 
@@ -678,7 +761,7 @@ export class NavHistory {
 		let removedBefore = 0;
 		for (let i = 0; i < this.entries.length; i++) {
 			const entry = this.entries[i];
-			if (entry.path === path) {
+			if (entry.kind !== 'view' && entry.path === path) {
 				if (i < this.index)
 					removedBefore++;
 				continue;
@@ -703,15 +786,14 @@ export class NavHistory {
 			const raw = window.localStorage.getItem(NavHistory.storageKey(app));
 			if (!raw)
 				return { entries: [], index: -1 };
-			const parsed = JSON.parse(raw) as { entries?: unknown; index?: unknown };
+			const parsed = JSON.parse(raw) as { v?: unknown; entries?: unknown; index?: unknown };
+			// Version gate: a pre-versioned (legacy) or foreign blob is
+			// dropped whole — the history is disposable, no legacy formats
+			// are migrated. Bump NAV_HISTORY_VERSION on format changes.
+			if (parsed.v !== NAV_HISTORY_VERSION)
+				return { entries: [], index: -1 };
 			const entries = Array.isArray(parsed.entries)
-				? parsed.entries.filter(
-					(e): e is NavHistoryEntry => {
-						const entry = e as NavHistoryEntry;
-						return !!e && (
-							(typeof entry.path === 'string' && !!entry.path)
-							|| (typeof entry.viewType === 'string' && !!entry.viewType));
-					})
+				? parsed.entries.filter((e): e is NavHistoryEntry => NavHistory.isEntry(e))
 				: [];
 			const index = typeof parsed.index === 'number'
 				&& parsed.index >= -1 && parsed.index < entries.length
@@ -724,10 +806,35 @@ export class NavHistory {
 		}
 	}
 
+	// Per-entry shape check (the storage may hold hand-edited or truncated
+	// data): the kind tag first, then that variant's required fields — an
+	// untagged or junk entry drops instead of passing a property coincidence.
+	private static isEntry(e: unknown): e is NavHistoryEntry {
+		if (!e || typeof e !== 'object')
+			return false;
+	const entry = e as { kind?: unknown; leafId?: unknown; viewType?: unknown; path?: unknown; key?: unknown; line?: unknown };
+	if (typeof entry.leafId !== 'string' || !entry.leafId)
+		return false;
+	switch (entry.kind) {
+		case 'view':
+			return typeof entry.viewType === 'string' && !!entry.viewType;
+		case 'jump':
+			return typeof entry.path === 'string' && !!entry.path
+				&& typeof entry.key === 'string' && !!entry.key;
+		case 'teleport':
+			return typeof entry.path === 'string' && !!entry.path
+				&& typeof entry.line === 'number';
+			case 'visit':
+				return typeof entry.path === 'string' && !!entry.path;
+			default:
+				return false;
+		}
+	}
+
 	persist() {
 		try {
 			// entries is a plain array of plain objects — JSON-safe as is.
-			const serialized = JSON.stringify({ entries: this.entries, index: this.index });
+			const serialized = JSON.stringify({ v: NAV_HISTORY_VERSION, entries: this.entries, index: this.index });
 			if (serialized === this.lastPersisted)
 				return;
 			window.localStorage.setItem(NavHistory.storageKey(this.app), serialized);

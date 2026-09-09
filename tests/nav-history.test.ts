@@ -20,12 +20,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NavHistory, NavHistoryEntry } from '../src/nav-history';
+import { NAV_HISTORY_VERSION, NavHistory, NavHistoryEntry, NavVisit } from '../src/nav-history';
 import { OpenPatcher } from '../src/patcher';
 import { Sampler } from '../src/sampler';
 import { PositionState } from '../src/position-state';
 import { TabStore } from '../src/tab-store';
-import { DEFAULT_SETTINGS, PluginSettings } from '../src/types';
+import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '../src/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 
@@ -59,8 +59,16 @@ function makeNav(
 }
 
 function entry(path: string, leafId = 'leaf-1'): NavHistoryEntry {
-	return { path, leafId };
+	return { kind: 'visit', path, leafId };
 }
+
+// These tests build file-only stacks (a graph entry appears in exactly one
+// full-object equality assertion); the helpers narrow the file kinds so the
+// per-index reads stay terse.
+const pathOf = (e: NavHistoryEntry) => (e.kind !== 'view' ? e.path : undefined);
+const keyOf = (e: NavHistoryEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
+const stOf = (e: NavHistoryEntry) => (e.kind !== 'view' ? e.st : undefined);
+const viaOf = (e: NavHistoryEntry) => (e.kind === 'visit' ? e.via : undefined);
 
 function leafWithFile(id: string, file?: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	return {
@@ -84,7 +92,7 @@ describe('NavHistory stack logic', () => {
 		(nav as unknown as { index: number }).index = 0; // simulate having gone back
 		nav.recordOpen('c.md', 'leaf-1');
 
-		expect(nav.entries.map((e) => e.path)).toEqual(['a.md', 'c.md']);
+		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'c.md']);
 		expect(nav.index).toBe(1);
 		expect(nav.canGoBack()).toBe(true);
 		expect(nav.canGoForward()).toBe(false);
@@ -99,18 +107,23 @@ describe('NavHistory stack logic', () => {
 		nav.recordTeleport('a.md', 'leaf-1', 42); // keyed by target line
 		expect(nav.entries.length).toBe(2);
 
-		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:42' }); // same line again: same jump
+		nav.recordTeleport('a.md', 'leaf-1', 42); // same line again: same jump
 		expect(nav.entries.length).toBe(2);
 
 		nav.recordTeleport('a.md', 'leaf-1', 300); // different target line
 		expect(nav.entries.length).toBe(3);
 
-		nav.recordOpen('a.md', 'leaf-1', { key: '#other' }); // different anchor target
+		// A teleport is its own kind: a keyed jump carrying the same
+		// teleport key does NOT dedup against it.
+		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:42' });
 		expect(nav.entries.length).toBe(4);
 
-		nav.recordOpen('a.md', 'leaf-1', { force: true }); // search match: always
+		nav.recordOpen('a.md', 'leaf-1', { key: '#other' }); // different anchor target
 		expect(nav.entries.length).toBe(5);
-		expect(nav.index).toBe(4);
+
+		nav.recordOpen('a.md', 'leaf-1', { force: true }); // search match: always
+		expect(nav.entries.length).toBe(6);
+		expect(nav.index).toBe(5);
 	});
 
 	it('gates: pre-layout startup does not record', () => {
@@ -123,51 +136,51 @@ describe('NavHistory stack logic', () => {
 
 	it('recordTeleport fills the landing on a fresh push and keeps it on a deduped repeat', () => {
 		const nav = makeNav();
-		const landing: NavHistoryEntry['st'] = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
+		const landing: NavEntryState = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
 		nav.recordTeleport('a.md', 'leaf-1', 42, landing);
-		expect(nav.entries[0].key).toBe('teleport:42');
-		expect(nav.entries[0].st).toBe(landing);
+		expect(keyOf(nav.entries[0])).toBe('teleport:42');
+		expect(stOf(nav.entries[0])).toBe(landing);
 
 		// Same line again (deduped): the original landing survives.
 		nav.recordTeleport('a.md', 'leaf-1', 42, { scroll: 9, cursor: { from: { line: 42, ch: 3 }, to: { line: 42, ch: 3 } } });
 		expect(nav.entries.length).toBe(1);
-		expect(nav.entries[0].st).toBe(landing);
+		expect(stOf(nav.entries[0])).toBe(landing);
 
 		// A gated call (traversal executing) pushes nothing and fills nothing.
 	});
 
 	it('refreshTop never overwrites a keyed landing; it backfills only an empty one', () => {
 		const nav = makeNav();
-		const landing: NavHistoryEntry['st'] = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
+		const landing: NavEntryState = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
 		nav.recordTeleport('a.md', 'leaf-1', 42, landing);
 
 		// The user drifted after landing; a leave must not touch the landing.
-		const drifted: NavHistoryEntry['st'] = { scroll: 99, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
+		const drifted: NavEntryState = { scroll: 99, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
 		nav.refreshTop('a.md', 'leaf-1', drifted);
-		expect(nav.entries[0].st).toBe(landing);
+		expect(stOf(nav.entries[0])).toBe(landing);
 
 		// Outline/anchor entries follow the same keyed rule: backfill when
 		// empty (the settle-capture or the first leave), never overwrite.
 		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo', force: true });
 		nav.refreshTop('a.md', 'leaf-1', drifted);
-		expect(nav.entries[1].st).toBe(drifted);
+		expect(stOf(nav.entries[1])).toBe(drifted);
 		nav.refreshTop('a.md', 'leaf-1', landing);
-		expect(nav.entries[1].st).toBe(drifted);
+		expect(stOf(nav.entries[1])).toBe(drifted);
 
 		// Legacy persisted entry without a landing: backfilled once.
 		const legacy = makeNav();
 		legacy.recordTeleport('a.md', 'leaf-1', 42);
-		expect(legacy.entries[0].st).toBeUndefined();
+		expect(stOf(legacy.entries[0])).toBeUndefined();
 		legacy.refreshTop('a.md', 'leaf-1', drifted);
-		expect(legacy.entries[0].st).toBe(drifted);
+		expect(stOf(legacy.entries[0])).toBe(drifted);
 
 		// Keyless open entries still take every leave read.
 		legacy.recordOpen('a.md', 'leaf-1', { force: true });
-		const leave: NavHistoryEntry['st'] = { scroll: 3, cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } } };
+		const leave: NavEntryState = { scroll: 3, cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } } };
 		legacy.refreshTop('a.md', 'leaf-1', leave);
-		expect(legacy.entries[1].st).toBe(leave);
+		expect(stOf(legacy.entries[1])).toBe(leave);
 		legacy.refreshTop('a.md', 'leaf-1', landing);
-		expect(legacy.entries[1].st).toBe(landing);
+		expect(stOf(legacy.entries[1])).toBe(landing);
 	});
 
 	it('rename migrates entries; delete drops them and keeps the index in range', () => {
@@ -177,11 +190,11 @@ describe('NavHistory stack logic', () => {
 		nav.recordOpen('c.md', 'leaf-1');
 
 		nav.renameFile('b.md', 'renamed.md');
-		expect(nav.entries.map((e) => e.path)).toEqual(['a.md', 'renamed.md', 'c.md']);
+		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'renamed.md', 'c.md']);
 
 		(nav as unknown as { index: number }).index = 2; // sitting at c.md
 		nav.deleteFile('c.md');
-		expect(nav.entries.map((e) => e.path)).toEqual(['a.md', 'renamed.md']);
+		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'renamed.md']);
 		expect(nav.index).toBe(1);
 
 		nav.deleteFile('a.md');
@@ -197,6 +210,8 @@ describe('NavHistory activation recording', () => {
 		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.recordActivation(leafWithFile('leaf-2', 'a.md'));
 		expect(nav.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
+		// Activation steps carry the switch badge (open steps have no via).
+		expect(nav.entries.map(viaOf)).toEqual(['switch', 'switch']);
 
 		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		expect(nav.entries.length).toBe(3);
@@ -215,6 +230,8 @@ describe('NavHistory activation recording', () => {
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		expect(nav.entries.length).toBe(1);
+		// The merged step keeps the open's identity: no switch badge.
+		expect(nav.entries.map(viaOf)).toEqual([undefined]);
 	});
 
 	it('a non-file view activation or a null leaf does not record', () => {
@@ -245,7 +262,7 @@ describe('NavHistory recording settings', () => {
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordOpen('b.md', 'leaf-1');
 		nav.recordOpen('c.md', 'leaf-1');
-		expect(nav.entries.map((e) => e.path)).toEqual(['b.md', 'c.md']);
+		expect(nav.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
 		expect(nav.index).toBe(1);
 	});
 
@@ -253,7 +270,7 @@ describe('NavHistory recording settings', () => {
 		const nav = makeNav(makeApp(), { navStackCap: 0 });
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordOpen('b.md', 'leaf-1');
-		expect(nav.entries.map((e) => e.path)).toEqual(['b.md']);
+		expect(nav.entries.map(pathOf)).toEqual(['b.md']);
 	});
 
 	it('navRecordActivation off: tab (and graph) activation records nothing', () => {
@@ -290,12 +307,40 @@ describe('NavHistory persistence', () => {
 		expect(empty.index).toBe(-1);
 
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: NAV_HISTORY_VERSION,
 			entries: [entry('a.md'), entry('b.md')],
 			index: 99,
 		}));
 		const clamped = makeNav();
 		expect(clamped.entries.length).toBe(2);
 		expect(clamped.index).toBe(1);
+	});
+
+	it('a foreign-format blob (missing or other version) is dropped whole', () => {
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			entries: [entry('a.md')],
+			index: 0,
+		}));
+		const nav = makeNav();
+		expect(nav.entries.length).toBe(0);
+		expect(nav.index).toBe(-1);
+	});
+
+	it('malformed entries are dropped, valid ones survive the load filter', () => {
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: NAV_HISTORY_VERSION,
+			entries: [
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' }, // ok
+				{ path: 'x.md' }, // no kind, no leafId: dropped
+				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3 }, // junk key: dropped
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-g' }, // ok
+				{ leafId: 'leaf-3' }, // neither kind nor path/viewType: dropped
+			],
+			index: 1,
+		}));
+		const nav = makeNav();
+		expect(nav.entries.length).toBe(2);
+		expect(nav.index).toBe(1);
 	});
 });
 
@@ -371,7 +416,7 @@ describe('NavHistory.navigate', () => {
 		const nav = makeNav(app);
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:60' });
-		nav.entries[0].st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
 		expect(nav.index).toBe(1);
 
 		await nav.navigate(-1);
@@ -380,7 +425,7 @@ describe('NavHistory.navigate', () => {
 		// applied the target entry's position (cursor + quantized scroll)
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		// the entry left behind was refreshed with the live read
-		expect(nav.entries[1].st).toMatchObject({ scroll: 42 });
+		expect(stOf(nav.entries[1])).toMatchObject({ scroll: 42 });
 	});
 
 	it('jumpTo branches from the current entry; back returns to the origin', async () => {
@@ -409,14 +454,14 @@ describe('NavHistory.navigate', () => {
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordTeleport('a.md', 'leaf-1', 60);
 		nav.recordTeleport('a.md', 'leaf-1', 300);
-		nav.entries[0].st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
 		expect(nav.index).toBe(2);
 
 		await nav.jumpTo(0);
 
 		// the target is re-pushed on top of the current entry (branch semantics)
 		expect(nav.index).toBe(3);
-		expect(nav.entries.map(e => e.key)).toEqual([undefined, 'teleport:60', 'teleport:300', undefined]);
+		expect(nav.entries.map(keyOf)).toEqual([undefined, 'teleport:60', 'teleport:300', undefined]);
 		// the pushed entry is a copy — the original step keeps its own position
 		expect(nav.entries[3]).not.toBe(nav.entries[0]);
 		// applied the chosen entry's recorded position
@@ -646,7 +691,7 @@ describe('NavHistory.navigate from sidebar focus', () => {
 		const nav = h.nav;
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:60' });
-		nav.entries[0].st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
 		expect(nav.index).toBe(1);
 
 		await nav.navigate(-1);
@@ -710,7 +755,7 @@ describe('NavHistory graph view steps', () => {
 		const nav = makeNav();
 		nav.recordActivation(graphLeaf('leaf-g'));
 		nav.recordActivation(graphLeaf('leaf-g')); // re-click same tab: dedup
-		expect(nav.entries).toEqual([{ leafId: 'leaf-g', viewType: 'graph' }]);
+		expect(nav.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph' }]);
 
 		nav.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
 		expect(nav.entries.length).toBe(1);
@@ -909,6 +954,15 @@ describe('Sampler in-file teleport detection', () => {
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor);
 		expect(h.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 3, expect.anything());
+	});
+
+	it('navRecordTeleport off: the selection event path stays fully silent', () => {
+		const h = makeSamplerHarness({ navRecordTeleport: false });
+		h.onSelection(h.view.editor); // baseline: line 60
+		h.cursor.line = 3;
+		h.onSelection(h.view.editor); // 57-line jump, setting off
+		expect(h.recordTeleport).not.toHaveBeenCalled();
+		expect(h.refreshTop).not.toHaveBeenCalled();
 	});
 
 	it('flushOnLeave writes the exact leaving state; recording rules still gate it', () => {

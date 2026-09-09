@@ -1,7 +1,7 @@
 import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce, type Editor, type EditorPosition, type EventRef } from 'obsidian';
 import { EphemeralState, PluginSettings } from './types';
 import { CursorPositionDatabase } from './database';
-import { readEphemeralState, isEphemeralStatesEquals, isCursorStatesEqual } from './ephemeral';
+import { readEphemeralState, readNavEntryState, withNavDisplay, isEphemeralStatesEquals, isCursorStatesEqual } from './ephemeral';
 import { ExclusionChecker } from './exclusion';
 import { frontmatterDecisionFor } from './frontmatter';
 import { PositionState } from './position-state';
@@ -178,11 +178,12 @@ export class Sampler {
 				if (++this.searchSettledTicks >= 2) {
 					this.state.searchAnchorUntil = Date.now();
 					this.searchSettledTicks = 0;
-					// The jump has landed and the view is quiet: the settled
-					// read IS the landing. Attach it to the entry the jump was
-					// pushed for (keyed → backfill/keep inside refreshTop,
-					// which guards path+leaf) — the precise-return position.
-					this.nav.refreshTop(filePath, this.state.leafId(view.leaf), st);
+				// The jump has landed and the view is quiet: the settled read IS
+				// the landing. Attach it to the entry the jump was pushed for
+				// (keyed → backfill/keep inside refreshTop, which guards
+				// path+leaf) — the precise-return position. Nav read (low
+				// frequency): the landing entry carries the display fields.
+				this.nav.refreshTop(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st);
 				}
 			} else {
 				this.searchSettledTicks = 0;
@@ -233,12 +234,16 @@ export class Sampler {
 				// the entry being left — open/activation entries only, a
 				// teleport top keeps its landing inside refreshTop — and the
 				// pushed entry carries the post-jump read as its precise
-				// landing.
-				if (Platform.isMobileApp) {
+				// landing. Gated by navRecordTeleport: both calls serve the
+				// teleport entry (see onEditorSelection) — dead when off.
+				if (this.settings.navRecordTeleport && Platform.isMobileApp) {
 					const jumpLines = this.teleportLines(prev, write);
 					if (jumpLines !== null && !this.state.isSearchAnchored()) {
-						this.nav.refreshTop(filePath, this.state.leafId(view.leaf), prev);
-						this.nav.recordTeleport(filePath, this.state.leafId(view.leaf), write.cursor!.from.line, write);
+						// The pre-jump state cannot be re-read (the cursor has
+						// already jumped): withNavDisplay rebuilds the entry
+						// display around the baseline's position.
+						this.nav.refreshTop(filePath, this.state.leafId(view.leaf), withNavDisplay(view, prev));
+						this.nav.recordTeleport(filePath, this.state.leafId(view.leaf), write.cursor!.from.line, readNavEntryState(view) ?? write);
 					}
 				}
 				if (!skipRecording) {
@@ -473,6 +478,16 @@ export class Sampler {
 	// the poll's unconditional baseline refresh at the bottom of
 	// sampleActiveView).
 	private onEditorSelection = (editor: Editor): void => {
+		// The whole handler exists for the teleport record: with the setting
+		// off, recordTeleport no-ops and the leave-refresh would be
+		// overwritten by refreshTopFromActiveView at the next traverse anyway
+		// (no teleport entry sits on top). Bail before any work; reset the
+		// baseline so re-enabling starts clean — a stale prev would read as
+		// one false jump.
+		if (!this.settings.navRecordTeleport) {
+			this.teleportFrom = undefined;
+			return;
+		}
 		// Only the active markdown view participates: embedded/mirrored
 		// editors and background panes are invisible to nav exactly as they
 		// are to the poll.
@@ -506,15 +521,21 @@ export class Sampler {
 			return;
 
 		const leafId = this.state.leafId(view.leaf);
-		// "Update on leave" for the entry being left: open/activation entries
-		// get the poll's latest read — the exact pre-jump position (the event
-		// fires before the next poll tick can re-baseline). A teleport top is
-		// skipped inside refreshTop: it keeps the landing it was pushed with.
+		// "Update on leave" for the entry being left: keyless open/activation
+		// tops get the poll's latest read — the pre-jump position as of the
+		// last poll tick (the event fires before the next tick can
+		// re-baseline; at most one tick stale, per withNavDisplay's doc).
+		// Keyed tops (a teleport top included) are skipped inside refreshTop:
+		// they keep the landing they were pushed with.
+		// withNavDisplay rebuilds the display fields around that baseline (the
+		// pre-jump state cannot be re-read; CM applies the jump's
+		// scrollIntoView after this event, so the visibility check still sees
+		// the pre-jump viewport).
 		if (this.state.lastEphemeralState)
-			this.nav.refreshTop(filePath, leafId, this.state.lastEphemeralState);
+			this.nav.refreshTop(filePath, leafId, withNavDisplay(view, this.state.lastEphemeralState));
 		// The pushed entry carries the jump's landing: the post-jump live
 		// read (cursor already at the target).
-		this.nav.recordTeleport(filePath, leafId, from.line, readEphemeralState(view));
+		this.nav.recordTeleport(filePath, leafId, from.line, readNavEntryState(view));
 		// The scroll, though, lands AFTER this event fires — CM applies the
 		// jump's scrollIntoView in its measure phase (observed 2026-09: an
 		// outline jump to line 323 saved the origin scroll 232), so the
@@ -533,10 +554,11 @@ export class Sampler {
 			if (editor.getCursor('anchor').line !== from.line)
 				return;
 			const top = this.nav.entries[this.nav.index];
-			if (!top || top.path !== filePath || top.leafId !== leafId
-				|| top.key !== `teleport:${from.line}`)
+			if (!top || top.kind !== 'teleport'
+				|| top.path !== filePath || top.leafId !== leafId
+				|| top.line !== from.line)
 				return;
-			const settled = readEphemeralState(view);
+			const settled = readNavEntryState(view);
 			if (settled)
 				top.st = settled;
 		});

@@ -1,5 +1,5 @@
 import { MarkdownView, Platform } from 'obsidian';
-import { EphemeralState, PluginSettings } from './types';
+import { EphemeralState, NavEntryState, PluginSettings } from './types';
 import { applyEphemeralState, readEphemeralState, remapAnchoredState, setCursorToEnd } from './ephemeral';
 import { ANCHOR_SETTLE_DELAY, animateScrollTop, delay, getScroller, hasPreviewScrolled, nextPaint, waitForContentReady, waitForRestorePainted } from './wait';
 import { PositionState } from './position-state';
@@ -197,7 +197,7 @@ export class RestoreModes {
 	// then the shared anchor (baseline re-anchor + drift loop + cue). Runs
 	// inside NavHistory's restore bracket, so the poll cannot record the
 	// applies as user movement.
-	async historyJumpApply(view: MarkdownView, st: EphemeralState, isCurrent: () => boolean) {
+	async historyJumpApply(view: MarkdownView, st: NavEntryState, isCurrent: () => boolean) {
 		// The entry's lines predate any in-file edits made after it was
 		// recorded (inserts/deletes above shift every line below) — re-map
 		// the stale numbers from the entry's text anchor before applying.

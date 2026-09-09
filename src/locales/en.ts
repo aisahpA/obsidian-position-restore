@@ -95,6 +95,7 @@ export const en = {
 	cmdNavigateForward: 'Navigate forward',
 	cmdBrowseNavHistory: 'Browse navigation history',
 	navTypeOpen: 'Open',
+	navTypeSwitch: 'Switch',
 	navTypeTeleport: 'Jump',
 	navTypeOutline: 'Outline',
 	navTypeLink: 'Link',

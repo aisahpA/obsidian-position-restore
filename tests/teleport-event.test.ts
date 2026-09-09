@@ -49,7 +49,7 @@ function makeHarness(options?: { entries?: NavHistoryEntry[] }) {
 		refreshTop: vi.fn((path: string, leafId: string, st: EphemeralState) => {
 			const top = entries[nav.index];
 			if (top && top.path === path && top.leafId === leafId) {
-				if (top.key) {
+				if (top.kind === 'jump' || top.kind === 'teleport') {
 					if (!top.st)
 						top.st = st;
 					return;
@@ -59,7 +59,7 @@ function makeHarness(options?: { entries?: NavHistoryEntry[] }) {
 		}),
 		recordTeleport: vi.fn((path: string, leafId: string, line: number, landing?: EphemeralState) => {
 			entries.length = nav.index + 1;
-			entries.push({ path, leafId, key: `teleport:${line}` });
+			entries.push({ kind: 'teleport', path, leafId, line });
 			nav.index = entries.length - 1;
 			const top = entries[nav.index];
 			if (landing && !top.st)
@@ -211,6 +211,39 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
 	});
 
+	it('flags a left entry whose cursor sat outside the viewport', () => {
+		// The user scrolled the cursor line off screen, then jumped away: the
+		// left entry must describe the viewport (cursorOffscreen → the panel
+		// falls back to scroll + anchor), not the invisible cursor line.
+		const h = makeHarness({ entries: [{ path: 'a.md', leafId: 'leaf-1' }] });
+		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
+		h.state.lastEphemeralState = pollRead;
+		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25 —
+		// the baseline cursor line is unrendered, i.e. off screen.
+		const editor = h.editor as unknown as Record<string, unknown>;
+		editor.getLine = (n: number) => `line ${n}`;
+		editor.lastLine = () => 1000;
+		editor.cm = {
+			state: { doc: { lines: 1000, line: (n: number) => ({ from: (n - 1) * 10 }) } },
+			viewport: { from: 0, to: 25 },
+			scrollDOM: document.createElement('div'),
+			coordsAtPos: () => null,
+			defaultLineHeight: 20,
+		};
+
+		h.onSelection(h.editor); // baseline: line 3
+		h.cursor.line = 500;
+		h.onSelection(h.editor);
+
+		expect(h.nav.refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
+			scroll: 10,
+			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
+			anchor: 'line 10',
+			cursorAnchor: 'line 3',
+			cursorOffscreen: true,
+		});
+	});
+
 	it('a rapid second jump leaves the first landing intact and pushes its own', () => {
 		const h = makeHarness();
 		// Stale poll read (both jumps happen inside one tick) — it must never
@@ -224,12 +257,12 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.onSelection(h.editor);
 
 		const first = h.entries[h.nav.index - 1];
-		expect(first.key).toBe('teleport:500');
+		expect((first as { line?: number }).line).toBe(500);
 		expect(first.st).toEqual({
 			scroll: 42,
 			cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 		});
-		expect(h.entries[h.nav.index].key).toBe('teleport:900');
+		expect((h.entries[h.nav.index] as { line?: number }).line).toBe(900);
 		expect(h.entries[h.nav.index].st).toEqual({
 			scroll: 42,
 			cursor: { from: { line: 900, ch: 0 }, to: { line: 900, ch: 0 } },
@@ -302,7 +335,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
-		expect(h.entries[h.nav.index].key).toBe('teleport:500');
+		expect((h.entries[h.nav.index] as { line?: number }).line).toBe(500);
 		expect(h.entries[h.nav.index].st).toBeUndefined();
 	});
 });

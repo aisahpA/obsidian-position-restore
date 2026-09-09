@@ -4,6 +4,10 @@ interface CursorPos {
 	line: number;
 }
 
+// The hot position record. Produced by readEphemeralState on every 100ms
+// poll tick, every scroll-capture burst, and every restore verification /
+// reland frame: position only — no doc-string reads, no layout. Nav-display
+// fields live on NavEntryState.
 interface EphemeralState {
 	// Dual meaning: markdown saves the quantized top visible line; base views
 	// save the scroller's raw scrollTop pixels instead. A file path is always
@@ -13,26 +17,40 @@ interface EphemeralState {
 		from: CursorPos,
 		to: CursorPos
 	},
+}
+
+// What a NavHistory entry carries beyond the position: the nav-display
+// fields, produced ONLY by the low-frequency nav reads (readNavEntryState /
+// withNavDisplay) at the moment a navigation entry is saved — never by the
+// hot read. EphemeralState is structurally assignable, so baseline-fed
+// states and legacy persisted entries type-check against consumers typed
+// NavEntryState (their display fields are simply absent).
+interface NavEntryState extends EphemeralState {
 	// Trimmed text of the primary line (scroll line, else cursor line) at
 	// capture time. Lets a stale line number (the file was edited after the
 	// position was recorded) be re-mapped to the line that now carries this
-	// text before the position is applied. Never persisted to the position
-	// database (its on-disk format reads only scroll/cursor).
+	// text before the position is applied (remapAnchoredState).
 	anchor?: string,
 	// Trimmed text of the CURSOR line at capture time (source mode only —
 	// a reading capture's cursor is the stale pre-preview one). Display-only:
 	// the history browser shows the landing line's own text, while the remap
-	// anchor above always belongs to the viewport top line. Never persisted
-	// to the position database.
+	// anchor above always belongs to the viewport top line.
 	cursorAnchor?: string,
-	// The view mode at capture time ('source' | 'preview'), stamped by
-	// readEphemeralState. Display-only (the history browser shows the cursor
-	// line for edit captures, the viewport top line for reading ones): a
-	// reading-mode capture carries the editor's stale pre-preview cursor, so
-	// the mode cannot be inferred from the state's shape. Consumers that read
-	// only cursor/scroll/anchor ignore it; pre-upgrade persisted nav entries
-	// lack it and fall back to the cursor-first heuristic.
+	// The view mode at capture time ('source' | 'preview'), stamped by the
+	// nav reads. Display-only (the history browser shows the cursor line for
+	// edit captures, the viewport top line for reading ones): a reading-mode
+	// capture carries the editor's stale pre-preview cursor, so the mode
+	// cannot be inferred from the state's shape. Consumers that read only
+	// cursor/scroll ignore it; pre-upgrade persisted nav entries lack it and
+	// fall back to the cursor-first heuristic.
 	mode?: 'source' | 'preview',
+	// Display-only: the cursor line was OUTSIDE the viewport at capture time
+	// (source-mode scrolling does not move the cursor) — the history browser
+	// falls back to the viewport top line + anchor instead of showing an
+	// invisible cursor line. Set only when decidable; undecidable geometry
+	// (no editor view, coords not yet measured, line beyond EOF) reads as
+	// visible.
+	cursorOffscreen?: true,
 }
 
 // Device-local per-tab position records.
@@ -63,8 +81,8 @@ interface PluginSettings {
 	recordBaseScroll: boolean;
 	// Navigation history (VSCode-style back/forward) tuning.
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
-	navRecordActivation: boolean; // tab/pane activation records as a navigation step
-	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation steps
+	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
+	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -88,6 +106,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 export {
 	CursorPos,
 	EphemeralState,
+	NavEntryState,
 	TabStateRecord,
 	PluginSettings,
 };
