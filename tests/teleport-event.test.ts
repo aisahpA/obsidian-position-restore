@@ -13,7 +13,11 @@ import { MarkdownView } from 'obsidian';
 import { Sampler } from '../src/sampler';
 import { PositionState } from '../src/position-state';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '../src/types';
-import { NavHistoryEntry } from '../src/nav-history';
+import { NavJump, NavTeleport, NavVisit } from '../src/nav-entry';
+
+// The harness only ever builds pathful entries; excluding NavView (which has
+// neither path nor st) keeps `.path`/`.st` readable without casts.
+type TestEntry = NavJump | NavVisit | NavTeleport;
 
 // A fake markdown view: real prototype chain (so instanceof passes) with the
 // minimal surface the handler touches, attached in one untyped assign to
@@ -32,7 +36,7 @@ function makeFakeMarkdownView(path: string): MarkdownView {
 // pushes (and fills the landing position from its 4th argument), and
 // refreshTop mirrors the real rules — path+leaf guard, keyed entries keep/
 // backfill their landing, keyless entries are overwritten.
-function makeHarness(options?: { entries?: NavHistoryEntry[] }) {
+function makeHarness(options?: { entries?: TestEntry[] }) {
 	const view = makeFakeMarkdownView('a.md');
 	const app = {
 		workspace: {
@@ -83,7 +87,7 @@ function makeHarness(options?: { entries?: NavHistoryEntry[] }) {
 
 describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 	it('pushes a far jump with its landing position and refreshes the open entry with the poll read', () => {
-		const h = makeHarness({ entries: [{ path: 'a.md', leafId: 'leaf-1' }] });
+		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
 
@@ -122,7 +126,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.onSelection(h.editor);
 		expect(h.nav.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 600, expect.anything());
 
-		h.view.file = { path: 'b.md' };
+		(h.view as { file: { path: string } }).file = { path: 'b.md' };
 		h.state.lastLoadedFilePath = 'b.md';
 		h.cursor.line = 2;
 		h.onSelection(h.editor);
@@ -215,7 +219,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		// The user scrolled the cursor line off screen, then jumped away: the
 		// left entry must describe the viewport (cursorOffscreen → the panel
 		// falls back to scroll + anchor), not the invisible cursor line.
-		const h = makeHarness({ entries: [{ path: 'a.md', leafId: 'leaf-1' }] });
+		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
 		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25 —

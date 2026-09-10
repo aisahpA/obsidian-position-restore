@@ -43,11 +43,11 @@ beforeEach(() => {
 	});
 });
 
-function makeLeaf(id: string, containerEl: ParentNode = document.createElement('div')): WorkspaceLeaf {
+function makeLeaf(id: string, containerEl: ParentNode = document.createElement('div')): WorkspaceLeaf & { containerEl: ParentNode } {
 	return {
 		id,
 		containerEl,
-	} as unknown as WorkspaceLeaf;
+	} as unknown as WorkspaceLeaf & { containerEl: ParentNode };
 }
 
 const RECORD = {

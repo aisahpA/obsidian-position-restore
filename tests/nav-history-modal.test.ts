@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 
 import { describeNavEntry } from '../src/nav-history-modal';
 import { t } from '../src/i18n';
-import { NavHistoryEntry } from '../src/nav-history';
+import { NavHistoryEntry } from '../src/nav-entry';
 
 const hasFile = () => true;
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });

@@ -469,6 +469,73 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 	});
 });
 
+describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
+	it('a setState during an in-flight write stays dirty and is persisted by the next flush', async () => {
+		const { db, adapter, files } = makeHarness();
+		db.setState('a.md', { scroll: 2 });
+
+		// Land a concurrent setState synchronously at the start of the actual
+		// adapter write — i.e. after writeDb has already serialized its
+		// snapshot. This is exactly where the 100ms poll interleaves in real
+		// usage.
+		const origWrite = adapter.write.getMockImplementation()!;
+		let injected = false;
+		adapter.write.mockImplementation(async (p: string, data: string) => {
+			if (!injected) {
+				injected = true;
+				db.setState('a.md', { scroll: 3 });
+			}
+			return origWrite(p, data);
+		});
+
+		await db.writeDb();
+
+		// The flush captured scroll 2 (its snapshot predates the setState),
+		// but the concurrent change must NOT be cleared by it.
+		expect(files[DB_PATH]).toBe('{"a.md":[2]}');
+		expect(db.dbDirty).toBe(true);
+
+		// The next flush persists the newer value.
+		await db.writeDb();
+		expect(files[DB_PATH]).toBe('{"a.md":[3]}');
+		expect(db.dbDirty).toBe(false);
+	});
+
+	it('a key touched during a flush still beats the disk copy in the next external merge', async () => {
+		vi.useFakeTimers();
+		try {
+			const { db, adapter, externalWrite } = makeHarness();
+			db.setState('a.md', { scroll: 2 });
+
+			const origWrite = adapter.write.getMockImplementation()!;
+			let injected = false;
+			adapter.write.mockImplementation(async (p: string, data: string) => {
+				if (!injected) {
+					injected = true;
+					// Real disk I/O takes longer than a millisecond; model that
+					// so the concurrent touch's stamp is strictly after the
+					// flush's snapshot moment (lastFlushTime).
+					vi.advanceTimersByTime(10);
+					db.setState('a.md', { scroll: 3 });
+				}
+				return origWrite(p, data);
+			});
+
+			await db.writeDb();
+			expect(db.dbDirty).toBe(true); // the concurrent change survived the flush
+
+			// A foreign file lands on disk. lastFlushTime reads as the flush's
+			// snapshot moment — BEFORE the concurrent touch — so the in-memory
+			// scroll 3 is treated as locally newer than the flushed disk copy.
+			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
+			await db.mergeExternalChanges();
+			expect(db.db['a.md']).toEqual({ scroll: 3 });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe('switchDbFile', () => {
 	it('rejects invalid paths without touching anything', async () => {
 		const { db, adapter } = makeHarness();

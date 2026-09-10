@@ -1,5 +1,6 @@
 import { App, Modal, TFile } from 'obsidian';
-import { NavHistory, NavHistoryEntry } from './nav-history';
+import { NavHistory } from './nav-history';
+import { NavHistoryEntry } from './nav-entry';
 import { t } from './i18n';
 
 // One row's display pieces, derived from the entry. Pure (the vault lookup

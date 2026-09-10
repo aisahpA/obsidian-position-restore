@@ -42,7 +42,12 @@ export class PositionState {
 	lastActiveFilePath: string | undefined = undefined;
 
 	// ===== Restore run tracking =====
-	restoreRun = 0;     // bumped per restore; stale restores detect supersession
+	// Monotonic source of restore run ids. Supersession itself is decided per
+	// leaf via inFlightRestoreLeafRuns (see beginLeafRestore /
+	// isCurrentLeafRestore); the counter only guarantees a run id is never
+	// reused within a session, which is all the per-leaf cleanup matching
+	// needs.
+	restoreRun = 0;
 	private activeRestores = 0; // restore chains in flight
 
 	// Leaf id -> { filePath, run } of the restore currently in flight for
@@ -55,6 +60,27 @@ export class PositionState {
 	// fire for one open. Keyed by leaf because rapid file switching reuses
 	// the same view; the run discriminates the winning restore on cleanup.
 	inFlightRestoreLeafRuns: Map<string, { filePath: string; run: number }> = new Map();
+
+	// Starts a restore for leafId+filePath and installs it as that leaf's
+	// current (occupying) in-flight restore. Returns the run id. run needs
+	// only to be unique per leaf over time, so one shared counter suffices.
+	beginLeafRestore(leafId: string, filePath: string): number {
+		const run = ++this.restoreRun;
+		this.inFlightRestoreLeafRuns.set(leafId, { filePath, run });
+		return run;
+	}
+
+	// Whether the restore that got run is still the current one for its leaf.
+	// Staleness is scoped per leaf on purpose: only a newer restore on the
+	// SAME leaf (rapid file switching reuses the same view) or the winner
+	// finishing and clearing this leaf's entry makes it stale. A restore
+	// running concurrently on a DIFFERENT leaf must never supersede it — the
+	// old single global counter did, leaving that leaf's restore cover up
+	// forever (see Restorer.restoreOpen).
+	isCurrentLeafRestore(leafId: string, run: number): boolean {
+		const cur = this.inFlightRestoreLeafRuns.get(leafId);
+		return !!cur && cur.run === run;
+	}
 
 	// True while any file restore is in flight (from open until the landing is
 	// anchored). Recording (polling + scroll capture) skips while this holds,

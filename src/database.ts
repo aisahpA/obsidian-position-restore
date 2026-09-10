@@ -66,6 +66,12 @@ export class CursorPositionDatabase {
 	db: CursorDatabase = {};
 	dbDirty: boolean = false;
 
+	// Monotonic mutation counter. writeDb snapshots it before serializing and
+	// clears dbDirty only when it is unchanged after the write — a setState
+	// that lands mid-flush (during the merge / write / mtime awaits) keeps
+	// the db dirty instead of having its record silently lost.
+	private rev = 0;
+
 	// Multi-device sync support. An external sync client (坚果云 / Remotely
 	// Save / iCloud / Obsidian Sync…) may replace the db file while we run.
 	// lastDiskMtime caches the mtime we last observed after our own read or
@@ -183,7 +189,7 @@ export class CursorPositionDatabase {
 				const adopted = this.mergeDiskDb(diskDb);
 				// The merged records must reach the new file; flush happens on
 				// the next natural write (the settings save that follows).
-				this.dbDirty = true;
+				this.markDirty();
 				return adopted;
 			} catch (e) {
 				console.error("Can't adopt existing database file:", e);
@@ -237,7 +243,7 @@ export class CursorPositionDatabase {
 		this.trimToLimit();
 
 		const removed = beforeLength - Object.keys(this.db).length;
-		if (removed > 0) this.dbDirty = true;
+		if (removed > 0) this.markDirty();
 		return removed;
 	}
 
@@ -273,6 +279,14 @@ export class CursorPositionDatabase {
 		}
 	}
 
+	// Marks a mutation as needing a flush. Every site that dirties the db goes
+	// through here so writeDb can detect a mutation that lands while it is
+	// mid-flush (see the rev comment above).
+	private markDirty(): void {
+		this.dbDirty = true;
+		this.rev++;
+	}
+
 	// Record a position for filePath. If the key is already the most recently
 	// touched (lastKey), overwrite in place — no delete+insert, which would
 	// needlessly churn the V8 object shape. Otherwise delete+insert to move it
@@ -287,7 +301,7 @@ export class CursorPositionDatabase {
 			this.lastKey = filePath;
 		}
 		this.keyTouchedAt.set(filePath, Date.now());
-		this.dbDirty = true;
+		this.markDirty();
 	}
 
 	// If the database exceeds MAX_ENTRIES, drops the oldest entries down to
@@ -427,6 +441,17 @@ export class CursorPositionDatabase {
 		// startup); no-op unless the cap is exceeded.
 		this.trimToLimit();
 
+		// Snapshot the mutation revision and wall-clock moment right before
+		// serializing. Everything mutated at or before this instant IS in
+		// `data`. Anything that lands during the awaits below — a synchronous
+		// setState from the poll / scroll capture / suspend flush interleaving
+		// at any await point — must not be cleared by this flush, and must
+		// still read as "touched after our last flush" for the next external
+		// merge. rev catches the former (dbDirty below); lastFlushTime stamped
+		// HERE, not after the write, makes the latter hold.
+		const flushedThrough = Date.now();
+		const rev = this.rev;
+
 		const encoded: { [path: string]: number[] } = {};
 		for (const key of Object.keys(this.db)) {
 			const st = this.db[key];
@@ -451,6 +476,8 @@ export class CursorPositionDatabase {
 			try {
 				await this.app.vault.adapter.write(this.getDbPath(), data);
 			} catch (e2) {
+				// Nothing hit disk: leave dbDirty/lastFlushTime untouched so a
+				// later flush retries the same records.
 				console.error("Can't write database:", e2);
 				return;
 			}
@@ -458,12 +485,16 @@ export class CursorPositionDatabase {
 
 		// Our own write changed the file on disk — re-cache its mtime so our
 		// next external-change check doesn't mistake this write for someone
-		// else's. lastFlushTime marks "everything touched before this moment
-		// is already on disk"; only keys touched after it may override disk
-		// copies during a merge.
+		// else's. lastFlushTime marks "everything captured in `data`" (see the
+		// snapshot above): only keys touched after it may override disk copies
+		// during a merge. dbDirty is cleared only when no mutation landed
+		// while the flush was in flight — a mid-flush setState keeps the db
+		// dirty so its record is persisted by the next flush, and its
+		// keyTouchedAt stays beyond lastFlushTime so it wins any intervening
+		// external merge.
 		await this.cacheDiskMtime();
-		this.lastFlushTime = Date.now();
-		this.dbDirty = false;
+		this.lastFlushTime = flushedThrough;
+		this.dbDirty = rev !== this.rev;
 	}
 
 	renameFile(newPath: string, oldPath: string) {
@@ -476,7 +507,7 @@ export class CursorPositionDatabase {
 			this.keyTouchedAt.delete(oldPath);
 			this.keyTouchedAt.set(newPath, touchedAt);
 		}
-		this.dbDirty = true;
+		this.markDirty();
 	}
 
 	deleteFile(path: string) {
@@ -484,6 +515,6 @@ export class CursorPositionDatabase {
 			return;
 		delete this.db[path];
 		this.keyTouchedAt.delete(path);
-		this.dbDirty = true;
+		this.markDirty();
 	}
 }
