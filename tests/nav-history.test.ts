@@ -20,7 +20,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NAV_HISTORY_VERSION, NavHistory, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-history';
+import { NavHistory } from '../src/nav-history';
+import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-entry';
 import { OpenPatcher } from '../src/patcher';
 import { Sampler } from '../src/sampler';
 import { PositionState } from '../src/position-state';
@@ -45,6 +46,7 @@ function makeApp(
 			getActiveViewOfType: () => null,
 			iterateAllLeaves: (_cb: (leaf: WorkspaceLeaf) => void) => undefined,
 			setActiveLeaf: vi.fn(),
+			getMostRecentLeaf: () => null,
 		},
 		commands: { executeCommandById: vi.fn() },
 	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
@@ -89,7 +91,11 @@ beforeEach(() => {
 
 describe('NavHistory stack logic', () => {
 	it('records jumps and truncates the forward part on a fresh jump', () => {
-		const nav = makeNav();
+		const app = makeApp();
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: WorkspaceLeaf) => void) => void;
+		}).iterateAllLeaves = (cb) => cb(leafWithFile('leaf-1', 'a.md'));
+		const nav = makeNav(app);
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordOpen('b.md', 'leaf-1');
 		(nav as unknown as { index: number }).index = 0; // simulate having gone back
@@ -97,8 +103,8 @@ describe('NavHistory stack logic', () => {
 
 		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'c.md']);
 		expect(nav.index).toBe(1);
-		expect(nav.canGoBack()).toBe(true);
-		expect(nav.canGoForward()).toBe(false);
+		expect(nav.canNavigate(-1)).toBe(true);
+		expect(nav.canNavigate(1)).toBe(false);
 	});
 
 	it('dedups: same file without a key or with the same key is not pushed', () => {
@@ -537,8 +543,8 @@ describe('NavHistory.navigate', () => {
 		// applied the chosen entry's recorded position
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		// the origin is the entry right below — back one step returns to it
-		expect(nav.canGoBack()).toBe(true);
-		expect(nav.canGoForward()).toBe(false);
+		expect(nav.canNavigate(-1)).toBe(true);
+		expect(nav.canNavigate(1)).toBe(false);
 		// the bracket released — traversal is immediately available again
 		expect(nav.canNavigate(-1)).toBe(true);
 

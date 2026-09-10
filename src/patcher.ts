@@ -4,7 +4,7 @@ import { TabStore } from './tab-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from './position-state';
 import { readNavEntryState } from './ephemeral';
 import type { NavHistory } from './nav-history';
-import { isMainAreaLeaf } from './nav-history';
+import { isMainAreaLeaf } from './nav-entry';
 import type { Sampler } from './sampler';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
