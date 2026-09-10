@@ -271,11 +271,21 @@ export class Restorer {
 		// same view instance, so a stale restore loop would keep applying the
 		// previous file's position to the new note — random final positions,
 		// flicker, and corrupted records via the polling loop.
-		const run = ++this.state.restoreRun;
-		const isCurrent = () => run === this.state.restoreRun && view.file?.path === filePath;
+		//
+		// Supersession is scoped per LEAF, not globally. Staleness means "a
+		// newer restore started for THIS leaf, or this leaf's view moved to
+		// another file" — never "a restore started on a different leaf". With
+		// the old check (a single shared `run === restoreRun` counter),
+		// opening Y in pane B while pane A's masked restore was mid-cover
+		// bumped the counter; pane A's isCurrent went false, its finally
+		// skipped the reveal, and — the restore cover has no safety timer —
+		// pane A stayed at opacity 0 indefinitely with its saved position
+		// never restored.
+		const run = this.state.beginLeafRestore(leafId, filePath);
+		const isCurrent = () => this.state.isCurrentLeafRestore(leafId, run)
+			&& view.file?.path === filePath;
 
 		this.state.restoreStarted();
-		this.state.inFlightRestoreLeafRuns.set(leafId, { filePath, run });
 		try {
 			this.state.lastEphemeralState = undefined;
 			this.state.lastLoadedFilePath = filePath;
