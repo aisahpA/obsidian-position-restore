@@ -197,11 +197,16 @@ export class RestoreModes {
 	// then the shared anchor (baseline re-anchor + drift loop + cue). Runs
 	// inside NavHistory's restore bracket, so the poll cannot record the
 	// applies as user movement.
-	async historyJumpApply(view: MarkdownView, st: NavEntryState, isCurrent: () => boolean) {
+	async historyJumpApply(view: MarkdownView, st: NavEntryState, isCurrent: () => boolean, shift?: number) {
 		// The entry's lines predate any in-file edits made after it was
-		// recorded (inserts/deletes above shift every line below) — re-map
-		// the stale numbers from the entry's text anchor before applying.
-		st = remapAnchoredState(view.editor, st);
+		// recorded (inserts/deletes above shift every line below). Two ways
+		// to re-anchor: a structurally resolved shift (the jump's own
+		// heading/block id re-located via metadataCache — survives arbitrary
+		// shift and is authoritative), or the text-snippet remap fallback.
+		if (shift !== undefined)
+			st = this.shiftBy(st, shift);
+		else
+			st = remapAnchoredState(view.editor, st);
 		applyEphemeralState(view, st);
 		await nextPaint();
 		if (!isCurrent())
@@ -209,6 +214,30 @@ export class RestoreModes {
 		if (view.getMode() === 'source' && (st.scroll ?? 0) > 0)
 			await this.pixels.settleSourcePixels(view, st, isCurrent, SETTLE_MAX_MS);
 		await this.anchorToSettledState(view, st, isCurrent);
+	}
+
+	// Shifts a recorded position by `delta` lines — the structural anchor's
+	// drift: its CURRENT line minus its RECORD-TIME line (NavJump.keyLine),
+	// both resolved in NavHistory. The delta reflects file edits only, so an
+	// unedited file shifts nothing and the recorded position applies
+	// untouched (a scroll-derived base would instead fold the viewport
+	// geometry into the shift and pin the heading at the viewport top). Same
+	// shift mechanics as remapAnchoredState's — immutable copy, anchor
+	// dropped, scroll clamps at 0 — but driven by an authoritative
+	// structural line instead of a ±30-line text scan, so a shift beyond
+	// any window still lands.
+	private shiftBy(st: NavEntryState, delta: number): NavEntryState {
+		if (delta === 0)
+			return st;
+		const mapped: NavEntryState = { ...st, anchor: undefined };
+		if (mapped.scroll !== undefined)
+			mapped.scroll = Math.max(0, mapped.scroll + delta);
+		if (mapped.cursor)
+			mapped.cursor = {
+				from: { ...mapped.cursor.from, line: Math.max(0, mapped.cursor.from.line + delta) },
+				to: { ...mapped.cursor.to, line: Math.max(0, mapped.cursor.to.line + delta) },
+			};
+		return mapped;
 	}
 
 	// glide restore: no mask, so no blank period. The note

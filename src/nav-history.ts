@@ -2,7 +2,8 @@ import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { NavEntryState, PluginSettings } from './types';
 import { PositionState, LANDING_ABSORB_MS } from './position-state';
 import { RestoreModes } from './restore-modes';
-import { readNavEntryState } from './ephemeral';
+import { readNavEntryState, normAnchor } from './ephemeral';
+import { resolveAnchorLine, findHeading, decodeAnchor } from './anchor-line';
 import { delay } from './wait';
 
 // VSCode-style back/forward navigation.
@@ -52,6 +53,18 @@ export interface NavJump {
 	path: string;
 	leafId: string;
 	key: string;
+	// Line the key's anchor sat on WHEN THE ENTRY WAS RECORDED (upgraded at
+	// the landing settle from metadataCache — the authoritative record-time
+	// line). Gives the structural re-anchor its true delta base: the anchor's
+	// own line, NOT the recorded scroll (the viewport top — it drifts with
+	// viewport geometry, file-tail positions, and CM's near-edge scrolling,
+	// so a scroll-based delta would shift the view to pin the heading at the
+	// viewport top even in an unedited file). Absent until the landing
+	// upgrades the entry; ^block keys are never upgraded (their landing
+	// geometry cannot be tied to the block id) — those entries ride the
+	// text-snippet remap, whose base and target share the viewport-line
+	// semantics and are self-consistent.
+	keyLine?: number;
 	st?: NavEntryState;
 }
 
@@ -277,12 +290,55 @@ export class NavHistory {
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
-		if (top.kind === 'jump' || top.kind === 'teleport') {
-			if (!top.st)
+		if (top.kind === 'jump') {
+			if (!top.st) {
+				top.st = st;		
+				this.upgradeKeyLine(top, st);
+			}
+			return;
+		}
+		if (top.kind === 'teleport') {
+			if (!top.st) {
 				top.st = st;
+			}
 			return;
 		}
 		top.st = st;
+	}
+
+	// Upgrade a keyed jump with the anchor's RECORD-TIME line from
+	// metadataCache — the authoritative base for the structural re-anchor
+	// (see NavJump.keyLine). Runs at the first landing backfill (and on a
+	// pre-click refreshTop of an earlier not-yet-settled entry — equally
+	// valid: the cache line IS the record-time line either way; the st view
+	// line is only used to break ties between same-text headings).
+	//   outline: key  → key rebuilt from the cache's authoritative source
+	//     ("outline:## T": # count = absolute level, rest = HeadingCache.heading
+	//     verbatim — resolveAnchorLine matches structurally, no normalization)
+	//     plus keyLine.
+	//   #slug key     → keyLine only (the slug key already resolves).
+	//   ^block key    → nothing: a block's line can't be tied to its landing
+	//     geometry; the entry keeps riding the text-snippet remap.
+	// No cache heading matches (renamed/removed anchor) → untouched, the
+	// rendered/slug key stays and the remap fallback keeps working.
+	private upgradeKeyLine(top: NavJump, st: NavEntryState) {
+		const file = this.app.vault.getAbstractFileByPath(top.path);
+		const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null;
+		const nearLine = st.scroll ?? st.cursor?.from.line;
+		if (top.key.startsWith('outline:')) {
+			const hit = findHeading(cache, top.key.slice('outline:'.length), nearLine);
+			if (!hit)
+				return;
+			top.key = `outline:${'#'.repeat(hit.level)} ${hit.heading}`;
+			top.keyLine = hit.line;
+			return;
+		}
+		const hash = top.key.indexOf('#');
+		if (hash === -1)
+			return;
+		const hit = findHeading(cache, decodeAnchor(top.key.slice(hash + 1)), nearLine);
+		if (hit)
+			top.keyLine = hit.line;
 	}
 
 	// Reading-mode outline clicks are invisible to every other
@@ -400,7 +456,11 @@ export class NavHistory {
 	// Same-location across kinds: view entries match view entries (same leaf
 	// view type), keyed jumps only the identical jump, and a keyless visit
 	// absorbs into any file entry of the same file+leaf — its st is
-	// refreshed on leave either way.
+	// refreshed on leave either way. An outline jump's key compares
+	// normalized: the entry's key may have been upgraded to the heading's
+	// source line ("outline:## T") while a re-click records the rendered
+	// text ("outline:T") — `#` strips in normAnchor, so both forms mean the
+	// same heading and dedup as one jump.
 	private sameLocation(top: NavHistoryEntry, entry: NavHistoryEntry): boolean {
 		if (top.leafId !== entry.leafId)
 			return false;
@@ -408,7 +468,10 @@ export class NavHistory {
 			case 'view':
 				return top.kind === 'view' && top.viewType === entry.viewType;
 			case 'jump':
-				return top.kind === 'jump' && top.path === entry.path && top.key === entry.key;
+				return top.kind === 'jump' && top.path === entry.path
+					&& (top.key === entry.key
+						|| (top.key.startsWith('outline:') && entry.key.startsWith('outline:')
+							&& normAnchor(top.key.slice('outline:'.length)) === normAnchor(entry.key.slice('outline:'.length))));
 			case 'teleport':
 				return top.kind === 'teleport' && top.path === entry.path && top.line === entry.line;
 			case 'visit':
@@ -617,7 +680,7 @@ export class NavHistory {
 			return;
 		}
 
-		// Cross-tab: reactivate the original leaf (回到原 leaf). A closed
+		// Cross-tab: reactivate the original leaf (back to original tab leaf). A closed
 		// leaf falls back to the active one.
 		if (targetLeaf && targetLeaf !== activeLeaf) {
 			await this.openInLeaf(targetLeaf, target);
@@ -648,7 +711,7 @@ export class NavHistory {
 			if (activeView instanceof MarkdownView && target.st) {
 				const isCurrent = () => activeView.file?.path === target.path;
 				this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-				await this.modes.historyJumpApply(activeView, target.st, isCurrent);
+				await this.modes.historyJumpApply(activeView, target.st, isCurrent, this.resolveAnchorShift(target));
 			}
 			return;
 		}
@@ -748,6 +811,26 @@ export class NavHistory {
 		return found;
 	}
 
+	// Structural re-anchor for an in-file jump: resolve the entry's key
+	// (outline heading / anchor linktext) to its CURRENT line in the file via
+	// metadataCache, and return the SHIFT the recorded position needs — the
+	// anchor's current line minus its RECORD-TIME line (keyLine, upgraded at
+	// the landing). The shift reflects file edits only; historyJumpApply
+	// applies it uniformly to scroll and cursor, preserving the recorded
+	// viewport geometry (an unedited file shifts 0 and restores untouched).
+	// Entries without a keyLine (never settled, pre-upgrade, ^block keys)
+	// return undefined — historyJumpApply falls back to the text-snippet
+	// remap, whose base and target share the viewport-line semantics.
+	private resolveAnchorShift(target: NavHistoryEntry): number | undefined {
+		if (target.kind !== 'jump' || !target.key || typeof target.keyLine !== 'number')
+			return undefined;
+		const file = this.app.vault.getAbstractFileByPath(target.path);
+		if (!(file instanceof TFile))
+			return undefined;
+		const line = resolveAnchorLine(this.app.metadataCache.getFileCache(file), target.key, target.keyLine);
+		return line === undefined ? undefined : line - target.keyLine;
+	}
+
 	// ===== Bookkeeping =====
 
 	renameFile(oldPath: string, newPath: string) {
@@ -812,20 +895,19 @@ export class NavHistory {
 	private static isEntry(e: unknown): e is NavHistoryEntry {
 		if (!e || typeof e !== 'object')
 			return false;
-	const entry = e as { kind?: unknown; leafId?: unknown; viewType?: unknown; path?: unknown; key?: unknown; line?: unknown };
-	if (typeof entry.leafId !== 'string' || !entry.leafId)
-		return false;
-	switch (entry.kind) {
-		case 'view':
-			return typeof entry.viewType === 'string' && !!entry.viewType;
-		case 'jump':
-			return typeof entry.path === 'string' && !!entry.path
-				&& typeof entry.key === 'string' && !!entry.key;
-		case 'teleport':
-			return typeof entry.path === 'string' && !!entry.path
-				&& typeof entry.line === 'number';
+		const entry = e as Record<string, unknown>;
+		const str = (v: unknown): v is string => typeof v === 'string' && !!v;
+		if (!str(entry.leafId))
+			return false;
+		switch (entry.kind) {
+			case 'view':
+				return str(entry.viewType);
+			case 'jump':
+				return str(entry.path) && str(entry.key);
+			case 'teleport':
+				return str(entry.path) && typeof entry.line === 'number';
 			case 'visit':
-				return typeof entry.path === 'string' && !!entry.path;
+				return str(entry.path);
 			default:
 				return false;
 		}

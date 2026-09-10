@@ -172,6 +172,17 @@ export function withNavDisplay(view: MarkdownView, st: EphemeralState): NavEntry
 // path: live CM change deltas on top of the anchors.
 const REMAP_WINDOW = 30;
 
+// Normalize text for anchor matching: fold case and strip whitespace and
+// punctuation so a lightly-edited anchor line still matches its recorded
+// text (e.g. "## Some  Heading!" vs "some heading"). CJK needs no case fold
+// but benefits from the whitespace/punctuation strip ("我的 标题" vs
+// "我的标题"). Comparison stays an exact match on the normalized forms —
+// never a substring — so heavily-duplicated lines still resolve nearest,
+// and an unrelated edit ("charlie" -> "rewritten") never falsely matches.
+export function normAnchor(text: string): string {
+	return text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+}
+
 // Re-map a stale recorded position to the file's current lines: the entry
 // text anchor (see readNavEntryState) locates the line that used to sit at
 // the recorded line number. Nearest-first scan around it; no match applies
@@ -189,23 +200,35 @@ export function remapAnchoredState(
 	if (line === undefined || line < 0)
 		return st;
 	const last = editor.lastLine();
-	if (line <= last && editor.getLine(line).trim() === anchor)
-		return st;
-	for (let d = 1; d <= REMAP_WINDOW; d++) {
-		for (const at of [line + d, line - d]) {
-			if (at < 0 || at > last)
-				continue;
-			if (editor.getLine(at).trim() === anchor) {
-				const delta = at - line;
-				const mapped: NavEntryState = { ...st, anchor: undefined };
-				if (mapped.scroll !== undefined)
-					mapped.scroll = Math.max(0, mapped.scroll + delta);
-				if (mapped.cursor)
-					mapped.cursor = {
-						from: { ...mapped.cursor.from, line: mapped.cursor.from.line + delta },
-						to: { ...mapped.cursor.to, line: mapped.cursor.to.line + delta },
-					};
-				return mapped;
+	const key = normAnchor(anchor);
+	// Two passes: plain text first — the common unedited case, nothing but
+	// string compares — and the normalized scan only when plain found
+	// nothing. A per-line `exact || norm` predicate would NOT buy this: the
+	// unmatching majority (most of the window) pays the regex on every
+	// scan. An exact hit outranks a nearer normalized one — an unedited
+	// copy of the recorded line is more credible than an edited lookalike.
+	for (const hit of [
+		(text: string) => text.trim() === anchor,
+		(text: string) => normAnchor(text) === key,
+	]) {
+		if (line <= last && hit(editor.getLine(line)))
+			return st;
+		for (let d = 1; d <= REMAP_WINDOW; d++) {
+			for (const at of [line + d, line - d]) {
+				if (at < 0 || at > last)
+					continue;
+				if (hit(editor.getLine(at))) {
+					const delta = at - line;
+					const mapped: NavEntryState = { ...st, anchor: undefined };
+					if (mapped.scroll !== undefined)
+						mapped.scroll = Math.max(0, mapped.scroll + delta);
+					if (mapped.cursor)
+						mapped.cursor = {
+							from: { ...mapped.cursor.from, line: mapped.cursor.from.line + delta },
+							to: { ...mapped.cursor.to, line: mapped.cursor.to.line + delta },
+						};
+					return mapped;
+				}
 			}
 		}
 	}

@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NAV_HISTORY_VERSION, NavHistory, NavHistoryEntry, NavVisit } from '../src/nav-history';
+import { NAV_HISTORY_VERSION, NavHistory, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-history';
 import { OpenPatcher } from '../src/patcher';
 import { Sampler } from '../src/sampler';
 import { PositionState } from '../src/position-state';
@@ -29,13 +29,16 @@ import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '../src/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 
-function makeApp(): App {
+function makeApp(
+	headings?: Array<{ heading: string; level: number; position: { start: { line: number } } }>,
+): App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } } {
 	return {
 		appId: 'test-vault',
 		vault: {
 			getName: () => 'Test',
 			getAbstractFileByPath: (path: string) => Object.assign(new TFile(), { path }),
 		},
+		metadataCache: { getFileCache: () => (headings ? { headings } : null) },
 		workspace: {
 			layoutReady: true,
 			rootSplit: { containerEl: { contains: (el: unknown) => el === 'main' } },
@@ -44,7 +47,7 @@ function makeApp(): App {
 			setActiveLeaf: vi.fn(),
 		},
 		commands: { executeCommandById: vi.fn() },
-	} as unknown as App;
+	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
 }
 
 function makeNav(
@@ -181,6 +184,73 @@ describe('NavHistory stack logic', () => {
 		expect(stOf(legacy.entries[1])).toBe(leave);
 		legacy.refreshTop('a.md', 'leaf-1', landing);
 		expect(stOf(legacy.entries[1])).toBe(landing);
+	});
+
+	it('upgrades an outline key from the cache with its record-time line', () => {
+		const nav = makeNav(makeApp([
+			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
+		]));
+		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
+		// Source mode: the settled cursor sits on the heading; the upgrade
+		// itself draws from the CACHE (authoritative source + level + line),
+		// the st view line only breaks same-text ties.
+		const settle: NavEntryState = {
+			scroll: 14,
+			cursor: { from: { line: 20, ch: 0 }, to: { line: 20, ch: 3 } },
+			mode: 'source',
+			cursorAnchor: '## **Bold** Title',
+		};
+		nav.refreshTop('a.md', 'leaf-1', settle);
+		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
+		expect((nav.entries[0] as NavJump).keyLine).toBe(20);
+
+		// Preview mode: the viewport line only breaks ties; line comes from
+		// the cache.
+		const nav2 = makeNav(makeApp([
+			{ heading: 'Heading', level: 3, position: { start: { line: 5 } } },
+		]));
+		nav2.recordOpen('a.md', 'leaf-1', { key: 'outline:Heading', force: true });
+		nav2.refreshTop('a.md', 'leaf-1', { scroll: 5, mode: 'preview', anchor: '### Heading' });
+		expect(keyOf(nav2.entries[0])).toBe('outline:### Heading');
+		expect((nav2.entries[0] as NavJump).keyLine).toBe(5);
+	});
+
+	it('upgrades an anchor-link key with its record-time line (key untouched)', () => {
+		const nav = makeNav(makeApp([
+			{ heading: 'My Heading', level: 2, position: { start: { line: 12 } } },
+		]));
+		nav.recordOpen('a.md', 'leaf-1', { key: 'a.md#my-heading', force: true });
+		nav.refreshTop('a.md', 'leaf-1', { scroll: 12, mode: 'preview', anchor: '## My Heading' });
+		expect(keyOf(nav.entries[0])).toBe('a.md#my-heading');
+		expect((nav.entries[0] as NavJump).keyLine).toBe(12);
+	});
+
+	it('keeps the recorded key when no cache heading matches (remap fallback)', () => {
+		const nav = makeNav(makeApp([
+			{ heading: 'Other', level: 1, position: { start: { line: 1 } } },
+		]));
+		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Real', force: true });
+		nav.refreshTop('a.md', 'leaf-1', {
+			scroll: 1, mode: 'source',
+			cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
+			cursorAnchor: '## Other',
+		});
+		expect(keyOf(nav.entries[0])).toBe('outline:Real');
+		expect((nav.entries[0] as NavJump).keyLine).toBeUndefined();
+	});
+
+	it('dedups a re-click against an upgraded key (normalized outline keys)', () => {
+		const nav = makeNav(makeApp([
+			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
+		]));
+		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
+		nav.refreshTop('a.md', 'leaf-1', { scroll: 20, mode: 'preview', anchor: '## **Bold** Title' });
+		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
+		// The user clicks the same outline item again: the new record carries
+		// the rendered text, which normalizes equal to the upgraded source
+		// key (# strips) — one jump, no duplicate entry.
+		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title' });
+		expect(nav.entries.length).toBe(1);
 	});
 
 	it('rename migrates entries; delete drops them and keeps the index in range', () => {
@@ -996,11 +1066,11 @@ const SOURCE_OPEN_A = (file = 'a.md'): ViewState => ({
 	state: { file, mode: 'source' },
 });
 
-function makeLeaf(id: string): WorkspaceLeaf {
+function makeLeaf(id: string): WorkspaceLeaf & { containerEl: HTMLElement } {
 	return {
 		id,
 		containerEl: document.createElement('div'),
-	} as unknown as WorkspaceLeaf;
+	} as unknown as WorkspaceLeaf & { containerEl: HTMLElement };
 }
 
 beforeEach(() => {
