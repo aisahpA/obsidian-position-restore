@@ -35,66 +35,66 @@ export class SettingTab extends PluginSettingTab {
 		return [
 			{
 				type: 'group',
-				heading: t('openAndRestore'),
+				heading: t('openAndRestore.heading'),
 				items: [
 					{
-						name: t('defaultPositionName'),
-						desc: t('defaultPositionDesc'),
+						name: t('openAndRestore.defaultPosition.name'),
+						desc: t('openAndRestore.defaultPosition.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'defaultPosition',
 							options: {
-								default: t('optionDefault'),
-								fileEnd: t('optionFileEnd'),
+								default: t('openAndRestore.defaultPosition.options.default'),
+								fileEnd: t('openAndRestore.defaultPosition.options.fileEnd'),
 							},
 						},
 					},
 					{
-						name: t('linkOpenName'),
-						desc: t('linkOpenDesc'),
+						name: t('openAndRestore.linkOpenPosition.name'),
+						desc: t('openAndRestore.linkOpenPosition.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'linkOpenPosition',
 							options: {
-								start: t('optionFileStart'),
-								restore: t('optionSavedPosition'),
+								start: t('openAndRestore.linkOpenPosition.options.start'),
+								restore: t('openAndRestore.linkOpenPosition.options.restore'),
 							},
 						},
 					},
 					{
-						name: t('sourceRestoreName'),
-						desc: t('sourceRestoreDesc'),
+						name: t('openAndRestore.sourceRestoreMethod.name'),
+						desc: t('openAndRestore.sourceRestoreMethod.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'sourceRestoreMethod',
 							options: {
-								instant: t('optionInstant'),
-								glide: t('optionGlide'),
+								instant: t('openAndRestore.sourceRestoreMethod.options.instant'),
+								glide: t('openAndRestore.sourceRestoreMethod.options.glide'),
 							},
 						},
 					},
 					{
-						name: t('readingRestoreName'),
-						desc: t('readingRestoreDesc'),
+						name: t('openAndRestore.readingRestoreMethod.name'),
+						desc: t('openAndRestore.readingRestoreMethod.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'readingRestoreMethod',
 							options: {
-								instant: t('optionInstant'),
-								glide: t('optionGlide'),
+								instant: t('openAndRestore.readingRestoreMethod.options.instant'),
+								glide: t('openAndRestore.readingRestoreMethod.options.glide'),
 							},
 						},
 					},
 					{
-						name: t('indicatorName'),
-						desc: t('indicatorDesc'),
+						name: t('openAndRestore.restoreIndicator.name'),
+						desc: t('openAndRestore.restoreIndicator.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'restoreIndicator',
 							options: {
-								off: t('optionOff'),
-								breadcrumb: t('optionBreadcrumb'),
-								both: t('optionBoth'),
+								off: t('openAndRestore.restoreIndicator.options.off'),
+								breadcrumb: t('openAndRestore.restoreIndicator.options.breadcrumb'),
+								both: t('openAndRestore.restoreIndicator.options.both'),
 							},
 						},
 					},
@@ -102,14 +102,14 @@ export class SettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group',
-				heading: t('recordingRules'),
+				heading: t('recordingRules.heading'),
 				items: [
 					{
 						type: 'page',
-						name: t('foldersName'),
+						name: t('recordingRules.folders.name'),
 						desc: (() => {
 							const frag = createFragment();
-							frag.createDiv({ text: t('foldersDesc') });
+							frag.createDiv({ text: t('recordingRules.folders.desc') });
 							const folders = this.plugin.settings.excludedFolders;
 							if (folders.length === 0) {
 								return frag;
@@ -126,7 +126,7 @@ export class SettingTab extends PluginSettingTab {
 						items: [
 							{
 								type: 'list',
-								emptyState: t('listNoFolders'),
+								emptyState: t('recordingRules.folders.list.empty'),
 								items: this.plugin.settings.excludedFolders.map((folder) => ({
 									name: folder + '/',
 								})),
@@ -135,7 +135,7 @@ export class SettingTab extends PluginSettingTab {
 									void this.setControlValue('excludedFolders', folders).then(() => this.update());
 								},
 								addItem: {
-									name: t('addFolder'),
+									name: t('recordingRules.folders.add'),
 									action: () => {
 										new FolderSuggestModal(
 											this.app,
@@ -152,8 +152,8 @@ export class SettingTab extends PluginSettingTab {
 						],
 					},
 					{
-						name: t('minLinesName'),
-						desc: t('minLinesDesc'),
+						name: t('recordingRules.minLinesToRecord.name'),
+						desc: t('recordingRules.minLinesToRecord.desc'),
 						control: {
 							type: 'number',
 							key: 'minLinesToRecord',
@@ -164,10 +164,10 @@ export class SettingTab extends PluginSettingTab {
 					},
 					{
 						type: 'page',
-						name: t('frontmatterExcludeName'),
+						name: t('recordingRules.frontmatterExclude.name'),
 						desc: (() => {
 							const frag = createFragment();
-							frag.createDiv({ text: t('frontmatterExcludeDesc') });
+							frag.createDiv({ text: t('recordingRules.frontmatterExclude.desc') });
 							const props = this.plugin.settings.frontmatterExcludeProperties;
 							if (props.length === 0) {
 								return frag;
@@ -184,7 +184,7 @@ export class SettingTab extends PluginSettingTab {
 						items: [
 							{
 								type: 'list',
-								emptyState: t('listNoProperties'),
+								emptyState: t('recordingRules.frontmatterExclude.list.empty'),
 								items: this.plugin.settings.frontmatterExcludeProperties.map((prop) => ({
 									name: prop,
 								})),
@@ -193,7 +193,7 @@ export class SettingTab extends PluginSettingTab {
 									void this.setControlValue('frontmatterExcludeProperties', props).then(() => this.update());
 								},
 								addItem: {
-									name: t('addProperty'),
+									name: t('recordingRules.frontmatterExclude.add'),
 									action: () => {
 										new PropertySuggestModal(
 											this.app,
@@ -216,12 +216,12 @@ export class SettingTab extends PluginSettingTab {
 						],
 					},
 					{
-						name: t('escapeHatchName'),
-						desc: t('escapeHatchDesc', ESCAPE_HATCH_PROPERTY),
+						name: t('recordingRules.escapeHatch.name'),
+						desc: t('recordingRules.escapeHatch.desc', ESCAPE_HATCH_PROPERTY),
 					},
 					{
-						name: t('baseScrollName'),
-						desc: t('baseScrollDesc'),
+						name: t('recordingRules.recordBaseScroll.name'),
+						desc: t('recordingRules.recordBaseScroll.desc'),
 						control: {
 							type: 'toggle',
 							key: 'recordBaseScroll',
@@ -231,18 +231,18 @@ export class SettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group',
-				heading: t('dataStorage'),
+				heading: t('dataStorage.heading'),
 				items: [
 					{
-						name: t('dbName'),
-						desc: t('dbDesc'),
+						name: t('dataStorage.dbFileName.name'),
+						desc: t('dataStorage.dbFileName.desc'),
 						render: (setting) => {
 							let text: TextComponent;
 							const confirm = async () => {
 								const value = text.getValue().trim();
 								if (await this.plugin.database.switchDbFile(value)) {
 									void this.setControlValue('dbFileName', value);
-									new Notice(value === '' ? t('dbDefault') : t('dbSet', value));
+									new Notice(value === '' ? t('dataStorage.dbFileName.messages.default') : t('dataStorage.dbFileName.messages.set', value));
 									this.update();
 								}
 							};
@@ -251,43 +251,43 @@ export class SettingTab extends PluginSettingTab {
 								t.setPlaceholder(this.plugin.database.defaultDbFileName);
 								t.setValue(this.plugin.settings.dbFileName || '');
 							}).addExtraButton((btn) => {
-								btn.setIcon('check').setTooltip(t('confirmTooltip'))
+								btn.setIcon('check').setTooltip(t('dataStorage.dbFileName.confirm'))
 									.onClick(() => { void confirm(); });
 							});
 						},
 					},
 					{
-						name: t('entriesName'),
+						name: t('dataStorage.entries.name'),
 						render: (setting) => {
 							const count = Object.keys(this.plugin.database.db).length;
-							setting.setDesc(t('entriesDesc', String(count)));
+							setting.setDesc(t('dataStorage.entries.desc', String(count)));
 						},
 					},
 				],
 			},
 			{
 				type: 'group',
-				heading: t('navHistoryHeading'),
+				heading: t('navHistory.heading'),
 				items: [
 					{
-						name: t('navHistoryName'),
+						name: t('navHistory.overview.name'),
 						render: (setting) => {
 							const frag = createFragment();
-							frag.createDiv({ text: t('navHistoryDesc') });
+							frag.createDiv({ text: t('navHistory.overview.desc') });
 							const list = frag.createEl('ul', { cls: 'mod-muted' });
-							list.createEl('li', { text: `${t('cmdNavigateBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
-							list.createEl('li', { text: `${t('cmdNavigateForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
-							list.createEl('li', { text: `${t('cmdBrowseNavHistory')}: ${currentHotkeyText(this.plugin, 'browse-nav-history')}` });
+							list.createEl('li', { text: `${t('navHistory.commands.navigateBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
+							list.createEl('li', { text: `${t('navHistory.commands.navigateForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
+							list.createEl('li', { text: `${t('navHistory.commands.browseHistory')}: ${currentHotkeyText(this.plugin, 'browse-nav-history')}` });
 							setting.setDesc(frag);
 							setting.addExtraButton((btn) => {
-								btn.setIcon('keyboard').setTooltip(t('navHotkeyOpenSettings'))
+								btn.setIcon('keyboard').setTooltip(t('navHistory.overview.openHotkeySettings'))
 									.onClick(() => openHotkeySettings(this.plugin));
 							});
 						},
 					},
 					{
-						name: t('navStackCapName'),
-						desc: t('navStackCapDesc'),
+						name: t('navHistory.stackCap.name'),
+						desc: t('navHistory.stackCap.desc'),
 						control: {
 							type: 'number',
 							key: 'navStackCap',
@@ -297,16 +297,16 @@ export class SettingTab extends PluginSettingTab {
 						},
 					},
 					{
-						name: t('navActivationName'),
-						desc: t('navActivationDesc'),
+						name: t('navHistory.recordActivation.name'),
+						desc: t('navHistory.recordActivation.desc'),
 						control: {
 							type: 'toggle',
 							key: 'navRecordActivation',
 						},
 					},
 					{
-						name: t('navTeleportName'),
-						desc: t('navTeleportDesc'),
+						name: t('navHistory.recordTeleport.name'),
+						desc: t('navHistory.recordTeleport.desc'),
 						control: {
 							type: 'toggle',
 							key: 'navRecordTeleport',
@@ -325,9 +325,9 @@ class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 		private onSelect: (path: string) => void
 	) {
 		super(app);
-		this.setPlaceholder(t('searchFolders'));
+		this.setPlaceholder(t('recordingRules.folders.search.placeholder'));
 		this.limit = 50;
-		this.emptyStateText = t('noFoldersFound');
+		this.emptyStateText = t('recordingRules.folders.search.empty');
 	}
 
 	getItems(): TFolder[] {
@@ -359,9 +359,9 @@ class PropertySuggestModal extends FuzzySuggestModal<string> {
 		private onSelect: (name: string) => void
 	) {
 		super(app);
-		this.setPlaceholder(t('searchProperties'));
+		this.setPlaceholder(t('recordingRules.frontmatterExclude.search.placeholder'));
 		this.limit = 50;
-		this.emptyStateText = t('noPropertiesFound');
+		this.emptyStateText = t('recordingRules.frontmatterExclude.search.empty');
 	}
 
 	getItems(): string[] {
@@ -393,22 +393,22 @@ class PropertyValueModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl('h3', { text: t('propertyValueTitle', this.name) });
+		contentEl.createEl('h3', { text: t('recordingRules.frontmatterExclude.value.title', this.name) });
 
 		let input: TextComponent;
 		new Setting(contentEl)
-			.setName(t('propertyValueName'))
-			.setDesc(t('propertyValueDesc'))
+			.setName(t('recordingRules.frontmatterExclude.value.name'))
+			.setDesc(t('recordingRules.frontmatterExclude.value.desc'))
 			.addText((text) => {
 				input = text;
-				text.setPlaceholder(t('propertyValuePlaceholder'));
+				text.setPlaceholder(t('recordingRules.frontmatterExclude.value.placeholder'));
 				text.inputEl.addEventListener('keydown', (ev) => {
 					if (ev.key === 'Enter')
 						this.submit(input);
 				});
 			});
 		new Setting(contentEl).addButton((btn) =>
-			btn.setButtonText(t('addProperty'))
+			btn.setButtonText(t('recordingRules.frontmatterExclude.add'))
 				.setCta()
 				.onClick(() => this.submit(input))
 		);
@@ -418,7 +418,7 @@ class PropertyValueModal extends Modal {
 		const value = input.getValue().trim();
 		const entry = value === '' ? this.name : `${this.name}: ${value}`;
 		if (this.excluded.includes(entry)) {
-			new Notice(t('propertyDuplicate', entry));
+			new Notice(t('recordingRules.frontmatterExclude.duplicate', entry));
 			return;
 		}
 		this.onSelect(entry);
@@ -464,7 +464,7 @@ function currentHotkeyText(plugin: RememberCursorPosition, commandId: string): s
 	}).hotkeyManager;
 	const hotkeys = manager?.getHotkeys(`${plugin.manifest.id}:${commandId}`);
 	if (!hotkeys || hotkeys.length === 0)
-		return t('navHotkeyUnbound');
+		return t('navHistory.overview.hotkeyUnbound');
 	return hotkeys.map(formatHotkey).join(' / ');
 }
 

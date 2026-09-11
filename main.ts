@@ -60,7 +60,8 @@ export default class RememberCursorPosition extends Plugin {
 	private registerCommands() {
 		this.addCommand({
 			id: 'navigate-back',
-			name: t('cmdNavigateBack'),
+			name: t('navHistory.commands.navigateBack'),
+			icon: 'arrow-left',
 			checkCallback: (checking) => {
 				if (!this.manager.canNavigate(-1)) return false;
 				if (!checking) this.manager.navigateBack();
@@ -69,7 +70,8 @@ export default class RememberCursorPosition extends Plugin {
 		});
 		this.addCommand({
 			id: 'navigate-forward',
-			name: t('cmdNavigateForward'),
+			name: t('navHistory.commands.navigateForward'),
+			icon: 'arrow-right',
 			checkCallback: (checking) => {
 				if (!this.manager.canNavigate(1)) return false;
 				if (!checking) this.manager.navigateForward();
@@ -80,9 +82,14 @@ export default class RememberCursorPosition extends Plugin {
 		// (time travel — the forward part is kept). No availability gate.
 		this.addCommand({
 			id: 'browse-nav-history',
-			name: t('cmdBrowseNavHistory'),
+			name: t('navHistory.commands.browseHistory'),
+			icon: 'history',
 			callback: () => this.manager.openNavHistoryModal(),
 		});
+		// Ribbon entry for touch devices: no hotkeys there, and the mobile
+		// toolbar only exists while editing. One tap (mobile bottom navbar
+		// exposes the ribbon) opens the history modal in any view mode.
+		this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
 	}
 
 	/**

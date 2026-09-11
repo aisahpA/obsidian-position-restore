@@ -15,6 +15,11 @@ export class Notice {}
 
 export const Platform = { isDesktopApp: true, isMobileApp: false };
 
+// i18n.ts picks its locale at import time via getLanguage().
+export function getLanguage(): string {
+	return 'en';
+}
+
 // The sampler wraps its capture listener with debounce(fn, interval, reset);
 // for synchronous single-event tests an identity passthrough is equivalent.
 export function debounce(fn: unknown): unknown {

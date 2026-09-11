@@ -35,9 +35,9 @@ export function describeNavEntry(
 ): NavEntryDescription {
 	if (entry.kind === 'view') {
 		return {
-			file: t('navGraphName'),
+			file: t('navHistory.graphView'),
 			title: entry.viewType,
-			type: t('navTypeGraph'),
+			type: t('navHistory.type.graph'),
 			missing: false,
 		};
 	}
@@ -47,13 +47,13 @@ export function describeNavEntry(
 	let type: string;
 	if (entry.kind === 'jump') {
 		if (entry.key.startsWith('outline:'))
-			type = t('navTypeOutline');
+			type = t('navHistory.type.outline');
 		else
-			type = t('navTypeLink');
+			type = t('navHistory.type.link');
 	} else if (entry.kind === 'teleport') {
-		type = t('navTypeTeleport');
+		type = t('navHistory.type.teleport');
 	} else {
-		type = entry.via === 'switch' ? t('navTypeSwitch') : t('navTypeOpen');
+		type = entry.via === 'switch' ? t('navHistory.type.switch') : t('navHistory.type.open');
 	}
 	const st = entry.st;
 	let n: number | undefined;
@@ -99,11 +99,11 @@ export class NavHistoryModal extends Modal {
 
 	onOpen() {
 		this.modalEl.addClass('position-restore-nav-modal');
-		this.titleEl.setText(t('navHistoryName'));
+		this.titleEl.setText(t('navHistory.overview.name'));
 		this.contentEl.empty();
 		if (this.nav.entries.length === 0) {
 			this.contentEl.createDiv({
-				text: t('navHistoryEmpty'),
+				text: t('navHistory.empty'),
 				cls: 'setting-item-description',
 			});
 			return;
@@ -127,9 +127,9 @@ export class NavHistoryModal extends Modal {
 	// Column labels above the list; shares the row grid so tracks align.
 	private header(): void {
 		const head = this.contentEl.createDiv({ cls: 'position-restore-nav-head' });
-		head.createSpan({ text: t('navColFile') });
-		head.createSpan({ text: t('navColPos') });
-		head.createSpan({ text: t('navColType'), cls: 'nav-row-badge' });
+		head.createSpan({ text: t('navHistory.columns.file') });
+		head.createSpan({ text: t('navHistory.columns.position') });
+		head.createSpan({ text: t('navHistory.columns.type'), cls: 'nav-row-badge' });
 	}
 
 	private move(d: number): void {
@@ -177,9 +177,9 @@ export class NavHistoryModal extends Modal {
 			pos.createSpan({
 				text: `“${d.anchor}”`,
 				cls: 'nav-row-anchor',
-				attr: { title: `${t('navAnchorTip')}\n${d.anchor}` },
+				attr: { title: `${t('navHistory.anchorTip')}\n${d.anchor}` },
 			});
-		const badge = d.missing ? t('navMissing') : d.type;
+		const badge = d.missing ? t('navHistory.missing') : d.type;
 		const badgeCls = d.missing
 			? 'nav-row-missing'
 			: d.soft ? 'nav-row-soft' : '';

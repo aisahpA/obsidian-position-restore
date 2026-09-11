@@ -19,14 +19,14 @@ describe('describeNavEntry', () => {
 		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
 		expect(d.file).toBe('a.md');
 		expect(d.title).toBe('notes/project/a.md');
-		expect(d.type).toBe(t('navTypeOpen'));
+		expect(d.type).toBe(t('navHistory.type.open'));
 		expect(d.line).toBeUndefined();
 		expect(d.missing).toBe(false);
 	});
 
 	it('a tab-switch visit (via: switch) gets its own badge', () => {
 		const d = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', via: 'switch' } as NavHistoryEntry, hasFile);
-		expect(d.type).toBe(t('navTypeSwitch'));
+		expect(d.type).toBe(t('navHistory.type.switch'));
 	});
 
 	it('an edit capture shows the cursor line and the cursor line text', () => {
@@ -34,7 +34,7 @@ describe('describeNavEntry', () => {
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top', cursorAnchor: 'cursor line' },
 		} as NavHistoryEntry, hasFile);
-		expect(edit.type).toBe(t('navTypeTeleport'));
+		expect(edit.type).toBe(t('navHistory.type.teleport'));
 		expect(edit.line).toBe('L100');
 		expect(edit.anchor).toBe('cursor line');
 		expect(edit.soft).toBe(true);
@@ -55,7 +55,7 @@ describe('describeNavEntry', () => {
 		const d = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 		} as NavHistoryEntry, hasFile);
-		expect(d.type).toBe(t('navTypeTeleport'));
+		expect(d.type).toBe(t('navHistory.type.teleport'));
 		expect(d.line).toBe('L42');
 	});
 
@@ -65,7 +65,7 @@ describe('describeNavEntry', () => {
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, mode: 'preview', cursor: line(3), anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
-		expect(read.type).toBe(t('navTypeOpen'));
+		expect(read.type).toBe(t('navHistory.type.open'));
 		expect(read.line).toBe('L42');
 		expect(read.anchor).toBe('viewport top');
 	});
@@ -102,12 +102,12 @@ describe('describeNavEntry', () => {
 
 	it('outline and anchor keys label their types; a pathless entry is the graph', () => {
 		const outline = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:第一章' } as NavHistoryEntry, hasFile);
-		expect(outline.type).toBe(t('navTypeOutline'));
+		expect(outline.type).toBe(t('navHistory.type.outline'));
 		const link = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题' } as NavHistoryEntry, hasFile);
-		expect(link.type).toBe(t('navTypeLink'));
+		expect(link.type).toBe(t('navHistory.type.link'));
 		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
-		expect(graph.type).toBe(t('navTypeGraph'));
-		expect(graph.file).toBe(t('navGraphName'));
+		expect(graph.type).toBe(t('navHistory.type.graph'));
+		expect(graph.file).toBe(t('navHistory.graphView'));
 		expect(graph.line).toBeUndefined();
 	});
 

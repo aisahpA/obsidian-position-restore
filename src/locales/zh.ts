@@ -1,111 +1,118 @@
 import type { En } from './en';
 
 export const zh: En = {
-	openAndRestore: '打开与恢复',
-	recordingRules: '记录规则',
-	dataStorage: '数据存储',
-
-	defaultPositionName: '编辑视图的默认位置',
-	defaultPositionDesc:
+	'openAndRestore.heading': '打开与恢复',
+	'openAndRestore.defaultPosition.name': '编辑视图的默认位置',
+	'openAndRestore.defaultPosition.desc':
 		'当某个文件没有已保存的位置时，将光标和滚动位置定位到此处。注意：此设置仅适用于编辑视图；阅读视图不使用此设置。',
-	optionDefault: '文件开头（Obsidian 默认）',
-	optionFileEnd: '文件末尾',
+	'openAndRestore.defaultPosition.options.default': '文件开头（Obsidian 默认）',
+	'openAndRestore.defaultPosition.options.fileEnd': '文件末尾',
 
-	linkOpenName: '双链打开位置',
-	linkOpenDesc:
+	'openAndRestore.linkOpenPosition.name': '双链打开位置',
+	'openAndRestore.linkOpenPosition.desc':
 		'点击普通双链（不带 # 标题或 ^ 块目标）时，是始终从文件开头打开，还是使用已保存的位置。',
-	optionFileStart: '文件开头',
-	optionSavedPosition: '已保存的位置',
+	'openAndRestore.linkOpenPosition.options.start': '文件开头',
+	'openAndRestore.linkOpenPosition.options.restore': '已保存的位置',
 
-	sourceRestoreName: '编辑视图的恢复方式',
-	sourceRestoreDesc:
+	'openAndRestore.sourceRestoreMethod.name': '编辑视图的恢复方式',
+	'openAndRestore.sourceRestoreMethod.desc':
 		'在编辑视图中如何恢复已保存的位置。“直接跳转”立即定位到保存的行；“平滑滚动”从顶部滚动到该行。',
-	optionInstant: '直接跳转',
-	optionGlide: '平滑滚动',
+	'openAndRestore.sourceRestoreMethod.options.instant': '直接跳转',
+	'openAndRestore.sourceRestoreMethod.options.glide': '平滑滚动',
 
-	readingRestoreName: '阅读视图的恢复方式',
-	readingRestoreDesc:
+	'openAndRestore.readingRestoreMethod.name': '阅读视图的恢复方式',
+	'openAndRestore.readingRestoreMethod.desc':
 		'在阅读视图中如何恢复已保存的位置。“直接跳转”在渲染完成后立即定位，“平滑滚动”从顶部滚动到该行。',
+	'openAndRestore.readingRestoreMethod.options.instant': '直接跳转',
+	'openAndRestore.readingRestoreMethod.options.glide': '平滑滚动',
 
-	indicatorName: '位置恢复提示',
-	indicatorDesc:
+	'openAndRestore.restoreIndicator.name': '位置恢复提示',
+	'openAndRestore.restoreIndicator.desc':
 		'恢复位置后，向用户显示的提示信息。面包屑：显示当前所在的标题路径；光标高亮：短暂闪烁光标所在的行。',
-	optionOff: '关闭',
-	optionBreadcrumb: '仅面包屑',
-	optionBoth: '面包屑 + 光标高亮',
+	'openAndRestore.restoreIndicator.options.off': '关闭',
+	'openAndRestore.restoreIndicator.options.breadcrumb': '仅面包屑',
+	'openAndRestore.restoreIndicator.options.both': '面包屑 + 光标高亮',
 
-	minLinesName: '不记录过短文件',
-	minLinesDesc:
+	'recordingRules.heading': '记录规则',
+
+	'recordingRules.folders.name': '排除的文件夹',
+	'recordingRules.folders.desc': '不记录这些文件夹及子文件夹中文件的光标和滚动位置。',
+	'recordingRules.folders.list.empty': '未排除任何文件夹',
+	'recordingRules.folders.add': '添加文件夹',
+	'recordingRules.folders.search.placeholder': '输入以搜索文件夹…',
+	'recordingRules.folders.search.empty': '未找到文件夹',
+
+	'recordingRules.minLinesToRecord.name': '不记录过短文件',
+	'recordingRules.minLinesToRecord.desc':
 		'行数少于该值的文件不记录其光标/滚动位置。设为“0”可关闭此过滤。',
 
-	baseScrollName: '记录 Base 文件的滚动位置',
-	baseScrollDesc:
-		'默认关闭。保存的是原始像素偏移量，只对记录它的那台设备有意义——若数据文件跨设备同步，另一台设备的记录会用不适合本机屏幕的偏移量覆盖本机记录。PDF 始终不记录：Obsidian 已在每台设备上原生记忆 PDF 阅读位置。其他非 Markdown 文件（图片等）一律不记录。',
-
-	foldersName: '排除的文件夹',
-	foldersDesc: '不记录这些文件夹及子文件夹中文件的光标和滚动位置。',
-	listNoFolders: '未排除任何文件夹',
-	addFolder: '添加文件夹',
-	searchFolders: '输入以搜索文件夹…',
-	noFoldersFound: '未找到文件夹',
-
-	frontmatterExcludeName: '按 frontmatter 属性/值排除',
-	frontmatterExcludeDesc:
+	'recordingRules.frontmatterExclude.name': '按 frontmatter 属性/值排除',
+	'recordingRules.frontmatterExclude.desc':
 		'frontmatter 匹配任一这些条目的文件不记录位置。条目可以是属性名（`publish`）——只要含该属性即排除；也可以是 `属性: 值`（`publish: true`）——仅当属性值等于该值才排除（yes/no/on/off 视为布尔，数组命中任一元素即匹配）。这些属性通常已为其他插件而存在，因此无需修改任何文件。删除全部条目以关闭此功能。注意裸属性名：填 "tags" 会排除几乎全部笔记。',
-	listNoProperties: '未排除任何属性',
-	addProperty: '添加属性',
-	searchProperties: '输入以搜索属性…',
-	noPropertiesFound: '未找到属性',
-	propertyValueTitle: '{0} 等于以下值时排除',
-	propertyValueName: '值',
-	propertyValueDesc: '留空表示只要文件含该属性即排除，无论其值如何。',
-	propertyValuePlaceholder: '如 true',
-	propertyDuplicate: '{0} 已在列表中',
-	escapeHatchName: '单文件覆盖属性',
-	escapeHatchDesc:
+	'recordingRules.frontmatterExclude.list.empty': '未排除任何属性',
+	'recordingRules.frontmatterExclude.add': '添加属性',
+	'recordingRules.frontmatterExclude.search.placeholder': '输入以搜索属性…',
+	'recordingRules.frontmatterExclude.search.empty': '未找到属性',
+	'recordingRules.frontmatterExclude.value.title': '{0} 等于以下值时排除',
+	'recordingRules.frontmatterExclude.value.name': '值',
+	'recordingRules.frontmatterExclude.value.desc': '留空表示只要文件含该属性即排除，无论其值如何。',
+	'recordingRules.frontmatterExclude.value.placeholder': '如 true',
+	'recordingRules.frontmatterExclude.duplicate': '{0} 已在列表中',
+
+	'recordingRules.escapeHatch.name': '单文件覆盖属性',
+	'recordingRules.escapeHatch.desc':
 		'任何文件也可单独开启或关闭记录，无需改动设置：`{0}: false` 表示绝不记录（优先于上方所有规则），`{0}: true` 表示总是记录（优先于排除的文件夹、最短行数过滤与属性规则）。其他值一律忽略。',
 
-	dbName: '数据文件',
-	dbDesc: '保存位置记录的 JSON 文件路径，从仓库根目录开始填写，留空使用插件目录下的 positions.json。',
-	confirmTooltip: '确认并验证',
-	dbDefault: '当前使用默认数据文件。',
-	dbInvalid: '数据文件必须是仓库内的相对路径，且需以 .json 结尾。',
-	dbNoFolder: '文件夹不存在，请先在仓库中创建该文件夹。',
-	dbExists: '该路径已存在文件，但无法读取并合并其内容，请先手动删除该文件。',
-	dbMerged: '已采用现有数据文件，并合并了其中 {0} 条记录。',
-	dbMoveFailed: '移动数据文件失败：{0}',
-	dbSet: '数据文件已设为 {0}',
-	entriesName: '记录数',
-	entriesDesc:
+	'recordingRules.recordBaseScroll.name': '记录 Base 文件的滚动位置',
+	'recordingRules.recordBaseScroll.desc':
+		'默认关闭。保存的是原始像素偏移量，只对记录它的那台设备有意义——若数据文件跨设备同步，另一台设备的记录会用不适合本机屏幕的偏移量覆盖本机记录。PDF 始终不记录：Obsidian 已在每台设备上原生记忆 PDF 阅读位置。其他非 Markdown 文件（图片等）一律不记录。',
+
+	'dataStorage.heading': '数据存储',
+
+	'dataStorage.dbFileName.name': '数据文件',
+	'dataStorage.dbFileName.desc': '保存位置记录的 JSON 文件路径，从仓库根目录开始填写，留空使用插件目录下的 positions.json。',
+	'dataStorage.dbFileName.confirm': '确认并验证',
+	'dataStorage.dbFileName.messages.default': '当前使用默认数据文件。',
+	'dataStorage.dbFileName.messages.invalid': '数据文件必须是仓库内的相对路径，且需以 .json 结尾。',
+	'dataStorage.dbFileName.messages.noFolder': '文件夹不存在，请先在仓库中创建该文件夹。',
+	'dataStorage.dbFileName.messages.exists': '该路径已存在文件，但无法读取并合并其内容，请先手动删除该文件。',
+	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
+	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
+	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
+
+	'dataStorage.entries.name': '记录数',
+	'dataStorage.entries.desc':
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',
 
-
-	navHistoryHeading: '导航历史',
-	navHistoryName: '导航历史',
-	navHistoryDesc:
+	'navHistory.heading': '导航历史',
+	'navHistory.overview.name': '导航历史',
+	'navHistory.overview.desc':
 		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈大小可在下方调整，按设备保存在 localStorage，重启保留。',
-	navStackCapName: '历史栈大小',
-	navStackCapDesc: '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
-	navActivationName: '记录标签页切换',
-	navActivationDesc: '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
-	navTeleportName: '记录大范围光标跳变',
-	navTeleportDesc: '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
-	navHotkeyUnbound: '未绑定——点击右侧按钮设置',
-	navHotkeyOpenSettings: '打开快捷键设置',
-	cmdNavigateBack: '后退',
-	cmdNavigateForward: '前进',
-	cmdBrowseNavHistory: '浏览导航历史',
-	navTypeOpen: '打开',
-	navTypeSwitch: '切换',
-	navTypeTeleport: '跳变',
-	navTypeOutline: '大纲',
-	navTypeLink: '链接',
-	navTypeGraph: '图形',
-	navGraphName: '关系图谱',
-	navMissing: '已删除',
-	navAnchorTip: '跳转落点所在行的文本，便于辨认位置',
-	navColFile: '文件',
-	navColType: '类型',
-	navColPos: '位置',
-	navHistoryEmpty: '暂无导航历史。',
+	'navHistory.overview.hotkeyUnbound': '未绑定——点击右侧按钮设置',
+	'navHistory.overview.openHotkeySettings': '打开快捷键设置',
+
+	'navHistory.stackCap.name': '历史栈大小',
+	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
+	'navHistory.recordActivation.name': '记录标签页切换',
+	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
+	'navHistory.recordTeleport.name': '记录大范围光标跳变',
+	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
+
+	'navHistory.commands.navigateBack': '后退',
+	'navHistory.commands.navigateForward': '前进',
+	'navHistory.commands.browseHistory': '浏览导航历史',
+
+	'navHistory.type.open': '打开',
+	'navHistory.type.switch': '切换',
+	'navHistory.type.teleport': '跳变',
+	'navHistory.type.outline': '大纲',
+	'navHistory.type.link': '链接',
+	'navHistory.type.graph': '图形',
+	'navHistory.graphView': '关系图谱',
+	'navHistory.missing': '已删除',
+	'navHistory.anchorTip': '跳转落点所在行的文本，便于辨认位置',
+	'navHistory.columns.file': '文件',
+	'navHistory.columns.type': '类型',
+	'navHistory.columns.position': '位置',
+	'navHistory.empty': '暂无导航历史。',
 };

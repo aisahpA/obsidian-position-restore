@@ -164,7 +164,7 @@ export class CursorPositionDatabase {
 		const targetPath = newPath === '' ? this.defaultDbFileName : newPath;
 		if (!targetPath.endsWith('.json') || targetPath.startsWith('/') || targetPath.includes('\\')
 			|| targetPath.split('/').includes('..')) {
-			new Notice(t('dbInvalid'));
+			new Notice(t('dataStorage.dbFileName.messages.invalid'));
 			return false;
 		}
 
@@ -203,16 +203,16 @@ export class CursorPositionDatabase {
 			const slash = targetPath.lastIndexOf('/');
 			const parent = slash === -1 ? '' : targetPath.substring(0, slash);
 			if (parent && !(await adapter.exists(parent))) {
-				new Notice(t('dbNoFolder'));
+				new Notice(t('dataStorage.dbFileName.messages.noFolder'));
 				return false;
 			}
 			if (await adapter.exists(targetPath)) {
 				const adopted = await adoptExisting();
 				if (adopted === null) {
-					new Notice(t('dbExists'));
+					new Notice(t('dataStorage.dbFileName.messages.exists'));
 					return false;
 				}
-				new Notice(t('dbMerged', String(adopted)));
+				new Notice(t('dataStorage.dbFileName.messages.merged', String(adopted)));
 			} else if (await adapter.exists(currentPath)) {
 				// Atomic move; rename fails if the target exists, which the
 				// adoptExisting branch above has already ruled out.
@@ -220,7 +220,7 @@ export class CursorPositionDatabase {
 			}
 		} catch (e) {
 			console.error("Can't switch database file:", e);
-			new Notice(t('dbMoveFailed', String(e)));
+			new Notice(t('dataStorage.dbFileName.messages.moveFailed', String(e)));
 			return false;
 		}
 
