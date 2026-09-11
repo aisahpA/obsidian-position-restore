@@ -28,7 +28,6 @@ export default class RememberCursorPosition extends Plugin {
 		this.registerWorkspaceEvents();
 		this.registerPolling();
 		this.registerDbFlush();
-		this.registerSyncMerge();
 		this.registerSuspendFlush();
 
 		this.manager.restoreEphemeralState();
@@ -118,28 +117,29 @@ export default class RememberCursorPosition extends Plugin {
 	}
 
 	/**
-	 * Periodic whole-file flush of dirty positions to disk. A separate
-	 * concern from the sampling poll (different cadence, different owner —
-	 * the database), so it gets its own registration.
+	 * Periodic whole-file flush of dirty positions to disk, preceded by an
+	 * unconditional external-change merge. A separate concern from the
+	 * sampling poll (different cadence, different owner — the database), so
+	 * it gets its own registration.
+	 *
+	 * The merge is what keeps multi-device sync working (Nutstore Sync /
+	 * Remotely Save / Obsidian Sync… replace the db file under us). It cannot
+	 * ride on writeDb() alone: that early-returns while the db is clean, and
+	 * a read-only session (the poll records cursor movement only, scroll
+	 * belongs to the capture listener) stays clean for arbitrarily long, so
+	 * foreign records would sit unmerged until some local write happened.
+	 * One stat() per tick keeps adoption latency bounded at ≤5s — even while
+	 * the window sits unfocused, Electron only aligns timers down to 1s — and
+	 * costs nothing when the mtime is unchanged. Merging before every flush
+	 * also means writeDb()'s whole-file write never clobbers foreign records.
 	 */
 	private registerDbFlush() {
 		this.registerInterval(
-			window.setInterval(() => { void this.manager.storePositionData(); }, SAFE_DB_FLUSH_INTERVAL)
+			window.setInterval(() => {
+				void this.database.mergeExternalChanges()
+					.then(() => this.manager.storePositionData());
+			}, SAFE_DB_FLUSH_INTERVAL)
 		);
-	}
-
-	/**
-	 * Multi-device sync: another device's positions arrive by the db file
-	 * being replaced under us (Nutstore Sync / Remotely Save / Obsidian Sync…).
-	 * Two triggers suffice: window focus catches the common "sync landed
-	 * while I was away" moment immediately, and writeDb() re-checks before
-	 * every flush (≤5s later) so its whole-file write never clobbers foreign
-	 * records. No periodic polling: adopting foreign data a few seconds
-	 * later costs nothing, and a merged record arriving late only means the
-	 * next restore uses it one open-cycle sooner.
-	 */
-	private registerSyncMerge() {
-		this.registerDomEvent(window, 'focus', () => this.database.mergeExternalChanges());
 	}
 
 	/**

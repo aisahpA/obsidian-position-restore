@@ -85,7 +85,7 @@ export class CursorPositionDatabase {
 	private lastFlushTime = 0;
 	private keyTouchedAt = new Map<string, number>();
 
-	// Reentrancy serialization: the window-focus trigger and writeDb()'s
+	// Reentrancy serialization: the flush-tick merge and writeDb()'s
 	// pre-flush merge can overlap; two concurrent read-modify passes over
 	// this.db would interleave and corrupt the mtime bookkeeping. Each
 	// caller queues behind any in-flight pass and runs its own once that
