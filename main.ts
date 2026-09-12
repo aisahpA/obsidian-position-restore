@@ -3,6 +3,7 @@ import { SettingTab } from './src/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './src/types';
 import { CursorPositionDatabase } from './src/database';
 import { PositionManager } from './src/position-manager';
+import { HOVER_LINK_SOURCE_ID } from './src/nav-history-modal';
 import { t } from './src/i18n';
 
 
@@ -24,6 +25,7 @@ export default class RememberCursorPosition extends Plugin {
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
 		this.registerCommands();
+		this.registerHoverPreview();
 
 		this.registerWorkspaceEvents();
 		this.registerPolling();
@@ -93,6 +95,25 @@ export default class RememberCursorPosition extends Plugin {
 		// it, and the settings tab shows whether they are bound.
 		if (Platform.isMobile)
 			this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
+	}
+
+	/**
+	 * The history browser's rows are links to files, so it hands its hovered row
+	 * to Obsidian's own "Page preview" instead of growing a preview of its own:
+	 * registering as a hover-link source is what lets the core plugin accept the
+	 * events the browser emits, and it puts this panel in the Page preview
+	 * settings, where the Mod-key requirement can be switched per source — the
+	 * same list the file explorer, outline and search appear in. The built-ins
+	 * require ⌘/Ctrl, but a row here has already been pointed at deliberately
+	 * (there is no accidental hover in a list of destinations), so this source
+	 * defaults to no modifier; turn it back on under Page preview if it turns
+	 * out to be too eager. Unregistered automatically when the plugin unloads.
+	 */
+	private registerHoverPreview() {
+		this.registerHoverLinkSource(HOVER_LINK_SOURCE_ID, {
+			display: this.manifest.name,
+			defaultMod: false,
+		});
 	}
 
 	/**

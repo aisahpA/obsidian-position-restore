@@ -83,6 +83,28 @@ body.is-mobile .position-restore-cue {
    chronological list split into forward/back segments, and a landing preview
    panel beside it. */
 
+/* A hovered row also offers itself to the core "Page preview" plugin, whose
+   popover needs two corrections from out here:
+   - it is mounted on the body at var(--layer-popover) (30), i.e. UNDER a modal
+     (var(--layer-modal) = 50), so without this it would appear behind the very
+     panel that asked for it;
+   - it aligns its LEFT edge with the anchor's, which would drop the preview
+     across the list the user is scanning. The hover-link payload has no field
+     for the side and the plugin rewrites the position on every show, so the
+     browser sets --position-restore-popover-left (the row's right edge) and
+     this rule, being important, wins over the inline style; the clamp keeps the
+     popover on screen, using Obsidian's own sizing variables.
+   Scoped to the class the browser puts on the body while it is open: no other
+   popover in the app is touched. */
+body.position-restore-nav-open > .popover.hover-popover {
+	z-index: calc(var(--layer-modal) + 1);
+	left: clamp(
+		0px,
+		var(--position-restore-popover-left, 0px),
+		calc(100vw - min(var(--popover-width, 450px), 80vw))
+	) !important;
+}
+
 /* The file name is the identity and rows carry time + section + file + line, so
    this modal runs wider than the stock one: the list keeps the width it had,
    and the extra width is the preview panel's own column (see nav-body). min()

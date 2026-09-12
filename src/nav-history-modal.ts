@@ -1,8 +1,31 @@
-import { App, Editor, MarkdownView, Modal, Platform, TFile } from 'obsidian';
+import { App, Editor, HoverPopover, MarkdownView, Modal, Platform, TFile } from 'obsidian';
 import { NavHistory } from './nav-history';
 import { NavHistoryEntry } from './nav-entry';
 import { EphemeralState } from './types';
 import { t } from './i18n';
+
+// The id this panel registers as a hover-link source (see main.ts). The core
+// "Page preview" plugin keys its per-source options — including whether the Mod
+// key is required — off this string, so both ends must agree on it.
+export const HOVER_LINK_SOURCE_ID = 'position-restore-nav-history';
+
+// Put on document.body while the browser is open. The core page preview mounts
+// its popover on the body at var(--layer-popover) (30), i.e. BELOW a modal
+// (var(--layer-modal) = 50) — see styles.css, which lifts it back above the
+// dialog for exactly as long as this class is present.
+const BODY_OPEN_CLASS = 'position-restore-nav-open';
+
+// Where the native preview should put its left edge, in viewport coordinates.
+// The core plugin aligns its popover's left edge with the anchor's — the row —
+// so left to itself it opens a 450px-wide preview ACROSS the list the user is
+// scanning, and the hover-link payload has no field for the side. It recomputes
+// that position on every show, so the only durable way to say "beside the row,
+// not over it" is a CSS variable that styles.css reads with !important (which
+// beats the inline style the plugin writes).
+export const POPOVER_LEFT_VAR = '--position-restore-popover-left';
+
+// How far right of the row the preview starts.
+const POPOVER_GAP = 8;
 
 // The display name of a path: its last segment. What a row labels itself with,
 // and what the file-scope chip names (the full path is the row's hover title).
@@ -425,6 +448,11 @@ export class NavHistoryModal extends Modal {
 	// its "go there" are the same gesture. Read once, here: the tap semantics
 	// below are the only thing that branches on it.
 	private mobile = Platform.isMobile;
+	// Where the core "Page preview" plugin parks the popover it shows for us
+	// (the HoverParent contract). Declared because Obsidian's Modal is not a
+	// HoverParent in its own typings, even though the plugin assigns this field
+	// at runtime and reads it back to hide its own popover.
+	hoverPopover: HoverPopover | null = null;
 
 	constructor(
 		app: App,
@@ -436,6 +464,17 @@ export class NavHistoryModal extends Modal {
 
 	onOpen() {
 		this.modalEl.addClass('position-restore-nav-modal');
+		// The native page preview we ask for from a row would otherwise render
+		// behind this dialog (see BODY_OPEN_CLASS).
+		document.body.addClass(BODY_OPEN_CLASS);
+		// A resting place for the preview's left edge: without a value the
+		// stylesheet's clamp would pin the first popover to the window's left
+		// edge before any row has been pointed at.
+		this.placePagePreview(this.modalEl);
+		// The modal is sized in % of the window, so a resize moves the rows the
+		// preview is placed against; the core plugin re-runs its own placement
+		// on resize, and this keeps OUR coordinate in step with it.
+		window.addEventListener('resize', this.onWindowResize);
 		// Pin the height once the list overflows, so filtering can't resize
 		// the modal and shift it vertically (see styles.css is-fixed).
 		this.modalEl.toggleClass('is-fixed', this.nav.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
@@ -462,6 +501,22 @@ export class NavHistoryModal extends Modal {
 	onClose() {
 		this.closed = true;
 		this.cancelRead();
+		document.body.removeClass(BODY_OPEN_CLASS);
+		document.body.style.removeProperty(POPOVER_LEFT_VAR);
+		window.removeEventListener('resize', this.onWindowResize);
+	}
+
+	private onWindowResize = (): void => {
+		const row = this.rowEls.get(this.previewed);
+		this.placePagePreview(row ?? this.modalEl);
+	};
+
+	// Tell the stylesheet where the native preview may start: just right of the
+	// anchor, in viewport coordinates. The clamp that keeps it on screen lives
+	// in styles.css, next to the rule that consumes the value.
+	private placePagePreview(anchor: HTMLElement): void {
+		const right = anchor.getBoundingClientRect().right;
+		document.body.style.setProperty(POPOVER_LEFT_VAR, `${right + POPOVER_GAP}px`);
 	}
 
 	private onKeyDown(ev: KeyboardEvent): void {
@@ -811,11 +866,42 @@ export class NavHistoryModal extends Modal {
 			return;
 		this.previewed = rep;
 		// A missing file cannot be selected (Enter must never target it), but
-		// its row still previews — the strip is where "deleted" is explained.
-		if (this.visible.includes(rep))
+		// its row still previews — the panel is where "deleted" is explained.
+		if (this.visible.includes(rep)) {
 			this.select(rep);
-		else
+			this.requestPagePreview(ev, row, rep);
+		} else {
 			this.renderPreview();
+		}
+	}
+
+	// Hand the pointed-at row to Obsidian's OWN page preview — the core "Page
+	// preview" plugin listens for this event and shows a popover holding the
+	// file's real preview view, which is the same thing ⌘/Ctrl + hovering a link
+	// gives: the whole note, native scrolling, its own sizing. We only ANNOUNCE
+	// the hover. Whether a preview appears, how big it is, how long it survives
+	// and whether the Mod key is required are the plugin's business — that last
+	// one is configured per source, under the id registered in main.ts.
+	// `state` carries the landing line, so the preview opens at the spot the row
+	// promises rather than at the top of the file.
+	private requestPagePreview(ev: MouseEvent, row: HTMLElement, rep: number): void {
+		const entry = this.nav.entries[rep];
+		if (entry.kind === 'view')
+			return;
+		// The plugin aligns the popover's left edge with the anchor's, which
+		// would cover the list; say where it should go instead (and re-say it on
+		// every hover, because the plugin rewrites the position each time).
+		this.placePagePreview(row);
+		const d = this.describe(rep);
+		this.app.workspace.trigger('hover-link', {
+			event: ev,
+			source: HOVER_LINK_SOURCE_ID,
+			hoverParent: this,
+			targetEl: row,
+			linktext: entry.path,
+			sourcePath: entry.path,
+			state: d.lineIndex === undefined ? undefined : { scroll: d.lineIndex },
+		});
 	}
 
 	// The preview panel: where the pointed-at row sits (path, pane, type, line,

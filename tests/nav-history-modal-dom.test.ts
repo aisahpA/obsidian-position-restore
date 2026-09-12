@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, Platform, TFile } from 'obsidian';
 
-import { NavHistoryModal } from '../src/nav-history-modal';
+import { HOVER_LINK_SOURCE_ID, NavHistoryModal, POPOVER_LEFT_VAR } from '../src/nav-history-modal';
 import type { NavHistoryEntry } from '../src/nav-entry';
 import type { NavEntryState } from '../src/types';
 import { t } from '../src/i18n';
@@ -47,6 +47,9 @@ function harness(
 ) {
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
+	// workspace.trigger: how the modal talks to the core plugins — here, asking
+	// the "Page preview" plugin for a native preview of the hovered row.
+	const trigger = vi.fn();
 	const app = {
 		vault: {
 			getAbstractFileByPath: (path: string) => {
@@ -61,6 +64,7 @@ function harness(
 				file.path in headingMap ? { headings: headingMap[file.path] } : null,
 		},
 		workspace: {
+			trigger,
 			iterateAllLeaves: (cb: (leaf: unknown) => void) => {
 				for (const path of Object.keys(live)) {
 					cb({
@@ -86,16 +90,20 @@ function harness(
 	modal.open();
 	const rows = () => Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.position-restore-nav-row'));
 	const key = (k: string) => modal.modalEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
-	return { modal, jumpTo, cachedRead, el: modal.contentEl, rows, key };
+	return { modal, jumpTo, cachedRead, trigger, el: modal.contentEl, rows, key };
 }
 
 beforeEach(() => {
 	document.body.innerHTML = '';
+	// the browser marks the body while it is open (see BODY_OPEN_CLASS): clear
+	// children AND classes, or one test's marker leaks into the next
+	document.body.className = '';
 });
 
 afterEach(() => {
 	vi.restoreAllMocks();
 	document.body.innerHTML = '';
+	document.body.className = '';
 });
 
 describe('NavHistoryModal — current position', () => {
@@ -617,5 +625,108 @@ describe('NavHistoryModal — touch', () => {
 		expect(h.el.querySelector('.nav-preview-go')).toBeNull();
 		tap(h.rows()[0]);
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
+	});
+});
+
+describe('NavHistoryModal — native page preview', () => {
+	// a.md carries a landing at line 6; b.md is the current entry.
+	const doc = { 'a.md': 'x'.repeat(10) + '\n' + Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'), 'b.md': '' };
+	const landing = { mode: 'preview', scroll: 6, anchor: 'line 5' } as const;
+	const at = () => [
+		visit('a.md', NOW - 3 * MINUTE, { ...landing }),
+		visit('b.md', NOW),
+	];
+	const hover = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+	const payloadOf = (h: ReturnType<typeof harness>) => h.trigger.mock.calls[0][1] as Record<string, unknown>;
+
+	it('hands the hovered row to the Page preview plugin, as a source it knows', () => {
+		const h = harness(at(), 1, doc);
+
+		hover(h.rows()[0]);
+
+		expect(h.trigger).toHaveBeenCalledTimes(1);
+		expect(h.trigger.mock.calls[0][0]).toBe('hover-link');
+		const payload = payloadOf(h);
+		// the id both ends agree on (main.ts registers it as a hover source)
+		expect(payload.source).toBe(HOVER_LINK_SOURCE_ID);
+		expect(payload.linktext).toBe('a.md');
+		expect(payload.sourcePath).toBe('a.md');
+		expect(payload.targetEl).toBe(h.rows()[0]);
+		// the plugin parks its popover here and reads it back to hide it again
+		expect(payload.hoverParent).toBe(h.modal);
+		expect(payload.event).toBeInstanceOf(MouseEvent);
+	});
+
+	it('opens the preview at the landing line, not at the top of the file', () => {
+		const h = harness(at(), 1, doc);
+
+		hover(h.rows()[0]);
+
+		expect(payloadOf(h).state).toEqual({ scroll: 6 });
+	});
+
+	it('sends no landing when the row has none to send', () => {
+		// no recorded position: the preview simply opens at the top of the file
+		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, doc);
+
+		hover(h.rows()[0]);
+
+		expect(payloadOf(h).state).toBeUndefined();
+	});
+
+	it('does not ask for a deleted file, which has nothing to show', () => {
+		const h = harness([visit('gone.md', NOW - MINUTE), visit('b.md', NOW)], 1, { 'b.md': '' }, ['gone.md']);
+
+		hover(h.rows()[0]);
+
+		expect(h.trigger).not.toHaveBeenCalled();
+	});
+
+	it('never asks twice in a row for the same row', () => {
+		const h = harness(at(), 1, doc);
+
+		hover(h.rows()[0]);
+		hover(h.rows()[0]);
+
+		expect(h.trigger).toHaveBeenCalledTimes(1);
+	});
+
+	it('marks the body while it is open, so the popover clears the dialog', () => {
+		// The core popover mounts on the body at --layer-popover (30), under
+		// --layer-modal (50): styles.css needs this class to lift it.
+		const h = harness(at(), 1, doc);
+		expect(document.body.classList.contains('position-restore-nav-open')).toBe(true);
+
+		h.modal.close();
+		expect(document.body.classList.contains('position-restore-nav-open')).toBe(false);
+	});
+});
+
+describe('NavHistoryModal — where the native preview goes', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	const at = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	const hover = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+	const left = () => document.body.style.getPropertyValue(POPOVER_LEFT_VAR);
+
+	it('asks for the preview beside the row, not across the list', () => {
+		// jsdom has no layout, so every rect is 0: what this pins is that the
+		// value is OUR coordinate (the anchor's right edge + the gap) and that it
+		// is rewritten per row, which is what the stylesheet's clamp consumes.
+		const h = harness(at(), 1, files);
+		expect(left()).toBe('8px'); // the resting value, before any hover
+
+		hover(h.rows()[0]);
+
+		expect(left()).toBe('8px'); // 0 + the 8px gap, in a layout-free document
+		expect(document.body.classList.contains('position-restore-nav-open')).toBe(true);
+	});
+
+	it('clears its coordinate when the browser closes', () => {
+		const h = harness(at(), 1, files);
+		hover(h.rows()[0]);
+
+		h.modal.close();
+
+		expect(left()).toBe('');
 	});
 });
