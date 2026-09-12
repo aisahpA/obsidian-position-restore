@@ -64,7 +64,7 @@ function makeNav(
 }
 
 function entry(path: string, leafId = 'leaf-1'): NavHistoryEntry {
-	return { kind: 'visit', path, leafId };
+	return { kind: 'visit', path, leafId, t: 1 };
 }
 
 // These tests build file-only stacks (a graph entry appears in exactly one
@@ -330,6 +330,36 @@ describe('NavHistory activation recording', () => {
 		nav.recordTeleport('a.md', 'leaf-2', 42);
 		expect(nav.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
 	});
+
+	it('switching tabs captures the position of the file being left onto its entry', () => {
+		// A tab switch fires no setViewState, so nothing refreshes the entry
+		// being left — the activation handler must do it, or the browser
+		// shows that file as a bare type badge.
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-1', file: 'a.md', markdown: true },
+				{ id: 'leaf-2', file: 'b.md', markdown: true },
+			],
+		});
+		const nav = h.nav;
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+
+		const left = nav.entries.find((e) => pathOf(e) === 'a.md')!;
+		expect(stOf(left)).toMatchObject({ scroll: 42, cursor: { from: { line: 3 } } });
+	});
+
+	it('syncCurrentPosition fills the current entry from the live active view', () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const nav = h.nav;
+		nav.recordOpen('a.md', 'leaf-1');
+		expect(stOf(nav.entries[0])).toBeUndefined();
+
+		h.ws.setActiveLeaf(h.leaves[0]);
+		nav.syncCurrentPosition();
+
+		expect(stOf(nav.entries[0])).toMatchObject({ scroll: 42 });
+	});
 });
 
 describe('NavHistory recording settings', () => {
@@ -406,10 +436,11 @@ describe('NavHistory persistence', () => {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			v: NAV_HISTORY_VERSION,
 			entries: [
-				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' }, // ok
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }, // ok
 				{ path: 'x.md' }, // no kind, no leafId: dropped
-				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3 }, // junk key: dropped
-				{ kind: 'view', viewType: 'graph', leafId: 'leaf-g' }, // ok
+				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3, t: 1 }, // junk key: dropped
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-g', t: 1 }, // ok
+				{ kind: 'visit', path: 'b.md', leafId: 'leaf-4' }, // no timestamp: dropped
 				{ leafId: 'leaf-3' }, // neither kind nor path/viewType: dropped
 			],
 			index: 1,
@@ -527,19 +558,30 @@ describe('NavHistory.navigate', () => {
 		}).iterateAllLeaves = (cb) => cb(leaf);
 
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordTeleport('a.md', 'leaf-1', 60);
-		nav.recordTeleport('a.md', 'leaf-1', 300);
-		(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
-		expect(nav.index).toBe(2);
+		// Two distinct wall times: the picker jump's copy must be re-stamped
+		// (it is a new navigation moment), not replay the recorded entry's t.
+		const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
+		try {
+			nav.recordOpen('a.md', 'leaf-1');
+			nav.recordTeleport('a.md', 'leaf-1', 60);
+			nav.recordTeleport('a.md', 'leaf-1', 300);
+			(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+			expect(nav.index).toBe(2);
 
-		await nav.jumpTo(0);
+			nowSpy.mockReturnValue(2000);
+			await nav.jumpTo(0);
+		} finally {
+			nowSpy.mockRestore();
+		}
 
 		// the target is re-pushed on top of the current entry (branch semantics)
 		expect(nav.index).toBe(3);
 		expect(nav.entries.map(keyOf)).toEqual([undefined, 'teleport:60', 'teleport:300', undefined]);
 		// the pushed entry is a copy — the original step keeps its own position
 		expect(nav.entries[3]).not.toBe(nav.entries[0]);
+		// ...and its own (fresh) timestamp
+		expect(nav.entries[0].t).toBe(1000);
+		expect(nav.entries[3].t).toBe(2000);
 		// applied the chosen entry's recorded position
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		// the origin is the entry right below — back one step returns to it
@@ -555,6 +597,48 @@ describe('NavHistory.navigate', () => {
 		// and again at the same-file apply)
 		const state = (nav as unknown as { state: PositionState }).state;
 		expect(state.cueSuppressUntil).toBeGreaterThan(Date.now());
+	});
+
+	it('stepping onto the entry next to the current one steps instead of duplicating it', async () => {
+		// The browser's "go back one" (and any click on the adjacent row) must
+		// not branch: re-pushing a copy made the ORIGIN the new previous entry,
+		// so a second step bounced straight back — A → B → A … — adding one
+		// duplicate per press instead of ever moving through the history.
+		const leaf = {
+			id: 'leaf-1',
+			isDeferred: false,
+			view: { file: { path: 'a.md' } },
+			openFile: vi.fn().mockResolvedValue(undefined),
+		};
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 1 },
+			editor: { getCursor: () => ({ line: 0, ch: 0 }), lineCount: () => 10 },
+			setEphemeralState: () => {},
+		});
+		const app = makeApp();
+		(app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => view;
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		}).iterateAllLeaves = (cb) => cb(leaf);
+
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordOpen('b.md', 'leaf-1');
+		expect(nav.index).toBe(1);
+
+		await nav.jumpTo(0); // the adjacent entry = back one step
+		expect(nav.index).toBe(0);
+		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'b.md']);
+
+		// ...and forward still returns to it: the stack never grew
+		await nav.jumpTo(1);
+		expect(nav.index).toBe(1);
+		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'b.md']);
 	});
 
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {
@@ -826,12 +910,29 @@ function graphLeaf(id: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	} as unknown as WorkspaceLeaf;
 }
 
+describe('NavHistory entry timestamps', () => {
+	it('stamps every pushed entry with the push time', () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date('2025-09-12T10:00:00Z'));
+			const nav = makeNav();
+			nav.recordOpen('a.md', 'leaf-1');
+			expect(nav.entries[0].t).toBe(Date.parse('2025-09-12T10:00:00Z'));
+			vi.setSystemTime(new Date('2025-09-12T10:05:00Z'));
+			nav.recordOpen('b.md', 'leaf-1');
+			expect(nav.entries[1].t).toBe(Date.parse('2025-09-12T10:05:00Z'));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 describe('NavHistory graph view steps', () => {
 	it('graph activation records a pathless view entry and dedups; sidebar does not record', () => {
 		const nav = makeNav();
 		nav.recordActivation(graphLeaf('leaf-g'));
 		nav.recordActivation(graphLeaf('leaf-g')); // re-click same tab: dedup
-		expect(nav.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph' }]);
+		expect(nav.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) }]);
 
 		nav.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
 		expect(nav.entries.length).toBe(1);

@@ -117,11 +117,34 @@ export const en = {
 	'navHistory.type.link': 'Link',
 	'navHistory.type.graph': 'Graph',
 	'navHistory.graphView': 'Graph view',
+	'navHistory.searchPlaceholder': 'Filter by file or text…',
+	'navHistory.noMatch': 'No matching entry.',
+	'navHistory.current': 'Current position',
 	'navHistory.missing': 'missing',
-	'navHistory.anchorTip': 'Text of the line the jump lands on, for quick recognition',
-	'navHistory.columns.type': 'Type',
-	'navHistory.columns.position': 'Location',
 	'navHistory.empty': 'Navigation history is empty.',
+
+	// Browser chrome: the pinned "you are here" card, the two direction
+	// segments, and the keyboard affordances.
+	'navHistory.keyboardHint': 'Enter jump · ↑↓ select · Esc close',
+	'navHistory.enterBack': 'Press Enter to go back one step',
+	'navHistory.seg.forward': 'Forward',
+	'navHistory.seg.back': 'Back',
+	'navHistory.seg.count': '{0} steps',
+	// A leaf holding a second tab/pane of the same file: without this the
+	// browser's rows for the two panes are indistinguishable.
+	'navHistory.pane': 'Pane {0}',
+	'navHistory.disabledTip': 'File deleted — this step cannot be restored',
+	// Relative time is the browser's primary index (see NavEntryBase.t).
+	'navHistory.time.now': 'just now',
+	'navHistory.time.minutes': '{0} min ago',
+	'navHistory.time.hours': '{0} h ago',
+	'navHistory.time.days': '{0} d ago',
+	// Landing preview strip (3 lines around the row's landing line).
+	'navHistory.preview.idle': 'Hover a row, or use ↑↓, to preview its landing line and context.',
+	'navHistory.preview.loading': 'Reading…',
+	'navHistory.preview.blank': '(blank line)',
+	'navHistory.preview.none': 'No line to preview here (no markdown landing).',
+	'navHistory.preview.gone': 'File deleted.',
 };
 
 export type En = typeof en;

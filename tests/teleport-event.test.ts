@@ -63,7 +63,7 @@ function makeHarness(options?: { entries?: TestEntry[] }) {
 		}),
 		recordTeleport: vi.fn((path: string, leafId: string, line: number, landing?: EphemeralState) => {
 			entries.length = nav.index + 1;
-			entries.push({ kind: 'teleport', path, leafId, line });
+			entries.push({ kind: 'teleport', path, leafId, line, t: Date.now() });
 			nav.index = entries.length - 1;
 			const top = entries[nav.index];
 			if (landing && !top.st)
@@ -87,7 +87,7 @@ function makeHarness(options?: { entries?: TestEntry[] }) {
 
 describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 	it('pushes a far jump with its landing position and refreshes the open entry with the poll read', () => {
-		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' }] });
+		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
 
@@ -219,7 +219,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		// The user scrolled the cursor line off screen, then jumped away: the
 		// left entry must describe the viewport (cursorOffscreen → the panel
 		// falls back to scroll + anchor), not the invisible cursor line.
-		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' }] });
+		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
 		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25 —

@@ -179,3 +179,73 @@ function nearestLine<T extends { position: { start: { line: number } } }>(
 	}
 	return best;
 }
+// The outline path of `line`: the chain of ATX headings the line falls under,
+// outermost first. A heading ON the line itself is included as the deepest
+// segment, so the path names the target line rather than skipping to its
+// parent section. Empty when the line is under no heading.
+//
+// `lines` is the file split by '\n' — callers that only need this for one
+// line can pass a slice ending there (the scan stops at the line anyway).
+// Block-level states that hide heading-looking lines are honoured: fenced
+// code, HTML comments, and Obsidian %% comments. A fence closes only on a
+// same-type run at least as long as its opener (CommonMark backtick rule);
+// comment blocks close at the next marker anywhere in a line.
+export function outlinePathAtLine(lines: string[], line: number): string[] {
+	const stack: { level: number; text: string }[] = [];
+	let fence: { char: string; len: number } | null = null;
+	let inHtml = false;
+	let inObsidian = false;
+
+	for (let i = 0; i <= line && i < lines.length; i++) {
+		const raw = lines[i];
+
+		if (inHtml) {
+			if (raw.includes('-->'))
+				inHtml = false;
+			continue;
+		}
+		if (inObsidian) {
+			if (raw.includes('%%'))
+				inObsidian = false;
+			continue;
+		}
+		if (fence) {
+			const m = raw.match(/^\s*(`{3,}|~{3,})/);
+			if (m && m[1][0] === fence.char && (fence.char === '`' ? m[1].length >= fence.len : true))
+				fence = null;
+			continue;
+		}
+
+		const fenceM = raw.match(/^\s*(`{3,}|~{3,})/);
+		if (fenceM) {
+			fence = { char: fenceM[1][0], len: fenceM[1].length };
+			continue;
+		}
+		const htmlOpen = raw.indexOf('<!--');
+		if (htmlOpen !== -1 && raw.indexOf('-->', htmlOpen) === -1) {
+			inHtml = true;
+			continue;
+		}
+		const obsOpen = raw.indexOf('%%');
+		if (obsOpen !== -1 && raw.indexOf('%%', obsOpen + 2) === -1) {
+			inObsidian = true;
+			continue;
+		}
+
+		const m = raw.match(/^(#{1,6})\s+(.+)/);
+		if (!m)
+			continue;
+		const text = m[2]
+			.replace(/#+\s*$/, '')
+			.replace(/<!--[\s\S]*-->/g, '')
+			.replace(/%%[\s\S]*?%%/g, '')
+			.trim();
+		if (!text)
+			continue;
+		const level = m[1].length;
+		while (stack.length && stack[stack.length - 1].level >= level)
+			stack.pop();
+		stack.push({ level, text });
+	}
+	return stack.map((h) => h.text);
+}

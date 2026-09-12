@@ -6,7 +6,8 @@ import { readNavEntryState, normAnchor } from './ephemeral';
 import { resolveAnchorLine, findHeading, decodeAnchor } from './anchor-line';
 import { delay } from './wait';
 import {
-	NavHistoryEntry, NavJump, NavVisit, NavTeleport, RECORDABLE_VIEW_TYPES, isMainAreaLeaf,
+	NavHistoryEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
+	RECORDABLE_VIEW_TYPES, isMainAreaLeaf,
 } from './nav-entry';
 import { loadNavHistory, persistNavHistory } from './nav-history-store';
 import { installOutlineCapture as installOutlineCaptureHook } from './nav-outline-capture';
@@ -169,6 +170,12 @@ export class NavHistory {
 	// via: 'switch' only marks the browser badge. Non-file main-area views
 	// (graph) are entries too; sidebar panels are excluded above.
 	recordActivation(leaf: WorkspaceLeaf | null) {
+		// "Update on leave" for tab/pane switches: the setViewState patch
+		// does this for same-tab file switches, but focusing another tab
+		// fires no setViewState — without this the entry for the file being
+		// left would never get a position (the browser would show only its
+		// type badge).
+		this.refreshTopLeafOnActivation(leaf);
 		if (!this.settings.navRecordActivation)
 			return;
 		const view = leaf?.view;
@@ -181,6 +188,27 @@ export class NavHistory {
 		const viewType = view?.getViewType();
 		if (viewType && RECORDABLE_VIEW_TYPES.has(viewType))
 			this.recordOpen(undefined, this.state.leafId(leaf), { viewType });
+	}
+
+	// Capture the position of the file being switched away from onto the top
+	// entry (the one that describes it). refreshTop guards the path+leaf
+	// match and keeps keyed landings; canRecord skips our own traversals and
+	// startup. A no-op when no leaf holds the top entry (e.g. it was closed).
+	private refreshTopLeafOnActivation(next: WorkspaceLeaf | null) {
+		if (!next || !this.canRecord())
+			return;
+		const top = this.entries[this.index];
+		if (!top || top.kind === 'view')
+			return;
+		const leaf = this.findLeafById(top.leafId);
+		if (!leaf || leaf === next)
+			return;
+		const view = leaf.view;
+		if (view instanceof MarkdownView && view.file && view.file.path === top.path) {
+			const st = readNavEntryState(view);
+			if (st)
+				this.refreshTop(top.path, top.leafId, st);
+		}
 	}
 
 	// "Update on leave": refreshes the top entry's position from the view
@@ -259,7 +287,7 @@ export class NavHistory {
 		}, registerCleanup);
 	}
 
-	private pushIfNew(entry: NavHistoryEntry, force?: boolean) {
+	private pushIfNew(entry: NewNavEntry, force?: boolean) {
 		const top = this.entries[this.index];
 		// Same location = same file in the SAME tab (+ same jump key). Two
 		// tabs of one file hold independent positions (tab-store is per-leaf),
@@ -278,7 +306,7 @@ export class NavHistory {
 	// source line ("outline:## T") while a re-click records the rendered
 	// text ("outline:T") — `#` strips in normAnchor, so both forms mean the
 	// same heading and dedup as one jump.
-	private sameLocation(top: NavHistoryEntry, entry: NavHistoryEntry): boolean {
+	private sameLocation(top: NavHistoryEntry, entry: NewNavEntry): boolean {
 		if (top.leafId !== entry.leafId)
 			return false;
 		switch (entry.kind) {
@@ -296,10 +324,15 @@ export class NavHistory {
 		}
 	}
 
-	private push(entry: NavHistoryEntry) {
+	// The single entry funnel: every push is stamped here, so `t` (the
+	// history browser's relative-time label) can never be missing on a live
+	// entry. A jumpTo copy arrives unstamped too and gets a FRESH stamp —
+	// the picker jump is a new navigation moment, not a replay of the old
+	// one, and it is what the row's "刚刚" label should report.
+	private push(entry: NewNavEntry) {
 		// A fresh jump discards the forward part (VSCode semantics).
 		this.entries.length = this.index + 1;
-		this.entries.push(entry);
+		this.entries.push({ ...entry, t: Date.now() });
 		// Stack ceiling (settings.navStackCap); on overflow the OLDEST
 		// entries drop. Clamp guards hand-edited data.json values.
 		const cap = Math.max(1, Math.floor(this.settings.navStackCap));
@@ -347,9 +380,19 @@ export class NavHistory {
 	// and back returns to where the user was. The target goes in as a shallow
 	// copy — the original entry keeps its own leave-position. Clicking the
 	// current row just re-lands (keyed entries re-apply their landing).
+	//
+	// The entry NEXT TO the current one is the exception: that is just a
+	// back/forward step, so the pointer moves instead. Branching there would
+	// duplicate the entry, and the copy would make the origin the new
+	// "previous" entry — so a browser step followed by another bounced
+	// straight back (A → B → A …), adding one duplicate per press.
 	async jumpTo(index: number): Promise<void> {
 		if (index < 0 || index >= this.entries.length)
 			return;
+		if (index === this.index - 1 || index === this.index + 1) {
+			await this.navigate(index < this.index ? -1 : 1);
+			return;
+		}
 		await this.runBracketed(async () => {
 			this.refreshTopFromActiveView();
 			// Only feeds delegateNative's direction (command id + landing
@@ -454,6 +497,13 @@ export class NavHistory {
 			const st = readNavEntryState(activeView);
 			if (st) this.refreshTop(cur.path, cur.leafId, st);
 		}
+	}
+
+	// Fill the current (top) entry's position from the live active view.
+	// Called before the history browser renders: the entry you are sitting in
+	// has had no leave-refresh yet, so it would otherwise show no position.
+	syncCurrentPosition() {
+		this.refreshTopFromActiveView();
 	}
 
 	private async execute(target: NavHistoryEntry, dir: -1 | 1) {

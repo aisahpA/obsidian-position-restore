@@ -582,4 +582,31 @@ describe('switchDbFile', () => {
 		expect(db.db['local.md']).toEqual({ scroll: 3 }); // touched locally → wins
 		expect(db.dbDirty).toBe(true); // adopted records flush on the next write
 	});
+
+	it('refuses an existing non-database JSON file without changing anything', async () => {
+		const { db, files, adapter } = makeHarness({
+			[DB_PATH]: '{"a.md":[5]}',
+			'package.json': '{"name":"x","deps":["a"]}',
+			// Numeric arrays pass the value check; only the outer note-path
+			// key check rejects this one.
+			'chart.json': '{"series":[1,2,3],"axis":[0]}',
+		});
+		await db.readDb();
+
+		expect(await db.switchDbFile('package.json')).toBe(false);
+		expect(await db.switchDbFile('chart.json')).toBe(false);
+		expect(DB_PATH in files).toBe(true); // real db kept
+		expect(files['package.json']).toBe('{"name":"x","deps":["a"]}');
+		expect(db.db['a.md']).toEqual({ scroll: 5 }); // memory kept
+		expect(adapter.remove).not.toHaveBeenCalled();
+	});
+
+	it('adopts an empty but valid database file', async () => {
+		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[5]}', 'new.json': '{}' });
+		await db.readDb();
+
+		expect(await db.switchDbFile('new.json')).toBe(true);
+		expect(DB_PATH in files).toBe(false);
+		expect(db.db['a.md']).toEqual({ scroll: 5 });
+	});
 });

@@ -39,12 +39,14 @@ export function loadNavHistory(app: App): { entries: NavHistoryEntry[]; index: n
 // Per-entry shape check (the storage may hold hand-edited or truncated
 // data): the kind tag first, then that variant's required fields — an
 // untagged or junk entry drops instead of passing a property coincidence.
+// `t` (the push timestamp, see NavEntryBase) is required too: the browser
+// labels every row with a relative time, so an unstamped entry is junk.
 export function isNavEntry(e: unknown): e is NavHistoryEntry {
 	if (!e || typeof e !== 'object')
 		return false;
 	const entry = e as Record<string, unknown>;
 	const str = (v: unknown): v is string => typeof v === 'string' && !!v;
-	if (!str(entry.leafId))
+	if (!str(entry.leafId) || typeof entry.t !== 'number')
 		return false;
 	switch (entry.kind) {
 		case 'view':

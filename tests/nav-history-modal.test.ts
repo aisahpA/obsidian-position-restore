@@ -1,15 +1,17 @@
-// Tests for the history browser's row description (nav-history-modal.ts):
-// the pure describeNavEntry — jump type from the entry key, and the landing
-// line + its own text (edit → cursor line and cursorAnchor; reading →
-// viewport top line and anchor; the recorded mode disambiguates a stale
-// pre-preview cursor). The viewport text must never be shown for a cursor
-// line it does not belong to.
+// Tests for the history browser (nav-history-modal.ts): the pure pieces —
+// row description, merging, filtering, time labels, direction segments, pane
+// numbering and the preview window. The modal's own DOM stays untested here;
+// everything whose correctness a reader would doubt is pure.
 
 import { describe, it, expect } from 'vitest';
 
-import { describeNavEntry } from '../src/nav-history-modal';
+import {
+	describeNavEntry, destinationKey, mergeByLanding, matchesNavFilter,
+	formatRelativeTime, splitHistorySegments, paneInfo, paneLabel, previewWindow,
+} from '../src/nav-history-modal';
 import { t } from '../src/i18n';
 import { NavHistoryEntry } from '../src/nav-entry';
+import { NavEntryState } from '../src/types';
 
 const hasFile = () => true;
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
@@ -27,6 +29,17 @@ describe('describeNavEntry', () => {
 	it('a tab-switch visit (via: switch) gets its own badge', () => {
 		const d = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', via: 'switch' } as NavHistoryEntry, hasFile);
 		expect(d.type).toBe(t('navHistory.type.switch'));
+		expect(d.plainOpen).toBe(false);
+	});
+
+	it('marks a plain file open as the unremarkable one (no badge on the row)', () => {
+		const plain = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
+		expect(plain.plainOpen).toBe(true);
+		// delibate origins keep their label
+		const jump = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:X' } as NavHistoryEntry, hasFile);
+		expect(jump.plainOpen).toBe(false);
+		const teleport = describeNavEntry({ kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 3 } as NavHistoryEntry, hasFile);
+		expect(teleport.plainOpen).toBe(false);
 	});
 
 	it('an edit capture shows the cursor line and the cursor line text', () => {
@@ -36,6 +49,8 @@ describe('describeNavEntry', () => {
 		} as NavHistoryEntry, hasFile);
 		expect(edit.type).toBe(t('navHistory.type.teleport'));
 		expect(edit.line).toBe('L100');
+		// the same landing as a 0-based index, for the preview window
+		expect(edit.lineIndex).toBe(99);
 		expect(edit.anchor).toBe('cursor line');
 		expect(edit.soft).toBe(true);
 	});
@@ -114,5 +129,182 @@ describe('describeNavEntry', () => {
 	it('a path that no longer resolves is marked missing', () => {
 		const d = describeNavEntry({ kind: 'visit', path: 'gone.md', leafId: 'leaf-1' } as NavHistoryEntry, () => false);
 		expect(d.missing).toBe(true);
+	});
+
+	it('an entry with no recorded position falls back to the file saved record', () => {
+		const d = describeNavEntry(
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry,
+			hasFile,
+			() => ({ scroll: 41, cursor: line(99) }),
+		);
+		// the saved cursor line is the spot a reopen restores
+		expect(d.line).toBe('L100');
+		// the compact record carries no anchor text
+		expect(d.anchor).toBeUndefined();
+	});
+
+	it('falls back to the saved scroll when the record has no cursor', () => {
+		const d = describeNavEntry(
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry,
+			hasFile,
+			() => ({ scroll: 7 }),
+		);
+		expect(d.line).toBe('L8');
+	});
+});
+
+// The list's compaction: repeat landings collapse to one row.
+describe('mergeByLanding', () => {
+	it('merges indices with the same landing, preserving newest-first order', () => {
+		const keys: Record<number, string> = { 5: 'L10', 4: 'L20', 3: 'L10', 2: 'L20', 1: 'L30' };
+		const rows = mergeByLanding([5, 4, 3, 2, 1], (i) => keys[i]);
+		expect(rows.map((r) => r.indices)).toEqual([[5, 3], [4, 2], [1]]);
+	});
+
+	it('never merges entries with no landing', () => {
+		const rows = mergeByLanding([3, 2, 1], () => undefined);
+		expect(rows.map((r) => r.indices)).toEqual([[3], [2], [1]]);
+	});
+
+	it('a landing with no duplicate stays its own row', () => {
+		const keys: Record<number, string> = { 2: 'L1', 1: 'L2' };
+		const rows = mergeByLanding([2, 1], (i) => keys[i]);
+		expect(rows.map((r) => r.indices)).toEqual([[2], [1]]);
+	});
+});
+
+// The browser's filter box: tokens AND-match across file name, path, and the
+// anchor text, read straight from the entry (no DOM, no describeNavEntry).
+describe('matchesNavFilter', () => {
+	const visit = (path: string, st?: NavEntryState): NavHistoryEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavHistoryEntry);
+
+	it('an empty or whitespace query matches everything', () => {
+		expect(matchesNavFilter(visit('notes/a.md'), '')).toBe(true);
+		expect(matchesNavFilter(visit('notes/a.md'), '   ')).toBe(true);
+	});
+
+	it('matches the basename, full path, and anchor text case-insensitively', () => {
+		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
+		expect(matchesNavFilter(e, 'alpha')).toBe(true);
+		expect(matchesNavFilter(e, 'PROJECT')).toBe(true);
+		expect(matchesNavFilter(e, 'chapter')).toBe(true);
+		expect(matchesNavFilter(e, 'beta')).toBe(false);
+	});
+
+	it('requires every whitespace-separated token (AND)', () => {
+		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
+		expect(matchesNavFilter(e, 'alpha chapter')).toBe(true);
+		expect(matchesNavFilter(e, 'alpha missing')).toBe(false);
+	});
+
+	it('matches a pathless view entry by its view type / graph label', () => {
+		const e = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry;
+		expect(matchesNavFilter(e, 'graph')).toBe(true);
+		expect(matchesNavFilter(e, t('navHistory.graphView'))).toBe(true);
+		expect(matchesNavFilter(e, 'canvas')).toBe(false);
+	});
+});
+
+// The browser's primary index is TIME, not stack distance: a user remembers
+// "the spot from a few minutes ago", never "three steps back" — which is why
+// the old ±N step counter is gone.
+describe('formatRelativeTime', () => {
+	const NOW = Date.parse('2025-09-12T12:00:00');
+
+	it('collapses the last minute to "just now"', () => {
+		expect(formatRelativeTime(NOW - 5_000, NOW)).toBe(t('navHistory.time.now'));
+	});
+
+	it('counts minutes under an hour, hours under a day, days under a week', () => {
+		expect(formatRelativeTime(NOW - 20 * 60_000, NOW)).toBe(t('navHistory.time.minutes', 20));
+		expect(formatRelativeTime(NOW - 5 * 3_600_000, NOW)).toBe(t('navHistory.time.hours', 5));
+		expect(formatRelativeTime(NOW - 3 * 86_400_000, NOW)).toBe(t('navHistory.time.days', 3));
+	});
+
+	it('falls back to an absolute date beyond a week', () => {
+		expect(formatRelativeTime(Date.parse('2025-08-01T09:30:00'), NOW)).toBe('2025-08-01');
+	});
+
+	it('never renders a future stamp as a negative age', () => {
+		expect(formatRelativeTime(NOW + 60_000, NOW)).toBe(t('navHistory.time.now'));
+	});
+});
+
+// The current entry is rendered as a pinned card, so the list is exactly the
+// two directions around it.
+describe('splitHistorySegments', () => {
+	const visit = (path: string): NavHistoryEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', t: 1 } as NavHistoryEntry);
+	const entries = [visit('a.md'), visit('b.md'), visit('c.md'), visit('d.md'), visit('e.md')];
+
+	it('splits around the current entry, newest first, and never includes it', () => {
+		const { forward, back } = splitHistorySegments(entries, 2);
+		expect(forward).toEqual([4, 3]);
+		expect(back).toEqual([1, 0]);
+	});
+
+	it('has no forward half at the top of the stack', () => {
+		const { forward, back } = splitHistorySegments(entries, 4);
+		expect(forward).toEqual([]);
+		expect(back).toEqual([3, 2, 1, 0]);
+	});
+
+	it('applies the filter to both halves', () => {
+		const { forward, back } = splitHistorySegments(entries, 2, (i) => i !== 3);
+		expect(forward).toEqual([4]);
+		expect(back).toEqual([1, 0]);
+	});
+});
+
+describe('destinationKey', () => {
+	it('keys file entries by path and view entries by view type', () => {
+		expect(destinationKey({ kind: 'visit', path: 'a.md', leafId: 'l', t: 1 } as NavHistoryEntry)).toBe('a.md');
+		expect(destinationKey({ kind: 'view', viewType: 'graph', leafId: 'l', t: 1 } as NavHistoryEntry)).toBe('view:graph');
+	});
+});
+
+// Two panes holding one file: merging their rows by landing line would make
+// one of them unreachable from the panel, and identical rows would be
+// indistinguishable — so a pane chip appears, and ONLY for such files.
+describe('paneInfo / paneLabel', () => {
+	const visit = (path: string, leafId: string): NavHistoryEntry =>
+		({ kind: 'visit', path, leafId, t: 1 } as NavHistoryEntry);
+
+	it('numbers a file\'s panes from the leaf seen first, and only when ambiguous', () => {
+		const entries = [visit('a.md', 'left'), visit('b.md', 'right'), visit('a.md', 'right')];
+		const info = paneInfo(entries);
+		expect(paneLabel(info, entries[0])).toBe(1);
+		expect(paneLabel(info, entries[2])).toBe(2);
+		// b.md lives in a single leaf: a chip would be pure noise
+		expect(paneLabel(info, entries[1])).toBeUndefined();
+	});
+
+	it('a file reopened twice in the same leaf is not ambiguous', () => {
+		const entries = [visit('a.md', 'leaf-1'), visit('a.md', 'leaf-1')];
+		expect(paneLabel(paneInfo(entries), entries[0])).toBeUndefined();
+	});
+});
+
+// The preview strip: the landing line plus a neighbour either side, clamped
+// to the document, so a spot is recognized instead of guessed.
+describe('previewWindow', () => {
+	const lines = ['a', 'b', 'c', 'd', 'e'];
+
+	it('returns the landing line with one neighbour either side, marked', () => {
+		expect(previewWindow(lines, 2)).toEqual([
+			{ num: 2, text: 'b', mark: false },
+			{ num: 3, text: 'c', mark: true },
+			{ num: 4, text: 'd', mark: false },
+		]);
+	});
+
+	it('clamps at the document edges', () => {
+		expect(previewWindow(lines, 0).map(l => l.num)).toEqual([1, 2]);
+		expect(previewWindow(lines, 4).map(l => l.num)).toEqual([4, 5]);
+	});
+
+	it('an empty document has nothing to preview', () => {
+		expect(previewWindow([], 0)).toEqual([]);
 	});
 });

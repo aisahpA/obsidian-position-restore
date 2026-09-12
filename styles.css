@@ -79,64 +79,188 @@ body.is-mobile .position-restore-cue {
 	font-weight: 600;
 }
 
-/* History browser (NavHistoryModal): a label header, then one row per stack
-   entry, newest first. Header and rows share one fixed grid template so the
-   columns align — its em tracks resolve against the element's own font size,
-   which is why the header's smaller font lives on its spans, never on the
-   grid element itself. */
+/* History browser (NavHistoryModal): a pinned "current position" card, a
+   chronological list split into forward/back segments, and a landing preview
+   strip underneath. */
 
-.position-restore-nav-head,
-.position-restore-nav-row {
-	display: grid;
-	grid-template-columns:
-		minmax(0, 1.4fr)
-		minmax(0, 1fr)
-		4.8em;
-	gap: 8px;
-	align-items: center;
-	white-space: nowrap;
+/* The file name is the identity and rows carry time + file + line + text, so
+   this modal runs wider than the stock one (min() keeps phones near-full). */
+.modal.position-restore-nav-modal {
+	width: min(760px, 94vw);
+	max-width: min(760px, 94vw);
 }
 
-.position-restore-nav-head {
-	padding: 0 8px 6px;
-	border-bottom: 1px solid var(--background-modifier-border);
-	color: var(--text-muted);
+/* A long history pins the height and scrolls the list inside it: otherwise
+   the auto-sized modal would shrink/grow as the filter narrows the results,
+   re-centering and jerking up and down on every keystroke. Short histories
+   size to their content (see FIXED_HEIGHT_MIN_ENTRIES) — a three-entry list
+   in a 640px box was mostly dead space. */
+.modal.position-restore-nav-modal.is-fixed {
+	display: flex;
+	flex-direction: column;
+	height: min(84vh, 800px);
 }
 
-.position-restore-nav-head > span {
-	font-size: var(--font-ui-smaller);
-}
-
-.position-restore-nav-row {
-	padding: 4px 8px;
-	border-radius: var(--radius-s);
-	cursor: pointer;
+.modal.position-restore-nav-modal.is-fixed .modal-content {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow: hidden;
 }
 
-/* The file name is the row's identity; at the stock modal width it held only
-   a handful of characters, so this modal runs a bit wider (min() keeps
-   phones at the stock near-full width). */
-.modal.position-restore-nav-modal {
-	width: min(630px, 92vw);
-	max-width: min(630px, 92vw);
+.modal.position-restore-nav-modal.is-fixed .position-restore-nav-list {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.position-restore-nav-list {
+	position: relative;
+	overflow-y: auto;
+	max-height: 60vh;
+	padding-bottom: 4px;
+}
+
+/* Toolbar above the list: the filter box, the grouped-view switch, and the
+   keyboard hint. */
+.position-restore-nav-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex: 0 0 auto;
+	padding: 0 2px 8px;
+}
+
+.position-restore-nav-filter {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.position-restore-nav-toggle {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	user-select: none;
+	white-space: nowrap;
+}
+
+.position-restore-nav-hint {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+}
+
+/* The pinned "you are here" card: the current entry is never a list row, so
+   it cannot scroll out of view. Deliberately quiet — a plain background and
+   border, with the accent spent on the dot alone. An accent-bordered, tinted
+   card shouted "selected row" at something that is only a reference point. */
+.position-restore-nav-here {
+	flex: 0 0 auto;
+	margin: 0 0 6px;
+	padding: 7px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+	cursor: pointer;
+}
+
+/* Empty history (first run): no card — just the list's "nothing yet" line and
+   the preview's idle hint. */
+.position-restore-nav-here:empty {
+	display: none;
+}
+
+.position-restore-nav-here .nav-here-head {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.position-restore-nav-here .nav-here-title {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.position-restore-nav-here .nav-here-head .nav-row-time {
+	margin-left: auto;
+}
+
+.position-restore-nav-here .nav-here-main {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin-top: 2px;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.position-restore-nav-here .nav-here-anchor {
+	font-weight: 400;
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.position-restore-nav-here .nav-here-hint {
+	margin-top: 4px;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* One row: time | file | line + text | badge. The default (chronological)
+   view shows the file name per row; the grouped view drops that column (its
+   header carries the file) and indents the rows under it. */
+.position-restore-nav-row {
+	display: grid;
+	/* file | line text | time | type. The file track is FIXED (a greedy one
+	   widened with the window and left a gulf before the position) and the
+	   time is max-content: it takes exactly the width its label needs, so no
+	   locale or age leaves a gap, and all the slack goes to the quoted text —
+	   the thing a reader actually scans. Everything before the time is fixed
+	   or greedy, so nothing depends on how wide a label happens to be. */
+	grid-template-columns: 11em minmax(0, 1fr) max-content 3.4em;
+	gap: 8px;
+	align-items: center;
+	white-space: nowrap;
+	overflow: hidden;
+	padding: 5px 8px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
 }
 
 .position-restore-nav-row:hover {
 	background-color: var(--background-modifier-hover);
 }
 
-/* The current entry: accent bar on the left edge, no marker glyph. */
-.position-restore-nav-row.is-current {
-	font-weight: 600;
-	background-color: var(--background-modifier-active-hover);
-	box-shadow: inset 2px 0 0 0 var(--interactive-accent);
-}
-
-/* Keyboard selection (arrows + Enter): outline so it stacks with the
-   is-current accent bar's box-shadow instead of replacing it. */
+/* Keyboard selection (arrows). */
 .position-restore-nav-row.is-selected {
 	outline: 1px solid var(--interactive-accent);
+}
+
+/* A deleted file's step: still listed (the gap is information) but never a
+   jump target — jumping would move the stack pointer with nothing to show. */
+.position-restore-nav-row.is-missing {
+	cursor: default;
+	opacity: 0.6;
+}
+
+.position-restore-nav-row.is-missing:hover {
+	background-color: transparent;
+}
+
+/* Time is the browser's primary index, but it is parked with the other
+   metadata at the right edge: as the last-but-one max-content track it takes
+   exactly its label's width, so a Chinese "刚刚" and an English "just now"
+   both sit flush against the type badge with no gap to trim. */
+.position-restore-nav-row .nav-row-time {
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
 }
 
 .position-restore-nav-row .nav-row-file {
@@ -144,10 +268,55 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 }
 
+.position-restore-nav-row .nav-row-pos {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+	overflow: hidden;
+}
+
+/* Fallback only: the spot had no text to show (blank cursor line, unsettled
+   landing), so the line number is the one thing left to identify it by. */
+.position-restore-nav-row .nav-row-line {
+	flex: 0 0 auto;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.position-restore-nav-row .nav-row-anchor {
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--text-normal);
+}
+
+/* No recorded position (a non-markdown view, or an entry the plugin could
+   not read): a faint dash, so the row does not read as a bare type badge. */
+.position-restore-nav-row .nav-row-nopos {
+	flex: 0 0 auto;
+	color: var(--text-faint);
+}
+
+/* Which tab/pane an entry belongs to, shown only when the same file is held
+   by more than one leaf (where its rows would otherwise be identical). */
+.position-restore-nav-preview .nav-preview-pane {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* How many same-landing entries collapsed into this row (grouped view). */
+.position-restore-nav-row .nav-row-count {
+	flex: 0 0 auto;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
 /* Status column: how the entry was reached, or "missing". Plain text on
    purpose — it is a label, not a control. */
-.position-restore-nav-row .nav-row-badge,
-.position-restore-nav-head .nav-row-badge {
+.position-restore-nav-row .nav-row-badge {
 	font-size: var(--font-ui-smaller);
 	text-align: center;
 	color: var(--text-muted);
@@ -155,50 +324,152 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 }
 
-.position-restore-nav-row .nav-row-missing {
+.position-restore-nav-row .nav-row-badge.is-missing {
 	color: var(--text-error);
 }
 
-/* An inferred teleport (not a deliberate jump): dimmer than the other
-   type badges to signal lower confidence. */
-.position-restore-nav-row .nav-row-soft {
+/* An inferred teleport (not a deliberate jump): dimmer than the other type
+   badges to signal lower confidence. */
+.position-restore-nav-row .nav-row-badge.is-soft {
 	color: var(--text-faint);
 	font-style: italic;
 }
 
-/* Position column: the line number, then the quoted text of that line. */
-.position-restore-nav-row .nav-row-pos {
+/* Direction divider between the forward and back halves. */
+.position-restore-nav-segment {
 	display: flex;
-	gap: 6px;
-	align-items: baseline;
-	overflow: hidden;
-}
-
-.position-restore-nav-row .nav-row-line {
-	flex: 0 0 auto;
-	min-width: 4ch; /* "L" + three digits — anchors align across rows */
-	font-family: var(--font-monospace);
-	font-size: var(--font-ui-smaller);
+	align-items: center;
+	gap: 8px;
+	padding: 10px 8px 4px;
 	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }
 
-.position-restore-nav-row .nav-row-anchor {
+.position-restore-nav-segment:first-child {
+	padding-top: 2px;
+}
+
+.position-restore-nav-segment .nav-seg-arrow {
+	color: var(--text-accent);
+	font-family: var(--font-monospace);
+}
+
+.position-restore-nav-segment .nav-seg-line {
 	flex: 1 1 auto;
+	height: 1px;
+	background-color: var(--background-modifier-border);
+}
+
+.position-restore-nav-empty {
+	padding: 10px 8px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* Landing preview strip: where the pointed-at row sits, the heading chain it
+   sits under, and the line itself with its neighbours — a spot is recognized
+   by its SECTION, not by three raw lines of prose. The height is reserved for
+   the tallest case (head + breadcrumb + three lines) so moving the pointer
+   between rows never reflows the list above it. */
+.position-restore-nav-preview {
+	flex: 0 0 auto;
+	min-height: 7.6em;
+	margin-top: 8px;
+	padding: 8px 10px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+/* The heading chain (outermost first), same scan as the post-restore
+   breadcrumb. The immediate section carries the emphasis: it is the part a
+   reader matches against memory. */
+.position-restore-nav-preview .nav-preview-trail {
+	margin-bottom: 5px;
 	overflow: hidden;
+	white-space: nowrap;
 	text-overflow: ellipsis;
 	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }
 
-/* Narrow phones: three columns don't fit — keep file name + line number
-   only. The cells stay in the DOM; CSS drops the extra tracks. */
+.position-restore-nav-preview .nav-trail-sep {
+	padding: 0 5px;
+	color: var(--text-faint);
+}
+
+.position-restore-nav-preview .nav-trail-deep {
+	color: var(--text-normal);
+}
+
+.position-restore-nav-preview .nav-preview-head {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 4px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.position-restore-nav-preview .nav-preview-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-family: var(--font-monospace);
+}
+
+.position-restore-nav-preview .nav-preview-head .nav-row-time {
+	margin-left: auto;
+}
+
+.position-restore-nav-preview .nav-preview-note {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.position-restore-nav-preview .nav-preview-line {
+	display: flex;
+	gap: 8px;
+	overflow: hidden;
+	white-space: nowrap;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.position-restore-nav-preview .nav-preview-num {
+	flex: 0 0 auto;
+	min-width: 4.5ch;
+	text-align: right;
+	font-family: var(--font-monospace);
+}
+
+.position-restore-nav-preview .nav-preview-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.position-restore-nav-preview .nav-preview-line.is-landing {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.position-restore-nav-preview .nav-preview-line.is-landing .nav-preview-num {
+	color: var(--text-accent);
+}
+
+/* Narrow phones: there is no keyboard (drop the hint) and no room for four
+   columns. Keep the TEXT — it is the recognition cue — and drop the line
+   number, the badge and the time. The cells stay in the DOM; CSS hides them. */
 @media (max-width: 480px) {
-	.position-restore-nav-head,
-	.position-restore-nav-row {
-		grid-template-columns: minmax(0, 1fr) auto;
-	}
-	.position-restore-nav-row .nav-row-anchor,
-	.position-restore-nav-row .nav-row-badge,
-	.position-restore-nav-head .nav-row-badge {
+	.position-restore-nav-hint,
+	.position-restore-nav-row .nav-row-time,
+	.position-restore-nav-row .nav-row-line,
+	.position-restore-nav-row .nav-row-badge {
 		display: none;
+	}
+
+	.position-restore-nav-row {
+		grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
+	}
+
+	.position-restore-nav-row .nav-row-anchor {
+		white-space: normal;
 	}
 }

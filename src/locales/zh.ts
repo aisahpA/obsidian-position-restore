@@ -119,9 +119,30 @@ export const zh: En = {
 	'navHistory.type.link': '链接',
 	'navHistory.type.graph': '图形',
 	'navHistory.graphView': '关系图谱',
+	'navHistory.searchPlaceholder': '按文件或文本过滤…',
+	'navHistory.noMatch': '没有匹配的历史。',
+	'navHistory.current': '当前位置',
 	'navHistory.missing': '已删除',
-	'navHistory.anchorTip': '跳转落点所在行的文本，便于辨认位置',
-	'navHistory.columns.type': '类型',
-	'navHistory.columns.position': '位置',
 	'navHistory.empty': '暂无导航历史。',
+
+	// 面板自身：钉顶的「当前位置」卡片、前进/后退分段、键盘提示。
+	'navHistory.keyboardHint': 'Enter 跳转 · ↑↓ 选择 · Esc 关闭',
+	'navHistory.enterBack': '直接按 Enter 回到上一个位置',
+	'navHistory.seg.forward': '前进',
+	'navHistory.seg.back': '后退',
+	'navHistory.seg.count': '{0} 条',
+	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
+	'navHistory.pane': '窗格 {0}',
+	'navHistory.disabledTip': '文件已删除，这一步无法恢复',
+	// 相对时间是面板的主要索引（见 NavEntryBase.t）。
+	'navHistory.time.now': '刚刚',
+	'navHistory.time.minutes': '{0} 分钟前',
+	'navHistory.time.hours': '{0} 小时前',
+	'navHistory.time.days': '{0} 天前',
+	// 落点预览条（该行上下共三行）。
+	'navHistory.preview.idle': '把鼠标移到任意一行，或用 ↑↓ 选择，这里显示落点这一行及其上下文。',
+	'navHistory.preview.loading': '读取中…',
+	'navHistory.preview.blank': '（空行）',
+	'navHistory.preview.none': '（不是一个可预览的 markdown 落点）',
+	'navHistory.preview.gone': '（文件已删除）',
 };

@@ -1,6 +1,7 @@
 import { MarkdownView } from 'obsidian';
 import { PluginSettings } from './types';
 import { getScroller } from './wait';
+import { outlinePathAtLine } from './anchor-line';
 
 const CUE_AUTO_HIDE_MS = 4000;
 const CUE_DISMISS_GRACE_MS = 2000;
@@ -197,78 +198,6 @@ export class RestoreCue {
 		);
 	}
 
-	// The outline path of `line` from the note's source: the chain of ATX
-	// headings the line falls under, deepest last. A heading on the line
-	// itself is included as the deepest segment, so the breadcrumb names the
-	// target line rather than skipping to its parent section. Empty when the
-	// line is under no heading.
-	private outlinePathAtLine(data: string, line: number): string[] {
-		const stack: { level: number; text: string }[] = [];
-		// Limit stops the scan at the target line — no point tokenizing the
-		// rest of a large file just to throw it away.
-		const lines = data.split('\n', line + 1);
-		// Block-level states that hide heading-looking lines: fenced code,
-		// HTML comments, and Obsidian %% comments. A fence closes only on a
-		// same-type run at least as long as its opener (CommonMark backtick
-		// rule); comment blocks close at the next marker anywhere in a line.
-		let fence: { char: string; len: number } | null = null;
-		let inHtml = false;
-		let inObsidian = false;
-
-		for (let i = 0; i <= line && i < lines.length; i++) {
-			const raw = lines[i];
-
-			if (inHtml) {
-				if (raw.includes('-->'))
-					inHtml = false;
-				continue;
-			}
-			if (inObsidian) {
-				if (raw.includes('%%'))
-					inObsidian = false;
-				continue;
-			}
-			if (fence) {
-				const m = raw.match(/^\s*(`{3,}|~{3,})/);
-				if (m && m[1][0] === fence.char && (fence.char === '`' ? m[1].length >= fence.len : true))
-					fence = null;
-				continue;
-			}
-
-			const fenceM = raw.match(/^\s*(`{3,}|~{3,})/);
-			if (fenceM) {
-				fence = { char: fenceM[1][0], len: fenceM[1].length };
-				continue;
-			}
-			const htmlOpen = raw.indexOf('<!--');
-			if (htmlOpen !== -1 && raw.indexOf('-->', htmlOpen) === -1) {
-				inHtml = true;
-				continue;
-			}
-			const obsOpen = raw.indexOf('%%');
-			if (obsOpen !== -1 && raw.indexOf('%%', obsOpen + 2) === -1) {
-				inObsidian = true;
-				continue;
-			}
-
-			const m = raw.match(/^(#{1,6})\s+(.+)/);
-			if (!m)
-				continue;
-			const text = m[2]
-				.replace(/#+\s*$/, '')
-				.replace(/<!--[\s\S]*-->/g, '')
-				.replace(/%%[\s\S]*?%%/g, '')
-				.trim();
-			if (!text)
-				continue;
-			const level = m[1].length;
-			while (stack.length && stack[stack.length - 1].level >= level)
-				stack.pop();
-			stack.push({ level, text });
-		}
-		return stack.map((h) => h.text);
-	}
-
 	// Small transient chip naming the landing section, centered in the note on
 	// both desktop and mobile so it clears the editor's chrome and the mobile
 	// bars, and allowed to wrap to two lines for deep heading chains. Appended
@@ -278,7 +207,8 @@ export class RestoreCue {
 	// mobile/desktop placement split is body.is-mobile there, matching
 	// Obsidian's own flag.
 	private showCueAtLine(view: MarkdownView, target: FlashTarget) {
-		const path = this.outlinePathAtLine(view.data ?? '', target.line);
+		// The scan stops at the target line, so only the prefix is needed.
+		const path = outlinePathAtLine((view.data ?? '').split('\n', target.line + 1), target.line);
 		if (path.length === 0)
 			return;
 

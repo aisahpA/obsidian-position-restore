@@ -140,7 +140,10 @@ export class PositionManager {
 	// "Browse navigation history" modal (main.ts command) — see
 	// NavHistoryModal / NavHistory.jumpTo.
 	openNavHistoryModal() {
-		new NavHistoryModal(this.app, this.nav).open();
+		// The file you are sitting in has had no leave-refresh yet — fill its
+		// position before the browser renders so it is not a bare type badge.
+		this.nav.syncCurrentPosition();
+		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path]).open();
 	}
 
 	// Tab/pane activation records a nav entry (VSCode semantics) — see

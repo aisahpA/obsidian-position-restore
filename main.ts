@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { Platform, Plugin } from 'obsidian';
 import { SettingTab } from './src/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './src/types';
 import { CursorPositionDatabase } from './src/database';
@@ -86,10 +86,13 @@ export default class RememberCursorPosition extends Plugin {
 			icon: 'history',
 			callback: () => this.manager.openNavHistoryModal(),
 		});
-		// Ribbon entry for touch devices: no hotkeys there, and the mobile
-		// toolbar only exists while editing. One tap (mobile bottom navbar
-		// exposes the ribbon) opens the history modal in any view mode.
-		this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
+		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
+		// and the toolbar only exists while editing, so one tap (the mobile
+		// navbar exposes the ribbon) is the only way in. On desktop the icon
+		// was noise on every toolbar — the command palette and hotkeys cover
+		// it, and the settings tab shows whether they are bound.
+		if (Platform.isMobile)
+			this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
 	}
 
 	/**

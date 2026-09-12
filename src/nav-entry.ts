@@ -10,16 +10,32 @@ import { NavEntryState } from './types';
 // nav reads only.
 export type NavHistoryEntry = NavJump | NavVisit | NavView | NavTeleport;
 
+// What a recorder constructs: a variant without its timestamp. `t` is added
+// by NavHistory.push — the single entry funnel — so no construction site can
+// forget it and no caller can fake it.
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type NewNavEntry = DistributiveOmit<NavHistoryEntry, 't'>;
+
+// Shared by every variant: the leaf the entry belongs to, and the wall-clock
+// time it was pushed. `t` is DISPLAY-ONLY — the history browser labels rows
+// with a relative time, which is how a user actually indexes "where I was"
+// (VSCode-style step counts are not a human unit). Stack ORDER always comes
+// from array position, never from `t`: two entries can share a millisecond,
+// and a jumpTo copy is stamped afresh when it is re-pushed.
+export interface NavEntryBase {
+	leafId: string;
+	t: number;
+}
+
 // A keyed jump — outline:<heading>, an anchor/caller linktext. Carries the
 // jump's precise landing: written when the landing settles, never
 // overwritten afterwards (back/forward must return to the jump target
 // itself). The key also dedups: a push whose key equals the top entry's
 // key is the same jump repeated (repeated outline clicks to one heading)
 // and is dropped.
-export interface NavJump {
+export interface NavJump extends NavEntryBase {
 	kind: 'jump';
 	path: string;
-	leafId: string;
 	key: string;
 	// Line the key's anchor sat on WHEN THE ENTRY WAS RECORDED (upgraded at
 	// the landing settle from metadataCache — the authoritative record-time
@@ -43,19 +59,17 @@ export interface NavJump {
 // actually was"). via only feeds the history browser's badge (switch for an
 // activation, open by default); it never participates in dedup or
 // positioning.
-export interface NavVisit {
+export interface NavVisit extends NavEntryBase {
 	kind: 'visit';
 	path: string;
-	leafId: string;
 	st?: NavEntryState;
 	via?: 'switch';
 }
 
 // A non-file main-area view destination (the global graph); a pathless
 // entry — traversal just reactivates the leaf.
-export interface NavView {
+export interface NavView extends NavEntryBase {
 	kind: 'view';
-	leafId: string;
 	viewType: string;
 }
 
@@ -66,10 +80,9 @@ export interface NavView {
 // kind — deduped by target line, carrying the jump's precise landing (same
 // regime as NavJump: written at push time or when it settles, never
 // overwritten), and shown with its own (dimmed) badge in the browser.
-export interface NavTeleport {
+export interface NavTeleport extends NavEntryBase {
 	kind: 'teleport';
 	path: string;
-	leafId: string;
 	line: number;
 	st?: NavEntryState;
 }
@@ -84,7 +97,7 @@ export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 
 // Persisted nav-history format version: a mismatched stored blob is
 // dropped whole on load — the history is disposable, no migrations.
-export const NAV_HISTORY_VERSION = 1;
+export const NAV_HISTORY_VERSION = 2;
 
 // Only main-area leaves record as navigation entries. Sidebar panels
 // (outline, backlinks, local graph…) track the active file in their own
