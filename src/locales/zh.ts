@@ -130,6 +130,8 @@ export const zh: En = {
 	// 面板自身：钉顶的「当前位置」卡片、前进/后退分段、键盘提示。
 	'navHistory.keyboardHint': 'Enter 跳转 · ↑↓ 选择 · Esc 关闭',
 	'navHistory.enterBack': '直接按 Enter 回到上一个位置',
+	// 仅触屏：点击行只是"选中"（没有 hover），所以预览面板要自带一个真正前往的入口。
+	'navHistory.jumpHere': '跳到这里',
 	'navHistory.seg.forward': '前进',
 	'navHistory.seg.back': '后退',
 	'navHistory.seg.count': '{0} 条',

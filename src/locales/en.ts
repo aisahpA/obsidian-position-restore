@@ -129,6 +129,9 @@ export const en = {
 	// segments, and the keyboard affordances.
 	'navHistory.keyboardHint': 'Enter jump · ↑↓ select · Esc close',
 	'navHistory.enterBack': 'Press Enter to go back one step',
+	// Touch only: a tap selects a row (there is no hover), so the preview panel
+	// needs its own way to actually travel there.
+	'navHistory.jumpHere': 'Jump here',
 	'navHistory.seg.forward': 'Forward',
 	'navHistory.seg.back': 'Back',
 	'navHistory.seg.count': '{0} steps',

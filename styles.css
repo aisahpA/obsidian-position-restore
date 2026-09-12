@@ -81,13 +81,15 @@ body.is-mobile .position-restore-cue {
 
 /* History browser (NavHistoryModal): a pinned "current position" card, a
    chronological list split into forward/back segments, and a landing preview
-   strip underneath. */
+   panel beside it. */
 
-/* The file name is the identity and rows carry time + file + line + text, so
-   this modal runs wider than the stock one (min() keeps phones near-full). */
+/* The file name is the identity and rows carry time + section + file + line, so
+   this modal runs wider than the stock one: the list keeps the width it had,
+   and the extra width is the preview panel's own column (see nav-body). min()
+   keeps phones near-full. */
 .modal.position-restore-nav-modal {
-	width: min(760px, 94vw);
-	max-width: min(760px, 94vw);
+	width: min(1080px, 94vw);
+	max-width: min(1080px, 94vw);
 }
 
 /* A long history pins the height and scrolls the list inside it: otherwise
@@ -109,20 +111,35 @@ body.is-mobile .position-restore-cue {
 	overflow: hidden;
 }
 
-.modal.position-restore-nav-modal.is-fixed .position-restore-nav-list {
+/* The pinned-height body: the list column scrolls inside it, the preview column
+   is as tall as the list (it scrolls on its own, see below). */
+.modal.position-restore-nav-modal.is-fixed .nav-body {
 	flex: 1 1 auto;
 	min-height: 0;
 }
 
+/* The list and the preview side by side: the list takes the slack, the preview
+   keeps a fixed column of its own. A COLUMN rather than a floating tooltip on
+   purpose — a preview that is scrollable and can be tall cannot also overlay
+   the list without either covering the rows below it or (with pointer-events:
+   none) losing its ability to scroll. Reserving the width keeps the list's own
+   geometry exactly as it was. */
+.position-restore-nav-body {
+	display: flex;
+}
+
 .position-restore-nav-list {
 	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
 	overflow-y: auto;
 	max-height: 60vh;
 	padding-bottom: 4px;
 }
 
-/* Toolbar above the list: the filter box, the grouped-view switch, and the
-   keyboard hint. */
+/* Toolbar above the list: the filter box, the file-scope chip, and the keyboard
+   hint. */
 .position-restore-nav-toolbar {
 	display: flex;
 	align-items: center;
@@ -227,17 +244,18 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* One row: file | line | section | age — the note, its coordinates, the
-   section those coordinates fall in, and how long ago. The landing's own text
-   is not here; it is one hover away in the strip. */
+/* One row: file | section | line | age — the note, where in it, its exact
+   coordinate, and when. The landing's own text is not here; it is one hover
+   away in the preview panel. */
 .position-restore-nav-row {
 	display: grid;
-	/* file and coordinates are FIXED, so the section column starts at the same
-	   x on every row; the section takes the slack (it is the variable-length
-	   text, and slack inside a text column is invisible); the age is
-	   max-content last, so no locale and no label length leaves a gap. The
-	   coordinates are wide enough for the widest "L9999 ×12". */
-	grid-template-columns: 14em 9ch minmax(0, 1fr) max-content;
+	/* The file cell is FIXED (the user widened it twice), the section takes the
+	   slack (it is the variable-length text, and slack inside a text column is
+	   invisible), then the coordinate and the age. Those last two are BOTH fixed
+	   tracks even though only the age is content-sized: the line numbers share a
+	   column, so the age's width must not vary per row (as max-content would)
+	   and shift the number column with it. */
+	grid-template-columns: 14em minmax(0, 1fr) 9ch 11ch;
 	column-gap: 8px;
 	align-items: baseline;
 	white-space: nowrap;
@@ -267,14 +285,16 @@ body.is-mobile .position-restore-cue {
 	background-color: transparent;
 }
 
-/* Time is the browser's primary index, but it is parked at the right edge: as
-   a max-content track it takes exactly its label's width, so a Chinese "刚刚"
-   and an English "just now" both end flush with the row, no gap to trim. */
+/* Time is the browser's primary index, parked at the right edge. A fixed track
+   (not max-content) so that the number column to its left holds the same x on
+   every row; right-aligned so the labels stay flush with the row's edge, the
+   gap falling between the number and the age instead. */
 .position-restore-nav-row .nav-row-time {
 	color: var(--text-faint);
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
+	text-align: right;
 }
 
 /* A step whose file is gone: the row is inert, so the name itself carries the
@@ -283,9 +303,25 @@ body.is-mobile .position-restore-cue {
 	color: var(--text-error);
 }
 
+/* The file cell: the name, plus the pane as a SUFFIX when the file is held by
+   more than one leaf. Inline, never a column of its own — see paneName(). */
 .position-restore-nav-row .nav-row-file {
+	display: flex;
+	align-items: baseline;
+	gap: 5px;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.position-restore-nav-row .nav-row-name {
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+.position-restore-nav-row .nav-row-pane {
+	flex: 0 0 auto;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
 }
 
 .position-restore-nav-row .nav-row-pos {
@@ -297,7 +333,7 @@ body.is-mobile .position-restore-cue {
 }
 
 /* Where the restore will land. Monospace and muted: it is a coordinate, not
-   prose, and the section beside it is what gives it meaning. */
+   prose, and the section to its left is what gives it meaning. */
 .position-restore-nav-row .nav-row-line {
 	flex: 0 0 auto;
 	font-family: var(--font-monospace);
@@ -327,7 +363,7 @@ body.is-mobile .position-restore-cue {
 	color: var(--text-faint);
 }
 
-/* The strip's metadata tokens: which pane holds the entry, and how the step
+/* The preview's metadata tokens: which pane holds the entry, and how the step
    was made (the row's old type column). */
 .position-restore-nav-preview .nav-preview-pane,
 .position-restore-nav-preview .nav-preview-type {
@@ -381,17 +417,19 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* Landing preview strip: where the pointed-at row sits, the heading chain it
-   sits under, and the line itself with its neighbours — a spot is recognized
-   by its SECTION, not by three raw lines of prose. The height is reserved for
-   the tallest case (head + breadcrumb + three lines) so moving the pointer
-   between rows never reflows the list above it. */
+/* Landing preview panel: where the pointed-at row sits, the heading chain it
+   sits under, and the lines around the landing — a spot is recognized by its
+   SECTION, not by three raw lines of prose. It is a COLUMN of its own, not a
+   strip under the list: nothing is reserved out of the list's height, so a
+   fixed min-height is neither needed (the panel is stretched to the list's
+   height) nor wanted, and the content scrolls when it does not fit. */
 .position-restore-nav-preview {
-	flex: 0 0 auto;
-	min-height: 7.6em;
-	margin-top: 8px;
-	padding: 8px 10px;
-	border-top: 1px solid var(--background-modifier-border);
+	flex: 0 0 20em;
+	min-width: 0;
+	max-height: 60vh;
+	overflow-y: auto;
+	padding: 0 2px 0 12px;
+	border-left: 1px solid var(--background-modifier-border);
 }
 
 /* The heading chain (outermost first). The immediate section carries the
@@ -412,6 +450,7 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-preview .nav-preview-head {
 	display: flex;
 	align-items: baseline;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-bottom: 4px;
 	color: var(--text-muted);
@@ -428,18 +467,28 @@ body.is-mobile .position-restore-cue {
 	margin-left: auto;
 }
 
+/* Touch only: a tap selects a row, so travelling needs a button of its own. */
+.position-restore-nav-preview .nav-preview-go {
+	flex: 0 0 auto;
+	padding: 2px 8px;
+	font-size: var(--font-ui-smaller);
+}
+
 .position-restore-nav-preview .nav-preview-note {
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 }
 
+/* Lines WRAP here, unlike the old full-width strip: the panel is 20em wide, so
+   a single nowrap line would be ellipsized after a dozen characters and the
+   context — the whole reason the panel exists — would be gone. */
 .position-restore-nav-preview .nav-preview-line {
 	display: flex;
+	align-items: baseline;
 	gap: 8px;
-	overflow: hidden;
-	white-space: nowrap;
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
 }
 
 .position-restore-nav-preview .nav-preview-num {
@@ -449,9 +498,12 @@ body.is-mobile .position-restore-cue {
 	font-family: var(--font-monospace);
 }
 
+/* Wrapped prose: the text takes the remaining width of the line and keeps its
+   own hanging indent under the number. No ellipsis — a truncated line would
+   hide exactly the words that identify the spot. */
 .position-restore-nav-preview .nav-preview-text {
-	overflow: hidden;
-	text-overflow: ellipsis;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 
 .position-restore-nav-preview .nav-preview-line.is-landing {
@@ -463,9 +515,28 @@ body.is-mobile .position-restore-cue {
 	color: var(--text-accent);
 }
 
-/* Narrow phones: there is no keyboard (drop the hint) and no room for four
-   columns. Keep the TEXT — it is the recognition cue — and drop the line
-   number, the badge and the time. The cells stay in the DOM; CSS hides them. */
+/* Not wide enough for two columns (a phone, or a narrow desktop window): the
+   panel drops under the list, where it takes the height it needs and scrolls
+   on its own. */
+@media (max-width: 700px) {
+	.position-restore-nav-body {
+		flex-direction: column;
+	}
+
+	.position-restore-nav-preview {
+		flex: 0 0 auto;
+		max-height: 40vh;
+		margin-top: 8px;
+		padding: 8px 2px 0;
+		border-left: none;
+		border-top: 1px solid var(--background-modifier-border);
+	}
+}
+
+/* Narrow phones: there is no keyboard (drop the hint) and no room for the row's
+   four columns. Keep the note and the section — the recognition cues — and drop
+   the line number and the age. The cells stay in the DOM; CSS hides them, and
+   the tracks below match what is left visible. */
 @media (max-width: 480px) {
 	.position-restore-nav-hint,
 	.position-restore-nav-row .nav-row-time,
@@ -473,8 +544,8 @@ body.is-mobile .position-restore-cue {
 		display: none;
 	}
 
-	/* Note, coordinates, section — the age is dropped. */
+	/* Note, section, and whatever the coordinate cell still shows (the ×N). */
 	.position-restore-nav-row {
-		grid-template-columns: 9em 8ch minmax(0, 1fr);
+		grid-template-columns: 9em minmax(0, 1fr) 6ch;
 	}
 }

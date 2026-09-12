@@ -5,7 +5,7 @@
 // nav-history-modal.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MarkdownView, TFile } from 'obsidian';
+import { MarkdownView, Platform, TFile } from 'obsidian';
 
 import { NavHistoryModal } from '../src/nav-history-modal';
 import type { NavHistoryEntry } from '../src/nav-entry';
@@ -37,11 +37,13 @@ function harness(
 	index: number,
 	files: Record<string, string> = {},
 	deleted: string[] = [],
-	// paths held open in an editor: the strip reads these WITHOUT touching the
+	// paths held open in an editor: the preview reads these WITHOUT touching the
 	// vault, so `cachedRead` staying untouched is the assertion that it did.
 	live: Record<string, string> = {},
 	// parsed headings per path, as metadataCache would report them
 	headingMap: Record<string, unknown[]> = {},
+	// a touch device: no hover, so a tap both points and chooses
+	mobile = false,
 ) {
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
@@ -71,7 +73,16 @@ function harness(
 			},
 		},
 	};
-	const modal = new NavHistoryModal(app as never, { entries, index, jumpTo } as never);
+	// The modal reads Platform once, at construction: flip it for exactly that
+	// long, so the tap semantics are decided the way a real device would.
+	const previous = Platform.isMobile;
+	Platform.isMobile = mobile;
+	let modal: NavHistoryModal;
+	try {
+		modal = new NavHistoryModal(app as never, { entries, index, jumpTo } as never);
+	} finally {
+		Platform.isMobile = previous;
+	}
 	modal.open();
 	const rows = () => Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.position-restore-nav-row'));
 	const key = (k: string) => modal.modalEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
@@ -319,14 +330,18 @@ describe('NavHistoryModal — panes', () => {
 	const pane = (path: string, leafId: string, stamp: number): NavHistoryEntry =>
 		({ kind: 'visit', path, leafId, t: stamp });
 
-	it('names the pane in the preview, and only for a file held by two of them', () => {
+	it('names the pane on the row, and only for a file held by two of them', () => {
 		// a.md sits in two panes; b.md only in one (and is the current entry)
 		const entries = [pane('a.md', 'left', NOW - 3 * MINUTE), pane('a.md', 'right', NOW - 2 * MINUTE), pane('b.md', 'left', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '' });
 
-		// pane identity is detail, not row furniture: the rows stay clean and
-		// the strip names the pane the pointed-at row came from
-		expect(h.el.querySelectorAll('.nav-row-pane')).toHaveLength(0);
+		// Two panes of one file are otherwise IDENTICAL rows, and telling them
+		// apart is what decides which row to pick — so the pane goes on the row,
+		// as a suffix of the file cell (never a column of its own).
+		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 2));
+		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 1));
+		// ...and it is a suffix, not a cell: the row keeps its four tracks
+		expect(h.rows()[0].querySelector('.nav-row-file .nav-row-name')?.textContent).toBe('a.md');
 
 		h.rows()[0].dispatchEvent(new MouseEvent('mousemove', { bubbles: true })); // the right pane
 		expect(h.el.querySelector('.nav-preview-pane')?.textContent).toBe(t('navHistory.pane', 2));
@@ -339,23 +354,34 @@ describe('NavHistoryModal — panes', () => {
 		const entries = [pane('a.md', 'left', NOW - 2 * MINUTE), pane('b.md', 'left', NOW)];
 		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' });
 
+		expect(h.rows()[0].querySelector('.nav-row-pane')).toBeNull();
 		h.rows()[0].dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 		expect(h.el.querySelector('.nav-preview-pane')).toBeNull();
 	});
 });
 
 describe('NavHistoryModal — landing preview', () => {
-	const read = { 'a.md': 'first\nsecond\nthird\nfourth', 'b.md': 'only line', 'c.md': 'x' };
+	const read = { 'a.md': 'one\ntwo\nthree\nLANDING\nfive\nsix\nseven\neight', 'b.md': 'only line', 'c.md': 'x' };
 	// b.md is current; the row BELOW it is a.md's reading capture (viewport
-	// line 2, text "third"), so a pointed row has a landing to show.
+	// line 3, text "LANDING"), so a pointed row has a landing to show.
 	// Two entries only: the list then holds exactly one row (a.md), with no
 	// forward half to sort above it.
 	const withLanding = [
-		visit('a.md', NOW - 5 * MINUTE, { mode: 'preview', scroll: 2, anchor: 'third' }),
+		visit('a.md', NOW - 5 * MINUTE, { mode: 'preview', scroll: 3, anchor: 'LANDING' }),
 		visit('b.md', NOW),
 	];
 	// Pointer movement is the only hover signal the modal listens to.
 	const hover = (row: HTMLElement) => row.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+
+	it('is a panel beside the list, not a strip under it', () => {
+		const h = harness(withLanding, 1, read);
+
+		// The column layout hangs off this: both are children of the body, and
+		// the preview is a sibling of the list rather than part of its flow.
+		expect(h.el.querySelector('.position-restore-nav-body > .position-restore-nav-list')).not.toBeNull();
+		expect(h.el.querySelector('.position-restore-nav-body > .position-restore-nav-preview')).not.toBeNull();
+		expect(h.el.querySelector('.position-restore-nav-list .position-restore-nav-preview')).toBeNull();
+	});
 
 	it('says nothing until a row is pointed at', () => {
 		const h = harness(withLanding, 1, read);
@@ -369,14 +395,15 @@ describe('NavHistoryModal — landing preview', () => {
 
 		hover(h.rows()[0]);
 
+		// three lines either side of the landing, clamped to the document
 		await vi.waitFor(() => {
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(3);
+			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
 		});
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		const landing = h.el.querySelector('.nav-preview-line.is-landing');
-		expect(landing?.textContent).toContain('third');
-		expect(landing?.textContent).toContain('L3');
-		expect(h.el.querySelectorAll('.nav-preview-num')[0].textContent).toBe('L2');
+		expect(landing?.textContent).toContain('LANDING');
+		expect(landing?.textContent).toContain('L4');
+		expect(h.el.querySelectorAll('.nav-preview-num')[0].textContent).toBe('L1');
 	});
 
 	it('follows the keyboard selection just the same', async () => {
@@ -385,10 +412,10 @@ describe('NavHistoryModal — landing preview', () => {
 		h.key('ArrowDown'); // selects a.md, the row below the current entry
 
 		await vi.waitFor(() => {
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(3);
+			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
 		});
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
-		expect(h.el.querySelector('.nav-preview-line.is-landing')?.textContent).toContain('third');
+		expect(h.el.querySelector('.nav-preview-line.is-landing')?.textContent).toContain('LANDING');
 	});
 
 	it('ignores a mouseenter that no pointer movement produced', () => {
@@ -461,9 +488,9 @@ describe('NavHistoryModal — section chain in a row', () => {
 	});
 
 	it('keeps every cell in place for a row with no section', () => {
-		// The row is a 4-track grid: file | line | section | age. A conditionally
-		// rendered section cell would shift the age one track left, into the
-		// section column, on every note without headings.
+		// The row is a 4-track grid: file | section | line | age. A conditionally
+		// rendered section cell would shift the cells after it one track left,
+		// on every note without headings.
 		const noHeadings = { 'a.md': [] };
 		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '没有标题的笔记' });
 		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, noHeadings);
@@ -471,8 +498,8 @@ describe('NavHistoryModal — section chain in a row', () => {
 		const row = h.rows()[0];
 		expect([...row.children].map(el => el.className)).toEqual([
 			'nav-row-file',
-			'nav-row-pos',
 			'nav-row-trail',
+			'nav-row-pos',
 			'nav-row-time',
 		]);
 		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('');
@@ -511,7 +538,8 @@ describe('NavHistoryModal — preview source', () => {
 		hover(h);
 
 		await vi.waitFor(() => {
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(3);
+			// three lines either side of the landing: lines 4..10 of the doc
+			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
 		});
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
@@ -522,7 +550,8 @@ describe('NavHistoryModal — preview source', () => {
 		hover(h);
 
 		await vi.waitFor(() => {
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(3);
+			// three lines either side of the landing: lines 4..10 of the doc
+			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
 		});
 		expect(h.cachedRead).toHaveBeenCalledTimes(1);
 	});
@@ -538,5 +567,55 @@ describe('NavHistoryModal — preview source', () => {
 		const trail = h.el.querySelector('.nav-preview-trail')!;
 		expect(trail.textContent).toBe(`面板设计›呈现方案›预览`);
 		expect(trail.querySelector('.nav-trail-deep')?.textContent).toBe('预览');
+	});
+});
+
+describe('NavHistoryModal — touch', () => {
+	// Three notes, sitting on c.md: the back steps are b.md then a.md.
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+	const entries = () => [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
+	const tap = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+	it('a first tap only points at the row; a second one travels', () => {
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+
+		tap(h.rows()[0]); // b.md
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(h.rows()[0].classList.contains('is-selected')).toBe(true);
+		// The panel describes what the tap pointed at — that is what the first
+		// tap is for, and it is the only preview a touch device can get.
+		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
+
+		tap(h.rows()[0]);
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
+	});
+
+	it('tapping a different row re-points instead of travelling', () => {
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+
+		tap(h.rows()[0]); // b.md
+		tap(h.rows()[1]); // a.md
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
+	});
+
+	it('offers a button, because a tap only points', () => {
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+
+		tap(h.rows()[0]);
+		const go = h.el.querySelector<HTMLElement>('.nav-preview-go');
+		expect(go?.textContent).toBe(t('navHistory.jumpHere'));
+
+		go!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
+	});
+
+	it('leaves a pointing device its one-click travel', () => {
+		const h = harness(entries(), 2, files);
+
+		expect(h.el.querySelector('.nav-preview-go')).toBeNull();
+		tap(h.rows()[0]);
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 });

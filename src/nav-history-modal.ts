@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, TFile } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Platform, TFile } from 'obsidian';
 import { NavHistory } from './nav-history';
 import { NavHistoryEntry } from './nav-entry';
 import { EphemeralState } from './types';
@@ -348,6 +348,12 @@ const PREVIEW_READ_DELAY_MS = 120;
 // into lines, so an unbounded cache pins every note visited in a session.
 const PREVIEW_CACHE_MAX = 8;
 
+// How many lines either side of the landing the preview shows. The preview is
+// its own scrolling panel beside the list, so it no longer competes with the
+// list for height: a context window deep enough to recognize a spot is now
+// affordable, and the panel scrolls when even that is not enough.
+const PREVIEW_RADIUS = 3;
+
 // Above this many entries the modal pins its height and scrolls the list
 // inside it (filtering must not resize and re-center the dialog). Below it
 // the modal sizes to its content — a three-entry history in a 640px box was
@@ -363,8 +369,11 @@ const FIXED_HEIGHT_MIN_ENTRIES = 12;
 //    time — the index a user remembers "where I was" by;
 //  - a bare Enter goes BACK ONE STEP (the reflex that opens this panel), never
 //    a re-land of the current position;
-//  - hovering a row previews the landing line and its context, because
-//    recognition beats retrieval for picking a spot in a long note;
+//  - hovering (or, on a touch device, tapping) a row previews its landing in a
+//    SCROLLING panel beside the list, because recognition beats retrieval for
+//    picking a spot in a long note — and because a panel that reserves its own
+//    column costs the list nothing, it can afford the context a fixed strip at
+//    the bottom could never have;
 //  - the toolbar can narrow the list to the note the pinned card shows (the
 //    scope), and to matching text; the two compose, and the scope is what makes
 //    "where in this note was I" askable at all;
@@ -382,9 +391,9 @@ export class NavHistoryModal extends Modal {
 	private rowEls = new Map<number, HTMLElement>();
 	// Nothing is selected on open: that is what makes Enter mean "go back".
 	private selected = -1;
-	// The row the preview strip describes. Driven by the keyboard selection
+	// The row the preview panel describes. Driven by the keyboard selection
 	// AND by pointer movement, so the two never disagree about what is being
-	// pointed at; -1 = nothing pointed at, and the strip says so instead of
+	// pointed at; -1 = nothing pointed at, and the panel says so instead of
 	// guessing (a missing entry can be previewed but never selected).
 	private previewed = -1;
 	private filter = '';
@@ -412,6 +421,10 @@ export class NavHistoryModal extends Modal {
 	private readTimer: number | undefined;
 	private readPath = '';
 	private closed = false;
+	// Touch devices have no hover at all, so the pointer's "point at a row" and
+	// its "go there" are the same gesture. Read once, here: the tap semantics
+	// below are the only thing that branches on it.
+	private mobile = Platform.isMobile;
 
 	constructor(
 		app: App,
@@ -433,10 +446,14 @@ export class NavHistoryModal extends Modal {
 		this.modalEl.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 		this.toolbar();
 		this.hereEl = this.contentEl.createDiv({ cls: 'position-restore-nav-here' });
-		this.listEl = this.contentEl.createDiv({ cls: 'position-restore-nav-list' });
+		// The list and the preview share a row (see styles.css): the list takes
+		// the slack, the preview keeps a fixed width of its own. On a narrow
+		// pane the same two elements stack instead, preview underneath.
+		const body = this.contentEl.createDiv({ cls: 'position-restore-nav-body' });
+		this.listEl = body.createDiv({ cls: 'position-restore-nav-list' });
 		// Pointer movement is the only hover signal — see onListHover.
 		this.listEl.addEventListener('mousemove', (ev) => this.onListHover(ev));
-		this.previewEl = this.contentEl.createDiv({ cls: 'position-restore-nav-preview' });
+		this.previewEl = body.createDiv({ cls: 'position-restore-nav-preview' });
 		this.render();
 		if (this.nav.entries.length > 0)
 			this.filterInput.focus();
@@ -660,21 +677,24 @@ export class NavHistoryModal extends Modal {
 	}
 
 	// Which tab/pane an entry belongs to, or undefined when its destination
-	// lives in a single leaf (nothing to disambiguate). Rendered in the
-	// preview head, not on the row: a chip in the line-number column pushed
-	// that column's left edge around and made the list hard to scan.
+	// lives in a single leaf (nothing to disambiguate). On a row it is a SUFFIX
+	// of the file cell, never a cell of its own: a chip in the line-number
+	// column pushed that column's left edge around and made the list hard to
+	// scan. It belongs on the row at all because two panes of one file are
+	// otherwise identical rows — and telling those apart is exactly what
+	// decides which row to pick.
 	private paneName(entry: NavHistoryEntry): string | undefined {
 		const n = paneLabel(this.panes, entry);
 		return n === undefined ? undefined : t('navHistory.pane', n);
 	}
 
 	// One row: a single entry, or several entries that landed on the same place.
-	// Cells left to right: file | line | section | age — note, coordinates,
-	// then where in the note and when. The landing's own text is deliberately
-	// NOT here: as a second line it doubled the row height, and beside the
-	// section it squeezed both into ellipses. The line number is the position
-	// a reader needs at a glance; the words are one hover away in the strip,
-	// and the filter still searches them.
+	// Cells left to right: file | section | line | age — the note, where in it,
+	// its exact coordinate, and when. Only what decides WHICH row goes here; how
+	// the step was made (open/switch/link/outline) is confirmation, not
+	// selection, and lives in the preview panel's head. The landing's own text
+	// is deliberately NOT here either: as a second line it doubled the row
+	// height, and beside the section it squeezed both into ellipses.
 	// Returns 1 so callers can count what was drawn.
 	private row(indices: number[]): number {
 		const rep = indices[0];
@@ -693,26 +713,20 @@ export class NavHistoryModal extends Modal {
 		// A dead step is marked on the name itself: the type column that used
 		// to carry "missing" is gone, and a row a click cannot reach must look
 		// different from one it can.
-		row.createSpan({
-			text: d.file,
+		const file = row.createSpan({
 			cls: `nav-row-file${d.missing ? ' is-missing' : ''}`,
 		});
-		// The landing's coordinates. A cell of their own — fixed width, so the
-		// section column starts at the same x on every row no matter how many
-		// digits the line has or whether the row stands for several visits.
-		const pos = row.createDiv({ cls: 'nav-row-pos' });
-		if (d.line)
-			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
-		else
-			pos.createSpan({ text: '—', cls: 'nav-row-nopos' });
-		if (indices.length > 1)
-			pos.createSpan({ text: `×${indices.length}`, cls: 'nav-row-count' });
+		file.createSpan({ text: d.file, cls: 'nav-row-name' });
+		const pane = this.paneName(entry);
+		if (pane)
+			file.createSpan({ text: pane, cls: 'nav-row-pane' });
 
 		// The section the landing sits in, deepest one or two levels: the coarse
-		// index that makes a bare line number mean something.
+		// index that makes a bare line number mean something — and the part a
+		// reader matches against memory, so it comes before the number.
 		// The cell is created even when there is no section, and empty: the row
-		// is a grid of four tracks, so a missing element would let the age slide
-		// one track left into the section column.
+		// is a grid of four tracks, so a missing element would let later cells
+		// slide one track left.
 		const trail = rowTrail(this.trailFor(entry, d), d.anchor);
 		const crumb = row.createSpan({ cls: 'nav-row-trail' });
 		for (let i = 0; i < trail.length; i++) {
@@ -720,10 +734,22 @@ export class NavHistoryModal extends Modal {
 				crumb.createSpan({ text: '›', cls: 'nav-trail-sep' });
 			crumb.createSpan({ text: trail[i] });
 		}
+
+		// The landing's coordinates. Still a cell of their own — the number is
+		// what the eye lands on after the section, and a fixed track keeps a
+		// column of them aligned (see styles.css for the age's own fixed track,
+		// which is what makes that possible now that the number sits before it).
+		const pos = row.createDiv({ cls: 'nav-row-pos' });
+		if (d.line)
+			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
+		else
+			pos.createSpan({ text: '—', cls: 'nav-row-nopos' });
+		if (indices.length > 1)
+			pos.createSpan({ text: `×${indices.length}`, cls: 'nav-row-count' });
 		row.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
 
 		if (!d.missing) {
-			row.addEventListener('click', () => this.jump(rep));
+			row.addEventListener('click', () => this.onRowClick(rep));
 			this.visible.push(rep);
 		}
 		// Every merged alias resolves to this element, so a preview or a
@@ -792,9 +818,9 @@ export class NavHistoryModal extends Modal {
 			this.renderPreview();
 	}
 
-	// The strip: where the pointed-at row sits (path, pane, line, age), the
-	// heading chain it sits under, and the landing line with its neighbours.
-	// Nothing when nothing is pointed at, rather than guessing.
+	// The preview panel: where the pointed-at row sits (path, pane, type, line,
+	// age), the heading chain it sits under, and the landing line with its
+	// neighbours. Nothing when nothing is pointed at, rather than guessing.
 	private renderPreview(): void {
 		const box = this.previewEl;
 		box.empty();
@@ -809,13 +835,19 @@ export class NavHistoryModal extends Modal {
 		const pane = this.paneName(entry);
 		if (pane)
 			head.createSpan({ text: pane, cls: 'nav-preview-pane', attr: { title: entry.leafId } });
-		// The row's old type column lives here now: how the step was made is
-		// detail, not row furniture.
+		// The row's old type column lives here: how the step was made is
+		// confirmation of a choice, not part of making it.
 		if (!d.missing)
 			head.createSpan({ text: d.type, cls: `nav-preview-type${d.soft ? ' is-soft' : ''}` });
 		if (d.line)
 			head.createSpan({ text: d.line, cls: 'nav-row-line' });
 		head.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
+		// A touch device has no Enter and no hover: without this button a tap
+		// could point at a row but never go there.
+		if (this.mobile && !d.missing) {
+			const go = head.createEl('button', { text: t('navHistory.jumpHere'), cls: 'nav-preview-go' });
+			go.addEventListener('click', () => this.jump(this.previewed));
+		}
 
 		if (d.missing) {
 			box.createDiv({ cls: 'nav-preview-note', text: t('navHistory.preview.gone') });
@@ -850,7 +882,7 @@ export class NavHistoryModal extends Modal {
 				});
 			}
 		}
-		for (const line of previewWindow(lines, d.lineIndex)) {
+		for (const line of previewWindow(lines, d.lineIndex, PREVIEW_RADIUS)) {
 			const el = box.createDiv({
 				cls: `nav-preview-line${line.mark ? ' is-landing' : ''}`,
 			});
@@ -941,6 +973,20 @@ export class NavHistoryModal extends Modal {
 		}
 		if (!this.closed)
 			this.renderPreview();
+	}
+
+	// A row's tap/click. On a pointing device the click IS the choice, as it
+	// always was. On a touch device the first tap is the pointer's "point at
+	// this row" — there is no hover to do it — and only a second tap on that
+	// same row travels; the preview panel's own button is the explicit way to
+	// go there. Tapping a DIFFERENT row moves the preview instead of jumping,
+	// which is what makes the list explorable without a mouse.
+	private onRowClick(rep: number): void {
+		if (this.mobile && this.selected !== rep) {
+			this.select(rep);
+			return;
+		}
+		this.jump(rep);
 	}
 
 	private jump(i: number): void {
