@@ -21,7 +21,7 @@
    and allowed to wrap to two lines for deep heading chains. Long unbreakable
    heading words must wrap inside their span, or overflow:hidden clips them
    at the chip edge. */
-.rcp-cue {
+.position-restore-cue {
 	position: absolute;
 	top: 30%;
 	left: 50%;
@@ -51,30 +51,30 @@
    this absolutely-positioned shrink-to-fit chip, so a long breadcrumb
    chain stayed on one line and got clipped at the screen edges. With
    left+right both set the used width is exactly 92% of the note. */
-body.is-mobile .rcp-cue {
+body.is-mobile .position-restore-cue {
 	left: 4%;
 	right: 4%;
 	transform: translateY(-50%);
 	max-width: none;
 }
 
-.rcp-cue-host {
+.position-restore-cue-host {
 	position: relative;
 }
 
 /* " / " separators never wrap; heading segments may. Non-deepest segments
    are dimmed, the deepest is bolded — it names the target section. */
-.rcp-cue-sep {
+.position-restore-cue-sep {
 	opacity: 0.5;
 	white-space: nowrap;
 }
 
-.rcp-cue-seg {
+.position-restore-cue-seg {
 	white-space: normal;
 	opacity: 0.75;
 }
 
-.rcp-cue-seg.is-deepest {
+.position-restore-cue-seg.is-deepest {
 	opacity: 1;
 	font-weight: 600;
 }

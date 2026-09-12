@@ -26,7 +26,7 @@ interface Cm6EditorView {
 	// both desktop and mobile, allowed to wrap to two lines for deep heading
 	// chains. Both are cosmetic — every failure path degrades to showing nothing.
 	// nothing. The highlight is Web Animations API; the chip's appearance
-	// lives in styles.css (.rcp-cue*). The mobile/desktop placement split
+	// lives in styles.css (.position-restore-cue*). The mobile/desktop placement split
 	// is body.is-mobile in styles.css, matching Obsidian's own flag.
 export class RestoreCue {
 	private settings: PluginSettings;
@@ -274,7 +274,7 @@ export class RestoreCue {
 	// bars, and allowed to wrap to two lines for deep heading chains. Appended
 	// to view.contentEl (not the line itself) so CodeMirror's line recycling
 	// can never remove it. Cosmetic only; every failure path degrades to
-	// showing nothing. All appearance is in styles.css (.rcp-cue*); the
+	// showing nothing. All appearance is in styles.css (.position-restore-cue*); the
 	// mobile/desktop placement split is body.is-mobile there, matching
 	// Obsidian's own flag.
 	private showCueAtLine(view: MarkdownView, target: FlashTarget) {
@@ -284,14 +284,14 @@ export class RestoreCue {
 
 		const content = view.contentEl;
 		if (getComputedStyle(content).position === 'static')
-			content.addClass('rcp-cue-host');
+			content.addClass('position-restore-cue-host');
 
-		const chip = content.createDiv({ cls: 'rcp-cue' });
+		const chip = content.createDiv({ cls: 'position-restore-cue' });
 		for (let i = 0; i < path.length; i++) {
 			if (i > 0)
-				chip.createSpan({ text: ' / ', cls: 'rcp-cue-sep' });
+				chip.createSpan({ text: ' / ', cls: 'position-restore-cue-sep' });
 			const isLast = i === path.length - 1;
-			chip.createSpan({ text: path[i], cls: isLast ? 'rcp-cue-seg is-deepest' : 'rcp-cue-seg' });
+			chip.createSpan({ text: path[i], cls: isLast ? 'position-restore-cue-seg is-deepest' : 'position-restore-cue-seg' });
 		}
 		chip.setAttribute('title', path.join(' / '));
 		this.chip = chip;
