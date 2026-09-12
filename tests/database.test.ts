@@ -560,10 +560,11 @@ describe('switchDbFile', () => {
 		expect(adapter.rename).toHaveBeenCalledWith(DB_PATH, 'new.json');
 	});
 
-	it('refuses when the parent folder does not exist', async () => {
-		const { db, files } = makeHarness();
-		expect(await db.switchDbFile('missing/new.json')).toBe(false);
-		expect(Object.keys(files)).toHaveLength(0);
+	it('creates a missing parent folder instead of refusing', async () => {
+		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
+		expect(await db.switchDbFile('missing/new.json')).toBe(true);
+		expect(adapter.mkdir).toHaveBeenCalledWith('missing');
+		expect(files['missing/new.json']).toBe('{"a.md":[5]}');
 	});
 
 	it('adopts an existing target file, removes the old one, and keeps locally touched records', async () => {

@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
+import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
 import type RememberCursorPosition from '../main';
 import { ESCAPE_HATCH_PROPERTY } from './frontmatter';
 import { t } from './i18n';
@@ -235,24 +235,17 @@ export class SettingTab extends PluginSettingTab {
 				items: [
 					{
 						name: t('dataStorage.dbFileName.name'),
-						desc: t('dataStorage.dbFileName.desc'),
+						desc: (() => {
+							const current = this.plugin.settings.dbFileName || this.plugin.database.defaultDbFileName;
+							const frag = createFragment();
+							frag.createDiv({ text: t('dataStorage.dbFileName.desc') });
+							frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.dbFileName.current', current) });
+							return frag;
+						})(),
 						render: (setting) => {
-							let text: TextComponent;
-							const confirm = async () => {
-								const value = text.getValue().trim();
-								if (await this.plugin.database.switchDbFile(value)) {
-									void this.setControlValue('dbFileName', value);
-									new Notice(value === '' ? t('dataStorage.dbFileName.messages.default') : t('dataStorage.dbFileName.messages.set', value));
-									this.update();
-								}
-							};
-							setting.addText((t) => {
-								text = t;
-								t.setPlaceholder(this.plugin.database.defaultDbFileName);
-								t.setValue(this.plugin.settings.dbFileName || '');
-							}).addExtraButton((btn) => {
-								btn.setIcon('check').setTooltip(t('dataStorage.dbFileName.confirm'))
-									.onClick(() => { void confirm(); });
+							setting.addButton((btn) => {
+								btn.setButtonText(t('dataStorage.dbFileName.change'))
+									.onClick(() => new DbPathModal(this.app, this.plugin, () => this.update()).open());
 							});
 						},
 					},
@@ -318,6 +311,71 @@ export class SettingTab extends PluginSettingTab {
 	}
 }
 
+// Panel for changing the database file path. Built from plain DOM elements
+// only — no Setting / TextComponent — because those components are thenable
+// (`Setting.then`) and interacting badly with them inside a modal opened from
+// the declarative settings tab can wedge Obsidian. Plain input + buttons keep
+// the whole flow synchronous and predictable.
+class DbPathModal extends Modal {
+	constructor(
+		app: App,
+		private plugin: RememberCursorPosition,
+		private onApply: () => void
+	) {
+		super(app);
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl('h3', { text: t('dataStorage.dbFileName.modal.title') });
+		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.desc') });
+
+		const input = contentEl.createEl('input', { type: 'text', cls: 'position-restore-db-path-input' });
+		input.placeholder = this.plugin.database.defaultDbFileName;
+		input.value = this.plugin.settings.dbFileName || '';
+
+		const submit = async () => {
+			const value = input.value.trim();
+			if (!(await this.plugin.database.switchDbFile(value)))
+				return;
+			this.plugin.settings.dbFileName = value;
+			await this.plugin.saveSettings();
+			new Notice(value === '' ? t('dataStorage.dbFileName.messages.default') : t('dataStorage.dbFileName.messages.set', value));
+			this.close();
+			this.onApply();
+		};
+
+		input.addEventListener('keydown', (ev) => {
+			if (ev.key === 'Enter')
+				void submit();
+		});
+
+		const pickers = contentEl.createDiv({ cls: 'position-restore-db-path-row' });
+		pickers.createEl('button', { text: t('dataStorage.dbFileName.pickFolder') })
+			.addEventListener('click', () => {
+				const current = input.value.trim() || this.plugin.database.defaultDbFileName;
+				const name = current.substring(current.lastIndexOf('/') + 1);
+				new FolderSuggestModal(this.app, [], (folder) => { input.value = `${folder}/${name}`; }).open();
+			});
+		pickers.createEl('button', { text: t('dataStorage.dbFileName.pickFile') })
+			.addEventListener('click', () => {
+				new DbFileSuggestModal(this.app, (file) => { input.value = file.path; }).open();
+			});
+		pickers.createEl('button', { text: t('dataStorage.dbFileName.modal.default') })
+			.addEventListener('click', () => { input.value = ''; });
+
+		const actions = contentEl.createDiv({ cls: 'position-restore-db-path-row is-actions' });
+		actions.createEl('button', { text: t('dataStorage.dbFileName.modal.cancel') })
+			.addEventListener('click', () => this.close());
+		actions.createEl('button', { text: t('dataStorage.dbFileName.apply'), cls: 'mod-cta' })
+			.addEventListener('click', () => { void submit(); });
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
+}
+
 class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	constructor(
 		app: App,
@@ -346,6 +404,35 @@ class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 
 	onChooseItem(folder: TFolder): void {
 		this.onSelect(folder.path);
+	}
+}
+
+// Fuzzy picker over every JSON file already in the vault. Lets a device that
+// joins an existing sync setup point straight at the database another device
+// created, instead of typing its path by hand.
+class DbFileSuggestModal extends FuzzySuggestModal<TFile> {
+	constructor(
+		app: App,
+		private onSelect: (file: TFile) => void
+	) {
+		super(app);
+		this.setPlaceholder(t('dataStorage.dbFileName.search.placeholder'));
+		this.limit = 50;
+		this.emptyStateText = t('dataStorage.dbFileName.search.empty');
+	}
+
+	getItems(): TFile[] {
+		return this.app.vault.getFiles()
+			.filter((f) => f.extension === 'json')
+			.sort((a, b) => a.path.localeCompare(b.path));
+	}
+
+	getItemText(file: TFile): string {
+		return file.path;
+	}
+
+	onChooseItem(file: TFile): void {
+		this.onSelect(file);
 	}
 }
 

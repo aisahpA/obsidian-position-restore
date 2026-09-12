@@ -1,3 +1,21 @@
+/* Database-path modal (DbPathModal): plain DOM controls, so two layout rules.
+   Only block/flex on fixed-width parents — no percentage sizing that could
+   feed back into a flex container. */
+.position-restore-db-path-input {
+	width: 100%;
+}
+
+.position-restore-db-path-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.position-restore-db-path-row.is-actions {
+	justify-content: flex-end;
+}
+
 /* Restore cue (RestoreCue): a transient chip naming the landing section,
    centered in the note so it clears the editor's chrome and the mobile bars,
    and allowed to wrap to two lines for deep heading chains. Long unbreakable

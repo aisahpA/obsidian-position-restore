@@ -148,9 +148,9 @@ export class CursorPositionDatabase {
 	// Switch the database file to newPath; an empty newPath resets to the
 	// default location (manifest folder), keeping settings.dbFileName as ''.
 	// newPath may also be a bare file name, which places the db at the vault
-	// root (adapter paths are vault-relative). Validation first: format check
-	// and the parent folder must already exist (no auto-creation) — each
-	// failure is surfaced to the user via a Notice here.
+	// root (adapter paths are vault-relative). Validation first: format check,
+	// then the parent folder is created if missing (recursive mkdir) — only an
+	// unrecoverable failure is surfaced to the user via a Notice here.
 	// If the target file already exists it is usually a db file synced from
 	// another device, so instead of refusing, it is parsed and adopted: its
 	// records are merged into the in-memory db with the same conflict rule as
@@ -202,10 +202,8 @@ export class CursorPositionDatabase {
 			// there is no parent folder to check.
 			const slash = targetPath.lastIndexOf('/');
 			const parent = slash === -1 ? '' : targetPath.substring(0, slash);
-			if (parent && !(await adapter.exists(parent))) {
-				new Notice(t('dataStorage.dbFileName.messages.noFolder'));
-				return false;
-			}
+			if (parent && !(await adapter.exists(parent)))
+				await adapter.mkdir(parent);
 			if (await adapter.exists(targetPath)) {
 				const adopted = await adoptExisting();
 				if (adopted === null) {
