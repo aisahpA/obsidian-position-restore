@@ -179,7 +179,12 @@ export class CursorPositionDatabase {
 		// or null when the target is unreadable — then the caller refuses.
 		const adoptExisting = async (): Promise<number | null> => {
 			try {
-				const diskDb = this.parseDb(await adapter.read(targetPath));
+				// Strict shape check first: a wrong JSON file picked by mistake
+				// (package.json, a snippet, …) would otherwise be read as a
+				// near-empty db and the real file deleted below — data loss.
+				const diskDb = this.parseDbStrict(await adapter.read(targetPath));
+				if (diskDb === null)
+					return null;
 				// The old file must go, or its stale copy would linger next to
 				// the adopted one; do it before mutating in-memory state so a
 				// failure here aborts the whole switch cleanly.
@@ -355,6 +360,33 @@ export class CursorPositionDatabase {
 				db[key] = decodeValue(value as number[]);
 		}
 		return db;
+	}
+
+	// Strict shape check for adopting an existing target file: accepts only a
+	// JSON object whose every value is an array of finite numbers AND whose
+	// every key is a recordable note path (.md / .base) — exactly what writeDb
+	// emits (an empty `{}` included). The outer key check is what rejects a
+	// foreign JSON that happens to hold numeric arrays (chart series, vectors,
+	// …); the value check alone would let it through as a near-empty db and
+	// delete the real file.
+	// @returns the parsed db, or null when the content is not a position db.
+	private parseDbStrict(data: string): CursorDatabase | null {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(data);
+		} catch {
+			return null;
+		}
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+			return null;
+		for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+			const lower = key.toLowerCase();
+			if (!lower.endsWith('.md') && !lower.endsWith('.base'))
+				return null;
+			if (!Array.isArray(value) || value.some((n) => typeof n !== 'number' || !Number.isFinite(n)))
+				return null;
+		}
+		return this.parseDb(data);
 	}
 
 	private async cacheDiskMtime(): Promise<void> {

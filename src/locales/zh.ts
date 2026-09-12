@@ -83,7 +83,9 @@ export const zh: En = {
 	'dataStorage.dbFileName.search.empty': '未找到 JSON 文件',
 	'dataStorage.dbFileName.messages.default': '当前使用默认数据文件。',
 	'dataStorage.dbFileName.messages.invalid': '数据文件必须是仓库内的相对路径，且需以 .json 结尾。',
-	'dataStorage.dbFileName.messages.exists': '该路径已存在文件，但无法读取并合并其内容，请先手动删除该文件。',
+	'dataStorage.dbFileName.messages.exists': '该路径已存在文件，但它不是有效的本插件数据文件。未做任何改动，请另选文件或先手动删除它。',
+	'dataStorage.dbFileName.mergeHint':
+		'若所选文件已存在，会先将其中的记录合并到当前数据，再移动过去；文件不存在时则直接移动。',
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
 	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',

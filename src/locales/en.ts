@@ -81,7 +81,9 @@ export const en = {
 	'dataStorage.dbFileName.search.empty': 'No JSON file found',
 	'dataStorage.dbFileName.messages.default': 'Using the default database file.',
 	'dataStorage.dbFileName.messages.invalid': 'The database file must be a vault-relative path ending in .json.',
-	'dataStorage.dbFileName.messages.exists': 'A file already exists at that path, but it could not be read and merged. Remove it first.',
+	'dataStorage.dbFileName.messages.exists': 'A file already exists at that path but is not a valid position database. Nothing was changed — pick another file or remove it first.',
+	'dataStorage.dbFileName.mergeHint':
+		'If the chosen file already exists, its records are merged into the current database before moving there. If it does not exist, the current database is simply moved to it.',
 	'dataStorage.dbFileName.messages.merged': 'Adopted the existing database file and merged {0} record(s) from it.',
 	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',

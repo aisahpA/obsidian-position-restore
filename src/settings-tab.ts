@@ -329,6 +329,7 @@ class DbPathModal extends Modal {
 		const { contentEl } = this;
 		contentEl.createEl('h3', { text: t('dataStorage.dbFileName.modal.title') });
 		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.desc') });
+		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.mergeHint') });
 
 		const input = contentEl.createEl('input', { type: 'text', cls: 'position-restore-db-path-input' });
 		input.placeholder = this.plugin.database.defaultDbFileName;
