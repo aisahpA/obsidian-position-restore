@@ -21,6 +21,17 @@ const NOW = Date.now();
 const visit = (path: string, stamp: number, st?: NavEntryState): NavHistoryEntry =>
 	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp, st });
 
+// Parsed headings for the fixture note below, in the shape the metadata cache
+// hands them over (1-based levels, positions in the file).
+const A_DOC = '# 面板设计\n\n## 呈现方案\n\n### 预览\n\n预览条：悬停显示上下文三行\n\n尾巴\n';
+const A_HEADINGS = {
+	'a.md': [
+		{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
+		{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
+		{ heading: '预览', level: 3, position: { start: { line: 4 } } },
+	],
+};
+
 function harness(
 	entries: NavHistoryEntry[],
 	index: number,
@@ -29,6 +40,8 @@ function harness(
 	// paths held open in an editor: the strip reads these WITHOUT touching the
 	// vault, so `cachedRead` staying untouched is the assertion that it did.
 	live: Record<string, string> = {},
+	// parsed headings per path, as metadataCache would report them
+	headingMap: Record<string, unknown[]> = {},
 ) {
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
@@ -40,6 +53,10 @@ function harness(
 				return Object.assign(new TFile(), { path });
 			},
 			cachedRead,
+		},
+		metadataCache: {
+			getFileCache: (file: { path: string }) =>
+				file.path in headingMap ? { headings: headingMap[file.path] } : null,
 		},
 		workspace: {
 			iterateAllLeaves: (cb: (leaf: unknown) => void) => {
@@ -132,6 +149,107 @@ describe('NavHistoryModal — keyboard', () => {
 	});
 });
 
+describe('NavHistoryModal — file scope', () => {
+	// Sitting on c.md, with a fresher back step in ANOTHER note: the back steps
+	// newest-first are b.md, c.md (older), a.md — so the scope has something to
+	// drop in every direction, and Enter has a different answer with it on.
+	const entries = () => [
+		visit('a.md', NOW - 5 * MINUTE),
+		visit('c.md', NOW - 4 * MINUTE),
+		visit('b.md', NOW - 2 * MINUTE),
+		visit('c.md', NOW),
+	];
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+
+	const box = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector<HTMLInputElement>('.position-restore-nav-toggle input');
+	const label = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector('.position-restore-nav-toggle span')?.textContent;
+	const filterBox = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	const setScope = (h: ReturnType<typeof harness>, on: boolean) => {
+		const b = box(h)!;
+		b.checked = on;
+		b.dispatchEvent(new Event('change', { bubbles: true }));
+	};
+
+	it('names the chip after the pinned card, and offers none without a file', () => {
+		const h = harness(entries(), 3, files);
+		expect(label(h)).toBe(t('navHistory.onlyThisFile', 'c.md'));
+		expect(box(h)!.checked).toBe(false);
+
+		// a graph step is not a place in a note: there is nothing to scope to
+		const graph = harness(
+			[visit('a.md', NOW - MINUTE), { kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW }] as NavHistoryEntry[],
+			1,
+			files,
+		);
+		expect(graph.el.querySelector('.position-restore-nav-toggle')).toBeNull();
+	});
+
+	it('narrows the list to that note, and the segment counts follow it', () => {
+		const h = harness(entries(), 3, files);
+		expect(h.rows()).toHaveLength(3);
+
+		setScope(h, true);
+
+		const rows = h.rows();
+		expect(rows).toHaveLength(1);
+		expect(rows[0].textContent).toContain('c.md');
+		expect(rows.some(r => /[ab]\.md/.test(r.textContent ?? ''))).toBe(false);
+		// the header counts STEPS, so it has to count the ones still on screen
+		const seg = Array.from(h.el.querySelectorAll('.position-restore-nav-segment'))
+			.map(s => s.textContent ?? '').join(' ');
+		expect(seg).toContain(t('navHistory.seg.count', 1));
+		// the current position itself is the card, never a row, scope or not
+		expect(h.el.querySelector('.position-restore-nav-here')?.textContent).toContain('c.md');
+	});
+
+	it('asks for "no other position" rather than blaming an absent query', () => {
+		// the current note has no other landing at all
+		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, files);
+		setScope(h, true);
+		expect(h.rows()).toHaveLength(0);
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
+			.toBe(t('navHistory.scopeEmpty', 'b.md'));
+		// and Enter has nothing left to promise: the only back step is elsewhere
+		expect(h.el.querySelector('.nav-here-hint')).toBeNull();
+	});
+
+	it('composes with the search box: the query is judged inside the scope', () => {
+		const h = harness(entries(), 3, files);
+		setScope(h, true);
+		// this matches the OTHER note, which the scope has already dropped
+		filterBox(h).value = 'b.md';
+		filterBox(h).dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(h.rows()).toHaveLength(0);
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('navHistory.noMatch'));
+	});
+
+	it('keeps a bare Enter inside the note while the scope is on', () => {
+		const without = harness(entries(), 3, files);
+		without.key('Enter');
+		expect(without.jumpTo).toHaveBeenCalledWith(2); // b.md, the newest back step
+
+		const scoped = harness(entries(), 3, files);
+		setScope(scoped, true);
+		scoped.key('Enter');
+		expect(scoped.jumpTo).toHaveBeenCalledWith(1); // back to the earlier c.md spot
+	});
+
+	it('hands focus back to the search box, so the toggle does not stop typing', () => {
+		const h = harness(entries(), 3, files);
+		// a real click focuses the checkbox before it fires change
+		box(h)!.focus();
+		expect(document.activeElement).not.toBe(filterBox(h));
+
+		setScope(h, true);
+
+		expect(document.activeElement).toBe(filterBox(h));
+	});
+});
+
 describe('NavHistoryModal — deleted entries', () => {
 	it('lists a deleted step but never makes it a jump target', () => {
 		const entries = [visit('gone.md', NOW - 2 * MINUTE), visit('b.md', NOW)];
@@ -139,7 +257,8 @@ describe('NavHistoryModal — deleted entries', () => {
 
 		const row = h.rows()[0];
 		expect(row.classList.contains('is-missing')).toBe(true);
-		expect(row.textContent).toContain(t('navHistory.missing'));
+		// the type cell that used to spell this out is gone; the name carries it
+		expect(row.querySelector('.nav-row-file')?.classList.contains('is-missing')).toBe(true);
 
 		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		expect(h.jumpTo).not.toHaveBeenCalled();
@@ -310,30 +429,73 @@ describe('NavHistoryModal — landing preview', () => {
 	});
 });
 
-describe('NavHistoryModal — row badge', () => {
-	const badgeOf = (h: ReturnType<typeof harness>) =>
-		h.rows()[0].querySelector('.nav-row-badge')?.textContent;
+describe('NavHistoryModal — where the type lives now', () => {
+	it('keeps the row free of a type cell and names it in the strip', async () => {
+		const switcher = { kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, via: 'switch' } as NavHistoryEntry;
+		const h = harness([switcher, visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' });
 
-	it('leaves a plain open unlabelled, and labels every other origin', () => {
-		const files = { 'a.md': '', 'b.md': '' };
-		const open = { kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE } as NavHistoryEntry;
+		expect(h.rows()[0].querySelector('.nav-row-badge')).toBeNull();
 
-		// the default origin says nothing the row does not already say
-		expect(badgeOf(harness([open, visit('b.md', NOW)], 1, files))).toBeUndefined();
-
-		// everything the user actually chose keeps its label
-		const switcher = { ...open, via: 'switch' } as NavHistoryEntry;
-		expect(badgeOf(harness([switcher, visit('b.md', NOW)], 1, files))).toBe(t('navHistory.type.switch'));
-		const outline = { kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:X', t: NOW - MINUTE } as NavHistoryEntry;
-		expect(badgeOf(harness([outline, visit('b.md', NOW)], 1, files))).toBe(t('navHistory.type.outline'));
-		const jump = { kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 9, t: NOW - MINUTE } as NavHistoryEntry;
-		expect(badgeOf(harness([jump, visit('b.md', NOW)], 1, files))).toBe(t('navHistory.type.teleport'));
+		h.rows()[0].dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+		expect(h.el.querySelector('.nav-preview-type')?.textContent).toBe(t('navHistory.type.switch'));
 	});
 
-	it('always labels a deleted step, whatever its origin', () => {
+	it('marks a deleted step on the file name, since the cell that said so is gone', () => {
 		const gone = { kind: 'visit', path: 'gone.md', leafId: 'leaf-1', t: NOW - MINUTE } as NavHistoryEntry;
 		const h = harness([gone, visit('b.md', NOW)], 1, { 'b.md': '' }, ['gone.md']);
-		expect(badgeOf(h)).toBe(t('navHistory.missing'));
+
+		const name = h.rows()[0].querySelector('.nav-row-file');
+		expect(name?.classList.contains('is-missing')).toBe(true);
+		expect(name?.textContent).toBe('gone.md');
+	});
+});
+
+describe('NavHistoryModal — section chain in a row', () => {
+	it('prefixes the row with the deepest section levels', () => {
+		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '预览条：悬停显示上下文三行' });
+		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, A_HEADINGS);
+
+		// the deepest two levels, no file read needed
+		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+		expect(h.cachedRead).not.toHaveBeenCalled();
+	});
+
+	it('keeps every cell in place for a row with no section', () => {
+		// The row is a 4-track grid: file | line | section | age. A conditionally
+		// rendered section cell would shift the age one track left, into the
+		// section column, on every note without headings.
+		const noHeadings = { 'a.md': [] };
+		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '没有标题的笔记' });
+		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, noHeadings);
+
+		const row = h.rows()[0];
+		expect([...row.children].map(el => el.className)).toEqual([
+			'nav-row-file',
+			'nav-row-pos',
+			'nav-row-trail',
+			'nav-row-time',
+		]);
+		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('');
+	});
+
+	it('shows the coordinates and the section, never the landing text', () => {
+		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '预览条：悬停显示上下文三行' });
+		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, A_HEADINGS);
+
+		const row = h.rows()[0];
+		expect(row.querySelector('.nav-row-line')?.textContent).toBe('L7');
+		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+		// the words live in the strip (and the filter), not in the list
+		expect(row.textContent).not.toContain('预览条');
+	});
+
+	it('does not repeat the heading the landing line itself carries', () => {
+		// an outline jump lands ON "### 预览": the row already quotes it
+		const jump = { kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:预览', t: NOW - MINUTE,
+			st: { mode: 'preview', scroll: 4, anchor: '### 预览' } } as NavHistoryEntry;
+		const h = harness([jump, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, A_HEADINGS);
+
+		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›呈现方案');
 	});
 });
 
@@ -366,7 +528,7 @@ describe('NavHistoryModal — preview source', () => {
 	});
 
 	it('names the section the landing sits in, deepest last', async () => {
-		const h = harness([entry, visit('b.md', NOW)], 1, { 'a.md': doc, 'b.md': '' }, [], { 'a.md': doc });
+		const h = harness([entry, visit('b.md', NOW)], 1, { 'a.md': doc, 'b.md': '' }, [], { 'a.md': doc }, A_HEADINGS);
 
 		hover(h);
 

@@ -119,8 +119,10 @@ export const en = {
 	'navHistory.graphView': 'Graph view',
 	'navHistory.searchPlaceholder': 'Filter by file or text…',
 	'navHistory.noMatch': 'No matching entry.',
+	// The file-scope chip: narrow the list to the note the pinned card shows.
+	'navHistory.onlyThisFile': 'Only in {0}',
+	'navHistory.scopeEmpty': 'No other position in {0}.',
 	'navHistory.current': 'Current position',
-	'navHistory.missing': 'missing',
 	'navHistory.empty': 'Navigation history is empty.',
 
 	// Browser chrome: the pinned "you are here" card, the two direction

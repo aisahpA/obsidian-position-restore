@@ -1,9 +1,14 @@
 import { App, Editor, MarkdownView, Modal, TFile } from 'obsidian';
 import { NavHistory } from './nav-history';
-import { outlinePathAtLine } from './anchor-line';
 import { NavHistoryEntry } from './nav-entry';
 import { EphemeralState } from './types';
 import { t } from './i18n';
+
+// The display name of a path: its last segment. What a row labels itself with,
+// and what the file-scope chip names (the full path is the row's hover title).
+export function baseName(path: string): string {
+	return path.split('/').pop() ?? path;
+}
 
 // One row's display pieces, derived from the entry. Pure (the vault lookup
 // comes in as a predicate) so the history browser's labels are testable
@@ -21,11 +26,6 @@ export interface NavEntryDescription {
 	// An inferred entry (NavTeleport): the user did not deliberately jump
 	// there — the badge renders dimmed to signal lower confidence.
 	soft?: boolean;
-	// The entry is a plain file open: the DEFAULT origin, carrying nothing the
-	// user chose. The row drops its badge for these, so a label at the end of
-	// a row means something ("I got here by an outline click / a tab switch /
-	// an inferred jump") instead of repeating "opened" down the whole list.
-	plainOpen: boolean;
 }
 
 // The row shows the line the restore lands on plus THAT line's text: a
@@ -50,7 +50,6 @@ export function describeNavEntry(
 			title: entry.viewType,
 			type: t('navHistory.type.graph'),
 			missing: false,
-			plainOpen: false,
 		};
 	}
 	// Jump type from the entry kind; a keyless visit is an open by default
@@ -67,7 +66,6 @@ export function describeNavEntry(
 	} else {
 		type = entry.via === 'switch' ? t('navHistory.type.switch') : t('navHistory.type.open');
 	}
-	const plainOpen = entry.kind === 'visit' && entry.via !== 'switch';
 	const st = entry.st;
 	let n: number | undefined;
 	let anchor: string | undefined;
@@ -96,7 +94,7 @@ export function describeNavEntry(
 			n = entry.line;
 	}
 	return {
-		file: entry.path.split('/').pop() ?? entry.path,
+		file: baseName(entry.path),
 		title: entry.path,
 		type,
 		line: n !== undefined ? `L${n + 1}` : undefined,
@@ -104,8 +102,60 @@ export function describeNavEntry(
 		anchor,
 		missing: !hasFile(entry.path),
 		soft: entry.kind === 'teleport',
-		plainOpen,
 	};
+}
+
+// The section chain a landing sits in, built from the file's PARSED headings
+// (metadataCache) rather than from its text: a row needs its section without —
+// and long before — the preview's file read. Obsidian's own parser is what
+// excludes headings inside fenced code or comments, so this agrees with the
+// outline pane. (The cue keeps its own raw-text scan because it works from a
+// live editor buffer, which can be ahead of the cache.)
+export interface HeadingRef {
+	heading: string;
+	level: number;
+	line: number;
+}
+
+// The chain of headings the line falls under, outermost first. A heading ON
+// the line is included as the deepest segment: the chain names the target line
+// rather than skipping to its parent section. `headings` is in document order,
+// as the cache stores it.
+export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: number): string[] {
+	if (!headings || !headings.length)
+		return [];
+	const stack: HeadingRef[] = [];
+	for (const h of headings) {
+		if (h.line > line)
+			break;
+		while (stack.length && stack[stack.length - 1].level >= h.level)
+			stack.pop();
+		stack.push(h);
+	}
+	return stack.map(h => h.heading);
+}
+
+// The chain as a ROW prints it: the deepest `depth` levels only (a row has one
+// line of width), with the heading the landing line itself carries dropped —
+// the row already quotes that text, so naming the section too would say the
+// same thing twice.
+export function rowTrail(trail: string[], landingText: string | undefined, depth = 2): string[] {
+	const out = trail.slice();
+	if (landingText !== undefined && out.length) {
+		const line = normalizeHeadingText(landingText);
+		if (line && normalizeHeadingText(out[out.length - 1]) === line)
+			out.pop();
+	}
+	return out.slice(-depth);
+}
+
+function normalizeHeadingText(text: string): string {
+	return text
+		.replace(/^#{1,6}\s*/, '')
+		.replace(/#+\s*$/, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.toLowerCase();
 }
 
 // What a destination is keyed by: the target path, or the view type for a
@@ -159,11 +209,23 @@ export function matchesNavFilter(entry: NavHistoryEntry, query: string): boolean
 	if (entry.kind === 'view') {
 		hay = `${entry.viewType} ${t('navHistory.graphView')}`;
 	} else {
-		const base = entry.path.split('/').pop() ?? entry.path;
+		const base = baseName(entry.path);
 		hay = `${base} ${entry.path} ${entry.st?.anchor ?? ''} ${entry.st?.cursorAnchor ?? ''}`;
 	}
 	hay = hay.toLowerCase();
 	return tokens.every(tok => hay.includes(tok));
+}
+
+// The file-scope filter ("only in this note"): does the entry sit in the file
+// the pinned card shows? `path` is that file's path, or undefined when there is
+// nothing to scope to (an empty history, a pathless view step) — then the scope
+// is inert and lets everything through, so a stale toggle can never blank the
+// list. A view entry has no path, so it never matches: the scope answers "where
+// else in THIS note was I", and a graph step is not a place in a note.
+export function inFileScope(entry: NavHistoryEntry, path: string | undefined): boolean {
+	if (path === undefined)
+		return true;
+	return entry.kind !== 'view' && entry.path === path;
 }
 
 // A row's time label. This is the browser's PRIMARY index: a user recalls
@@ -285,10 +347,6 @@ const PREVIEW_READ_DELAY_MS = 120;
 // How many notes' lines the preview keeps. Each entry is a whole file split
 // into lines, so an unbounded cache pins every note visited in a session.
 const PREVIEW_CACHE_MAX = 8;
-// How many heading trails to keep. Each one is a short array of heading
-// strings; the scan that produces it walks every line above the landing, so
-// on a huge note it is the expensive half of the strip.
-const TRAIL_CACHE_MAX = 64;
 
 // Above this many entries the modal pins its height and scrolls the list
 // inside it (filtering must not resize and re-center the dialog). Below it
@@ -307,6 +365,9 @@ const FIXED_HEIGHT_MIN_ENTRIES = 12;
 //    a re-land of the current position;
 //  - hovering a row previews the landing line and its context, because
 //    recognition beats retrieval for picking a spot in a long note;
+//  - the toolbar can narrow the list to the note the pinned card shows (the
+//    scope), and to matching text; the two compose, and the scope is what makes
+//    "where in this note was I" askable at all;
 //  - choosing an entry time-travels there (NavHistory.jumpTo): the target is
 //    re-pushed on top, so back always returns to where you were.
 // Repeat landings collapse into one row with a ×N count, so the list shows
@@ -327,6 +388,11 @@ export class NavHistoryModal extends Modal {
 	// guessing (a missing entry can be previewed but never selected).
 	private previewed = -1;
 	private filter = '';
+	// The file scope toggle (see inFileScope): off by default, because the
+	// question this panel is opened with is usually "where was I", not "where
+	// in this note was I". Not called `scope`: Modal already owns that name for
+	// its keymap scope, and shadowing it with a boolean does not typecheck.
+	private fileOnly = false;
 	private listEl!: HTMLElement;
 	private hereEl!: HTMLElement;
 	private previewEl!: HTMLElement;
@@ -340,8 +406,9 @@ export class NavHistoryModal extends Modal {
 	// first, so a long session cannot pin note after note in memory.
 	private lines = new Map<string, string[] | null>();
 	private reading = new Set<string>();
-	// `${path}#${line}` → the heading chain above that line.
-	private trails = new Map<string, string[]>();
+	// path → the file's parsed headings. Cheap to hold (tens of small records)
+	// and otherwise re-mapped on every row render.
+	private headings = new Map<string, HeadingRef[] | undefined>();
 	private readTimer: number | undefined;
 	private readPath = '';
 	private closed = false;
@@ -412,7 +479,40 @@ export class NavHistoryModal extends Modal {
 			this.render();
 		});
 		this.filterInput = input;
+		// The file-scope chip sits beside the search box: "where else in this
+		// note was I" is a question the chronological list answers badly, since
+		// a handful of cross-file hops buries a note's own landings. The toggle
+		// only exists when there is a file to scope to (see scopePath), and its
+		// label is the note's name — that is what tells the user which file the
+		// narrowed list is now about.
+		const path = this.scopePath();
+		if (path !== undefined) {
+			const label = bar.createEl('label', { cls: 'position-restore-nav-toggle' });
+			const box = label.createEl('input', { type: 'checkbox' });
+			label.createSpan({ text: t('navHistory.onlyThisFile', baseName(path)) });
+			box.addEventListener('change', () => {
+				this.fileOnly = box.checked;
+				label.toggleClass('is-active', this.fileOnly);
+				this.render();
+				// The search box is this toolbar's keyboard surface and the
+				// modal's keydown handler routes every key through the modal:
+				// a click that narrows the list must not cost the user the
+				// ability to keep typing in it.
+				this.filterInput.focus();
+			});
+		}
 		bar.createSpan({ cls: 'position-restore-nav-hint', text: t('navHistory.keyboardHint') });
+	}
+
+	// The file the scope narrows to: the pinned card's file. A view step (the
+	// graph) has none, and then the chip is not rendered at all rather than
+	// offering a filter that cannot mean anything. The current entry cannot
+	// change while the modal is open (only jump() moves the pointer, and it
+	// closes first), so this is stable for the modal's lifetime — which is why
+	// the chip's label can be built once, with the rest of the toolbar.
+	private scopePath(): string | undefined {
+		const entry = this.nav.entries[this.nav.index];
+		return entry && entry.kind !== 'view' ? entry.path : undefined;
 	}
 
 	private hasFile = (path: string): boolean =>
@@ -468,13 +568,25 @@ export class NavHistoryModal extends Modal {
 		this.visible = [];
 
 		const query = this.filter.trim();
-		const keep = (i: number) => !query || matchesNavFilter(this.nav.entries[i], query);
+		// The scope narrows on the current entry's file; a query narrows on
+		// text. They compose — the answer to "where in this note did 'scroll'
+		// come up" is the intersection, not either half.
+		const path = this.fileOnly ? this.scopePath() : undefined;
+		const keep = (i: number) =>
+			inFileScope(this.nav.entries[i], path)
+			&& (!query || matchesNavFilter(this.nav.entries[i], query));
 		const emitted = this.renderChronological(keep);
 
 		if (emitted === 0)
 			this.listEl.createDiv({
 				cls: 'position-restore-nav-empty',
-				text: query ? t('navHistory.noMatch') : t('navHistory.empty'),
+				// Three different nothings: the query found nothing, the file
+				// scope has nothing left to show, or there is no history at all.
+				text: query
+					? t('navHistory.noMatch')
+					: path !== undefined
+						? t('navHistory.scopeEmpty', baseName(path))
+						: t('navHistory.empty'),
 			});
 		// A row the filter dropped is no longer on screen to be pointed at.
 		if (this.previewed >= 0 && !this.rowEls.has(this.previewed))
@@ -522,6 +634,31 @@ export class NavHistoryModal extends Modal {
 		seg.createDiv({ cls: 'nav-seg-line' });
 	}
 
+	// The heading chain the entry's landing sits in. Empty for a view entry, a
+	// deleted file, or an entry with no recorded line.
+	private trailFor(entry: NavHistoryEntry, d: NavEntryDescription): string[] {
+		if (entry.kind === 'view' || d.missing || d.lineIndex === undefined)
+			return [];
+		return headingTrailAtLine(this.headingsFor(entry.path), d.lineIndex);
+	}
+
+	// The file's parsed headings, mapped once per path. A file Obsidian has
+	// not parsed yet simply has no section chain (the preview's own read still
+	// shows its lines).
+	private headingsFor(path: string): HeadingRef[] | undefined {
+		if (this.headings.has(path))
+			return this.headings.get(path);
+		const file = this.app.vault.getAbstractFileByPath(path);
+		const cache = file instanceof TFile ? this.app.metadataCache?.getFileCache?.(file) : null;
+		const refs = cache?.headings?.map(h => ({
+			heading: h.heading,
+			level: h.level,
+			line: h.position.start.line,
+		}));
+		this.headings.set(path, refs);
+		return refs;
+	}
+
 	// Which tab/pane an entry belongs to, or undefined when its destination
 	// lives in a single leaf (nothing to disambiguate). Rendered in the
 	// preview head, not on the row: a chip in the line-number column pushed
@@ -532,11 +669,12 @@ export class NavHistoryModal extends Modal {
 	}
 
 	// One row: a single entry, or several entries that landed on the same place.
-	// Cells left to right: file | line text | time | type. The file name leads
-	// (it is the identity), the quoted line is what a reader recognizes, and
-	// the time/type are metadata parked on the right — a time column on the
-	// left floated a variable-width label away from the name, and the gap grew
-	// or shrank with the locale and with how old the step was.
+	// Cells left to right: file | line | section | age — note, coordinates,
+	// then where in the note and when. The landing's own text is deliberately
+	// NOT here: as a second line it doubled the row height, and beside the
+	// section it squeezed both into ellipses. The line number is the position
+	// a reader needs at a glance; the words are one hover away in the strip,
+	// and the filter still searches them.
 	// Returns 1 so callers can count what was drawn.
 	private row(indices: number[]): number {
 		const rep = indices[0];
@@ -552,33 +690,37 @@ export class NavHistoryModal extends Modal {
 		}
 
 		row.dataset.rep = String(rep);
-		row.createSpan({ text: d.file, cls: 'nav-row-file' });
+		// A dead step is marked on the name itself: the type column that used
+		// to carry "missing" is gone, and a row a click cannot reach must look
+		// different from one it can.
+		row.createSpan({
+			text: d.file,
+			cls: `nav-row-file${d.missing ? ' is-missing' : ''}`,
+		});
+		// The landing's coordinates. A cell of their own — fixed width, so the
+		// section column starts at the same x on every row no matter how many
+		// digits the line has or whether the row stands for several visits.
 		const pos = row.createDiv({ cls: 'nav-row-pos' });
-		if (d.anchor) {
-			// No tooltip: the text is already the row's recognition cue, and
-			// the preview strip shows the line in context on hover.
-			pos.createSpan({ text: `“${d.anchor}”`, cls: 'nav-row-anchor' });
-		} else if (d.line) {
-			// The line number is a FALLBACK, not a column: neither reading view
-			// nor most people's editor shows line numbers, so "L412" leading a
-			// row reads as noise. It appears only when there is no text to
-			// recognize the spot by (a blank cursor line, an unsettled
-			// landing); the exact line is in the preview strip either way.
+		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
-		} else {
+		else
 			pos.createSpan({ text: '—', cls: 'nav-row-nopos' });
-		}
 		if (indices.length > 1)
 			pos.createSpan({ text: `×${indices.length}`, cls: 'nav-row-count' });
-		row.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
-		// "Missing" always shows — it is the one thing a user must not miss.
-		// A plain open does not: the cell stays empty and the column keeps the
-		// other rows aligned.
-		if (d.missing || !d.plainOpen) {
-			const badge = d.missing ? t('navHistory.missing') : d.type;
-			const badgeCls = d.missing ? ' is-missing' : d.soft ? ' is-soft' : '';
-			row.createSpan({ text: badge, cls: `nav-row-badge${badgeCls}` });
+
+		// The section the landing sits in, deepest one or two levels: the coarse
+		// index that makes a bare line number mean something.
+		// The cell is created even when there is no section, and empty: the row
+		// is a grid of four tracks, so a missing element would let the age slide
+		// one track left into the section column.
+		const trail = rowTrail(this.trailFor(entry, d), d.anchor);
+		const crumb = row.createSpan({ cls: 'nav-row-trail' });
+		for (let i = 0; i < trail.length; i++) {
+			if (i > 0)
+				crumb.createSpan({ text: '›', cls: 'nav-trail-sep' });
+			crumb.createSpan({ text: trail[i] });
 		}
+		row.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
 
 		if (!d.missing) {
 			row.addEventListener('click', () => this.jump(rep));
@@ -605,7 +747,9 @@ export class NavHistoryModal extends Modal {
 
 	// The entry a bare Enter goes to: the newest back entry still on screen.
 	// Opening the panel and hitting Enter is the "take me back" reflex — it
-	// must never re-land the current position.
+	// must never re-land the current position. With the file scope on, "on
+	// screen" means "in this note": the same reflex then reads "back to my
+	// previous spot in this file", which is the whole point of the toggle.
 	private enterTarget(): number {
 		for (const i of this.visible)
 			if (i < this.nav.index)
@@ -665,6 +809,10 @@ export class NavHistoryModal extends Modal {
 		const pane = this.paneName(entry);
 		if (pane)
 			head.createSpan({ text: pane, cls: 'nav-preview-pane', attr: { title: entry.leafId } });
+		// The row's old type column lives here now: how the step was made is
+		// detail, not row furniture.
+		if (!d.missing)
+			head.createSpan({ text: d.type, cls: `nav-preview-type${d.soft ? ' is-soft' : ''}` });
 		if (d.line)
 			head.createSpan({ text: d.line, cls: 'nav-row-line' });
 		head.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
@@ -688,22 +836,9 @@ export class NavHistoryModal extends Modal {
 			return;
 		}
 		// WHICH section the landing sits in is the cue a reader recognizes a
-		// spot by — three raw lines of prose say little on their own. Same
-		// scan the post-restore breadcrumb uses, so both name the section
-		// identically, and it is cached per line: the scan walks every line
-		// above the landing, and the pointer keeps revisiting the same rows.
-		const trailKey = `${entry.path}#${d.lineIndex}`;
-		let trail = this.trails.get(trailKey);
-		if (trail === undefined) {
-			trail = outlinePathAtLine(lines, d.lineIndex);
-			this.trails.set(trailKey, trail);
-			while (this.trails.size > TRAIL_CACHE_MAX) {
-				const oldest = this.trails.keys().next().value;
-				if (oldest === undefined)
-					break;
-				this.trails.delete(oldest);
-			}
-		}
+		// spot by — three raw lines of prose say little on their own. The full
+		// chain here (the row trims it), and it needs no file read.
+		const trail = this.trailFor(entry, d);
 		if (trail.length) {
 			const crumb = box.createDiv({ cls: 'nav-preview-trail' });
 			for (let i = 0; i < trail.length; i++) {

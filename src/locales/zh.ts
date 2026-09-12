@@ -121,8 +121,10 @@ export const zh: En = {
 	'navHistory.graphView': '关系图谱',
 	'navHistory.searchPlaceholder': '按文件或文本过滤…',
 	'navHistory.noMatch': '没有匹配的历史。',
+	// 文件范围开关：把列表收窄到钉顶卡片所示的那篇笔记。
+	'navHistory.onlyThisFile': '只看 {0}',
+	'navHistory.scopeEmpty': '{0} 里没有其他位置。',
 	'navHistory.current': '当前位置',
-	'navHistory.missing': '已删除',
 	'navHistory.empty': '暂无导航历史。',
 
 	// 面板自身：钉顶的「当前位置」卡片、前进/后退分段、键盘提示。

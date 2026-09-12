@@ -136,15 +136,31 @@ body.is-mobile .position-restore-cue {
 	min-width: 0;
 }
 
+/* The file-scope chip. Reads as a filter rather than a setting: while it is
+   on, the label takes the normal text colour so a narrowed list has a visible
+   cause. The note's name is what tells the user WHICH file the list is about,
+   so it ellipsizes rather than pushing the search box out of the toolbar. */
 .position-restore-nav-toggle {
 	display: flex;
 	align-items: center;
 	gap: 5px;
+	flex: 0 0 auto;
+	min-width: 0;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	cursor: pointer;
 	user-select: none;
 	white-space: nowrap;
+}
+
+.position-restore-nav-toggle > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 16em;
+}
+
+.position-restore-nav-toggle.is-active {
+	color: var(--text-normal);
 }
 
 .position-restore-nav-hint {
@@ -211,23 +227,22 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* One row: time | file | line + text | badge. The default (chronological)
-   view shows the file name per row; the grouped view drops that column (its
-   header carries the file) and indents the rows under it. */
+/* One row: file | line | section | age — the note, its coordinates, the
+   section those coordinates fall in, and how long ago. The landing's own text
+   is not here; it is one hover away in the strip. */
 .position-restore-nav-row {
 	display: grid;
-	/* file | line text | time | type. The file track is FIXED (a greedy one
-	   widened with the window and left a gulf before the position) and the
-	   time is max-content: it takes exactly the width its label needs, so no
-	   locale or age leaves a gap, and all the slack goes to the quoted text —
-	   the thing a reader actually scans. Everything before the time is fixed
-	   or greedy, so nothing depends on how wide a label happens to be. */
-	grid-template-columns: 11em minmax(0, 1fr) max-content 3.4em;
-	gap: 8px;
-	align-items: center;
+	/* file and coordinates are FIXED, so the section column starts at the same
+	   x on every row; the section takes the slack (it is the variable-length
+	   text, and slack inside a text column is invisible); the age is
+	   max-content last, so no locale and no label length leaves a gap. The
+	   coordinates are wide enough for the widest "L9999 ×12". */
+	grid-template-columns: 14em 9ch minmax(0, 1fr) max-content;
+	column-gap: 8px;
+	align-items: baseline;
 	white-space: nowrap;
 	overflow: hidden;
-	padding: 5px 8px;
+	padding: 4px 8px;
 	border-radius: var(--radius-s);
 	cursor: pointer;
 }
@@ -252,15 +267,20 @@ body.is-mobile .position-restore-cue {
 	background-color: transparent;
 }
 
-/* Time is the browser's primary index, but it is parked with the other
-   metadata at the right edge: as the last-but-one max-content track it takes
-   exactly its label's width, so a Chinese "刚刚" and an English "just now"
-   both sit flush against the type badge with no gap to trim. */
+/* Time is the browser's primary index, but it is parked at the right edge: as
+   a max-content track it takes exactly its label's width, so a Chinese "刚刚"
+   and an English "just now" both end flush with the row, no gap to trim. */
 .position-restore-nav-row .nav-row-time {
 	color: var(--text-faint);
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
+}
+
+/* A step whose file is gone: the row is inert, so the name itself carries the
+   warning (the type column that used to say "missing" is gone). */
+.position-restore-nav-row .nav-row-file.is-missing {
+	color: var(--text-error);
 }
 
 .position-restore-nav-row .nav-row-file {
@@ -276,8 +296,8 @@ body.is-mobile .position-restore-cue {
 	overflow: hidden;
 }
 
-/* Fallback only: the spot had no text to show (blank cursor line, unsettled
-   landing), so the line number is the one thing left to identify it by. */
+/* Where the restore will land. Monospace and muted: it is a coordinate, not
+   prose, and the section beside it is what gives it meaning. */
 .position-restore-nav-row .nav-row-line {
 	flex: 0 0 auto;
 	font-family: var(--font-monospace);
@@ -285,54 +305,49 @@ body.is-mobile .position-restore-cue {
 	color: var(--text-muted);
 }
 
-.position-restore-nav-row .nav-row-anchor {
-	flex: 0 1 auto;
+/* The section chain, deepest one or two levels: the coarse index a reader
+   scans by. Smaller and muted so the eye can skip it when it is scanning the
+   quoted lines instead. */
+.position-restore-nav-row .nav-row-trail {
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	color: var(--text-normal);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }
 
+.nav-trail-sep {
+	padding: 0 5px;
+	color: var(--text-faint);
+}
 /* No recorded position (a non-markdown view, or an entry the plugin could
-   not read): a faint dash, so the row does not read as a bare type badge. */
+   not read): a faint dash, so the coordinates never read as an empty cell. */
 .position-restore-nav-row .nav-row-nopos {
 	flex: 0 0 auto;
 	color: var(--text-faint);
 }
 
-/* Which tab/pane an entry belongs to, shown only when the same file is held
-   by more than one leaf (where its rows would otherwise be identical). */
-.position-restore-nav-preview .nav-preview-pane {
+/* The strip's metadata tokens: which pane holds the entry, and how the step
+   was made (the row's old type column). */
+.position-restore-nav-preview .nav-preview-pane,
+.position-restore-nav-preview .nav-preview-type {
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 }
 
-/* How many same-landing entries collapsed into this row (grouped view). */
+/* An inferred teleport (not a deliberate jump): dimmer and italic, the cue
+   that once lived on the row's badge. */
+.position-restore-nav-preview .nav-preview-type.is-soft {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+/* How many same-landing entries collapsed into this row. */
 .position-restore-nav-row .nav-row-count {
 	flex: 0 0 auto;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
-}
-
-/* Status column: how the entry was reached, or "missing". Plain text on
-   purpose — it is a label, not a control. */
-.position-restore-nav-row .nav-row-badge {
-	font-size: var(--font-ui-smaller);
-	text-align: center;
-	color: var(--text-muted);
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.position-restore-nav-row .nav-row-badge.is-missing {
-	color: var(--text-error);
-}
-
-/* An inferred teleport (not a deliberate jump): dimmer than the other type
-   badges to signal lower confidence. */
-.position-restore-nav-row .nav-row-badge.is-soft {
-	color: var(--text-faint);
-	font-style: italic;
 }
 
 /* Direction divider between the forward and back halves. */
@@ -379,9 +394,8 @@ body.is-mobile .position-restore-cue {
 	border-top: 1px solid var(--background-modifier-border);
 }
 
-/* The heading chain (outermost first), same scan as the post-restore
-   breadcrumb. The immediate section carries the emphasis: it is the part a
-   reader matches against memory. */
+/* The heading chain (outermost first). The immediate section carries the
+   emphasis: it is the part a reader matches against memory. */
 .position-restore-nav-preview .nav-preview-trail {
 	margin-bottom: 5px;
 	overflow: hidden;
@@ -389,11 +403,6 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
-}
-
-.position-restore-nav-preview .nav-trail-sep {
-	padding: 0 5px;
-	color: var(--text-faint);
 }
 
 .position-restore-nav-preview .nav-trail-deep {
@@ -460,16 +469,12 @@ body.is-mobile .position-restore-cue {
 @media (max-width: 480px) {
 	.position-restore-nav-hint,
 	.position-restore-nav-row .nav-row-time,
-	.position-restore-nav-row .nav-row-line,
-	.position-restore-nav-row .nav-row-badge {
+	.position-restore-nav-row .nav-row-line {
 		display: none;
 	}
 
+	/* Note, coordinates, section — the age is dropped. */
 	.position-restore-nav-row {
-		grid-template-columns: minmax(0, 9em) minmax(0, 1fr);
-	}
-
-	.position-restore-nav-row .nav-row-anchor {
-		white-space: normal;
+		grid-template-columns: 9em 8ch minmax(0, 1fr);
 	}
 }

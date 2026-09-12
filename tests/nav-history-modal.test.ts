@@ -6,8 +6,9 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-	describeNavEntry, destinationKey, mergeByLanding, matchesNavFilter,
-	formatRelativeTime, splitHistorySegments, paneInfo, paneLabel, previewWindow,
+	describeNavEntry, destinationKey, headingTrailAtLine, mergeByLanding, matchesNavFilter,
+	formatRelativeTime, rowTrail, splitHistorySegments, paneInfo, paneLabel, previewWindow,
+	baseName, inFileScope,
 } from '../src/nav-history-modal';
 import { t } from '../src/i18n';
 import { NavHistoryEntry } from '../src/nav-entry';
@@ -29,18 +30,8 @@ describe('describeNavEntry', () => {
 	it('a tab-switch visit (via: switch) gets its own badge', () => {
 		const d = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', via: 'switch' } as NavHistoryEntry, hasFile);
 		expect(d.type).toBe(t('navHistory.type.switch'));
-		expect(d.plainOpen).toBe(false);
 	});
 
-	it('marks a plain file open as the unremarkable one (no badge on the row)', () => {
-		const plain = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
-		expect(plain.plainOpen).toBe(true);
-		// delibate origins keep their label
-		const jump = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:X' } as NavHistoryEntry, hasFile);
-		expect(jump.plainOpen).toBe(false);
-		const teleport = describeNavEntry({ kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 3 } as NavHistoryEntry, hasFile);
-		expect(teleport.plainOpen).toBe(false);
-	});
 
 	it('an edit capture shows the cursor line and the cursor line text', () => {
 		const edit = describeNavEntry({
@@ -206,6 +197,39 @@ describe('matchesNavFilter', () => {
 	});
 });
 
+// The file scope ("only in this note"): the predicate behind the toolbar chip.
+describe('inFileScope', () => {
+	const at = (path: string): NavHistoryEntry => ({ kind: 'visit', path, leafId: 'leaf-1' });
+
+	it('keeps only the entries of the scoped file', () => {
+		expect(inFileScope(at('a.md'), 'a.md')).toBe(true);
+		expect(inFileScope(at('b.md'), 'a.md')).toBe(false);
+	});
+
+	it('compares the whole path, not the basename', () => {
+		// two notes named the same in different folders are different files
+		expect(inFileScope(at('archive/a.md'), 'notes/a.md')).toBe(false);
+	});
+
+	it('is inert without a file to scope to', () => {
+		// an empty history or a pathless view step leaves a stale toggle harmless
+		expect(inFileScope(at('a.md'), undefined)).toBe(true);
+		expect(inFileScope({ kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry, undefined)).toBe(true);
+	});
+
+	it('never matches a view step, which is not a place in a note', () => {
+		const graph = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry;
+		expect(inFileScope(graph, 'a.md')).toBe(false);
+	});
+});
+
+describe('baseName', () => {
+	it('is the last path segment, and the path itself when there is none', () => {
+		expect(baseName('notes/deep/a.md')).toBe('a.md');
+		expect(baseName('a.md')).toBe('a.md');
+	});
+});
+
 // The browser's primary index is TIME, not stack distance: a user remembers
 // "the spot from a few minutes ago", never "three steps back" — which is why
 // the old ±N step counter is gone.
@@ -306,5 +330,40 @@ describe('previewWindow', () => {
 
 	it('an empty document has nothing to preview', () => {
 		expect(previewWindow([], 0)).toEqual([]);
+	});
+});
+
+// The section a landing sits in: the coarse index a reader scans by, and the
+// reason the strip and the rows can name it without reading the file.
+describe('headingTrailAtLine', () => {
+	const h = (heading: string, level: number, line: number) => ({ heading, level, line });
+
+	it('nests by level, outermost first, and stops at the line', () => {
+		const headings = [h('A', 1, 0), h('B', 2, 10), h('C', 3, 20), h('D', 2, 30)];
+		expect(headingTrailAtLine(headings, 25)).toEqual(['A', 'B', 'C']);
+		expect(headingTrailAtLine(headings, 10)).toEqual(['A', 'B']);
+		// a same-or-shallower heading closes the deeper ones
+		expect(headingTrailAtLine(headings, 35)).toEqual(['A', 'D']);
+	});
+
+	it('is empty above the first heading and without headings', () => {
+		expect(headingTrailAtLine([h('A', 1, 5)], 4)).toEqual([]);
+		expect(headingTrailAtLine(undefined, 4)).toEqual([]);
+	});
+});
+
+describe('rowTrail', () => {
+	it('keeps the deepest two levels', () => {
+		expect(rowTrail(['A', 'B', 'C'], undefined)).toEqual(['B', 'C']);
+		expect(rowTrail(['A'], undefined)).toEqual(['A']);
+	});
+
+	it('drops the heading the landing line itself carries', () => {
+		// an outline jump lands ON its heading: the row quotes that text, so
+		// repeating it as a section would say the same thing twice
+		expect(rowTrail(['A', 'B', '决策'], '## 决策')).toEqual(['A', 'B']);
+		expect(rowTrail(['A', 'B', '决策'], '决策')).toEqual(['A', 'B']);
+		// prose that merely mentions the section is not a duplicate
+		expect(rowTrail(['A', 'B'], 'B 的另一半')).toEqual(['A', 'B']);
 	});
 });
