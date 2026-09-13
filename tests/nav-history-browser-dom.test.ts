@@ -1245,6 +1245,22 @@ describe('NavHistoryModal — native page preview', () => {
 		expect(h.trigger).toHaveBeenCalledTimes(2);
 	});
 
+	it('re-arms the section after crossing a non-row area inside the list', () => {
+		// The pointer can leave the section column without leaving the list —
+		// onto a segment header or the bottom padding. Re-entering the SAME
+		// row's section must then ask for the preview again, just as leaving
+		// the list entirely does.
+		const h = harness(at(), 1, doc);
+
+		hover(h.rows()[0]);
+		expect(h.trigger).toHaveBeenCalledTimes(1);
+
+		hover(h.el.querySelector<HTMLElement>('.position-restore-nav-list')!);
+		hover(h.rows()[0]);
+
+		expect(h.trigger).toHaveBeenCalledTimes(2);
+	});
+
 	it('marks the body while it is open, so the popover clears the dialog', () => {
 		// The core popover mounts on the body at --layer-popover (30), under
 		// --layer-modal (50): styles.css needs this class to lift it.

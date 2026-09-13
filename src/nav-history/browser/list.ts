@@ -325,8 +325,14 @@ export class NavHistoryList {
 			return;
 		const row = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.position-restore-nav-row');
 		const rep = row ? Number(row.dataset.rep) : NaN;
-		if (!row || Number.isNaN(rep))
+		if (!row || Number.isNaN(rep)) {
+			// Off any row but still inside the list (a segment header, the
+			// bottom padding): the pointer is no longer on the section column,
+			// so coming back to it must ask for the preview again — the same
+			// re-arm mouseleave does, but for moves that never leave the list.
+			this.trailHover = false;
 			return;
+		}
 		if (rep !== this.previewed) {
 			this.previewed = rep;
 			// The new row has not been pointed at yet: entering its section
