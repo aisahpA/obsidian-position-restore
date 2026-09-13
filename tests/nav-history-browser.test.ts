@@ -202,7 +202,7 @@ describe('matchesNavFilter', () => {
 
 // The file scope ("only in this note"): the predicate behind the toolbar chip.
 describe('inFileScope', () => {
-	const at = (path: string): NavHistoryEntry => ({ kind: 'visit', path, leafId: 'leaf-1' });
+	const at = (path: string): NavHistoryEntry => ({ kind: 'visit', path, leafId: 'leaf-1', t: 0 });
 
 	it('keeps only the entries of the scoped file', () => {
 		expect(inFileScope(at('a.md'), 'a.md')).toBe(true);
