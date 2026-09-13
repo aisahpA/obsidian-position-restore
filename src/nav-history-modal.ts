@@ -1,6 +1,6 @@
-import { App, Editor, HoverPopover, MarkdownView, Modal, Platform, TFile } from 'obsidian';
+import { App, Editor, FileView, HoverPopover, MarkdownView, Modal, Platform, TFile } from 'obsidian';
 import { NavHistory } from './nav-history';
-import { NavHistoryEntry } from './nav-entry';
+import { NavHistoryEntry, RECORDABLE_VIEW_TYPES, isMainAreaLeaf, leafIdOf } from './nav-entry';
 import { EphemeralState } from './types';
 import { t } from './i18n';
 
@@ -15,17 +15,51 @@ export const HOVER_LINK_SOURCE_ID = 'position-restore-nav-history';
 // dialog for exactly as long as this class is present.
 const BODY_OPEN_CLASS = 'position-restore-nav-open';
 
-// Where the native preview should put its left edge, in viewport coordinates.
-// The core plugin aligns its popover's left edge with the anchor's — the row —
-// so left to itself it opens a 450px-wide preview ACROSS the list the user is
-// scanning, and the hover-link payload has no field for the side. It recomputes
-// that position on every show, so the only durable way to say "beside the row,
-// not over it" is a CSS variable that styles.css reads with !important (which
-// beats the inline style the plugin writes).
+// Where the native preview should put its left edge, in viewport coordinates:
+// just right of the SECTION cell the pointer is on (see placePagePreview). The
+// core plugin aligns a popover's left edge with its anchor's — the whole row —
+// so left to itself this 450px panel starts at the row's far edge, up to half a
+// panel away from the text the user is actually pointing at, and the hover-link
+// payload has no field for the side. It recomputes that position on every show,
+// so the only durable way to say where the popover goes is a CSS variable that
+// styles.css reads with !important (which beats the inline style the plugin
+// writes).
 export const POPOVER_LEFT_VAR = '--position-restore-popover-left';
 
-// How far right of the row the preview starts.
+// Where it should put its TOP edge, in viewport coordinates: the pointed-at
+// ROW's own top. The plugin hangs the popover under its anchor row (or bottom-
+// anchors it above), so the panel reads as something that drifted away from the
+// row it describes; the row's top edge keeps the two level, and styles.css'
+// clamp only steps in when the window has no room for the whole preview.
+export const POPOVER_TOP_VAR = '--position-restore-popover-top';
+
+// Put on document.body for as long as the native popover is still building its
+// preview (see holdPreview). styles.css keeps the popover invisible for exactly
+// that long: the plugin draws the top of the note first and applies the landing
+// scroll afterwards, so without the hold the user sees a flash of the file's
+// opening lines before the preview jumps to the row's position.
+export const POPOVER_PENDING_CLASS = 'is-preview-pending';
+
+// How far right of the section cell the preview starts.
 const POPOVER_GAP = 8;
+
+// How long a preview may be held back waiting for its landing scroll to be
+// applied. A file Obsidian never finishes laying out — or an empty one — would
+// otherwise keep the popover invisible for good; past this it is shown as it is.
+const REVEAL_DEADLINE_MS = 1200;
+
+// The class the note renderer puts on the line it scrolled to (and flashes). Its
+// arrival is the popover's "the landing is applied" signal — the only one the
+// plugin offers from outside — and it is written by the same call that positions
+// the preview, so the popover is complete by the time it appears.
+const LANDING_MARK_CLASS = '.is-flashing';
+
+// The field the core popover carries that Obsidian's typings omit: the element
+// it was opened for (the row this browser handed it). The browser needs it to
+// tell ITS popover from one still up for another row, and it is assigned by the
+// plugin at runtime — hoverEl, the element the preview is rendered into, IS
+// typed. Type-only, read-only: the cast never escapes.
+type PopoverRuntime = HoverPopover & { targetEl?: HTMLElement | null };
 
 // The display name of a path: its last segment. What a row labels itself with,
 // and what the file-scope chip names (the full path is the row's hover title).
@@ -41,8 +75,8 @@ export interface NavEntryDescription {
 	title: string;
 	type: string;
 	line?: string;
-	// The same landing line as a 0-based index — what the preview window
-	// reads. `line` stays the display form ('L412').
+	// The same landing line as a 0-based index (what the preview window reads,
+	// and where `line` is computed from). `line` is the display form: "L412".
 	lineIndex?: number;
 	anchor?: string;
 	missing: boolean;
@@ -51,8 +85,9 @@ export interface NavEntryDescription {
 	soft?: boolean;
 }
 
-// The row shows the line the restore lands on plus THAT line's text: a
-// reading capture lands on the viewport top line (its remap anchor), an edit
+// Which line a step lands on, and the text that goes with it (the row shows the
+// number, the preview shows the text): a reading capture lands on the viewport
+// top line (its remap anchor), an edit
 // capture lands on the cursor line (its cursorAnchor — never the viewport
 // top text, a different line; missing for blank cursor lines and legacy
 // entries). An edit capture whose cursor sat OUTSIDE the viewport
@@ -182,9 +217,14 @@ function normalizeHeadingText(text: string): string {
 }
 
 // What a destination is keyed by: the target path, or the view type for a
-// pathless view entry. Used to tell whether a file is held by several panes.
+// pathless view entry. The pane marker keys its live leaves with the same
+// vocabulary (see liveLeaves), so both ends must build the view key here.
+export function viewDestinationKey(viewType: string): string {
+	return `view:${viewType}`;
+}
+
 export function destinationKey(entry: NavHistoryEntry): string {
-	return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
+	return entry.kind === 'view' ? viewDestinationKey(entry.viewType) : entry.path;
 }
 
 // One displayed row: the stack indices it merges (newest first). A row is
@@ -297,50 +337,54 @@ export function splitHistorySegments(
 	return { forward, back };
 }
 
-// Same file, more than one leaf (two tabs or two panes): without a chip the
-// browser's rows for those panes are indistinguishable — and merging them by
-// landing line would make one of them unreachable from the panel. Numbering
-// is per destination and starts at the leaf that was seen first, so a file's
-// panes always read 1..n; `ambiguous` keeps the chip off every other row,
-// where it would be pure noise.
-export interface PaneInfo {
-	labels: Map<string, Map<string, number>>;
-	ambiguous: Set<string>;
+// The main area as the pane marker needs to see it: one record per MAIN-AREA
+// leaf, in layout order, naming the destination that leaf currently shows.
+// Built by the browser from the live workspace (NavHistoryModal.liveLeaves) and
+// never from the history: a recorded leaf id keeps pointing at a tab after that
+// tab has walked to another note ("this leaf also held that file") or after it
+// has been closed, and a number derived from those claims named windows that
+// were not there.
+export interface LiveLeaf {
+	leafId: string;
+	key: string;
 }
 
-export function paneInfo(entries: NavHistoryEntry[]): PaneInfo {
-	const labels = new Map<string, Map<string, number>>();
-	const seen = new Map<string, Set<string>>();
-	for (const entry of entries) {
-		const key = destinationKey(entry);
-		let byLeaf = labels.get(key);
+// Which live leaves hold each destination: leafId → its 1-based rank in layout
+// order. One leaf per destination is the ordinary case and needs no marker; two
+// or more is the case the marker exists for.
+export interface PaneInfo {
+	live: Map<string, Map<string, number>>;
+}
+
+export function paneInfo(live: LiveLeaf[]): PaneInfo {
+	const out = new Map<string, Map<string, number>>();
+	for (const { leafId, key } of live) {
+		let byLeaf = out.get(key);
 		if (!byLeaf) {
 			byLeaf = new Map();
-			labels.set(key, byLeaf);
+			out.set(key, byLeaf);
 		}
-		if (!byLeaf.has(entry.leafId))
-			byLeaf.set(entry.leafId, byLeaf.size + 1);
-		let leaves = seen.get(key);
-		if (!leaves) {
-			leaves = new Set();
-			seen.set(key, leaves);
-		}
-		leaves.add(entry.leafId);
+		if (!byLeaf.has(leafId))
+			byLeaf.set(leafId, byLeaf.size + 1);
 	}
-	const ambiguous = new Set<string>();
-	for (const [key, leaves] of seen)
-		if (leaves.size > 1)
-			ambiguous.add(key);
-	return { labels, ambiguous };
+	return { live: out };
 }
 
-// The chip number for an entry, or undefined when its destination lives in a
-// single leaf (nothing to disambiguate).
-export function paneLabel(info: PaneInfo, entry: NavHistoryEntry): number | undefined {
-	const key = destinationKey(entry);
-	if (!info.ambiguous.has(key))
+// Which of how many for a step, or undefined when there is nothing to
+// disambiguate: fewer than two LIVE leaves hold its destination, or this step's
+// leaf is not one of them (that tab has moved on to another note, or was
+// closed). The number is a property of the current layout, looked up on every
+// render — so it can never outlive the window it names, and it is never off by
+// a tab the user cannot see.
+export function paneLabel(
+	info: PaneInfo,
+	entry: NavHistoryEntry,
+): { n: number; total: number } | undefined {
+	const byLeaf = info.live.get(destinationKey(entry));
+	if (!byLeaf || byLeaf.size < 2)
 		return undefined;
-	return info.labels.get(key)?.get(entry.leafId);
+	const n = byLeaf.get(entry.leafId);
+	return n === undefined ? undefined : { n, total: byLeaf.size };
 }
 
 // One line of the landing preview. num is the 1-based line number as shown.
@@ -383,6 +427,27 @@ const PREVIEW_RADIUS = 3;
 // mostly dead space.
 const FIXED_HEIGHT_MIN_ENTRIES = 12;
 
+// The age column is sized from the labels actually on screen (see
+// fitTimeColumn), clamped to these two pixel bounds: a floor so a list of
+// "just now" rows does not collapse the column, and a ceiling equal to what
+// the old fixed 11ch track reserved, so the fit can only ever take width back.
+const TIME_COL_MIN = 40;
+const TIME_COL_MAX = 112;
+
+// The cap the name column is measured against (see fitNameColumn): the same
+// 16em the name box itself carries in styles.css, so the column can never be
+// wider than a name is allowed to be drawn.
+const NAME_COL_CAP_EM = 16;
+
+// …and the other cap, in share of the panel: however long the longest name is,
+// the section column may not be squeezed out of existence by it. One long title
+// in a narrow window would otherwise take the whole row (the small print keeps
+// its fixed cells, the section collapses to nothing, and the list stops saying
+// WHERE in the note each step was — the half of a row's meaning that is not the
+// name). At the panel's usual width this never binds: 35% of 760px is 266px,
+// above the 16em cap.
+const NAME_COL_WIDTH_SHARE = 0.35;
+
 // "Browse navigation history" modal. A destination picker, laid out around
 // how a user actually gets lost:
 //  - the CURRENT location is a pinned card at the top, so "you are here"
@@ -390,13 +455,16 @@ const FIXED_HEIGHT_MIN_ENTRIES = 12;
 //  - the default list is CHRONOLOGICAL (newest first), split into forward and
 //    back segments around the pinned card, each row labelled with a relative
 //    time — the index a user remembers "where I was" by;
-//  - a bare Enter goes BACK ONE STEP (the reflex that opens this panel), never
-//    a re-land of the current position;
-//  - hovering (or, on a touch device, tapping) a row previews its landing in a
-//    SCROLLING panel beside the list, because recognition beats retrieval for
-//    picking a spot in a long note — and because a panel that reserves its own
-//    column costs the list nothing, it can afford the context a fixed strip at
-//    the bottom could never have;
+//  - Enter acts on the SELECTED row and on nothing else: going back one step
+//    is the app's own back command (a hotkey on the desktop, a named command on
+//    a phone), which needs no panel at all, and the entry it would reach is the
+//    first row of the back segment anyway — visible, and showing where it
+//    lands before the click commits to it;
+//  - picking a spot is by RECOGNITION, never by retrieval, and that is what a
+//    row's hover is for: on a pointing device it asks Obsidian's own page
+//    preview for the whole note (see requestPagePreview), and on a touch device
+//    — where there is no hover — the same information is a panel under the list,
+//    with the tap-to-point model and a button to travel;
 //  - the toolbar can narrow the list to the note the pinned card shows (the
 //    scope), and to matching text; the two compose, and the scope is what makes
 //    "where in this note was I" askable at all;
@@ -412,7 +480,8 @@ export class NavHistoryModal extends Modal {
 	private visible: number[] = [];
 	// Representative stack index → its row element, for selection highlight.
 	private rowEls = new Map<number, HTMLElement>();
-	// Nothing is selected on open: that is what makes Enter mean "go back".
+	// Nothing is selected on open: Enter has nothing to act on until the user
+	// points at a row (arrows, or the pointer on a desktop).
 	private selected = -1;
 	// The row the preview panel describes. Driven by the keyboard selection
 	// AND by pointer movement, so the two never disagree about what is being
@@ -428,8 +497,10 @@ export class NavHistoryModal extends Modal {
 	private listEl!: HTMLElement;
 	private hereEl!: HTMLElement;
 	private previewEl!: HTMLElement;
+	// Where the preview panel waits when it has no row to open under (touch).
+	private previewHost!: HTMLElement;
 	private filterInput!: HTMLInputElement;
-	private panes: PaneInfo = { labels: new Map(), ambiguous: new Set() };
+	private panes: PaneInfo = { live: new Map() };
 	// Per-render describe cache: filtering re-renders on every keystroke, so
 	// the vault lookups behind describeNavEntry are not repeated per row.
 	private descCache = new Map<number, NavEntryDescription>();
@@ -448,11 +519,18 @@ export class NavHistoryModal extends Modal {
 	// its "go there" are the same gesture. Read once, here: the tap semantics
 	// below are the only thing that branches on it.
 	private mobile = Platform.isMobile;
+	// Pointer state for the native preview's trigger area: true while the pointer
+	// sits on the pointed-at row's SECTION column. Kept so the preview is asked
+	// for on entering that column and not on every mousemove inside it.
+	private trailHover = false;
 	// Where the core "Page preview" plugin parks the popover it shows for us
 	// (the HoverParent contract). Declared because Obsidian's Modal is not a
 	// HoverParent in its own typings, even though the plugin assigns this field
 	// at runtime and reads it back to hide its own popover.
 	hoverPopover: HoverPopover | null = null;
+	// The animation frame that watches a held-back preview for its landing (see
+	// holdPreview). One at a time: a new hover supersedes the previous wait.
+	private revealWatch: number | undefined;
 
 	constructor(
 		app: App,
@@ -464,13 +542,17 @@ export class NavHistoryModal extends Modal {
 
 	onOpen() {
 		this.modalEl.addClass('position-restore-nav-modal');
+		// The landing panel is touch-only (see renderPreview): a pointing device
+		// has the native page preview instead. One flag, so the class and the
+		// rendering decision can never disagree.
+		this.modalEl.toggleClass('is-touch', this.mobile);
 		// The native page preview we ask for from a row would otherwise render
 		// behind this dialog (see BODY_OPEN_CLASS).
 		document.body.addClass(BODY_OPEN_CLASS);
-		// A resting place for the preview's left edge: without a value the
-		// stylesheet's clamp would pin the first popover to the window's left
-		// edge before any row has been pointed at.
-		this.placePagePreview(this.modalEl);
+		// A resting place for the preview's edges: without a value the
+		// stylesheet's clamp would pin the first popover to the window's corner
+		// before any row has been pointed at.
+		this.placePagePreview(null);
 		// The modal is sized in % of the window, so a resize moves the rows the
 		// preview is placed against; the core plugin re-runs its own placement
 		// on resize, and this keeps OUR coordinate in step with it.
@@ -485,38 +567,148 @@ export class NavHistoryModal extends Modal {
 		this.modalEl.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 		this.toolbar();
 		this.hereEl = this.contentEl.createDiv({ cls: 'position-restore-nav-here' });
-		// The list and the preview share a row (see styles.css): the list takes
-		// the slack, the preview keeps a fixed width of its own. On a narrow
-		// pane the same two elements stack instead, preview underneath.
+		// The list, and the landing panel. It starts out beside the list, but on
+		// a touch device it does not stay there: it opens UNDER the selected row,
+		// inside the list's own scroll (see renderPreview) — a panel parked at
+		// the bottom of the dialog runs out of room the moment there is history
+		// to scroll, and then the one control that can travel with a finger (its
+		// "jump here" button) is off-screen.
 		const body = this.contentEl.createDiv({ cls: 'position-restore-nav-body' });
 		this.listEl = body.createDiv({ cls: 'position-restore-nav-list' });
 		// Pointer movement is the only hover signal — see onListHover.
 		this.listEl.addEventListener('mousemove', (ev) => this.onListHover(ev));
+		// Leaving the list ends the pointer's stay on the section column: coming
+		// back to the same section must ask for the preview again.
+		this.listEl.addEventListener('mouseleave', () => {
+			this.trailHover = false;
+		});
+		// The popover is anchored to the row's own top edge (see
+		// placePagePreview), so scrolling the list while one is up moves the row
+		// out from under it. Only re-placed while a popover is actually showing:
+		// otherwise this would write the body's style on every wheel tick.
+		this.listEl.addEventListener('scroll', () => {
+			const target = this.shownPopover()?.targetEl;
+			if (target)
+				this.placePagePreview(target);
+		});
 		this.previewEl = body.createDiv({ cls: 'position-restore-nav-preview' });
+		// Where the panel waits while it has no row to open under.
+		this.previewHost = body;
 		this.render();
-		if (this.nav.entries.length > 0)
+		// A touch device raises its on-screen keyboard the moment an input takes
+		// focus, and the keyboard covers half of a small screen — the panel's
+		// whole reason for being is the list under it. So on touch the box stays
+		// unfocused (one tap away, when the user actually means to type); on a
+		// pointing device the keyboard costs nothing and typing is the fastest
+		// way through the list, so it keeps the focus.
+		if (!this.mobile && this.nav.entries.length > 0)
 			this.filterInput.focus();
 	}
 
 	onClose() {
 		this.closed = true;
 		this.cancelRead();
+		this.revealPreview();
 		document.body.removeClass(BODY_OPEN_CLASS);
 		document.body.style.removeProperty(POPOVER_LEFT_VAR);
+		document.body.style.removeProperty(POPOVER_TOP_VAR);
 		window.removeEventListener('resize', this.onWindowResize);
 	}
 
 	private onWindowResize = (): void => {
-		const row = this.rowEls.get(this.previewed);
-		this.placePagePreview(row ?? this.modalEl);
+		this.placePagePreview(this.rowEls.get(this.previewed) ?? null);
+		// The labels did not change with the window, but their font may have.
+		this.fitColumns();
 	};
 
-	// Tell the stylesheet where the native preview may start: just right of the
-	// anchor, in viewport coordinates. The clamp that keeps it on screen lives
-	// in styles.css, next to the rule that consumes the value.
-	private placePagePreview(anchor: HTMLElement): void {
-		const right = anchor.getBoundingClientRect().right;
-		document.body.style.setProperty(POPOVER_LEFT_VAR, `${right + POPOVER_GAP}px`);
+	// One of the row's columns (the name's) is not sized by the stylesheet but
+	// measured here, because a column that has to come out IDENTICAL on every row
+	// cannot be sized by the content of one row: every row is its own grid, so
+	// `max-content` would give each row its own width and the section would start
+	// at a different x on each line. The age is measured for the same reason.
+	private fitColumns(): void {
+		// The touch layout gives the name and the section a line of their own
+		// (see styles.css), so there is no column to align and nothing to measure
+		// on a phone.
+		if (!this.mobile)
+			this.fitNameColumn();
+		this.fitTimeColumn();
+	}
+
+	// The width of an element's TEXT — not of the element, which may already be
+	// clipped by its own cap — in px. Range.getBoundingClientRect is missing in
+	// jsdom, and there is no layout at all there, so 0 means "no measurement".
+	private textWidth(el: HTMLElement): number {
+		const range = document.createRange();
+		range.selectNodeContents(el);
+		if (typeof range.getBoundingClientRect !== 'function')
+			return 0;
+		return range.getBoundingClientRect().width;
+	}
+
+	// The name column is the widest name ON SCREEN: the section then starts at
+	// the same x on every row, which is the column the eye runs down. It has no
+	// floor — a list of one-word names gets a one-word column — but it has two
+	// ceilings: the name's own cap (16em, see .nav-row-name) and a share of the
+	// panel, so the section cannot be squeezed out entirely. The measurement is
+	// of the TEXT, which may be longer than the box it is drawn in, so without
+	// either one long title would push the section of every row off the panel.
+	// Where there is no measurement at all the property is left unset and the
+	// stylesheet's `max-content` fallback stands — never 0px, which would erase
+	// the names.
+	private fitNameColumn(): void {
+		let widest = 0;
+		let cap = 0;
+		// Scoped to ROWS: on touch the landing panel lives inside the list too,
+		// and its own copies of these cells are not columns of it.
+		for (const el of Array.from(this.listEl.querySelectorAll<HTMLElement>('.position-restore-nav-row .nav-row-name'))) {
+			widest = Math.max(widest, this.textWidth(el));
+			const size = parseFloat(window.getComputedStyle(el).fontSize);
+			if (Number.isFinite(size))
+				cap = Math.max(cap, size * NAME_COL_CAP_EM);
+		}
+		if (widest <= 0) {
+			this.listEl.style.removeProperty('--nav-name-col');
+			return;
+		}
+		// 0 before the first layout (jsdom, or the frame the list is built in):
+		// the share is simply not applied then.
+		const share = this.listEl.clientWidth * NAME_COL_WIDTH_SHARE;
+		const width = Math.ceil(Math.min(widest, cap > 0 ? cap : widest, share > 0 ? share : widest));
+		this.listEl.style.setProperty('--nav-name-col', `${width}px`);
+	}
+
+	// The age column is as wide as the widest age ON SCREEN, not as wide as a
+	// guess: the fixed 11ch track it replaces reserved 111px in the row's font,
+	// which is more than twice what a Chinese label needs ("3 分钟前" is 50px) —
+	// and because the age is right-aligned, every spare pixel of it showed up as
+	// a gap between the coordinate and the time. Measuring keeps the column
+	// uniform (so the ages and the whole small-print strip still line up as
+	// columns) without reserving room nothing uses. Where there is no layout
+	// engine at all (jsdom), the measurement reads 0 and the clamp's floor
+	// stands.
+	private fitTimeColumn(): void {
+		let widest = 0;
+		for (const el of Array.from(this.listEl.querySelectorAll<HTMLElement>('.position-restore-nav-row .nav-row-time')))
+			widest = Math.max(widest, this.textWidth(el));
+		const width = Math.min(TIME_COL_MAX, Math.max(TIME_COL_MIN, Math.ceil(widest)));
+		this.listEl.style.setProperty('--nav-time-col', `${width}px`);
+	}
+
+	// Tell the stylesheet where the native preview goes: its LEFT edge just right
+	// of the section cell the pointer is on — the column a row's hover preview
+	// belongs to, and the part a reader points at to confirm a spot — and its TOP
+	// edge level with the row itself, both in viewport coordinates. The plugin's
+	// own placement aligns the popover with the whole row and hangs it below, so
+	// a row whose section sits at the panel's left put the preview half a panel
+	// down and to the right of the text being pointed at. No row (before any
+	// hover, or after a filter dropped the pointed-at one) → the dialog itself is
+	// the resting anchor.
+	private placePagePreview(row?: HTMLElement | null): void {
+		const anchor = row ?? this.modalEl;
+		const cell = row?.querySelector<HTMLElement>('.nav-row-trail') ?? anchor;
+		document.body.style.setProperty(POPOVER_LEFT_VAR, `${cell.getBoundingClientRect().right + POPOVER_GAP}px`);
+		document.body.style.setProperty(POPOVER_TOP_VAR, `${anchor.getBoundingClientRect().top}px`);
 	}
 
 	private onKeyDown(ev: KeyboardEvent): void {
@@ -527,11 +719,14 @@ export class NavHistoryModal extends Modal {
 			ev.preventDefault();
 			this.move(-1);
 		} else if (ev.key === 'Enter') {
-			const target = this.selected >= 0 ? this.selected : this.enterTarget();
-			if (target < 0)
+			// The selection is the whole story: with nothing pointed at, Enter has
+			// nothing to do. (It used to fall back to "go back one step", which
+			// made one key mean two things depending on whether the pointer had
+			// crossed a row — and duplicated the app's own back command.)
+			if (this.selected < 0)
 				return;
 			ev.preventDefault();
-			this.jump(target);
+			this.jump(this.selected);
 		}
 	}
 
@@ -546,22 +741,31 @@ export class NavHistoryModal extends Modal {
 		});
 		input.addEventListener('input', () => {
 			this.filter = input.value;
-			// The pinned card's Enter hint depends on what the filter leaves
-			// visible, so the whole body re-renders (the toolbar does not).
+			// The list, the card's age and the panel all follow the filter, so the
+			// whole body re-renders (the toolbar does not).
 			this.render();
 		});
 		this.filterInput = input;
 		// The file-scope chip sits beside the search box: "where else in this
 		// note was I" is a question the chronological list answers badly, since
 		// a handful of cross-file hops buries a note's own landings. The toggle
-		// only exists when there is a file to scope to (see scopePath), and its
-		// label is the note's name — that is what tells the user which file the
-		// narrowed list is now about.
+		// only exists when there is a file to scope to (see scopePath).
+		//
+		// The label names the ACTION, not the file: a fixed string is what keeps
+		// the chip's width predictable (a long note name used to ellipsize it,
+		// and in a short window it competed with the search box for the row — see
+		// styles.css), and "this note" says exactly what the scope means, because
+		// the scope IS the file the pinned card below shows. Which file that is
+		// is carried by the tooltip, so a narrowed list can still be explained
+		// without spending a variable-width label on the name.
 		const path = this.scopePath();
 		if (path !== undefined) {
-			const label = bar.createEl('label', { cls: 'position-restore-nav-toggle' });
+			const label = bar.createEl('label', {
+				cls: 'position-restore-nav-toggle',
+				title: t('navHistory.onlyThisFileTip', baseName(path)),
+			});
 			const box = label.createEl('input', { type: 'checkbox' });
-			label.createSpan({ text: t('navHistory.onlyThisFile', baseName(path)) });
+			label.createSpan({ text: t('navHistory.onlyThisFile') });
 			box.addEventListener('change', () => {
 				this.fileOnly = box.checked;
 				label.toggleClass('is-active', this.fileOnly);
@@ -569,11 +773,19 @@ export class NavHistoryModal extends Modal {
 				// The search box is this toolbar's keyboard surface and the
 				// modal's keydown handler routes every key through the modal:
 				// a click that narrows the list must not cost the user the
-				// ability to keep typing in it.
-				this.filterInput.focus();
+				// ability to keep typing in it. On touch, though, taking the
+				// focus IS the cost — it raises the on-screen keyboard over the
+				// list the user is narrowing, so the box is left alone there.
+				if (!this.mobile)
+					this.filterInput.focus();
 			});
 		}
-		bar.createSpan({ cls: 'position-restore-nav-hint', text: t('navHistory.keyboardHint') });
+		// What the panel can be driven by is the whole difference between the two
+		// devices: a keyboard on one, a finger on the other.
+		bar.createSpan({
+			cls: 'position-restore-nav-hint',
+			text: t(this.mobile ? 'navHistory.touchHint' : 'navHistory.keyboardHint'),
+		});
 	}
 
 	// The file the scope narrows to: the pinned card's file. A view step (the
@@ -600,15 +812,20 @@ export class NavHistoryModal extends Modal {
 	}
 
 	private render(): void {
-		this.panes = paneInfo(this.nav.entries);
-		// The list first: the pinned card's Enter hint depends on what the
-		// current filter leaves selectable (this.visible).
+		this.panes = paneInfo(this.liveLeaves());
+		// The list first (it rebuilds rows, the selection and the panel), then the
+		// card and the panel around it.
 		this.renderList();
 		this.renderHere();
 		this.renderPreview();
 	}
 
-	// The pinned "you are here" card: the one entry the list never shows.
+	// The pinned "you are here" card: the one entry the list never shows. It is
+	// an INDICATOR, not a control: it used to be tappable (to go back one step on
+	// touch, to re-apply the current position on a desktop), and neither earned
+	// its place — going back one step is the app's own back command, which needs
+	// no panel at all, and re-applying where you already are is what closing the
+	// dialog does. Both cost a hint line over the list.
 	private renderHere(): void {
 		const card = this.hereEl;
 		card.empty();
@@ -625,10 +842,6 @@ export class NavHistoryModal extends Modal {
 			main.createSpan({ text: d.line, cls: 'nav-row-line' });
 		if (d.anchor)
 			main.createSpan({ text: `“${d.anchor}”`, cls: 'nav-here-anchor' });
-		// Only promise the bare-Enter shortcut when it can actually fire.
-		if (this.enterTarget() >= 0)
-			card.createDiv({ cls: 'nav-here-hint', text: t('navHistory.enterBack') });
-		card.addEventListener('click', () => this.jump(this.nav.index));
 	}
 
 	// (Re)draw the list only; the toolbar/here-card/preview persist around it.
@@ -638,6 +851,8 @@ export class NavHistoryModal extends Modal {
 		this.descCache.clear();
 		this.rowEls = new Map();
 		this.visible = [];
+		// The cells these flags described are gone with the old rows.
+		this.trailHover = false;
 
 		const query = this.filter.trim();
 		// The scope narrows on the current entry's file; a query narrows on
@@ -666,6 +881,9 @@ export class NavHistoryModal extends Modal {
 		// Re-apply the selection: the element it pointed at is gone.
 		this.selected = -1;
 		this.select(keepSelected);
+		// The columns are sized from the rows on screen, and a filter leaves
+		// different names and different ages on screen.
+		this.fitColumns();
 	}
 
 	// Everything except the current entry, newest first, split into the
@@ -731,25 +949,59 @@ export class NavHistoryModal extends Modal {
 		return refs;
 	}
 
-	// Which tab/pane an entry belongs to, or undefined when its destination
-	// lives in a single leaf (nothing to disambiguate). On a row it is a SUFFIX
-	// of the file cell, never a cell of its own: a chip in the line-number
-	// column pushed that column's left edge around and made the list hard to
-	// scan. It belongs on the row at all because two panes of one file are
-	// otherwise identical rows — and telling those apart is exactly what
-	// decides which row to pick.
+	// Which live tab/pane an entry belongs to, or undefined when there is
+	// nothing to disambiguate (see paneLabel). It belongs on the row because two
+	// tabs of one file are otherwise identical rows — and telling those apart is
+	// what decides which row to pick — but it is only ever a claim about what is
+	// open NOW, which is why it is looked up from the workspace rather than read
+	// off the entry.
 	private paneName(entry: NavHistoryEntry): string | undefined {
-		const n = paneLabel(this.panes, entry);
-		return n === undefined ? undefined : t('navHistory.pane', n);
+		const label = paneLabel(this.panes, entry);
+		if (!label)
+			return undefined;
+		// "2/3" — which of how many, in three characters: the word ("Pane",
+		// "窗格") was the widest thing in the row's quiet zone and said nothing
+		// the two numbers do not.
+		return t('navHistory.pane', label.n, label.total);
+	}
+
+	// The main area as it stands right now: every main-area leaf, in the
+	// layout order iterateAllLeaves yields, with the destination it currently
+	// shows. This — not the recorded leaf ids — is what the pane marker is
+	// derived from (see paneInfo for why): one tab walks through many notes, and
+	// closing a tab leaves its entries behind, so a history-derived number named
+	// windows the user could not see. Rebuilt per render, so the marker follows
+	// the layout.
+	private liveLeaves(): LiveLeaf[] {
+		const live: LiveLeaf[] = [];
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			// A sidebar panel holding the tracked note is not a second window of
+			// it for this purpose: it is not a tab the reader switches between,
+			// and the history never records it either.
+			if (!isMainAreaLeaf(this.app, leaf))
+				return;
+			const view = leaf.view;
+			if (view instanceof FileView) {
+				if (view.file)
+					live.push({ leafId: leafIdOf(leaf), key: view.file.path });
+				return;
+			}
+			const viewType = view?.getViewType();
+			if (viewType && RECORDABLE_VIEW_TYPES.has(viewType))
+				live.push({ leafId: leafIdOf(leaf), key: viewDestinationKey(viewType) });
+		});
+		return live;
 	}
 
 	// One row: a single entry, or several entries that landed on the same place.
-	// Cells left to right: file | section | line | age — the note, where in it,
-	// its exact coordinate, and when. Only what decides WHICH row goes here; how
-	// the step was made (open/switch/link/outline) is confirmation, not
-	// selection, and lives in the preview panel's head. The landing's own text
-	// is deliberately NOT here either: as a second line it doubled the row
-	// height, and beside the section it squeezed both into ellipses.
+	// What the row SAYS is the note and where in it, so those two sit together at
+	// the front (file | section); the small print (×N, pane, coordinate, age) is
+	// one block — a strip at the row's right edge on a pointing device, a second
+	// line on a phone (see .nav-row-meta). Only what decides WHICH row goes here;
+	// how the step was made (open/switch/link/outline) is confirmation, not
+	// selection, and lives in the preview panel's head. The landing's own text is
+	// deliberately NOT here either: as a second line it doubled the row height,
+	// and beside the section it squeezed both into ellipses.
 	// Returns 1 so callers can count what was drawn.
 	private row(indices: number[]): number {
 		const rep = indices[0];
@@ -772,16 +1024,14 @@ export class NavHistoryModal extends Modal {
 			cls: `nav-row-file${d.missing ? ' is-missing' : ''}`,
 		});
 		file.createSpan({ text: d.file, cls: 'nav-row-name' });
-		const pane = this.paneName(entry);
-		if (pane)
-			file.createSpan({ text: pane, cls: 'nav-row-pane' });
 
 		// The section the landing sits in, deepest one or two levels: the coarse
-		// index that makes a bare line number mean something — and the part a
-		// reader matches against memory, so it comes before the number.
+		// index a reader matches against memory, and the second half of what the
+		// row says. It follows the name immediately — a fixed-width name column
+		// left a hole in the middle of every row with a short name.
 		// The cell is created even when there is no section, and empty: the row
-		// is a grid of four tracks, so a missing element would let later cells
-		// slide one track left.
+		// is a grid of tracks, so a missing element would let later cells slide
+		// one track left.
 		const trail = rowTrail(this.trailFor(entry, d), d.anchor);
 		const crumb = row.createSpan({ cls: 'nav-row-trail' });
 		for (let i = 0; i < trail.length; i++) {
@@ -790,22 +1040,44 @@ export class NavHistoryModal extends Modal {
 			crumb.createSpan({ text: trail[i] });
 		}
 
-		// The landing's coordinates. Still a cell of their own — the number is
-		// what the eye lands on after the section, and a fixed track keeps a
-		// column of them aligned (see styles.css for the age's own fixed track,
-		// which is what makes that possible now that the number sits before it).
-		const pos = row.createDiv({ cls: 'nav-row-pos' });
+		// The small print — how many steps this row stands for, which pane of the
+		// file it came from, the coordinate it lands on, and when: row identity
+		// rather than row content, all of it faint, all of it in one element so
+		// that the two layouts can place it as a block. On a pointing device it
+		// is a strip at the row's right edge, its four cells of fixed width
+		// right-aligned inside it so they line up as columns down the list; on a
+		// phone it is the row's second line, starting at the row's left edge
+		// under the name (see styles.css). Either way every cell is created even
+		// when it has nothing to say — the cells are fixed columns, and a missing
+		// element would let the ones after it slide one column left (the age into
+		// the count's slot). A pair is not worth a chip: "×2" is the commonest
+		// count and the emptiest of them, so the count starts at three and below
+		// that the row simply is what it is.
+		const meta = row.createDiv({ cls: 'nav-row-meta' });
+		const count = meta.createSpan({ cls: 'nav-row-count' });
+		if (indices.length >= 3)
+			count.setText(`×${indices.length}`);
+		const pane = meta.createSpan({ cls: 'nav-row-pane' });
+		const paneLabel = this.paneName(entry);
+		if (paneLabel)
+			pane.setText(paneLabel);
+		const pos = meta.createDiv({ cls: 'nav-row-pos' });
 		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
 		else
 			pos.createSpan({ text: '—', cls: 'nav-row-nopos' });
-		if (indices.length > 1)
-			pos.createSpan({ text: `×${indices.length}`, cls: 'nav-row-count' });
-		row.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
+
+		meta.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
 
 		if (!d.missing) {
 			row.addEventListener('click', () => this.onRowClick(rep));
 			this.visible.push(rep);
+		} else if (this.mobile) {
+			// A dead step stays inert as a jump target, but on a touch device the
+			// tap has to be able to ask for its panel: that panel is where "this
+			// file is gone" is written, and there is no hover to ask with. The
+			// panel grows no jump button for it (see renderPreview).
+			row.addEventListener('click', () => this.onRowClick(rep));
 		}
 		// Every merged alias resolves to this element, so a preview or a
 		// selection that lands on a duplicate still finds its row.
@@ -826,18 +1098,6 @@ export class NavHistoryModal extends Modal {
 		this.select(this.visible[(at + d + n) % n]);
 	}
 
-	// The entry a bare Enter goes to: the newest back entry still on screen.
-	// Opening the panel and hitting Enter is the "take me back" reflex — it
-	// must never re-land the current position. With the file scope on, "on
-	// screen" means "in this note": the same reflex then reads "back to my
-	// previous spot in this file", which is the whole point of the toggle.
-	private enterTarget(): number {
-		for (const i of this.visible)
-			if (i < this.nav.index)
-				return i;
-		return -1;
-	}
-
 	// Highlight + reveal the row holding stack index i, and point the preview
 	// at it: the outline, the strip and Enter always describe the same row. A
 	// hidden selection clears to -1 so the next arrow starts from an end.
@@ -852,6 +1112,11 @@ export class NavHistoryModal extends Modal {
 			el?.scrollIntoView({ block: 'nearest' });
 		}
 		this.renderPreview();
+		// On touch the panel hangs BELOW that row (see renderPreview), so the row
+		// alone being on screen is not enough: the panel is where the button that
+		// travels with a finger lives, and it must not open off the bottom edge.
+		if (this.mobile && this.selected >= 0)
+			this.previewEl.scrollIntoView({ block: 'nearest' });
 	}
 
 	// Real pointer movement over the list, hit-tested to a row. mouseenter is
@@ -859,40 +1124,85 @@ export class NavHistoryModal extends Modal {
 	// browser synthesises mouseenter for whatever lands under a stationary
 	// pointer — which would steal the keyboard selection and silently
 	// retarget Enter. Only movement the user actually made counts.
+	// A touch device has no hover at all, and there this listener must stay out
+	// of the way: a tap on the section column (the column below, the one part of
+	// a row that does something a click does not) makes the WebView fire a
+	// mousemove before the click, which pointed the panel at the row and asked
+	// the core page preview for a popover — under the finger that opened it, so
+	// tapping that column behaved nothing like tapping the rest of the row, and
+	// the synthesized selection made the tap's click read as "close this row
+	// again". Touch drives this panel with clicks alone.
 	private onListHover(ev: MouseEvent): void {
+		if (this.mobile)
+			return;
 		const row = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.position-restore-nav-row');
 		const rep = row ? Number(row.dataset.rep) : NaN;
-		if (!row || Number.isNaN(rep) || rep === this.previewed)
+		if (!row || Number.isNaN(rep))
 			return;
-		this.previewed = rep;
-		// A missing file cannot be selected (Enter must never target it), but
-		// its row still previews — the panel is where "deleted" is explained.
-		if (this.visible.includes(rep)) {
-			this.select(rep);
-			this.requestPagePreview(ev, row, rep);
-		} else {
-			this.renderPreview();
+		if (rep !== this.previewed) {
+			this.previewed = rep;
+			// The new row has not been pointed at yet: entering its section
+			// column is what asks for a preview.
+			this.trailHover = false;
+			// A missing file cannot be selected (Enter must never target it), but
+			// its row still previews — the panel is where "deleted" is explained.
+			if (this.visible.includes(rep))
+				this.select(rep);
+			else
+				this.renderPreview();
 		}
+		// The whole note is previewed from the SECTION column alone: pointing at
+		// a row selects it (and a click travels there), but throwing a whole-note
+		// popover over the list every time the pointer crosses a row made the
+		// list unusable for the scanning it is there for. The section is also the
+		// part a reader points at to confirm a spot.
+		const onTrail = this.overTrail(ev, row);
+		if (onTrail && !this.trailHover && this.visible.includes(rep))
+			this.requestPagePreview(ev, row, rep);
+		this.trailHover = onTrail;
+	}
+
+	// Whether the pointer is over the section column — the row's preview target.
+	// Tested by X rather than by DOM containment: a note without headings still
+	// has the cell (the row's grid needs it), but an empty cell has no height to
+	// be hit-tested on, while its column is exactly the strip a user points at.
+	private overTrail(ev: MouseEvent, row: HTMLElement): boolean {
+		const cell = row.querySelector<HTMLElement>('.nav-row-trail');
+		if (!cell)
+			return false;
+		const box = cell.getBoundingClientRect();
+		return ev.clientX >= box.left && ev.clientX <= box.right;
 	}
 
 	// Hand the pointed-at row to Obsidian's OWN page preview — the core "Page
 	// preview" plugin listens for this event and shows a popover holding the
 	// file's real preview view, which is the same thing ⌘/Ctrl + hovering a link
 	// gives: the whole note, native scrolling, its own sizing. We only ANNOUNCE
-	// the hover. Whether a preview appears, how big it is, how long it survives
-	// and whether the Mod key is required are the plugin's business — that last
-	// one is configured per source, under the id registered in main.ts.
+	// the hover, and only from the row's section column (see onListHover).
+	// Whether a preview appears, how big it is, how long it survives and whether
+	// the Mod key is required are the plugin's business — that last one is
+	// configured per source, under the id registered in main.ts.
 	// `state` carries the landing line, so the preview opens at the spot the row
-	// promises rather than at the top of the file.
+	// promises rather than at the top of the file — and because the plugin draws
+	// the note before it applies that line, a row WITH a landing is held back
+	// until the scroll has landed (see holdPreview).
 	private requestPagePreview(ev: MouseEvent, row: HTMLElement, rep: number): void {
 		const entry = this.nav.entries[rep];
 		if (entry.kind === 'view')
 			return;
-		// The plugin aligns the popover's left edge with the anchor's, which
-		// would cover the list; say where it should go instead (and re-say it on
-		// every hover, because the plugin rewrites the position each time).
+		// The plugin aligns the popover with the anchor rather than with the
+		// section cell, and hangs it below the row; say where it goes instead
+		// (and re-say it on every hover, because the plugin rewrites the
+		// position each time).
 		this.placePagePreview(row);
 		const d = this.describe(rep);
+		if (d.lineIndex === undefined)
+			// A row with no landing opens at the top of the file by design, so
+			// there is no jump to hide — and a hold left over from a previous row
+			// must not outlive this preview.
+			this.revealPreview();
+		else
+			this.holdPreview(row);
 		this.app.workspace.trigger('hover-link', {
 			event: ev,
 			source: HOVER_LINK_SOURCE_ID,
@@ -904,23 +1214,96 @@ export class NavHistoryModal extends Modal {
 		});
 	}
 
-	// The preview panel: where the pointed-at row sits (path, pane, type, line,
+	// The popover the plugin is currently showing for us, seen through the one
+	// runtime field Obsidian's typings omit (see PopoverRuntime). A plain
+	// assignment rather than a cast: that type only ADDS an optional field, so
+	// the plugin's own type already satisfies it.
+	private shownPopover(): PopoverRuntime | null {
+		return this.hoverPopover;
+	}
+
+	// Hold the native popover invisible until the landing has been applied. The
+	// plugin renders the whole note first and only then scrolls to the line (its
+	// note renderer retries until the text is laid out), so left alone the user
+	// sees a flash of the file's opening lines and then a jump. The renderer
+	// marks the line it scrolled to (.is-flashing) in the same call that puts the
+	// preview in place, so that mark appearing is the "ready" signal.
+	// Two cases have nothing to wait for and are not held:
+	//   - the row has no landing (see requestPagePreview);
+	//   - the plugin answers with the popover it is ALREADY showing for this row
+	//     (onHoverLink returns early for the same targetEl): nothing is rebuilt,
+	//     so there is no flash to hide and holding would only delay a preview
+	//     that is already in place.
+	private holdPreview(row: HTMLElement): void {
+		if (this.shownPopover()?.targetEl === row)
+			return;
+		this.stopRevealWatch();
+		document.body.addClass(POPOVER_PENDING_CLASS);
+		const deadline = Date.now() + REVEAL_DEADLINE_MS;
+		const step = (): void => {
+			this.revealWatch = undefined;
+			const pop = this.shownPopover();
+			const landed = pop?.targetEl === row
+				&& !!pop.hoverEl?.querySelector(LANDING_MARK_CLASS);
+			// The wait is over when the landing is on screen, when the browser
+			// closed, or when the deadline says the preview is never going to
+			// report one.
+			if (landed || this.closed || Date.now() >= deadline)
+				this.revealPreview();
+			else
+				this.revealWatch = window.requestAnimationFrame(step);
+		};
+		this.revealWatch = window.requestAnimationFrame(step);
+	}
+
+	// Let a held-back preview through again. Idempotent: it runs on the landing,
+	// on close, when the wait runs out, and before a preview with nothing to wait
+	// for.
+	private revealPreview(): void {
+		this.stopRevealWatch();
+		document.body.removeClass(POPOVER_PENDING_CLASS);
+	}
+
+	private stopRevealWatch(): void {
+		if (this.revealWatch === undefined)
+			return;
+		window.cancelAnimationFrame(this.revealWatch);
+		this.revealWatch = undefined;
+	}
+
+	// The landing panel: where the pointed-at row sits (path, pane, type, line,
 	// age), the heading chain it sits under, and the landing line with its
 	// neighbours. Nothing when nothing is pointed at, rather than guessing.
+	// TOUCH ONLY: on a pointing device the same hover asks the core page preview
+	// for the whole note instead (see requestPagePreview), and rendering a panel
+	// nobody can see would still cost a file read per hovered row.
+	// It opens UNDER the selected row, in the list's own scroll flow. Parked at
+	// the bottom of the dialog (where it used to live) it lost the fight for
+	// height the moment there was history to scroll — and a panel nobody can see
+	// is a "jump here" button nobody can tap. Inside the list it is always one
+	// flick away from the row that opened it, and select() brings it into view.
 	private renderPreview(): void {
+		if (!this.mobile)
+			return;
 		const box = this.previewEl;
 		box.empty();
 		const entry = this.nav.entries[this.previewed];
-		if (!entry) {
-			box.createDiv({ cls: 'nav-preview-note', text: t('navHistory.preview.idle') });
+		const row = entry ? this.rowEls.get(this.previewed) : undefined;
+		if (!entry || !row) {
+			// Nothing pointed at, or the filter took its row away: the panel has
+			// no row to open under, so it waits out of the way.
+			this.previewHost.appendChild(box);
+			box.addClass('is-parked');
 			return;
 		}
+		row.insertAdjacentElement('afterend', box);
+		box.removeClass('is-parked');
 		const d = this.describe(this.previewed);
 		const head = box.createDiv({ cls: 'nav-preview-head' });
 		head.createSpan({ text: d.title, cls: 'nav-preview-title' });
 		const pane = this.paneName(entry);
 		if (pane)
-			head.createSpan({ text: pane, cls: 'nav-preview-pane', attr: { title: entry.leafId } });
+			head.createSpan({ text: pane, cls: 'nav-preview-pane' });
 		// The row's old type column lives here: how the step was made is
 		// confirmation of a choice, not part of making it.
 		if (!d.missing)
@@ -929,9 +1312,10 @@ export class NavHistoryModal extends Modal {
 			head.createSpan({ text: d.line, cls: 'nav-row-line' });
 		head.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
 		// A touch device has no Enter and no hover: without this button a tap
-		// could point at a row but never go there.
-		if (this.mobile && !d.missing) {
-			const go = head.createEl('button', { text: t('navHistory.jumpHere'), cls: 'nav-preview-go' });
+		// could point at a row but never go there. It is the panel's last line and
+		// as wide as the panel, because a finger has to be able to hit it.
+		if (!d.missing) {
+			const go = box.createEl('button', { text: t('navHistory.jumpHere'), cls: 'nav-preview-go' });
 			go.addEventListener('click', () => this.jump(this.previewed));
 		}
 
@@ -1062,14 +1446,27 @@ export class NavHistoryModal extends Modal {
 	}
 
 	// A row's tap/click. On a pointing device the click IS the choice, as it
-	// always was. On a touch device the first tap is the pointer's "point at
-	// this row" — there is no hover to do it — and only a second tap on that
-	// same row travels; the preview panel's own button is the explicit way to
-	// go there. Tapping a DIFFERENT row moves the preview instead of jumping,
-	// which is what makes the list explorable without a mouse.
+	// always was. On a touch device every tap does exactly one thing, on every
+	// row: it OPENS that row's landing under it, or CLOSES it again when the same
+	// row is tapped twice — the panel is the only preview a touch device can get
+	// (there is no hover), and a tap that could only ever open left the list with
+	// no way back. Travel is the panel's own "jump here" button, so the gesture
+	// never changes meaning under the finger.
 	private onRowClick(rep: number): void {
-		if (this.mobile && this.selected !== rep) {
-			this.select(rep);
+		if (this.mobile) {
+			if (this.selected === rep || this.previewed === rep) {
+				// Closing: nothing is pointed at any more, which is what parks
+				// the panel (see renderPreview).
+				this.previewed = -1;
+				this.select(-1);
+			} else if (this.visible.includes(rep)) {
+				this.select(rep);
+			} else {
+				// A deleted step: previewable (that is where "file gone" is
+				// explained) but never selectable, so Enter can never target it.
+				this.previewed = rep;
+				this.renderPreview();
+			}
 			return;
 		}
 		this.jump(rep);

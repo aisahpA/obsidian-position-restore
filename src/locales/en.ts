@@ -120,15 +120,20 @@ export const en = {
 	'navHistory.searchPlaceholder': 'Filter by file or text…',
 	'navHistory.noMatch': 'No matching entry.',
 	// The file-scope chip: narrow the list to the note the pinned card shows.
-	'navHistory.onlyThisFile': 'Only in {0}',
+	// A fixed label (the note's name lives in the tooltip) so the chip's width
+	// never depends on how long that name is.
+	'navHistory.onlyThisFile': 'Only this note',
+	'navHistory.onlyThisFileTip': 'Only show positions in {0}',
 	'navHistory.scopeEmpty': 'No other position in {0}.',
 	'navHistory.current': 'Current position',
 	'navHistory.empty': 'Navigation history is empty.',
 
 	// Browser chrome: the pinned "you are here" card, the two direction
 	// segments, and the keyboard affordances.
-	'navHistory.keyboardHint': 'Enter jump · ↑↓ select · Esc close',
-	'navHistory.enterBack': 'Press Enter to go back one step',
+	'navHistory.keyboardHint': '↑↓ select · Enter jump · Esc close',
+	// A touch device has no keyboard, so its hint may only name things a finger
+	// can do (see NavHistoryModal.mobile).
+	'navHistory.touchHint': 'Tap a row for its landing, then “Jump here” to go',
 	// Touch only: a tap selects a row (there is no hover), so the preview panel
 	// needs its own way to actually travel there.
 	'navHistory.jumpHere': 'Jump here',
@@ -136,16 +141,19 @@ export const en = {
 	'navHistory.seg.back': 'Back',
 	'navHistory.seg.count': '{0} steps',
 	// A leaf holding a second tab/pane of the same file: without this the
-	// browser's rows for the two panes are indistinguishable.
-	'navHistory.pane': 'Pane {0}',
+	// browser's rows for the two panes are indistinguishable. Rendered as
+	// "which of how many" — two digits and no word, because the word was the
+	// widest thing in the row's quiet zone.
+	'navHistory.pane': '{0}/{1}',
 	'navHistory.disabledTip': 'File deleted — this step cannot be restored',
 	// Relative time is the browser's primary index (see NavEntryBase.t).
 	'navHistory.time.now': 'just now',
 	'navHistory.time.minutes': '{0} min ago',
 	'navHistory.time.hours': '{0} h ago',
 	'navHistory.time.days': '{0} d ago',
-	// Landing preview strip (3 lines around the row's landing line).
-	'navHistory.preview.idle': 'Hover a row, or use ↑↓, to preview its landing line and context.',
+	// Landing preview strip (3 lines around the row's landing line). It is shown
+	// on touch devices ONLY — desktop hands the same hover to Obsidian's own page
+	// preview — and it opens under the tapped row, so it has no empty state.
 	'navHistory.preview.loading': 'Reading…',
 	'navHistory.preview.blank': '(blank line)',
 	'navHistory.preview.none': 'No line to preview here (no markdown landing).',

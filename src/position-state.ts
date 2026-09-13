@@ -1,5 +1,6 @@
 import { WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, TabStateRecord, PluginSettings } from './types';
+import { leafIdOf } from './nav-entry';
 import { OpenCover } from './cover';
 import { RestoreCue } from './cue';
 
@@ -216,6 +217,6 @@ export class PositionState {
 	// leaf.id is part of Obsidian's runtime API but absent from its public
 	// typings, so the cast collapses the per-site @ts-ignore noise.
 	leafId(leaf: WorkspaceLeaf): string {
-		return (leaf as unknown as { id: string }).id;
+		return leafIdOf(leaf);
 	}
 }

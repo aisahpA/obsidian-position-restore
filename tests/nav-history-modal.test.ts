@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	describeNavEntry, destinationKey, headingTrailAtLine, mergeByLanding, matchesNavFilter,
 	formatRelativeTime, rowTrail, splitHistorySegments, paneInfo, paneLabel, previewWindow,
-	baseName, inFileScope,
+	baseName, inFileScope, LiveLeaf,
 } from '../src/nav-history-modal';
 import { t } from '../src/i18n';
 import { NavHistoryEntry } from '../src/nav-entry';
@@ -288,25 +288,47 @@ describe('destinationKey', () => {
 	});
 });
 
-// Two panes holding one file: merging their rows by landing line would make
-// one of them unreachable from the panel, and identical rows would be
-// indistinguishable — so a pane chip appears, and ONLY for such files.
+// Two tabs (or two panes) holding one file: without a marker, their rows are
+// identical, and telling them apart is what decides which row to pick. The
+// marker is derived from the LIVE layout, not from the history's recorded leaf
+// ids — see paneLabel — so what is fed in here is the main area as it stands.
 describe('paneInfo / paneLabel', () => {
 	const visit = (path: string, leafId: string): NavHistoryEntry =>
 		({ kind: 'visit', path, leafId, t: 1 } as NavHistoryEntry);
+	const graph = (leafId: string): NavHistoryEntry =>
+		({ kind: 'view', viewType: 'graph', leafId, t: 1 } as NavHistoryEntry);
+	const layout = (...leaves: [string, string][]): LiveLeaf[] =>
+		leaves.map(([leafId, key]) => ({ leafId, key }));
 
-	it('numbers a file\'s panes from the leaf seen first, and only when ambiguous', () => {
-		const entries = [visit('a.md', 'left'), visit('b.md', 'right'), visit('a.md', 'right')];
-		const info = paneInfo(entries);
-		expect(paneLabel(info, entries[0])).toBe(1);
-		expect(paneLabel(info, entries[2])).toBe(2);
-		// b.md lives in a single leaf: a chip would be pure noise
-		expect(paneLabel(info, entries[1])).toBeUndefined();
+	it('numbers the live tabs holding a file, in layout order', () => {
+		const info = paneInfo(layout(['a1', 'a.md'], ['b1', 'b.md'], ['a2', 'a.md']));
+		expect(paneLabel(info, visit('a.md', 'a1'))).toEqual({ n: 1, total: 2 });
+		expect(paneLabel(info, visit('a.md', 'a2'))).toEqual({ n: 2, total: 2 });
+		// b.md lives in a single leaf: a marker would be pure noise
+		expect(paneLabel(info, visit('b.md', 'b1'))).toBeUndefined();
 	});
 
-	it('a file reopened twice in the same leaf is not ambiguous', () => {
-		const entries = [visit('a.md', 'leaf-1'), visit('a.md', 'leaf-1')];
-		expect(paneLabel(paneInfo(entries), entries[0])).toBeUndefined();
+	it('gives no number to a step whose tab has moved on or been closed', () => {
+		// The bug this replaced: the number came from the history, so a tab that
+		// had since opened another note (or been closed) still claimed a window —
+		// "2/2" for a file only one tab was showing.
+		const info = paneInfo(layout(['a1', 'a.md'], ['a2', 'a.md']));
+		expect(paneLabel(info, visit('a.md', 'closed'))).toBeUndefined();
+	});
+
+	it('says nothing when only one live leaf holds the destination', () => {
+		const info = paneInfo(layout(['a1', 'a.md']));
+		expect(paneLabel(info, visit('a.md', 'a1'))).toBeUndefined();
+	});
+
+	it('numbers graph tabs by view type, the same way', () => {
+		const info = paneInfo(layout(['g1', 'view:graph'], ['g2', 'view:graph']));
+		expect(paneLabel(info, graph('g2'))).toEqual({ n: 2, total: 2 });
+	});
+
+	it('a file reopened twice in the same tab is not ambiguous', () => {
+		const info = paneInfo(layout(['a1', 'a.md']));
+		expect(paneLabel(info, visit('a.md', 'a1'))).toBeUndefined();
 	});
 });
 

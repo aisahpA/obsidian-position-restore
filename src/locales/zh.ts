@@ -122,29 +122,33 @@ export const zh: En = {
 	'navHistory.searchPlaceholder': '按文件或文本过滤…',
 	'navHistory.noMatch': '没有匹配的历史。',
 	// 文件范围开关：把列表收窄到钉顶卡片所示的那篇笔记。
-	'navHistory.onlyThisFile': '只看 {0}',
+	// 文案固定（笔记名放进 tooltip），这样开关宽度不随笔记名长短变化。
+	'navHistory.onlyThisFile': '只看本笔记',
+	'navHistory.onlyThisFileTip': '只显示 {0} 里的位置',
 	'navHistory.scopeEmpty': '{0} 里没有其他位置。',
 	'navHistory.current': '当前位置',
 	'navHistory.empty': '暂无导航历史。',
 
 	// 面板自身：钉顶的「当前位置」卡片、前进/后退分段、键盘提示。
-	'navHistory.keyboardHint': 'Enter 跳转 · ↑↓ 选择 · Esc 关闭',
-	'navHistory.enterBack': '直接按 Enter 回到上一个位置',
+	'navHistory.keyboardHint': '↑↓ 选择 · Enter 跳转 · Esc 关闭',
+	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryModal.mobile）。
+	'navHistory.touchHint': '轻点一行看落点，再点「跳到这里」前往',
 	// 仅触屏：点击行只是"选中"（没有 hover），所以预览面板要自带一个真正前往的入口。
 	'navHistory.jumpHere': '跳到这里',
 	'navHistory.seg.forward': '前进',
 	'navHistory.seg.back': '后退',
 	'navHistory.seg.count': '{0} 条',
 	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
-	'navHistory.pane': '窗格 {0}',
+	// 只写“第几个/共几个”：不用词，因为那个词是行内“安静区”里最宽的东西。
+	'navHistory.pane': '{0}/{1}',
 	'navHistory.disabledTip': '文件已删除，这一步无法恢复',
 	// 相对时间是面板的主要索引（见 NavEntryBase.t）。
 	'navHistory.time.now': '刚刚',
 	'navHistory.time.minutes': '{0} 分钟前',
 	'navHistory.time.hours': '{0} 小时前',
 	'navHistory.time.days': '{0} 天前',
-	// 落点预览条（该行上下共三行）。
-	'navHistory.preview.idle': '把鼠标移到任意一行，或用 ↑↓ 选择，这里显示落点这一行及其上下文。',
+	// 落点预览条（该行上下共三行）。这条只在触屏上显示：电脑端同一处悬停
+	// 交给 Obsidian 自带的页面预览，它开在被点的那一行下面，所以不需要空状态。
 	'navHistory.preview.loading': '读取中…',
 	'navHistory.preview.blank': '（空行）',
 	'navHistory.preview.none': '（不是一个可预览的 markdown 落点）',
