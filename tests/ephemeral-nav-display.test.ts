@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
-import { readEphemeralState, readNavEntryState, withNavDisplay } from '../src/ephemeral';
+import { readEphemeralState, readNavEntryState, withNavDisplay } from '../src/position/capture/ephemeral';
 import { EphemeralState } from '../src/types';
 
 // A cm stub: 1-based line(n) sits at offset (n-1)*10; `to` bounds the

@@ -4,7 +4,7 @@
 // the ±30-line text-snippet remap it replaces for keyed jumps.
 
 import { describe, it, expect } from 'vitest';
-import { outlinePathAtLine, resolveAnchorLine } from '../src/anchor-line';
+import { outlinePathAtLine, resolveAnchorLine } from '../src/position/restore/anchor';
 
 function cache(headings: Array<[string, number] | [string, number, number]>, blocks?: Record<string, number>) {
 	return {

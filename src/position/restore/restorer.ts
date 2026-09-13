@@ -1,17 +1,16 @@
 import { App, FileView, MarkdownView, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from './types';
-import { TabStore } from './tab-store';
-import { getScroller, nextPaint } from './wait';
-import { PositionState } from './position-state';
-import { RestoreModes } from './restore-modes';
+import { EphemeralState, PluginSettings } from '../../types';
+import { TabStore } from '../storage/tab-store';
+import { getScroller, nextPaint } from '../../shared/wait';
+import { PositionState } from '../state';
+import { RestoreModes } from './modes';
 
 // Restores a saved position after an open. The per-mode restore strategies
-// (masked / glide / injected-source, and the shared anchor) live in
-// ./restore-modes, the source-mode pixel correction in ./pixels, pure
-// view<->state helpers in ./ephemeral, paint/render observation in ./wait,
-// and the first-paint cover and cue in ./state (via OpenCover / RestoreCue).
-// All cross-phase coordination flags are owned by the shared PositionState
-// this class takes.
+// (masked / glide / injected-source, and the shared anchor) live in ./modes,
+// the source-mode pixel correction in ./pixels, pure view<->state helpers in
+// ../capture/ephemeral, paint/render observation in ../../shared/wait, and the
+// first-paint cover and cue in ../ui (held by PositionState). All cross-phase
+// coordination flags are owned by the shared PositionState this class takes.
 export class Restorer {
 	private app: App;
 	private settings: PluginSettings;

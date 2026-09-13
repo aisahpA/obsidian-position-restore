@@ -14,8 +14,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { App, WorkspaceLeaf } from 'obsidian';
-import { TabStore } from '../src/tab-store';
-import { PositionState } from '../src/position-state';
+import { TabStore } from '../src/position/storage/tab-store';
+import { PositionState } from '../src/position/state';
 import { DEFAULT_SETTINGS, TabStateRecord } from '../src/types';
 
 const APP_STUB = {

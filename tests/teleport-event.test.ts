@@ -10,8 +10,8 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
-import { Sampler } from '../src/sampler';
-import { PositionState } from '../src/position-state';
+import { Sampler } from '../src/position/capture/sampler';
+import { PositionState } from '../src/position/state';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '../src/types';
 import { NavJump, NavTeleport, NavVisit } from '../src/nav-history/entry';
 

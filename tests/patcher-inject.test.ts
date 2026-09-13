@@ -18,9 +18,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 import { MarkdownView } from 'obsidian';
 
-import { OpenPatcher } from '../src/patcher';
-import { TabStore } from '../src/tab-store';
-import { PositionState } from '../src/position-state';
+import { OpenPatcher } from '../src/position/restore/patcher';
+import { TabStore } from '../src/position/storage/tab-store';
+import { PositionState } from '../src/position/state';
 import { TabStateRecord,DEFAULT_SETTINGS } from '../src/types';
 
 // injectEphemeralStateOnOpen is private; tests drive it through this alias.

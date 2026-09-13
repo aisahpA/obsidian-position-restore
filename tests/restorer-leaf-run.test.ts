@@ -15,9 +15,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MarkdownView, FileView, type WorkspaceLeaf } from 'obsidian';
 
-import { PositionState } from '../src/position-state';
-import { Restorer } from '../src/restorer';
-import { TabStore } from '../src/tab-store';
+import { PositionState } from '../src/position/state';
+import { Restorer } from '../src/position/restore/restorer';
+import { TabStore } from '../src/position/storage/tab-store';
 import { DEFAULT_SETTINGS } from '../src/types';
 
 describe('PositionState leaf-scoped restore runs', () => {

@@ -1,9 +1,9 @@
 import { App, MarkdownView, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from './types';
-import { TabStore } from './tab-store';
-import { nextPaint } from './wait';
-import { PositionState } from './position-state';
-import { RestoreModes } from './restore-modes';
+import { EphemeralState, PluginSettings } from '../../types';
+import { TabStore } from '../storage/tab-store';
+import { nextPaint } from '../../shared/wait';
+import { PositionState } from '../state';
+import { RestoreModes } from './modes';
 
 // Settles background splits whose open never fired 'file-open'
 // (restart-restored tabs with BUILT views). Source-injected tabs hold an

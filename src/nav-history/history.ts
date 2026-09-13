@@ -1,10 +1,10 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { NavEntryState, PluginSettings } from '../types';
-import { PositionState } from '../position-state';
-import { RestoreModes } from '../restore-modes';
-import { readNavEntryState, normAnchor } from '../ephemeral';
-import { resolveAnchorLine, findHeading, decodeAnchor } from '../anchor-line';
-import { delay } from '../wait';
+import { PositionState } from '../position/state';
+import { RestoreModes } from '../position/restore/modes';
+import { readNavEntryState, normAnchor } from '../position/capture/ephemeral';
+import { resolveAnchorLine, findHeading, decodeAnchor } from '../position/restore/anchor';
+import { delay } from '../shared/wait';
 import {
 	NavHistoryEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
 	RECORDABLE_VIEW_TYPES, isMainAreaLeaf,

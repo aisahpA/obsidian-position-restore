@@ -8,9 +8,9 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
-import { Restorer } from '../src/restorer';
-import { TabStore } from '../src/tab-store';
-import { PositionState } from '../src/position-state';
+import { Restorer } from '../src/position/restore/restorer';
+import { TabStore } from '../src/position/storage/tab-store';
+import { PositionState } from '../src/position/state';
 import { DEFAULT_SETTINGS } from '../src/types';
 
 // hasOpenedLeafPath / pruneStaleLeafIds are private; tests drive them

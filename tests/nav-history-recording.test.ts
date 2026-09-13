@@ -22,10 +22,10 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
 import { NavHistory } from '../src/nav-history/history';
 import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-history/entry';
-import { OpenPatcher } from '../src/patcher';
-import { Sampler } from '../src/sampler';
-import { PositionState } from '../src/position-state';
-import { TabStore } from '../src/tab-store';
+import { OpenPatcher } from '../src/position/restore/patcher';
+import { Sampler } from '../src/position/capture/sampler';
+import { PositionState } from '../src/position/state';
+import { TabStore } from '../src/position/storage/tab-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '../src/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';

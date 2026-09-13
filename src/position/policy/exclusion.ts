@@ -1,5 +1,5 @@
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { PluginSettings } from './types';
+import { PluginSettings } from '../../types';
 import { FrontmatterDecision, frontmatterDecisionFor } from './frontmatter';
 
 const EXCLUDED_CACHE_SIZE = 32;

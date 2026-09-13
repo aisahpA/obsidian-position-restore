@@ -1,20 +1,20 @@
 import { App, TAbstractFile, Platform, WorkspaceLeaf } from 'obsidian';
-import { PluginSettings } from './types';
-import { CursorPositionDatabase } from './database';
-import { TabStore } from './tab-store';
-import { PositionState } from './position-state';
-import { BackgroundSettler } from './background-settle';
-import { Restorer } from './restorer';
-import { OpenPatcher } from './patcher';
-import { Sampler } from './sampler';
-import { NavHistory } from './nav-history/history';
-import { NavHistoryModal } from './nav-history/browser/modal';
+import { PluginSettings } from '../types';
+import { CursorPositionDatabase } from './storage/database';
+import { TabStore } from './storage/tab-store';
+import { PositionState } from './state';
+import { BackgroundSettler } from './restore/background-settle';
+import { Restorer } from './restore/restorer';
+import { OpenPatcher } from './restore/patcher';
+import { Sampler } from './capture/sampler';
+import { NavHistory } from '../nav-history/history';
+import { NavHistoryModal } from '../nav-history/browser/modal';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
 //    saved positions into opens.
-//    position changes (see sampler.ts).
 //  - Sampler: the polling-loop observer plus scroll listener that persists
+//    position changes (see capture/sampler.ts).
 //  - Restorer: restores a saved position after an open.
 //  - NavHistory: the VSCode-style back/forward stack (records via the patch
 //    and the poll, executes through the native per-tab history).

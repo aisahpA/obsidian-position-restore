@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian';
-import { PluginSettings } from './types';
+import { PluginSettings } from '../../types';
 
 // Frontmatter-driven recording control, shared by the recording gate
 // (ExclusionChecker) and the db cleaner (CursorPositionDatabase.pruneDb) so a

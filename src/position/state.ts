@@ -1,8 +1,8 @@
 import { WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, TabStateRecord, PluginSettings } from './types';
-import { leafIdOf } from './nav-history/entry';
-import { OpenCover } from './cover';
-import { RestoreCue } from './cue';
+import { EphemeralState, TabStateRecord, PluginSettings } from '../types';
+import { leafIdOf } from '../nav-history/entry';
+import { OpenCover } from './ui/cover';
+import { RestoreCue } from './ui/cue';
 
 export type OpenKind = 'anchorLink' | 'startPlainLink' | 'callerTarget';
 

@@ -1,8 +1,8 @@
 import { Platform, Plugin } from 'obsidian';
-import { SettingTab } from './src/settings-tab';
+import { SettingTab } from './src/ui/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './src/types';
-import { CursorPositionDatabase } from './src/database';
-import { PositionManager } from './src/position-manager';
+import { CursorPositionDatabase } from './src/position/storage/database';
+import { PositionManager } from './src/position/manager';
 import { HOVER_LINK_SOURCE_ID } from './src/nav-history/browser/constants';
 import { t } from './src/i18n';
 

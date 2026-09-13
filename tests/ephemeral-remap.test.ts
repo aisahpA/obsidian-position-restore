@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { MarkdownView } from 'obsidian';
 
-import { readEphemeralState, remapAnchoredState } from '../src/ephemeral';
+import { readEphemeralState, remapAnchoredState } from '../src/position/capture/ephemeral';
 import { NavEntryState } from '../src/types';
 
 function editor(lines: string[]) {

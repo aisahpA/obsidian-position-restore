@@ -1,6 +1,6 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, TabStateRecord } from './types';
-import { PositionState } from './position-state';
+import { EphemeralState, TabStateRecord } from '../../types';
+import { PositionState } from '../state';
 import type { CursorPositionDatabase } from './database';
 
 // Device-local per-tab position records, backed by desktop localStorage.

@@ -1,5 +1,5 @@
 import { MarkdownView } from 'obsidian';
-import { EphemeralState, NavEntryState } from './types';
+import { EphemeralState, NavEntryState } from '../../types';
 
 // Hot read: the 100ms poll (Sampler), the scroll capture, and the restore
 // verification / reland loops run this every tick and every frame. Position
@@ -60,9 +60,10 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 }
 
 // Minimal CM6 surface for the cursor-visibility check. Same cast family as
-// pixels.ts CmLike / cue.ts Cm6EditorView — (editor).cm is runtime-only,
-// absent from the public typings. A local interface: pixels.ts imports this
-// module, so its CmLike cannot be borrowed without a cycle.
+// CmLike (restore/pixels.ts) / Cm6EditorView (ui/cue.ts) — (editor).cm is
+// runtime-only, absent from the public typings. A local interface: the pixel
+// corrector imports this module, so its CmLike cannot be borrowed without a
+// cycle.
 interface CmView {
 	state: { doc: { lines: number; line(n: number): { from: number } } };
 	viewport: { from: number; to: number };

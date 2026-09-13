@@ -1,7 +1,7 @@
 import { App, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { NavEntryState } from '../types';
-import { PositionState, LANDING_ABSORB_MS } from '../position-state';
-import { readNavEntryState } from '../ephemeral';
+import { PositionState, LANDING_ABSORB_MS } from '../position/state';
+import { readNavEntryState } from '../position/capture/ephemeral';
 
 // The recording surface the outline capture needs from NavHistory.
 export interface OutlineCaptureHost {

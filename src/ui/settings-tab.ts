@@ -1,7 +1,7 @@
 import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
-import type RememberCursorPosition from '../main';
-import { ESCAPE_HATCH_PROPERTY } from './frontmatter';
-import { t } from './i18n';
+import type RememberCursorPosition from '../../main';
+import { ESCAPE_HATCH_PROPERTY } from '../position/policy/frontmatter';
+import { t } from '../i18n';
 
 // obsidian@1.13.2 types omit getAllPropertyInfos (added in Obsidian 1.4).
 declare module 'obsidian' {

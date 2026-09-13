@@ -12,8 +12,8 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { FileView, MarkdownView, Platform } from 'obsidian';
-import { Sampler } from '../src/sampler';
-import { PositionState } from '../src/position-state';
+import { Sampler } from '../src/position/capture/sampler';
+import { PositionState } from '../src/position/state';
 import { DEFAULT_SETTINGS, PluginSettings } from '../src/types';
 
 // onScrollCapture is private; tests drive it directly through this alias.
