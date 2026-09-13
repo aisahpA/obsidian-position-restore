@@ -7,8 +7,8 @@ set -euo pipefail
 #   echo 'VAULT_DIR=/path/to/vault' > reload.local.sh
 # Env still wins: VAULT_DIR=/path/to/vault bash reload.sh
 # Everything else (vault name, plugin id, plugin dir) is derived.
-# First arg "prod" → production build (npm run build, minified, no sourcemap).
-# Default (dev) → one-shot dev build with inline sourcemap (like npm run dev, but no watch).
+# Default (prod) → production build (npm run build, minified, no sourcemap).
+# First arg "dev" → one-shot dev build with inline sourcemap (like npm run dev, but no watch).
 # ------------------------------------------------------------------
 VAULT_DIR="${VAULT_DIR:-}"
 
@@ -38,13 +38,17 @@ if ! command -v obsidian >/dev/null 2>&1; then
   exit 1
 fi
 
-BUILD_MODE="${1:-dev}"
+BUILD_MODE="${1:-prod}"
+if [ "$BUILD_MODE" != "prod" ] && [ "$BUILD_MODE" != "dev" ]; then
+  echo "Error: unknown build mode '$BUILD_MODE' (expected: prod or dev)." >&2
+  exit 1
+fi
 
 echo "→ Building plugin ($PLUGIN_ID, mode=$BUILD_MODE) ..."
-if [ "$BUILD_MODE" = "prod" ]; then
-  npm run build
-else
+if [ "$BUILD_MODE" = "dev" ]; then
   npx rollup --config rollup.config.mjs
+else
+  npm run build
 fi
 
 echo "→ Copying build outputs to $PLUGIN_DIR ..."

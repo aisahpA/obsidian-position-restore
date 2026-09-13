@@ -2,6 +2,8 @@ import typescript from '@rollup/plugin-typescript';
 import {nodeResolve} from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import terser from '@rollup/plugin-terser';
+import alias from '@rollup/plugin-alias';
+import { fileURLToPath } from 'node:url';
 
 const banner =
 `/*
@@ -15,7 +17,7 @@ if you want to view the source visit the plugins github repository
 const isProd = process.env.PROD === '1';
 
 export default {
-  input: 'main.ts',
+  input: 'src/main.ts',
   output: {
     file: 'main.js',
     sourcemap: isProd ? false : 'inline',
@@ -26,6 +28,14 @@ export default {
   treeshake: { moduleSideEffects: false },
   external: ['obsidian', /^@codemirror\//],
   plugins: [
+    // '@/x' -> src/x, the same mapping tsconfig.json declares in `paths`
+    // (Rollup does not read tsconfig paths, so it needs its own copy).
+    // Keep it a regex: a bare '@' would also capture '@codemirror/...'.
+    alias({
+      entries: [
+        { find: /^@\//, replacement: fileURLToPath(new URL('./src/', import.meta.url)) },
+      ],
+    }),
     typescript({
       declaration: false,
       declarationMap: false,

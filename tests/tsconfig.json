@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "lib": ["dom", "dom.iterable", "es2019"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": []
+}

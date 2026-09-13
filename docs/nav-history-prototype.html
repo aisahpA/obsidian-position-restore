@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>导航历史面板 · 三种呈现对比</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --bg-panel: #262626;
+    --bg-hover: #2f2f2f;
+    --bg-active: #33305a;
+    --border: #3a3a3a;
+    --text: #dadada;
+    --muted: #9a9a9a;
+    --faint: #6b6b6b;
+    --accent: #8b7bf7;
+    --error: #e5685e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 20px 60px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  }
+  header h1 { margin: 0 0 6px; font-size: 19px; }
+  .lede { margin: 0 0 4px; color: var(--muted); max-width: 1100px; }
+  .lede code { font-family: var(--mono); color: var(--text); }
+  .hdr-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 18px; }
+  .hdr-bar button {
+    background: var(--bg-panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px;
+  }
+  .hdr-bar button:hover { background: var(--bg-hover); }
+  .hdr-bar .note { color: var(--faint); font-size: 12px; }
+
+  .grid { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+
+  .panel {
+    flex: 1 1 400px; min-width: 340px;
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px;
+    display: flex; flex-direction: column; overflow: hidden;
+    height: 74vh; min-height: 460px;
+  }
+  .panel > h2 {
+    margin: 0; padding: 12px 14px 10px; font-size: 14px;
+    border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px;
+  }
+  .panel > h2 .sub { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .panel > h2 .watch { font-size: 12px; font-weight: 400; color: var(--faint); }
+  .panel.narrow { flex: 0 0 340px; min-width: 0; max-width: 340px; }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+  .toolbar input[type=text] {
+    flex: 1 1 auto; min-width: 0; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; font-size: 13px;
+  }
+  .toolbar input[type=text]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .toolbar label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; }
+  .toolbar .hint { font-size: 11px; color: var(--faint); white-space: nowrap; }
+
+  .list { flex: 1 1 auto; min-height: 0; overflow-y: auto; position: relative; padding-bottom: 8px; }
+
+  /* ---- 通用行 ---- */
+  .row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 5px 10px; cursor: pointer; white-space: nowrap; overflow: hidden;
+  }
+  .row:hover { background: var(--bg-hover); }
+  .row.is-selected { outline: 1px solid var(--accent); outline-offset: -1px; }
+  .row.is-current { background: var(--bg-active); }
+  .row.disabled { cursor: default; opacity: .5; }
+  .row.disabled:hover { background: none; }
+  .file { overflow: hidden; text-overflow: ellipsis; }
+  .pane {
+    flex: 0 0 auto; font-size: 10px; color: var(--faint);
+    border: 1px solid var(--border); border-radius: 4px; padding: 0 4px;
+  }
+  .pos { flex: 0 0 auto; display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+  .line { flex: 0 0 auto; font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 4.5ch; }
+  .text { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+  .text .q::before { content: "“"; } .text .q::after { content: "”"; }
+  .steps { flex: 0 0 auto; margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+  .steps.cur { color: var(--accent); }
+  .badge { flex: 0 0 auto; font-size: 11px; color: var(--muted); min-width: 2.6em; text-align: center; }
+  .badge.soft { color: var(--faint); font-style: italic; }
+  .badge.gone { color: var(--error); }
+  .count { flex: 0 0 auto; font-size: 11px; color: var(--faint); font-family: var(--mono); }
+  .time { flex: 0 0 auto; font-size: 11px; color: var(--faint); font-family: var(--mono); }
+
+  /* ---- A/C：分组头 ---- */
+  .group {
+    display: flex; align-items: baseline; gap: 8px;
+    margin-top: 12px; padding: 0 10px 5px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 700; color: var(--text); font-size: 13px;
+  }
+  .group:first-child { margin-top: 4px; }
+  .group .gfile { overflow: hidden; text-overflow: ellipsis; }
+  .group .gcount { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 400; }
+  .group .gnow { color: var(--accent); font-size: 11px; }
+  .group.is-current-group { color: var(--accent); }
+  .group.is-gone { color: var(--error); }
+  .list.grouped .row {
+    margin-left: 10px; border-left: 2px solid var(--border); border-radius: 0;
+  }
+  .list.grouped .row.is-current { border-left-color: var(--accent); font-weight: 600; }
+
+  /* ---- A：raw 平铺 ---- */
+  .head-row {
+    display: flex; gap: 8px; padding: 2px 10px 6px; border-bottom: 1px solid var(--border);
+    color: var(--muted); font-size: 11px;
+  }
+  .list.raw .row { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) 4.6em; gap: 8px; }
+  .list.raw .head-row { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr) 4.6em; gap: 8px; }
+  .list.raw .row .pos { min-width: 0; }
+  .list.raw .row .text { white-space: nowrap; }
+
+  /* ---- B：钉顶的当前位置 ---- */
+  .here {
+    flex: 0 0 auto; margin: 8px 10px 4px; padding: 8px 10px;
+    border: 1px solid var(--accent); border-left: 3px solid var(--accent); border-radius: 6px;
+    background: var(--bg-active);
+  }
+  .here .here-top { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--accent); }
+  .here .here-top .time { margin-left: auto; color: var(--muted); }
+  .here .here-main { display: flex; align-items: baseline; gap: 8px; margin-top: 3px; font-weight: 600; }
+  .here .here-text { color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .here .enter-hint { margin-top: 6px; font-size: 11px; color: var(--faint); }
+  .seg {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 10px 4px; color: var(--muted); font-size: 11px;
+  }
+  .seg .seg-line { flex: 1 1 auto; height: 1px; background: var(--border); }
+  .seg .seg-dir { color: var(--accent); font-family: var(--mono); }
+
+  /* ---- C：预览条 ---- */
+  .preview {
+    flex: 0 0 auto; border-top: 1px solid var(--border); background: #222;
+    padding: 8px 10px; min-height: 86px;
+  }
+  .preview .p-head { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-bottom: 5px; }
+  .preview .p-line { display: flex; gap: 8px; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; }
+  .preview .p-line .n { flex: 0 0 auto; font-family: var(--mono); min-width: 4.5ch; text-align: right; }
+  .preview .p-line .t { overflow: hidden; text-overflow: ellipsis; }
+  .preview .p-line.mark { color: var(--text); background: rgba(139,123,247,.12); }
+  .preview .p-line.mark .n { color: var(--accent); }
+  .preview .p-empty { font-size: 12px; color: var(--faint); }
+
+  /* 窄屏演示：保留文本、丢掉行号（对调现在的移动端规则） */
+  .panel.narrow .line { display: none; }
+  .panel.narrow .badge { display: none; }
+  .panel.narrow .row { padding: 7px 10px; }
+  .panel.narrow .text { white-space: normal; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+    background: #111; border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; color: var(--text);
+    opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; max-width: 80vw;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast .k { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>导航历史面板 · 三种呈现对比 <span style="font-size:12px;font-weight:400;color:#9a9a9a">（设计原型 · 已落地：B 的骨架 + C 的能力）</span></h1>
+  <p class="lede">
+    同一份虚构会话、同一个当前位置（<code>project.md · L412</code>，5 分钟前）。点任意一行＝模拟 <code>NavHistory.jumpTo</code>：
+    目标重新压栈、<b>前进段被截断</b>，三个面板一起变化（所以可以放心乱点，「后退」永远能回到你刚才的位置）。
+    过滤框三栏联动。
+  </p>
+  <p class="lede" style="color:#6b6b6b">
+    落地时的取舍：取 <b>B</b> 为骨架（时间序、当前位置钉顶、前进/后退分段、Enter 后退一步），挂上 <b>C</b> 的能力
+    （类型/跳变徽章、悬停预览条），「按文件分组」降为可切换的次级视图。真实面板另有两处原型未体现：同一文件的
+    不同分栏用行内小窗格标记区分（且不合并），已删除文件的行列出但不可点。
+  </p>
+  <div class="hdr-bar">
+    <button id="reset">重置到初始状态</button>
+    <span class="note">滚动、悬停、点行、按 ↑↓ / Enter 都试试。</span>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="panel" id="panelA">
+    <h2>A · 现状
+      <span class="sub">按文件分组 · 行内无类型徽章 · ±N 步数</span>
+      <span class="watch">看：同一文件两个分栏被并成一组、同落点被折叠；滚动后「你在哪」会滚出视野。</span>
+    </h2>
+    <div class="toolbar">
+      <input type="text" class="filter" placeholder="按文件或文本过滤…">
+      <label><input type="checkbox" id="rawToggle"> 显示原始列表</label>
+    </div>
+    <div class="list grouped" id="listA"></div>
+  </section>
+
+  <section class="panel" id="panelB">
+    <h2>B · 时间序 + 当前位置钉顶
+      <span class="sub">相对时间 · 前进/后退分段 · Enter 直接回上一个位置</span>
+      <span class="watch">看：「当前位置」不随滚动消失；时间替代 ±N；什么都不选直接按 Enter ＝ 后退一步。</span>
+    </h2>
+    <div class="toolbar">
+      <input type="text" class="filter" placeholder="按文件或文本过滤…">
+      <span class="hint">Enter 跳转 · ↑↓ 选择 · Esc 清除</span>
+    </div>
+    <div class="here" id="hereB"></div>
+    <div class="list" id="listB"></div>
+  </section>
+
+  <section class="panel" id="panelC">
+    <h2>C · 分组 + 预览条
+      <span class="sub">类型/跳变徽章 · 相对时间 · 悬停看上下文 · 分栏不合并</span>
+      <span class="watch">看：悬停任意行，底部出现落点上下文；已删除文件的行不可点；勾「窄屏」看移动端取舍。</span>
+    </h2>
+    <div class="toolbar">
+      <input type="text" class="filter" placeholder="按文件或文本过滤…">
+      <label><input type="checkbox" id="narrowToggle"> 窄屏 340px</label>
+    </div>
+    <div class="list grouped" id="listC"></div>
+    <div class="preview" id="previewC"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ===== 虚构会话数据（oldest → newest） =====
+// line 直接写显示值（真实实现里存 0-based，显示时 +1）。
+// before/after：落点上下各一行，只给了一部分条目，其余用占位。
+const RAW = [
+  { kind:'visit',    path:'notes/项目/project.md', line:38,  pane:'标签页1', agoMin:46, text:'## 里程碑：Q3 目标', before:'## 项目状态', after:'- [x] 面板初版上线' },
+  { kind:'jump',     path:'notes/项目/project.md', line:212, pane:'标签页1', agoMin:44, key:'outline:阶段二：导航历史面板', text:'### 阶段二：导航历史面板', before:'## 路线图', after:'目标是把它做成 VSCode 那样的一键回到' },
+  { kind:'teleport', path:'notes/项目/project.md', line:412, pane:'标签页1', agoMin:41, text:'把 nav 面板改成时间序，先记时间戳', before:'- 记录：push 时打时间戳', after:'- 展示：相对时间优先于 ±N' },
+  { kind:'visit',    path:'notes/日记/2025-09.md', line:7,   pane:'标签页2', agoMin:38, via:'switch', text:'今天主要在改 history 面板。', before:'# 2025-09-12', after:'- 下午和 @陈 过了一版面板' },
+  { kind:'visit',    path:'notes/项目/todo.md',    line:24,  pane:'标签页2', agoMin:35, text:'- [ ] 面板：加相对时间与预览', before:'## 面板', after:'- [ ] 面板：移动端保留文本' },
+  { kind:'jump',     path:'notes/会议/2025-09-12 周会.md', line:88, pane:'标签页2', agoMin:33, key:'周会.md#决策', text:'## 决策', before:'### 讨论', after:'- 面板默认按时间序' },
+  { kind:'jump',     path:'notes/会议/2025-09-12 周会.md', line:140, pane:'标签页2', agoMin:31, key:'outline:行动项', text:'### 行动项', before:'## 复盘', after:'- 面板原型周五前给出' },
+  { kind:'teleport', path:'notes/会议/2025-09-12 周会.md', line:152, pane:'标签页2', agoMin:30, text:'- 面板交互由 @陈 跟进', before:'- 数据模型加时间戳字段', after:'- 下周三再对一次' },
+  { kind:'visit',    path:'notes/项目/project.md', line:100, pane:'左栏',   agoMin:26, via:'switch', text:'## 背景', before:'# 导航历史面板', after:'现在的面板按文件分组' },
+  { kind:'visit',    path:'notes/项目/project.md', line:500, pane:'右栏',   agoMin:24, via:'switch', text:'## 附录：快捷键', before:'## 参考', after:'| 命令 | 默认键 |' },
+  { kind:'visit',    path:'notes/草稿/old.md',     line:12,  pane:'标签页2', agoMin:21, text:'这段先留着', before:'# 草稿', after:'（下面是废弃的方案）', deleted:true },
+  { kind:'jump',     path:'notes/项目/project.md', line:212, pane:'左栏',   agoMin:18, key:'outline:阶段二：导航历史面板', text:'### 阶段二：导航历史面板', before:'## 路线图', after:'目标是把它做成 VSCode 那样的一键回到' },
+  { kind:'view',     path:'graph',                 line:undefined, pane:'标签页3', agoMin:15, text:'' },
+  { kind:'visit',    path:'notes/项目/design.md',  line:66,  pane:'标签页3', agoMin:11, text:'## 呈现方案', before:'# 面板设计', after:'三个方向：时间序 / 分组 / 预览条' },
+  { kind:'teleport', path:'notes/项目/design.md',  line:210, pane:'标签页3', agoMin:8,  text:'预览条：悬停显示上下文三行', before:'### 预览', after:'- 用 vault.cachedRead 惰性读' },
+  { kind:'visit',    path:'notes/项目/project.md', line:412, pane:'标签页1', agoMin:5,  via:'switch', text:'把 nav 面板改成时间序，先记时间戳', before:'- 记录：push 时打时间戳', after:'- 展示：相对时间优先于 ±N', current:true },
+  // ↓ 前进历史（用户按过两次「后退」，所以当前位置上方还有两条）
+  { kind:'jump',     path:'notes/会议/2025-09-12 周会.md', line:12, pane:'标签页1', agoMin:2, key:'周会.md#议程', text:'## 议程', before:'# 2025-09-12 周会', after:'1. 面板进度' },
+  { kind:'visit',    path:'notes/项目/design.md',  line:66,  pane:'标签页3', agoMin:1, text:'## 呈现方案', before:'# 面板设计', after:'三个方向：时间序 / 分组 / 预览条' },
+];
+
+const NOW = Date.now();
+const state = {
+  entries: [],
+  currentIndex: 0,
+  filter: '',
+  raw: false,     // A：原始平铺
+  narrow: false,  // C：窄屏演示
+  selB: null,     // B 的键盘选中（entries 下标）
+  previewIndex: null,
+};
+
+function reset() {
+  state.entries = RAW.map((e, i) => Object.assign({ uid: i }, e, { t: NOW - e.agoMin * 60000 }));
+  state.currentIndex = state.entries.findIndex(e => e.current);
+  state.filter = '';
+  state.raw = false;
+  state.narrow = false;
+  state.selB = null;
+  state.previewIndex = state.entries[state.currentIndex].uid;
+  document.querySelectorAll('.filter').forEach(i => { i.value = ''; });
+  document.getElementById('rawToggle').checked = false;
+  document.getElementById('narrowToggle').checked = false;
+  document.getElementById('panelC').classList.remove('narrow');
+  renderAll();
+}
+
+// ===== 纯函数（对应 nav-history-modal.ts 里的同名导出）=====
+const base = p => p.split('/').pop();
+const isView = e => e.kind === 'view';
+function fileName(e) { return isView(e) ? '关系图谱' : base(e.path); }
+function typeOf(e) {
+  if (isView(e)) return '图形';
+  if (e.kind === 'jump') return e.key && e.key.indexOf('outline:') === 0 ? '大纲' : '链接';
+  if (e.kind === 'teleport') return '跳变';
+  return e.via === 'switch' ? '切换' : '打开';
+}
+function landing(e) { return e.line === undefined ? undefined : 'L' + e.line; }
+function haystack(e) { return (fileName(e) + ' ' + (e.path || '') + ' ' + (e.text || '')).toLowerCase(); }
+function matches(e, q) {
+  const toks = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return toks.every(t => haystack(e).indexOf(t) >= 0);
+}
+function timeLabel(e) {
+  const m = Math.max(0, Math.round((NOW - e.t) / 60000));
+  if (m < 1) return '刚刚';
+  if (m < 60) return m + ' 分钟前';
+  const h = Math.floor(m / 60);
+  return h < 24 ? h + ' 小时前' : Math.floor(h / 24) + ' 天前';
+}
+function stepsLabel(delta) {
+  if (delta === 0) return '';
+  return delta < 0 ? '+' + (-delta) : '\u2212' + delta;
+}
+
+// 分组：A 按 path（分栏被并到一起 —— 现状）；C 按 path+pane。
+function groupEntries(entries, keyOf) {
+  const groups = [], byKey = new Map();
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const key = keyOf(entries[i]);
+    let g = byKey.get(key);
+    if (!g) { g = { key, rep: entries[i], indices: [] }; byKey.set(key, g); groups.push(g); }
+    g.indices.push(i);
+  }
+  return groups;
+}
+// 合并同落点：key 相同即折叠。C 额外把「当前行两侧」隔开（不允许后退条目吃掉前进条目）。
+function mergeByLanding(indices, entries, currentIndex, respectCurrent) {
+  const rows = [], byKey = new Map();
+  for (const i of indices) {
+    const side = respectCurrent ? (i > currentIndex ? 'f' : 'b') : '';
+    const l = landing(entries[i]);
+    const key = l === undefined ? undefined : side + '|' + l;
+    const hit = key !== undefined ? byKey.get(key) : undefined;
+    if (hit) { hit.push(i); continue; }
+    const row = [i];
+    if (key !== undefined) byKey.set(key, row);
+    rows.push(row);
+  }
+  return rows;
+}
+
+// ===== 渲染 =====
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
+
+function currentGroupKey(entries, currentIndex) {
+  const cur = entries[currentIndex];
+  return isView(cur) ? 'view:' + cur.path : cur.path;
+}
+
+function visibleEntries() {
+  const q = state.filter.trim();
+  return state.entries.map((e, i) => ({ e, i })).filter(x => !q || matches(x.e, q));
+}
+
+function jump(i) {
+  const from = state.entries[state.currentIndex];
+  const target = state.entries[i];
+  if (i === state.currentIndex) { toast('已在当前位置（' + fileName(target) + (landing(target) ? ' ' + landing(target) : '') + '），未发生跳转'); return; }
+  // 与 nav-history.ts jumpTo 一致：截断前进段，再把目标浅拷贝压栈。
+  const copy = Object.assign({}, target, { uid: 'j' + Math.random().toString(36).slice(2, 7) });
+  state.entries.length = state.currentIndex + 1;
+  state.entries.push(copy);
+  state.currentIndex = state.entries.length - 1;
+  state.selB = null;
+  state.previewIndex = copy.uid;
+  renderAll();
+  if (copy.deleted) {
+    toast('跳到 <span class="k">已删除</span> 的 ' + fileName(copy) + '：真实实现里<b>屏幕上什么都不会发生</b>，但历史指针已经移过来、前进段也已被截断 —— 这正是「缺失行不该可点」的理由。');
+    return;
+  }
+  toast('已跳到 <span class="k">' + fileName(copy) + ' ' + (landing(copy) || '') + '</span> · 按「后退」可回到 <span class="k">' + fileName(from) + ' ' + (landing(from) || '') + '</span>');
+}
+
+function renderAll() {
+  renderB();
+  renderA();
+  renderC();
+}
+
+// 打开时把当前行滚到可见（现状的 renderList(true) 行为）
+function centerOn(container, node) {
+  if (!node) return;
+  container.scrollTop = Math.max(0, node.offsetTop - container.clientHeight / 2 + node.offsetHeight / 2);
+}
+
+// ---------- A：现状 ----------
+function renderA() {
+  const list = document.getElementById('listA');
+  list.innerHTML = '';
+  list.classList.toggle('raw', state.raw);
+  list.classList.toggle('grouped', !state.raw);
+  const rows = visibleEntries();
+  let currentRowEl = null;
+
+  if (state.raw) {
+    const head = el('div', 'head-row');
+    ['文件', '位置', '类型'].forEach(h => head.appendChild(el('span', null, h)));
+    list.appendChild(head);
+    for (let k = rows.length - 1; k >= 0; k--) {
+      const { e, i } = rows[k];
+      const r = el('div', 'row' + (i === state.currentIndex ? ' is-current' : ''));
+      r.appendChild(el('span', 'file', fileName(e)));
+      const pos = el('div', 'pos');
+      pos.appendChild(el('span', 'line', landing(e) || '—'));
+      if (e.text) pos.appendChild(el('span', 'text', '“' + e.text + '”'));
+      r.appendChild(pos);
+      r.appendChild(el('span', 'badge' + (e.deleted ? ' gone' : e.kind === 'teleport' ? ' soft' : ''), e.deleted ? '已删除' : typeOf(e)));
+      r.title = e.path || '';
+      r.addEventListener('click', () => jump(i));
+      list.appendChild(r);
+      if (i === state.currentIndex) currentRowEl = r;
+    }
+  } else {
+    const groups = groupEntries(state.entries, e => isView(e) ? 'view:' + e.path : e.path);
+    const curKey = currentGroupKey(state.entries, state.currentIndex);
+    const q = state.filter.trim();
+    for (const g of groups) {
+      const kept = g.indices.filter(i => !q || matches(state.entries[i], q));
+      if (!kept.length) continue;
+      const head = el('div', 'group' + (g.key === curKey ? ' is-current-group' : '') + (kept.some(i => state.entries[i].deleted) ? ' is-gone' : ''));
+      head.appendChild(el('span', 'gfile', fileName(state.entries[kept[0]])));
+      head.title = state.entries[kept[0]].path || '';
+      if (g.key === curKey) head.appendChild(el('span', 'gnow', '●'));
+      head.appendChild(el('span', 'gcount', String(kept.length)));
+      list.appendChild(head);
+      for (const rowIdx of mergeByLanding(kept, state.entries, state.currentIndex, false)) {
+        const rep = rowIdx[0];
+        const e = state.entries[rep];
+        const isCur = rowIdx.indexOf(state.currentIndex) >= 0;
+        const r = el('div', 'row' + (isCur ? ' is-current' : ''));
+        const pos = el('div', 'pos');
+        pos.appendChild(el('span', 'line', landing(e) || '—'));
+        if (e.text) pos.appendChild(el('span', 'text', '“' + e.text + '”'));
+        if (isCur) pos.appendChild(el('span', 'steps cur', '●'));
+        else {
+          const s = stepsLabel(state.currentIndex - rep);
+          if (s) pos.appendChild(el('span', 'steps', s));
+        }
+        r.appendChild(pos);
+        if (rowIdx.length > 1) r.appendChild(el('span', 'count', '×' + rowIdx.length));
+        r.title = (e.path || '') + (e.pane ? ' · ' + e.pane : '');
+        r.addEventListener('click', () => jump(isCur ? state.currentIndex : rep));
+        list.appendChild(r);
+        if (isCur) currentRowEl = r;
+      }
+    }
+  }
+  if (!list.children.length) list.appendChild(el('div', 'row disabled', state.filter ? '没有匹配的历史。' : '暂无导航历史。'));
+  centerOn(list, currentRowEl);
+}
+
+// ---------- B：时间序 + 当前位置钉顶 ----------
+function renderB() {
+  const here = document.getElementById('hereB');
+  const list = document.getElementById('listB');
+  here.innerHTML = ''; list.innerHTML = '';
+  const cur = state.entries[state.currentIndex];
+
+  const top = el('div', 'here-top');
+  top.appendChild(el('span', null, '● 当前位置'));
+  top.appendChild(el('span', 'time', timeLabel(cur)));
+  const main = el('div', 'here-main');
+  main.appendChild(el('span', 'file', fileName(cur)));
+  if (cur.pane) main.appendChild(el('span', 'pane', cur.pane));
+  if (landing(cur)) main.appendChild(el('span', 'line', landing(cur)));
+  here.appendChild(top); here.appendChild(main);
+  if (cur.text) here.appendChild(el('div', 'here-text', '“' + cur.text + '”'));
+  here.appendChild(el('div', 'enter-hint', '什么都不选直接按 Enter ＝ 回到上一个位置'));
+
+  const q = state.filter.trim();
+  const fwd = [], back = [];
+  for (let i = state.entries.length - 1; i >= 0; i--) {
+    if (i === state.currentIndex) continue;
+    const e = state.entries[i];
+    if (q && !matches(e, q)) continue;
+    (i > state.currentIndex ? fwd : back).push(i);
+  }
+
+  const seg = (label, dir, n) => {
+    const s = el('div', 'seg');
+    s.appendChild(el('span', 'seg-dir', dir));
+    s.appendChild(el('span', null, label + ' · ' + n + ' 条'));
+    s.appendChild(el('span', 'seg-line'));
+    return s;
+  };
+  const rowOf = (i) => {
+    const e = state.entries[i];
+    const r = el('div', 'row' + (state.selB === i ? ' is-selected' : ''));
+    r.appendChild(el('span', 'time', timeLabel(e)));
+    r.appendChild(el('span', 'file', fileName(e)));
+    if (e.pane) r.appendChild(el('span', 'pane', e.pane));
+    const pos = el('div', 'pos');
+    pos.appendChild(el('span', 'line', landing(e) || '—'));
+    if (e.text) pos.appendChild(el('span', 'text', '“' + e.text + '”'));
+    r.appendChild(pos);
+    r.title = (e.path || '') + (e.pane ? ' · ' + e.pane : '');
+    // 只在变化时重渲染：行被重建会让指针下的新节点再次触发 mouseenter。
+    r.addEventListener('mouseenter', () => { if (state.selB !== i) { state.selB = i; renderB(); } });
+    r.addEventListener('click', () => jump(i));
+    return r;
+  };
+
+  if (fwd.length) { list.appendChild(seg('前进', '→', fwd.length)); fwd.forEach(i => list.appendChild(rowOf(i))); }
+  if (back.length) { list.appendChild(seg('后退', '←', back.length)); back.forEach(i => list.appendChild(rowOf(i))); }
+  if (!fwd.length && !back.length) list.appendChild(el('div', 'row disabled', q ? '没有匹配的历史。' : '暂无其他历史。'));
+}
+
+// ---------- C：分组 + 预览条 ----------
+function renderC() {
+  const list = document.getElementById('listC');
+  list.innerHTML = '';
+  const q = state.filter.trim();
+  const groups = groupEntries(state.entries, e => (isView(e) ? 'view:' + e.path : e.path) + '|' + (e.pane || ''));
+  const curKey = currentGroupKey(state.entries, state.currentIndex) + '|' + (state.entries[state.currentIndex].pane || '');
+  let currentRowEl = null;
+
+  for (const g of groups) {
+    const kept = g.indices.filter(i => !q || matches(state.entries[i], q));
+    if (!kept.length) continue;
+    const sample = state.entries[kept[0]];
+    const head = el('div', 'group' + (g.key === curKey ? ' is-current-group' : '') + (sample.deleted ? ' is-gone' : ''));
+    head.appendChild(el('span', 'gfile', fileName(sample)));
+    if (sample.pane) head.appendChild(el('span', 'pane', sample.pane));
+    head.title = sample.path || '';
+    if (g.key === curKey) head.appendChild(el('span', 'gnow', '●'));
+    head.appendChild(el('span', 'gcount', String(kept.length)));
+    list.appendChild(head);
+
+    for (const rowIdx of mergeByLanding(kept, state.entries, state.currentIndex, true)) {
+      const rep = rowIdx[0];
+      const e = state.entries[rep];
+      const isCur = rowIdx.indexOf(state.currentIndex) >= 0;
+      const r = el('div', 'row' + (isCur ? ' is-current' : '') + (e.deleted ? ' disabled' : ''));
+      r.appendChild(el('span', 'badge' + (e.deleted ? ' gone' : e.kind === 'teleport' ? ' soft' : ''), e.deleted ? '已删除' : typeOf(e)));
+      const pos = el('div', 'pos');
+      pos.appendChild(el('span', 'line', landing(e) || '—'));
+      if (e.text) pos.appendChild(el('span', 'text', '“' + e.text + '”'));
+      r.appendChild(pos);
+      if (rowIdx.length > 1) r.appendChild(el('span', 'count', '×' + rowIdx.length));
+      r.appendChild(el('span', 'time', timeLabel(e)));
+      r.title = (e.path || '') + (e.pane ? ' · ' + e.pane : '');
+      r.addEventListener('mouseenter', () => { state.previewIndex = e.uid; renderPreview(); });
+      if (!e.deleted) r.addEventListener('click', () => jump(isCur ? state.currentIndex : rep));
+      list.appendChild(r);
+      if (isCur) currentRowEl = r;
+    }
+  }
+  if (!list.children.length) list.appendChild(el('div', 'row disabled', q ? '没有匹配的历史。' : '暂无导航历史。'));
+  renderPreview();
+  centerOn(list, currentRowEl);
+}
+
+function renderPreview() {
+  const box = document.getElementById('previewC');
+  box.innerHTML = '';
+  const e = state.entries.filter(x => x.uid === state.previewIndex)[0];
+  if (!e) { box.appendChild(el('div', 'p-empty', '把鼠标移到左侧任意一行，这里显示落点上下文。')); return; }
+  const head = el('div', 'p-head');
+  head.textContent = (e.path || '关系图谱') + (landing(e) ? ' · ' + landing(e) : '') + ' · ' + timeLabel(e) + (e.pane ? ' · ' + e.pane : '');
+  box.appendChild(head);
+  if (e.line === undefined) { box.appendChild(el('div', 'p-empty', '（非 markdown 视图：没有可预览的落点）')); return; }
+  const rows = [
+    [e.line - 1, e.before, false],
+    [e.line, e.text, true],
+    [e.line + 1, e.after, false],
+  ];
+  for (const [n, t, mark] of rows) {
+    const l = el('div', 'p-line' + (mark ? ' mark' : ''));
+    l.appendChild(el('span', 'n', 'L' + n));
+    l.appendChild(el('span', 't', t || '（空行）'));
+    box.appendChild(l);
+  }
+}
+
+// ---------- 键盘 ----------
+document.addEventListener('keydown', ev => {
+  if (ev.target && ev.target.tagName === 'INPUT') return;
+  const q = state.filter.trim();
+  const others = [];
+  for (let i = state.entries.length - 1; i >= 0; i--) {
+    if (i === state.currentIndex) continue;
+    if (q && !matches(state.entries[i], q)) continue;
+    others.push(i); // 最新在前
+  }
+  if (!others.length) return;
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    const at = state.selB === null ? -1 : others.indexOf(state.selB);
+    let next = ev.key === 'ArrowDown' ? at + 1 : (at <= 0 ? 0 : at - 1);
+    if (at === -1 && ev.key === 'ArrowUp') next = others.length - 1;
+    state.selB = others[Math.max(0, Math.min(others.length - 1, next))];
+    state.previewIndex = state.entries[state.selB].uid;
+    renderB(); renderC();
+  } else if (ev.key === 'Enter') {
+    ev.preventDefault();
+    jump(state.selB === null ? others[0] : state.selB);
+  } else if (ev.key === 'Escape') {
+    state.selB = null; renderB();
+  }
+});
+
+// ---------- 工具栏 ----------
+document.querySelectorAll('.filter').forEach(input => {
+  input.addEventListener('input', () => {
+    state.filter = input.value;
+    document.querySelectorAll('.filter').forEach(o => { if (o !== input) o.value = input.value; });
+    renderAll();
+  });
+});
+document.getElementById('rawToggle').addEventListener('change', ev => { state.raw = ev.target.checked; renderA(); });
+document.getElementById('narrowToggle').addEventListener('change', ev => {
+  state.narrow = ev.target.checked;
+  document.getElementById('panelC').classList.toggle('narrow', state.narrow);
+});
+document.getElementById('reset').addEventListener('click', reset);
+
+let toastTimer = null;
+function toast(html) {
+  const t = document.getElementById('toast');
+  t.innerHTML = html;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 4200);
+}
+
+reset();
+</script>
+</body>
+</html>

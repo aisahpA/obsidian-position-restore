@@ -3,11 +3,16 @@ import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
 	resolve: {
-		// 'obsidian' is a typings-only package with no runnable entry; point
-		// the whole suite (sources under test included) at a runtime stand-in.
-		alias: {
-			obsidian: fileURLToPath(new URL('./tests/obsidian-stub.ts', import.meta.url)),
-		},
+		// The array form is required for both entries: '@/x' needs a regex to
+		// match the segment after the slash, and a bare '@' string would also
+		// capture '@codemirror/...'. '@/x' -> src/ mirrors tsconfig `paths`
+		// and the rollup alias.
+		alias: [
+			{ find: /^@\//, replacement: fileURLToPath(new URL('./src/', import.meta.url)) },
+			// 'obsidian' is a typings-only package with no runnable entry; point
+			// the whole suite (sources under test included) at a runtime stand-in.
+			{ find: 'obsidian', replacement: fileURLToPath(new URL('./tests/obsidian-stub.ts', import.meta.url)) },
+		],
 	},
 	test: {
 		environment: 'jsdom',

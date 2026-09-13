@@ -15,8 +15,8 @@ vi.hoisted(() => {
 	(window as unknown as { moment: unknown }).moment = { locale: () => 'en' };
 });
 
-import { CursorPositionDatabase } from '../src/database';
-import { DEFAULT_SETTINGS, type PluginSettings } from '../src/types';
+import { CursorPositionDatabase } from '@/position/storage/database';
+import { DEFAULT_SETTINGS, type PluginSettings } from '@/types';
 
 const DB_PATH = '.obsidian/plugins/position-restore/positions.json';
 
@@ -560,10 +560,11 @@ describe('switchDbFile', () => {
 		expect(adapter.rename).toHaveBeenCalledWith(DB_PATH, 'new.json');
 	});
 
-	it('refuses when the parent folder does not exist', async () => {
-		const { db, files } = makeHarness();
-		expect(await db.switchDbFile('missing/new.json')).toBe(false);
-		expect(Object.keys(files)).toHaveLength(0);
+	it('creates a missing parent folder instead of refusing', async () => {
+		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
+		expect(await db.switchDbFile('missing/new.json')).toBe(true);
+		expect(adapter.mkdir).toHaveBeenCalledWith('missing');
+		expect(files['missing/new.json']).toBe('{"a.md":[5]}');
 	});
 
 	it('adopts an existing target file, removes the old one, and keeps locally touched records', async () => {
@@ -580,5 +581,32 @@ describe('switchDbFile', () => {
 		expect(db.db['c.md']).toEqual({ scroll: 5 }); // kept
 		expect(db.db['local.md']).toEqual({ scroll: 3 }); // touched locally → wins
 		expect(db.dbDirty).toBe(true); // adopted records flush on the next write
+	});
+
+	it('refuses an existing non-database JSON file without changing anything', async () => {
+		const { db, files, adapter } = makeHarness({
+			[DB_PATH]: '{"a.md":[5]}',
+			'package.json': '{"name":"x","deps":["a"]}',
+			// Numeric arrays pass the value check; only the outer note-path
+			// key check rejects this one.
+			'chart.json': '{"series":[1,2,3],"axis":[0]}',
+		});
+		await db.readDb();
+
+		expect(await db.switchDbFile('package.json')).toBe(false);
+		expect(await db.switchDbFile('chart.json')).toBe(false);
+		expect(DB_PATH in files).toBe(true); // real db kept
+		expect(files['package.json']).toBe('{"name":"x","deps":["a"]}');
+		expect(db.db['a.md']).toEqual({ scroll: 5 }); // memory kept
+		expect(adapter.remove).not.toHaveBeenCalled();
+	});
+
+	it('adopts an empty but valid database file', async () => {
+		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[5]}', 'new.json': '{}' });
+		await db.readDb();
+
+		expect(await db.switchDbFile('new.json')).toBe(true);
+		expect(DB_PATH in files).toBe(false);
+		expect(db.db['a.md']).toEqual({ scroll: 5 });
 	});
 });

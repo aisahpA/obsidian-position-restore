@@ -18,11 +18,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { MarkdownView, WorkspaceLeaf } from 'obsidian';
-import { OpenPatcher } from '../src/patcher';
-import { Sampler } from '../src/sampler';
-import { PositionState, LANDING_ABSORB_MS } from '../src/position-state';
-import { TabStore } from '../src/tab-store';
-import { DEFAULT_SETTINGS, PluginSettings } from '../src/types';
+import { OpenPatcher } from '@/position/restore/patcher';
+import { Sampler } from '@/position/capture/sampler';
+import { PositionState, LANDING_ABSORB_MS } from '@/position/state';
+import { TabStore } from '@/position/storage/tab-store';
+import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
 type DatabaseStub = {
 	db: Record<string, unknown>;

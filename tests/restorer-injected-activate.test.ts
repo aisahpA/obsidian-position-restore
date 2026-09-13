@@ -12,10 +12,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileView, MarkdownView, type WorkspaceLeaf } from 'obsidian';
 
-import { Restorer } from '../src/restorer';
-import { TabStore } from '../src/tab-store';
-import { PositionState } from '../src/position-state';
-import { DEFAULT_SETTINGS } from '../src/types';
+import { Restorer } from '@/position/restore/restorer';
+import { TabStore } from '@/position/storage/tab-store';
+import { PositionState } from '@/position/state';
+import { DEFAULT_SETTINGS } from '@/types';
 
 // OpenCover styles leaf DOM via Obsidian's HTMLElement.setCssStyles
 // extension, which jsdom lacks.

@@ -15,10 +15,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MarkdownView, FileView, type WorkspaceLeaf } from 'obsidian';
 
-import { PositionState } from '../src/position-state';
-import { Restorer } from '../src/restorer';
-import { TabStore } from '../src/tab-store';
-import { DEFAULT_SETTINGS } from '../src/types';
+import { PositionState } from '@/position/state';
+import { Restorer } from '@/position/restore/restorer';
+import { TabStore } from '@/position/storage/tab-store';
+import { DEFAULT_SETTINGS } from '@/types';
 
 describe('PositionState leaf-scoped restore runs', () => {
 	it('a restore on a different leaf does not supersede this leaf\'s in-flight restore', () => {

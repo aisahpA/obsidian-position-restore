@@ -10,8 +10,8 @@
 import { describe, it, expect } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
-import { readEphemeralState, readNavEntryState, withNavDisplay } from '../src/ephemeral';
-import { EphemeralState } from '../src/types';
+import { readEphemeralState, readNavEntryState, withNavDisplay } from '@/position/capture/ephemeral';
+import { EphemeralState } from '@/types';
 
 // A cm stub: 1-based line(n) sits at offset (n-1)*10; `to` bounds the
 // rendered offset range. coordsAtPos maps an offset to a client top (x2);

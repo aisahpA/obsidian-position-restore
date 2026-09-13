@@ -12,9 +12,9 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { FileView, MarkdownView, Platform } from 'obsidian';
-import { Sampler } from '../src/sampler';
-import { PositionState } from '../src/position-state';
-import { DEFAULT_SETTINGS, PluginSettings } from '../src/types';
+import { Sampler } from '@/position/capture/sampler';
+import { PositionState } from '@/position/state';
+import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
 // onScrollCapture is private; tests drive it directly through this alias.
 type ScrollCapture = (ev: Event) => void;
