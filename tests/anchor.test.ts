@@ -1,4 +1,4 @@
-// Tests for anchor-line.ts: resolveAnchorLine resolves a keyed NavJump's
+// Tests for restore/anchor.ts: resolveAnchorLine resolves a keyed NavJump's
 // structural anchor (outline heading, #heading link, ^block ref) to its
 // CURRENT line in the file, surviving arbitrary insert/delete shifts — vs.
 // the ±30-line text-snippet remap it replaces for keyed jumps.
