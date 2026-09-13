@@ -3,8 +3,8 @@
 // splits into the two chronological segments. No DOM — the search box and the
 // picker are testable through these predicates alone.
 
-import { NavHistoryEntry } from '../nav-entry';
-import { t } from '../i18n';
+import { NavHistoryEntry } from '../entry';
+import { t } from '../../i18n';
 import { baseName } from './model';
 
 // One displayed row: the stack indices it merges (newest first). A row is

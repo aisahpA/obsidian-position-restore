@@ -2,9 +2,9 @@
 // its heading chain) derived from an entry, with the vault lookup coming in as a
 // predicate. No DOM and no `this` — every function here is testable on its own.
 
-import { NavHistoryEntry } from '../nav-entry';
-import { EphemeralState } from '../types';
-import { t } from '../i18n';
+import { NavHistoryEntry } from '../entry';
+import { EphemeralState } from '../../types';
+import { t } from '../../i18n';
 
 // The display name of a path: its last segment. What a row labels itself with,
 // and what the file-scope chip names (the full path is the row's hover title).

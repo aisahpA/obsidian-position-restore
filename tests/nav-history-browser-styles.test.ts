@@ -120,7 +120,7 @@ describe('history browser quiet tiers', () => {
 
 	// The core "Page preview" plugin owns the popover, and what the browser can
 	// say about it is said through two variables and a hold class
-	// (nav-history-modal.placePagePreview / holdPreview). None of that renders in
+	// (nav-history/browser/page-preview.place / hold). None of that renders in
 	// jsdom, so the contract is pinned here: both plugin placement edges are
 	// overridden by OUR coordinates (its own choice put the preview under the row
 	// and across the panel), and the hold hides the popover while it is still

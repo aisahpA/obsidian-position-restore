@@ -1,5 +1,5 @@
 import { App, HoverParent, HoverPopover } from 'obsidian';
-import { NavHistoryEntry } from '../nav-entry';
+import { NavHistoryEntry } from '../entry';
 import {
 	HOVER_LINK_SOURCE_ID, LANDING_MARK_CLASS, POPOVER_GAP, POPOVER_LEFT_VAR,
 	POPOVER_PENDING_CLASS, POPOVER_TOP_VAR, REVEAL_DEADLINE_MS,

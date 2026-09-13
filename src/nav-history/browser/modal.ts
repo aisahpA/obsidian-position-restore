@@ -1,6 +1,6 @@
 // "Browse navigation history" panel: the shell. It owns the dialog's lifecycle,
 // the render order (list → pinned card → panel), the keyboard, and travel; every
-// other piece is a module beside it under nav-history-browser/:
+// other piece is a module beside it:
 //   - constants.ts          the tuning numbers and the popover class names
 //   - model.ts / listing.ts / panes.ts / preview-lines.ts   the pure model
 //   - reads.ts              every vault read, cached
@@ -9,36 +9,23 @@
 //   - landing-panel.ts      the touch-only landing panel
 //   - page-preview.ts       Obsidian's own page preview, driven from a row
 // The name says BROWSER because the history itself — how a step is recorded,
-// persisted and restored — is nav-history.ts, nav-entry.ts, nav-history-store.ts
-// and nav-outline-capture.ts, which this panel only reads.
-// Everything re-exports through this module, which stays the panel's public
-// entry — main.ts, position-manager.ts and the tests import from here.
+// persisted and restored — is the rest of nav-history/ (history.ts, entry.ts,
+// store.ts, outline-capture.ts), which this panel only reads and never writes.
 
 import { App, FileView, HoverPopover, Modal, Platform } from 'obsidian';
-import { NavHistory } from './nav-history';
-import { NavHistoryEntry, RECORDABLE_VIEW_TYPES, isMainAreaLeaf, leafIdOf } from './nav-entry';
-import { EphemeralState } from './types';
-import { t } from './i18n';
-import { BODY_OPEN_CLASS, FIXED_HEIGHT_MIN_ENTRIES } from './nav-history-browser/constants';
-import { headingTrailAtLine, NavEntryDescription } from './nav-history-browser/model';
-import { formatRelativeTime } from './nav-history-browser/listing';
-import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './nav-history-browser/panes';
-import { NavHistoryReads } from './nav-history-browser/reads';
-import { LandingPanel } from './nav-history-browser/landing-panel';
-import { NavScopePicker } from './nav-history-browser/scope-picker';
-import { NavHistoryList } from './nav-history-browser/list';
-import { PagePreviewBridge } from './nav-history-browser/page-preview';
-
-export * from './nav-history-browser/constants';
-export * from './nav-history-browser/model';
-export * from './nav-history-browser/listing';
-export * from './nav-history-browser/panes';
-export * from './nav-history-browser/preview-lines';
-export * from './nav-history-browser/reads';
-export * from './nav-history-browser/landing-panel';
-export * from './nav-history-browser/scope-picker';
-export * from './nav-history-browser/list';
-export * from './nav-history-browser/page-preview';
+import { NavHistory } from '../history';
+import { NavHistoryEntry, RECORDABLE_VIEW_TYPES, isMainAreaLeaf, leafIdOf } from '../entry';
+import { EphemeralState } from '../../types';
+import { t } from '../../i18n';
+import { BODY_OPEN_CLASS, FIXED_HEIGHT_MIN_ENTRIES } from './constants';
+import { headingTrailAtLine, NavEntryDescription } from './model';
+import { formatRelativeTime } from './listing';
+import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
+import { NavHistoryReads } from './reads';
+import { LandingPanel } from './landing-panel';
+import { NavScopePicker } from './scope-picker';
+import { NavHistoryList } from './list';
+import { PagePreviewBridge } from './page-preview';
 
 // "Browse navigation history" modal. A destination picker, laid out around
 // how a user actually gets lost:

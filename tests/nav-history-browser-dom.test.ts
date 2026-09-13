@@ -4,13 +4,16 @@
 // scope — its direct "only this note" switch, the picker chip beside it, and
 // who owns the keyboard while the menu is up.
 // The pure pieces (describe/group/merge/filter/time/segments/panes/files) are
-// covered in nav-history-modal.test.ts.
+// covered in nav-history-browser.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, Platform, TFile } from 'obsidian';
 
-import { HOVER_LINK_SOURCE_ID, NavHistoryModal, POPOVER_LEFT_VAR, POPOVER_PENDING_CLASS, POPOVER_TOP_VAR } from '../src/nav-history-modal';
-import type { NavHistoryEntry } from '../src/nav-entry';
+import { NavHistoryModal } from '../src/nav-history/browser/modal';
+import {
+	HOVER_LINK_SOURCE_ID, POPOVER_LEFT_VAR, POPOVER_PENDING_CLASS, POPOVER_TOP_VAR,
+} from '../src/nav-history/browser/constants';
+import type { NavHistoryEntry } from '../src/nav-history/entry';
 import type { NavEntryState } from '../src/types';
 import { t } from '../src/i18n';
 

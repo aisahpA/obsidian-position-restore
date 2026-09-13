@@ -1,4 +1,4 @@
-// Tests for the VSCode-style navigation history (nav-history.ts) and its
+// Tests for the VSCode-style navigation history (nav-history/history.ts) and its
 // integration points:
 //  - stack logic: every jump pushes, a fresh jump truncates the forward part,
 //    dedup drops repeated same-file jumps (key match), force wins;
@@ -20,8 +20,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NavHistory } from '../src/nav-history';
-import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-entry';
+import { NavHistory } from '../src/nav-history/history';
+import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-history/entry';
 import { OpenPatcher } from '../src/patcher';
 import { Sampler } from '../src/sampler';
 import { PositionState } from '../src/position-state';

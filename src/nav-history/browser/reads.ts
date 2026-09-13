@@ -1,6 +1,6 @@
 import { App, Editor, MarkdownView, TFile } from 'obsidian';
-import { NavHistory } from '../nav-history';
-import { EphemeralState } from '../types';
+import { NavHistory } from '../history';
+import { EphemeralState } from '../../types';
 import { PREVIEW_CACHE_MAX, PREVIEW_READ_DELAY_MS } from './constants';
 import { HeadingRef, NavEntryDescription, describeNavEntry } from './model';
 

@@ -5,7 +5,7 @@ import { readEphemeralState, readNavEntryState, withNavDisplay, isEphemeralState
 import { ExclusionChecker } from './exclusion';
 import { frontmatterDecisionFor } from './frontmatter';
 import { PositionState } from './position-state';
-import type { NavHistory } from './nav-history';
+import type { NavHistory } from './nav-history/history';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
 // and the database. Two inputs feed the database:

@@ -1,6 +1,6 @@
 import { WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, TabStateRecord, PluginSettings } from './types';
-import { leafIdOf } from './nav-entry';
+import { leafIdOf } from './nav-history/entry';
 import { OpenCover } from './cover';
 import { RestoreCue } from './cue';
 

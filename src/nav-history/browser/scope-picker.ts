@@ -1,5 +1,5 @@
-import { NavHistoryEntry } from '../nav-entry';
-import { t } from '../i18n';
+import { NavHistoryEntry } from '../entry';
+import { t } from '../../i18n';
 import { historyFileOptions } from './listing';
 import { baseName } from './model';
 

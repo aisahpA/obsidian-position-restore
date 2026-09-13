@@ -1,5 +1,5 @@
 import { App, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState } from './types';
+import { NavEntryState } from '../types';
 
 // One stack entry, four kinds — a discriminated union TAGGED by `kind`
 // ('jump' | 'visit' | 'view' | 'teleport'). Every consumer reads the tag, never field

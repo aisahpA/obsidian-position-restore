@@ -1,5 +1,5 @@
 import { App } from 'obsidian';
-import { NavHistoryEntry, NAV_HISTORY_VERSION } from './nav-entry';
+import { NavHistoryEntry, NAV_HISTORY_VERSION } from './entry';
 
 // Device-local, per-vault navigation-history persistence (mirrors tab-store):
 // the startup read, the debounced write, and the per-entry shape check.

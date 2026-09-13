@@ -1,16 +1,16 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState, PluginSettings } from './types';
-import { PositionState } from './position-state';
-import { RestoreModes } from './restore-modes';
-import { readNavEntryState, normAnchor } from './ephemeral';
-import { resolveAnchorLine, findHeading, decodeAnchor } from './anchor-line';
-import { delay } from './wait';
+import { NavEntryState, PluginSettings } from '../types';
+import { PositionState } from '../position-state';
+import { RestoreModes } from '../restore-modes';
+import { readNavEntryState, normAnchor } from '../ephemeral';
+import { resolveAnchorLine, findHeading, decodeAnchor } from '../anchor-line';
+import { delay } from '../wait';
 import {
 	NavHistoryEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
 	RECORDABLE_VIEW_TYPES, isMainAreaLeaf,
-} from './nav-entry';
-import { loadNavHistory, persistNavHistory } from './nav-history-store';
-import { installOutlineCapture as installOutlineCaptureHook } from './nav-outline-capture';
+} from './entry';
+import { loadNavHistory, persistNavHistory } from './store';
+import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
 // VSCode-style back/forward navigation.
 //
@@ -40,7 +40,7 @@ import { installOutlineCapture as installOutlineCaptureHook } from './nav-outlin
 // are recorded too: their entries have no path, only a viewType — traversal
 // just reactivates the leaf. The entry vocabulary (NavHistoryEntry and its
 // variants, isMainAreaLeaf, the recordable view whitelist) lives in
-// nav-entry.ts.
+// entry.ts.
 //
 // Native per-tab history entry (internal, untyped): { state: { type, state:
 // { file, ... } }, eState: ... } — only the fields read for target
@@ -277,7 +277,7 @@ export class NavHistory {
 	}
 
 	// Reading-mode outline clicks are invisible to every other recording
-	// path; the capture hook lives in nav-outline-capture.ts — it needs only
+	// path; the capture hook lives in outline-capture.ts — it needs only
 	// this class's refreshTop/recordOpen plus the shared position state.
 	installOutlineCapture(registerCleanup: (fn: () => void) => void) {
 		installOutlineCaptureHook(this.app, {
@@ -723,7 +723,7 @@ export class NavHistory {
 
 	// ===== Persistence (device-local, per vault — mirrors tab-store) =====
 	// The storage format, startup read, and per-entry shape check live in
-	// nav-history-store.ts.
+	// store.ts.
 
 	persist() {
 		persistNavHistory(this.app, this.entries, this.index);

@@ -13,7 +13,7 @@ import { MarkdownView } from 'obsidian';
 import { Sampler } from '../src/sampler';
 import { PositionState } from '../src/position-state';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '../src/types';
-import { NavJump, NavTeleport, NavVisit } from '../src/nav-entry';
+import { NavJump, NavTeleport, NavVisit } from '../src/nav-history/entry';
 
 // The harness only ever builds pathful entries; excluding NavView (which has
 // neither path nor st) keeps `.path`/`.st` readable without casts.

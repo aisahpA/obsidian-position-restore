@@ -6,7 +6,7 @@ export class FileView {}
 export class MarkdownView extends FileView {}
 export class TFile {}
 
-// The history browser (nav-history-modal) extends this. Real enough for DOM
+// The history browser (nav-history/browser/modal) extends this. Real enough for DOM
 // tests: it builds the three elements the subclass writes into, and open()/
 // close() route to the subclass hooks.
 export class Modal {

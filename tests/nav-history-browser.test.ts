@@ -1,4 +1,4 @@
-// Tests for the history browser (nav-history-modal.ts): the pure pieces —
+// Tests for the history browser's pure pieces (src/nav-history/browser/):
 // row description, merging, filtering, the file-scope picker's contents, time
 // labels, direction segments, pane numbering and the preview window. The
 // modal's own DOM stays untested here; everything whose correctness a reader
@@ -6,13 +6,15 @@
 
 import { describe, it, expect } from 'vitest';
 
+import { describeNavEntry, headingTrailAtLine, rowTrail, baseName } from '../src/nav-history/browser/model';
 import {
-	describeNavEntry, destinationKey, headingTrailAtLine, mergeByLanding, matchesNavFilter,
-	formatRelativeTime, rowTrail, splitHistorySegments, paneInfo, paneLabel, previewWindow,
-	baseName, inFileScope, historyFileOptions, LiveLeaf,
-} from '../src/nav-history-modal';
+	mergeByLanding, matchesNavFilter, inFileScope, historyFileOptions, formatRelativeTime,
+	splitHistorySegments,
+} from '../src/nav-history/browser/listing';
+import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '../src/nav-history/browser/panes';
+import { previewWindow } from '../src/nav-history/browser/preview-lines';
 import { t } from '../src/i18n';
-import { NavHistoryEntry } from '../src/nav-entry';
+import { NavHistoryEntry } from '../src/nav-history/entry';
 import { NavEntryState } from '../src/types';
 
 const hasFile = () => true;

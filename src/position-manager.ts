@@ -7,8 +7,8 @@ import { BackgroundSettler } from './background-settle';
 import { Restorer } from './restorer';
 import { OpenPatcher } from './patcher';
 import { Sampler } from './sampler';
-import { NavHistory } from './nav-history';
-import { NavHistoryModal } from './nav-history-modal';
+import { NavHistory } from './nav-history/history';
+import { NavHistoryModal } from './nav-history/browser/modal';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
