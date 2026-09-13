@@ -1,8 +1,8 @@
 import { MarkdownView } from 'obsidian';
-import { EphemeralState } from '../../types';
-import { applyEphemeralState, readEphemeralState } from '../capture/ephemeral';
-import { delay, hasPreviewScrolled, nextPaint } from '../../shared/wait';
-import { PositionState } from '../state';
+import { EphemeralState } from '@/types';
+import { applyEphemeralState, readEphemeralState } from '@/position/capture/ephemeral';
+import { delay, hasPreviewScrolled, nextPaint } from '@/shared/wait';
+import { PositionState } from '@/position/state';
 
 // Minimal structural view of the CM6 EditorView reachable through
 // (editor).cm — only what the pixel correction needs, no @codemirror

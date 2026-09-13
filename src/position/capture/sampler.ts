@@ -1,11 +1,11 @@
 import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce, type Editor, type EditorPosition, type EventRef } from 'obsidian';
-import { EphemeralState, PluginSettings } from '../../types';
-import { CursorPositionDatabase } from '../storage/database';
+import { EphemeralState, PluginSettings } from '@/types';
+import { CursorPositionDatabase } from '@/position/storage/database';
 import { readEphemeralState, readNavEntryState, withNavDisplay, isEphemeralStatesEquals, isCursorStatesEqual } from './ephemeral';
-import { ExclusionChecker } from '../policy/exclusion';
-import { frontmatterDecisionFor } from '../policy/frontmatter';
-import { PositionState } from '../state';
-import type { NavHistory } from '../../nav-history/history';
+import { ExclusionChecker } from '@/position/policy/exclusion';
+import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
+import { PositionState } from '@/position/state';
+import type { NavHistory } from '@/nav-history/history';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
 // and the database. Two inputs feed the database:

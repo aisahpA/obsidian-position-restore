@@ -1,8 +1,8 @@
 import { App, FileView, MarkdownView, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from '../../types';
-import { TabStore } from '../storage/tab-store';
-import { getScroller, nextPaint } from '../../shared/wait';
-import { PositionState } from '../state';
+import { EphemeralState, PluginSettings } from '@/types';
+import { TabStore } from '@/position/storage/tab-store';
+import { getScroller, nextPaint } from '@/shared/wait';
+import { PositionState } from '@/position/state';
 import { RestoreModes } from './modes';
 
 // Restores a saved position after an open. The per-mode restore strategies

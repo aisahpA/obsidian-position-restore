@@ -14,9 +14,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { App, WorkspaceLeaf } from 'obsidian';
-import { TabStore } from '../src/position/storage/tab-store';
-import { PositionState } from '../src/position/state';
-import { DEFAULT_SETTINGS, TabStateRecord } from '../src/types';
+import { TabStore } from '@/position/storage/tab-store';
+import { PositionState } from '@/position/state';
+import { DEFAULT_SETTINGS, TabStateRecord } from '@/types';
 
 const APP_STUB = {
 	appId: 'test-vault',

@@ -1,7 +1,7 @@
 import { MarkdownView } from 'obsidian';
-import { PluginSettings } from '../../types';
-import { getScroller } from '../../shared/wait';
-import { outlinePathAtLine } from '../restore/anchor';
+import { PluginSettings } from '@/types';
+import { getScroller } from '@/shared/wait';
+import { outlinePathAtLine } from '@/position/restore/anchor';
 
 const CUE_AUTO_HIDE_MS = 4000;
 const CUE_DISMISS_GRACE_MS = 2000;

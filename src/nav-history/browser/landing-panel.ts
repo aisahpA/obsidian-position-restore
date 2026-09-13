@@ -1,5 +1,5 @@
-import { NavHistoryEntry } from '../entry';
-import { t } from '../../i18n';
+import { NavHistoryEntry } from '@/nav-history/entry';
+import { t } from '@/i18n';
 import { PREVIEW_RADIUS } from './constants';
 import { formatRelativeTime } from './listing';
 import { NavEntryDescription } from './model';

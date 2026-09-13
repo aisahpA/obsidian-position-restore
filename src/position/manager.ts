@@ -1,5 +1,5 @@
 import { App, TAbstractFile, Platform, WorkspaceLeaf } from 'obsidian';
-import { PluginSettings } from '../types';
+import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
 import { TabStore } from './storage/tab-store';
 import { PositionState } from './state';
@@ -7,8 +7,8 @@ import { BackgroundSettler } from './restore/background-settle';
 import { Restorer } from './restore/restorer';
 import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
-import { NavHistory } from '../nav-history/history';
-import { NavHistoryModal } from '../nav-history/browser/modal';
+import { NavHistory } from '@/nav-history/history';
+import { NavHistoryModal } from '@/nav-history/browser/modal';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects

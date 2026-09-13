@@ -1,15 +1,15 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState, PluginSettings } from '../types';
-import { PositionState } from '../position/state';
-import { RestoreModes } from '../position/restore/modes';
-import { readNavEntryState, normAnchor } from '../position/capture/ephemeral';
-import { resolveAnchorLine, findHeading, decodeAnchor } from '../position/restore/anchor';
-import { delay } from '../shared/wait';
+import { NavEntryState, PluginSettings } from '@/types';
+import { PositionState } from '@/position/state';
+import { RestoreModes } from '@/position/restore/modes';
+import { readNavEntryState, normAnchor } from '@/position/capture/ephemeral';
+import { resolveAnchorLine, findHeading, decodeAnchor } from '@/position/restore/anchor';
+import { delay } from '@/shared/wait';
 import {
 	NavHistoryEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
 	RECORDABLE_VIEW_TYPES,
 } from './entry';
-import { isMainAreaLeaf } from '../shared/leaf';
+import { isMainAreaLeaf } from '@/shared/leaf';
 import { loadNavHistory, persistNavHistory } from './store';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 

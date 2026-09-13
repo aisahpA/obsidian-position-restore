@@ -1,11 +1,11 @@
 import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from '../../types';
-import { TabStore } from '../storage/tab-store';
-import { PositionState, OpenKind, LANDING_ABSORB_MS } from '../state';
-import { readNavEntryState } from '../capture/ephemeral';
-import type { NavHistory } from '../../nav-history/history';
-import { isMainAreaLeaf } from '../../shared/leaf';
-import type { Sampler } from '../capture/sampler';
+import { EphemeralState, PluginSettings } from '@/types';
+import { TabStore } from '@/position/storage/tab-store';
+import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
+import { readNavEntryState } from '@/position/capture/ephemeral';
+import type { NavHistory } from '@/nav-history/history';
+import { isMainAreaLeaf } from '@/shared/leaf';
+import type { Sampler } from '@/position/capture/sampler';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
 // are internal and untyped; declare the minimal fields this plugin reads.

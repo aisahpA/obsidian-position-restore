@@ -1,6 +1,6 @@
 import { FileView, MarkdownView } from 'obsidian';
-import { EphemeralState } from '../types';
-import { applyEphemeralState, readEphemeralState } from '../position/capture/ephemeral';
+import { EphemeralState } from '@/types';
+import { applyEphemeralState, readEphemeralState } from '@/position/capture/ephemeral';
 
 // Fix wait after a restore before anchoring change detection. Covers
 // post-restore layout shifts (image decode, block resizing).

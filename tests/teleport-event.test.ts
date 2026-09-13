@@ -10,10 +10,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
-import { Sampler } from '../src/position/capture/sampler';
-import { PositionState } from '../src/position/state';
-import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '../src/types';
-import { NavJump, NavTeleport, NavVisit } from '../src/nav-history/entry';
+import { Sampler } from '@/position/capture/sampler';
+import { PositionState } from '@/position/state';
+import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
+import { NavJump, NavTeleport, NavVisit } from '@/nav-history/entry';
 
 // The harness only ever builds pathful entries; excluding NavView (which has
 // neither path nor st) keeps `.path`/`.st` readable without casts.

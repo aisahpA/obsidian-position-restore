@@ -1,5 +1,5 @@
 import { CachedMetadata } from 'obsidian';
-import { normAnchor } from '../capture/ephemeral';
+import { normAnchor } from '@/position/capture/ephemeral';
 
 // Structural re-anchor for a keyed NavJump: instead of guessing the line
 // from a text snippet (±30-line window in remapAnchoredState), resolve the

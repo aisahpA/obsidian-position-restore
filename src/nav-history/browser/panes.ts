@@ -3,7 +3,7 @@
 // comes in as a list (see NavHistoryModal.liveLeaves); nothing here touches the
 // workspace or the DOM.
 
-import { NavHistoryEntry } from '../entry';
+import { NavHistoryEntry } from '@/nav-history/entry';
 
 // What a destination is keyed by: the target path, or the view type for a
 // pathless view entry. The pane marker keys its live leaves with the same

@@ -13,11 +13,11 @@
 // store.ts, outline-capture.ts), which this panel only reads and never writes.
 
 import { App, FileView, HoverPopover, Modal, Platform } from 'obsidian';
-import { NavHistory } from '../history';
-import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '../entry';
-import { isMainAreaLeaf, leafIdOf } from '../../shared/leaf';
-import { EphemeralState } from '../../types';
-import { t } from '../../i18n';
+import { NavHistory } from '@/nav-history/history';
+import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
+import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
+import { EphemeralState } from '@/types';
+import { t } from '@/i18n';
 import { BODY_OPEN_CLASS, FIXED_HEIGHT_MIN_ENTRIES } from './constants';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { formatRelativeTime } from './listing';

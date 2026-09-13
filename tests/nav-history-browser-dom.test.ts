@@ -9,13 +9,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, Platform, TFile } from 'obsidian';
 
-import { NavHistoryModal } from '../src/nav-history/browser/modal';
+import { NavHistoryModal } from '@/nav-history/browser/modal';
 import {
 	HOVER_LINK_SOURCE_ID, POPOVER_LEFT_VAR, POPOVER_PENDING_CLASS, POPOVER_TOP_VAR,
-} from '../src/nav-history/browser/constants';
-import type { NavHistoryEntry } from '../src/nav-history/entry';
-import type { NavEntryState } from '../src/types';
-import { t } from '../src/i18n';
+} from '@/nav-history/browser/constants';
+import type { NavHistoryEntry } from '@/nav-history/entry';
+import type { NavEntryState } from '@/types';
+import { t } from '@/i18n';
 
 // jsdom implements no layout at all, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};

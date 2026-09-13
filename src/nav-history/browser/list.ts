@@ -1,5 +1,5 @@
-import { NavHistoryEntry } from '../entry';
-import { t } from '../../i18n';
+import { NavHistoryEntry } from '@/nav-history/entry';
+import { t } from '@/i18n';
 import {
 	NAME_COL_CAP_EM, NAME_COL_WIDTH_SHARE, TIME_COL_MAX, TIME_COL_MIN,
 } from './constants';

@@ -15,8 +15,8 @@ vi.hoisted(() => {
 	(window as unknown as { moment: unknown }).moment = { locale: () => 'en' };
 });
 
-import { CursorPositionDatabase } from '../src/position/storage/database';
-import { DEFAULT_SETTINGS, type PluginSettings } from '../src/types';
+import { CursorPositionDatabase } from '@/position/storage/database';
+import { DEFAULT_SETTINGS, type PluginSettings } from '@/types';
 
 const DB_PATH = '.obsidian/plugins/position-restore/positions.json';
 

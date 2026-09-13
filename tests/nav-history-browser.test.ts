@@ -6,16 +6,16 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { describeNavEntry, headingTrailAtLine, rowTrail, baseName } from '../src/nav-history/browser/model';
+import { describeNavEntry, headingTrailAtLine, rowTrail, baseName } from '@/nav-history/browser/model';
 import {
 	mergeByLanding, matchesNavFilter, inFileScope, historyFileOptions, formatRelativeTime,
 	splitHistorySegments,
-} from '../src/nav-history/browser/listing';
-import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '../src/nav-history/browser/panes';
-import { previewWindow } from '../src/nav-history/browser/preview-lines';
-import { t } from '../src/i18n';
-import { NavHistoryEntry } from '../src/nav-history/entry';
-import { NavEntryState } from '../src/types';
+} from '@/nav-history/browser/listing';
+import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '@/nav-history/browser/panes';
+import { previewWindow } from '@/nav-history/browser/preview-lines';
+import { t } from '@/i18n';
+import { NavHistoryEntry } from '@/nav-history/entry';
+import { NavEntryState } from '@/types';
 
 const hasFile = () => true;
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });

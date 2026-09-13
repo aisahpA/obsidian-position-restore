@@ -20,13 +20,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NavHistory } from '../src/nav-history/history';
-import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '../src/nav-history/entry';
-import { OpenPatcher } from '../src/position/restore/patcher';
-import { Sampler } from '../src/position/capture/sampler';
-import { PositionState } from '../src/position/state';
-import { TabStore } from '../src/position/storage/tab-store';
-import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '../src/types';
+import { NavHistory } from '@/nav-history/history';
+import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '@/nav-history/entry';
+import { OpenPatcher } from '@/position/restore/patcher';
+import { Sampler } from '@/position/capture/sampler';
+import { PositionState } from '@/position/state';
+import { TabStore } from '@/position/storage/tab-store';
+import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 

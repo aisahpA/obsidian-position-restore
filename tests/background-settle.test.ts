@@ -17,10 +17,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, type WorkspaceLeaf } from 'obsidian';
 
-import { BackgroundSettler } from '../src/position/restore/background-settle';
-import { TabStore } from '../src/position/storage/tab-store';
-import { PositionState } from '../src/position/state';
-import { DEFAULT_SETTINGS } from '../src/types';
+import { BackgroundSettler } from '@/position/restore/background-settle';
+import { TabStore } from '@/position/storage/tab-store';
+import { PositionState } from '@/position/state';
+import { DEFAULT_SETTINGS } from '@/types';
 
 beforeEach(() => {
 	Object.defineProperty(HTMLElement.prototype, 'setCssStyles', {

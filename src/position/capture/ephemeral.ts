@@ -1,5 +1,5 @@
 import { MarkdownView } from 'obsidian';
-import { EphemeralState, NavEntryState } from '../../types';
+import { EphemeralState, NavEntryState } from '@/types';
 
 // Hot read: the 100ms poll (Sampler), the scroll capture, and the restore
 // verification / reland loops run this every tick and every frame. Position

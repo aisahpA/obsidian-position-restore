@@ -1,8 +1,8 @@
 import { MarkdownView, Platform } from 'obsidian';
-import { EphemeralState, NavEntryState, PluginSettings } from '../../types';
-import { applyEphemeralState, readEphemeralState, remapAnchoredState, setCursorToEnd } from '../capture/ephemeral';
-import { ANCHOR_SETTLE_DELAY, animateScrollTop, delay, getScroller, hasPreviewScrolled, nextPaint, waitForContentReady, waitForRestorePainted } from '../../shared/wait';
-import { PositionState } from '../state';
+import { EphemeralState, NavEntryState, PluginSettings } from '@/types';
+import { applyEphemeralState, readEphemeralState, remapAnchoredState, setCursorToEnd } from '@/position/capture/ephemeral';
+import { ANCHOR_SETTLE_DELAY, animateScrollTop, delay, getScroller, hasPreviewScrolled, nextPaint, waitForContentReady, waitForRestorePainted } from '@/shared/wait';
+import { PositionState } from '@/position/state';
 import { SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SourcePixelCorrector } from './pixels';
 
 // The restore strategies: how a saved position is applied to a markdown
