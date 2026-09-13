@@ -1314,6 +1314,29 @@ describe('NavHistoryModal — where the native preview goes', () => {
 		}
 	});
 
+	it('re-anchors a SHOWING popover when the list scrolls, and writes nothing when none is up', () => {
+		// The popover hangs off a row's top edge, so the list scrolling moves the
+		// row out from under it — but only while one is actually showing: a wheel
+		// tick with no popover must not rewrite the body's style at all. And the
+		// row re-placed against is the one the popover was OPENED for, not
+		// whatever is pointed at now (the pointer may have moved on to a row whose
+		// preview has not been asked for yet).
+		const h = harness(at(), 1, files);
+		const list = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		const scroll = () => list.dispatchEvent(new Event('scroll'));
+
+		// Nothing is showing: the coordinates written on open must survive.
+		document.body.style.setProperty(POPOVER_LEFT_VAR, 'sentinel');
+		scroll();
+		expect(left()).toBe('sentinel');
+
+		h.modal.hoverPopover = { hoverEl: document.createElement('div'), targetEl: h.rows()[0] } as never;
+		scroll();
+
+		expect(left()).toBe('8px'); // the section cell's 0 + the gap
+		expect(top()).toBe('0px');
+	});
+
 	it('clears its coordinates when the browser closes', () => {
 		const h = harness(at(), 1, files);
 		hover(h.rows()[0]);
