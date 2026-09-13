@@ -14,7 +14,8 @@
 
 import { App, FileView, HoverPopover, Modal, Platform } from 'obsidian';
 import { NavHistory } from '../history';
-import { NavHistoryEntry, RECORDABLE_VIEW_TYPES, isMainAreaLeaf, leafIdOf } from '../entry';
+import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '../entry';
+import { isMainAreaLeaf, leafIdOf } from '../../shared/leaf';
 import { EphemeralState } from '../../types';
 import { t } from '../../i18n';
 import { BODY_OPEN_CLASS, FIXED_HEIGHT_MIN_ENTRIES } from './constants';

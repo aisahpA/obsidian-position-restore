@@ -1,4 +1,3 @@
-import { App, WorkspaceLeaf } from 'obsidian';
 import { NavEntryState } from '../types';
 
 // One stack entry, four kinds — a discriminated union TAGGED by `kind`
@@ -98,24 +97,3 @@ export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 // Persisted nav-history format version: a mismatched stored blob is
 // dropped whole on load — the history is disposable, no migrations.
 export const NAV_HISTORY_VERSION = 2;
-
-// Only main-area leaves record as navigation entries. Sidebar panels
-// (outline, backlinks, local graph…) track the active file in their own
-// view state: focusing the panel (or its state re-assertion) carries that
-// file through activation/setViewState, and recording it creates a phantom
-// entry whose "leaf" is the panel — a traversal targeting it would only
-// re-focus the panel. Hover previews and pop-out windows are equally not
-// entries of this workspace.
-export function isMainAreaLeaf(app: App, leaf: WorkspaceLeaf): boolean {
-	// (rootSplit.containerEl and leaf.containerEl are runtime API absent
-	// from the public typings — same cast family as leafIdOf.)
-	const root = app.workspace.rootSplit as { containerEl?: HTMLElement } | undefined;
-	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
-	return !!root?.containerEl && !!el && root.containerEl.contains(el);
-}
-
-// A leaf's id. Runtime API, absent from the public typings — the single place
-// that knows how to read it (PositionState.leafId delegates here).
-export function leafIdOf(leaf: WorkspaceLeaf): string {
-	return (leaf as unknown as { id: string }).id;
-}
