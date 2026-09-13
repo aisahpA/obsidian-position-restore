@@ -1,14 +1,15 @@
 // Tests for the history browser (nav-history-modal.ts): the pure pieces —
-// row description, merging, filtering, time labels, direction segments, pane
-// numbering and the preview window. The modal's own DOM stays untested here;
-// everything whose correctness a reader would doubt is pure.
+// row description, merging, filtering, the file-scope picker's contents, time
+// labels, direction segments, pane numbering and the preview window. The
+// modal's own DOM stays untested here; everything whose correctness a reader
+// would doubt is pure.
 
 import { describe, it, expect } from 'vitest';
 
 import {
 	describeNavEntry, destinationKey, headingTrailAtLine, mergeByLanding, matchesNavFilter,
 	formatRelativeTime, rowTrail, splitHistorySegments, paneInfo, paneLabel, previewWindow,
-	baseName, inFileScope, LiveLeaf,
+	baseName, inFileScope, historyFileOptions, LiveLeaf,
 } from '../src/nav-history-modal';
 import { t } from '../src/i18n';
 import { NavHistoryEntry } from '../src/nav-entry';
@@ -220,6 +221,64 @@ describe('inFileScope', () => {
 	it('never matches a view step, which is not a place in a note', () => {
 		const graph = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry;
 		expect(inFileScope(graph, 'a.md')).toBe(false);
+	});
+});
+
+describe('historyFileOptions', () => {
+	const NOW = Date.parse('2025-09-12T12:00:00');
+	const MINUTE = 60_000;
+	const at = (path: string, agoMin: number): NavHistoryEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', t: NOW - agoMin * MINUTE });
+
+	it('lists each file once, by name, with the steps that landed there', () => {
+		// By NAME, not by recency. The panel answers "recently" three times over:
+		// the pinned card, the direct switch and the chronological list. What is
+		// left for a picker is a lookup — and a lookup wants a position it can be
+		// found at twice, not a rank that moves with every visit.
+		const opts = historyFileOptions([
+			at('zeta.md', 60), at('alpha.md', 2), at('zeta.md', 30), at('alpha.md', 1),
+		]);
+		expect(opts.map(o => o.path)).toEqual(['alpha.md', 'zeta.md']);
+		expect(opts.map(o => o.count)).toEqual([2, 2]);
+		expect(opts[0].name).toBe('alpha.md');
+	});
+
+	it('sorts names the way a reader would, not by code point', () => {
+		// "draft 2" belongs before "draft 10" and "Beta" beside "beta": a raw
+		// string compare puts the ten first and splits the two cases apart, which
+		// is the classic "this list looks unsorted" complaint.
+		const opts = historyFileOptions([at('draft 10.md', 3), at('draft 2.md', 2), at('beta.md', 1)]);
+		expect(opts.map(o => o.name)).toEqual(['beta.md', 'draft 2.md', 'draft 10.md']);
+	});
+
+	it('skips view steps, which have no path to narrow to', () => {
+		// A graph-only stack has nothing to scope to: no chip at all, rather
+		// than a chip whose menu is empty.
+		const opts = historyFileOptions([
+			at('a.md', 5),
+			{ kind: 'view', leafId: 'leaf-1', viewType: 'graph', t: NOW } as NavHistoryEntry,
+		]);
+		expect(opts.map(o => o.path)).toEqual(['a.md']);
+		expect(historyFileOptions([{ kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry]))
+			.toEqual([]);
+	});
+
+	it('names the folder only where two files share a name', () => {
+		// Two notes called "index" are otherwise one item and the choice
+		// between them could not be made; the folder is long and faint, so it
+		// is spent on the ambiguity alone.
+		const opts = historyFileOptions([
+			at('notes/index.md', 5), at('b.md', 4), at('archive/index.md', 3),
+		]);
+		const byPath = new Map(opts.map(o => [o.path, o]));
+		expect(byPath.get('notes/index.md')?.folder).toBe('notes');
+		expect(byPath.get('archive/index.md')?.folder).toBe('archive');
+		expect(byPath.get('b.md')?.folder).toBeUndefined();
+	});
+
+	it('gives a same-named note at the vault root a folder to show', () => {
+		const opts = historyFileOptions([at('index.md', 5), at('archive/index.md', 3)]);
+		expect(opts.find(o => o.path === 'index.md')?.folder).toBe('/');
 	});
 });
 

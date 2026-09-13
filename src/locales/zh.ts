@@ -121,8 +121,12 @@ export const zh: En = {
 	'navHistory.graphView': '关系图谱',
 	'navHistory.searchPlaceholder': '按文件或文本过滤…',
 	'navHistory.noMatch': '没有匹配的历史。',
-	// 文件范围开关：把列表收窄到钉顶卡片所示的那篇笔记。
-	// 文案固定（笔记名放进 tooltip），这样开关宽度不随笔记名长短变化。
+	// 文件范围由两个控件表达同一个状态：直接的「只看本笔记」开关（常用路径，一次点击）
+	// 和旁边的选择器 chip——它显示当前生效的文件（未收窄时显示「全部文件」），点开是
+	// 历史里出现过的所有笔记。完整路径放在两者的 tooltip 里。
+	'navHistory.scope.all': '全部文件',
+	'navHistory.scope.pick': '把列表收窄到某个文件',
+	'navHistory.scope.count': '{0} 处',
 	'navHistory.onlyThisFile': '只看本笔记',
 	'navHistory.onlyThisFileTip': '只显示 {0} 里的位置',
 	'navHistory.scopeEmpty': '{0} 里没有其他位置。',

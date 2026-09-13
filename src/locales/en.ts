@@ -119,9 +119,14 @@ export const en = {
 	'navHistory.graphView': 'Graph view',
 	'navHistory.searchPlaceholder': 'Filter by file or text…',
 	'navHistory.noMatch': 'No matching entry.',
-	// The file-scope chip: narrow the list to the note the pinned card shows.
-	// A fixed label (the note's name lives in the tooltip) so the chip's width
-	// never depends on how long that name is.
+	// The file scope, carried by TWO controls that are one state: the direct
+	// "only this note" switch (the shortcut, one click) and the picker chip
+	// beside it, which names the file in force and opens the list of every note
+	// the history has been in — or "all files" while nothing is narrowed. The
+	// full path is the tooltip both of them carry.
+	'navHistory.scope.all': 'All files',
+	'navHistory.scope.pick': 'Narrow the list to one file',
+	'navHistory.scope.count': '{0} steps',
 	'navHistory.onlyThisFile': 'Only this note',
 	'navHistory.onlyThisFileTip': 'Only show positions in {0}',
 	'navHistory.scopeEmpty': 'No other position in {0}.',

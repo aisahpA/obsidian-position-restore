@@ -108,6 +108,16 @@ describe('history browser quiet tiers', () => {
 		);
 	});
 
+	// Three controls now share that row on a phone (the box, the "only this note"
+	// switch, the file picker), so both scope controls have to be allowed to
+	// give way: as fixed-width items they wrapped the toolbar onto a third line,
+	// and one of them fell off the short dialog entirely.
+	it('lets both scope controls shrink on the touch toolbar', () => {
+		expect(browser).toMatch(
+			/is-touch \.position-restore-nav-toggle,\s*\.position-restore-nav-modal\.is-touch \.position-restore-nav-scope\s*\{[^}]*flex: 0 1 auto[^}]*min-width: 0/,
+		);
+	});
+
 	// The core "Page preview" plugin owns the popover, and what the browser can
 	// say about it is said through two variables and a hold class
 	// (nav-history-modal.placePagePreview / holdPreview). None of that renders in
@@ -128,6 +138,31 @@ describe('history browser quiet tiers', () => {
 		);
 	});
 
+	// The scope picker's dropdown is an OVERLAY, not a row in the toolbar: the
+	// panel's height is pinned precisely so a filter cannot resize and re-center
+	// the dialog (see is-fixed), and a menu in the flow would do that on every
+	// open. It scrolls inside a bounded height — the history can hold every note
+	// in the vault — and it floats on the very same --background-primary as the
+	// dialog it covers, so it needs an edge of its own to read as one.
+	// It opens to the LEFT, from the TOOLBAR's right edge: the chip sits at the
+	// right end of the strip, and a menu anchored at its left edge grew straight
+	// off the panel, clipped on the right — folder and count included. Anchoring
+	// to the strip gives the menu the whole dialog's width to unfold into. That
+	// is what `right: 0` and the toolbar's `position: relative` are pinned for.
+	it('floats the scope menu, opening inward rather than off the panel', () => {
+		expect(browser).toMatch(/\.position-restore-nav-toolbar\s*\{[^}]*position: relative/);
+		expect(browser).toMatch(
+			/\.position-restore-nav-scope-menu\s*\{[^}]*position: absolute[^}]*right: 0[^}]*box-sizing: border-box[^}]*max-height: min\(46vh, 320px\)[^}]*overflow-y: auto/,
+		);
+		expect(browser).toMatch(
+			/\.position-restore-nav-scope-menu\s*\{[^}]*border: 1px solid var\(--background-modifier-border\)[^}]*background: var\(--background-primary\)/,
+		);
+		// a menu hanging off the right edge is the bug this replaced
+		expect(browser).not.toMatch(/\.position-restore-nav-scope-menu\s*\{[^}]*left: 0/);
+		// the items use the menu's box model, or each one overflows it by its padding
+		expect(browser).toMatch(/button\.nav-scope-item\s*\{[^}]*box-sizing: border-box/);
+	});
+
 	// A phone held sideways has ~370px of height for everything (title bar,
 	// filter, "you are here" card, list): every one of these is a line the list
 	// gets back.
@@ -137,9 +172,11 @@ describe('history browser quiet tiers', () => {
 
 		// the hint goes entirely
 		expect(landscape).toMatch(/is-touch \.position-restore-nav-hint\s*\{\s*display: none/);
-		// the box and the scope chip share one line instead of wrapping
+		// the box and BOTH scope controls share one line instead of wrapping,
+		// and both labels truncate rather than pushing the box out
 		expect(landscape).toMatch(/is-touch \.position-restore-nav-toolbar\s*\{[^}]*flex-wrap: nowrap/);
-		expect(landscape).toMatch(/nav-toggle > span\s*\{[^}]*max-width: 12em/);
+		expect(landscape).toMatch(/nav-toggle > span,[^}]*\{[^}]*max-width: 12em/);
+		expect(landscape).toMatch(/nav-scope-btn\s*\{[^}]*max-width: 12em/);
 		// the card is one line: marker, file, coordinate — no age or anchor
 		expect(landscape).toMatch(/position-restore-nav-here\s*\{[^}]*display: flex/);
 		expect(landscape).toMatch(

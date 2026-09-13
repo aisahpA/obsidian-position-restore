@@ -1,8 +1,10 @@
 // DOM-level tests for the history browser's interaction semantics — the parts
 // a reader cannot verify by reading a pure function: what a bare Enter does,
-// which rows are selectable at all, and the landing preview panel. The
-// pure pieces (describe/group/merge/filter/time/segments/panes) are covered in
-// nav-history-modal.test.ts.
+// which rows are selectable at all, the landing preview panel, and the file
+// scope — its direct "only this note" switch, the picker chip beside it, and
+// who owns the keyboard while the menu is up.
+// The pure pieces (describe/group/merge/filter/time/segments/panes/files) are
+// covered in nav-history-modal.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, Platform, TFile } from 'obsidian';
@@ -201,42 +203,155 @@ describe('NavHistoryModal — file scope', () => {
 	];
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 
-	const box = (h: ReturnType<typeof harness>) =>
+	const chip = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector<HTMLElement>('.position-restore-nav-scope-btn');
+	const chipLabel = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector('.nav-scope-label')?.textContent;
+	const menu = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector<HTMLElement>('.position-restore-nav-scope-menu');
+	const menuOpen = (h: ReturnType<typeof harness>) =>
+		menu(h) !== null && !menu(h)!.classList.contains('is-closed');
+	const click = (el: Element | null | undefined) =>
+		el!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	const openMenu = (h: ReturnType<typeof harness>) => click(chip(h));
+	const items = (h: ReturnType<typeof harness>) =>
+		Array.from(h.el.querySelectorAll<HTMLElement>('.nav-scope-item'));
+	// The item by what it SAYS: names are what a user picks by, and the tags
+	// around them (◂ folder, count) are decoration on the same string.
+	const named = (h: ReturnType<typeof harness>, label: string) =>
+		items(h).find(i => i.textContent?.includes(label));
+	const pick = (h: ReturnType<typeof harness>, label: string) => click(named(h, label));
+	// The direct switch beside the chip: "only this note", one click, the
+	// commonest pick — and the same state the chip shows, seen from the note's
+	// side.
+	const switchBox = (h: ReturnType<typeof harness>) =>
 		h.el.querySelector<HTMLInputElement>('.position-restore-nav-toggle input');
-	const label = (h: ReturnType<typeof harness>) =>
-		h.el.querySelector('.position-restore-nav-toggle span')?.textContent;
-	const filterBox = (h: ReturnType<typeof harness>) =>
-		h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
-	const setScope = (h: ReturnType<typeof harness>, on: boolean) => {
-		const b = box(h)!;
+	const setSwitch = (h: ReturnType<typeof harness>, on: boolean) => {
+		const b = switchBox(h)!;
 		b.checked = on;
 		b.dispatchEvent(new Event('change', { bubbles: true }));
 	};
+	const filterBox = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
-	it('offers a fixed-label chip scoped to the pinned card, and none without a file', () => {
+	it('shows the whole history until a file is picked, and offers the notes it has been in', () => {
 		const h = harness(entries(), 3, files);
-		// The label is the action, not the note: it never changes width, and the
-		// note it narrows to is named by the tooltip (and by the pinned card).
-		expect(label(h)).toBe(t('navHistory.onlyThisFile'));
-		expect(label(h)).not.toContain('c.md');
-		expect(h.el.querySelector('.position-restore-nav-toggle')?.getAttribute('title'))
-			.toBe(t('navHistory.onlyThisFileTip', 'c.md'));
-		expect(box(h)!.checked).toBe(false);
+		// Nothing is narrowed on open: both controls say so and the menu is down.
+		expect(chipLabel(h)).toBe(t('navHistory.scope.all'));
+		expect(menuOpen(h)).toBe(false);
+		expect(switchBox(h)!.checked).toBe(false);
+		expect(h.rows()).toHaveLength(3);
 
-		// a graph step is not a place in a note: there is nothing to scope to
+		openMenu(h);
+		expect(menuOpen(h)).toBe(true);
+
+		// "all files" first, then every note the history has been in, by NAME:
+		// the panel answers "recently" elsewhere (the pinned card, the switch,
+		// the chronological list), so the picker is the lookup index.
+		const labels = items(h).map(i => i.querySelector('.nav-scope-item-name')?.textContent);
+		expect(labels).toEqual([t('navHistory.scope.all'), 'a.md', 'b.md', 'c.md']);
+		// The count is the list the pick will show, so the current note's own
+		// step — the card, never a row — is not counted: c.md has two, one of
+		// them the card.
+		expect(named(h, 'a.md')?.textContent).toContain(t('navHistory.scope.count', 1));
+		expect(named(h, 'c.md')?.textContent).toContain(t('navHistory.scope.count', 1));
+	});
+
+	it('narrows the list to ANY note the history has been in', () => {
+		// This is what the checkbox could not do: it only ever meant the note
+		// the pinned card shows.
+		const h = harness(entries(), 3, files);
+		expect(h.rows()).toHaveLength(3);
+
+		openMenu(h);
+		pick(h, 'a.md');
+
+		expect(menuOpen(h)).toBe(false);
+		expect(chipLabel(h)).toBe('a.md');
+		expect(chip(h)!.classList.contains('is-active')).toBe(true);
+		expect(chip(h)!.getAttribute('title')).toBe(t('navHistory.onlyThisFileTip', 'a.md'));
+
+		const rows = h.rows();
+		expect(rows).toHaveLength(1);
+		expect(rows[0].textContent).toContain('a.md');
+		expect(rows.some(r => /[bc]\.md/.test(r.textContent ?? ''))).toBe(false);
+	});
+
+	it('offers no picker at all when the history holds no file', () => {
+		// A graph-only stack has nothing to narrow to: no chip rather than a
+		// chip whose menu is empty.
+		const graph = harness(
+			[{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW }] as NavHistoryEntry[],
+			0,
+			files,
+		);
+		expect(graph.el.querySelector('.position-restore-nav-scope')).toBeNull();
+		expect(graph.el.querySelector('.position-restore-nav-toggle')).toBeNull();
+	});
+
+	it('offers no switch when the pinned card is not a note', () => {
+		// The card is a graph step, so there is no "this note" — but the history
+		// HAS been in a.md, and that is still worth a picker. (The old chip
+		// vanished entirely here, which lost the scope along with the shortcut.)
 		const graph = harness(
 			[visit('a.md', NOW - MINUTE), { kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW }] as NavHistoryEntry[],
 			1,
 			files,
 		);
 		expect(graph.el.querySelector('.position-restore-nav-toggle')).toBeNull();
+		expect(graph.el.querySelector('.position-restore-nav-scope')).not.toBeNull();
+	});
+
+	it('keeps the switch and the picker on one state', () => {
+		const h = harness(entries(), 3, files);
+
+		// the switch narrows to the current note; the chip names it
+		setSwitch(h, true);
+		expect(chipLabel(h)).toBe('c.md');
+
+		// picking ANOTHER note unchecks the switch: the scope is no longer this
+		// note, and a checked box would claim it was
+		openMenu(h);
+		pick(h, 'a.md');
+		expect(switchBox(h)!.checked).toBe(false);
+		expect(chipLabel(h)).toBe('a.md');
+
+		// picking THIS note checks it again — one state, two controls
+		openMenu(h);
+		pick(h, 'c.md');
+		expect(switchBox(h)!.checked).toBe(true);
+		expect(h.el.querySelector('.position-restore-nav-toggle')?.classList.contains('is-active')).toBe(true);
+
+		// …and switching off from there is "no scope", not "that other note"
+		setSwitch(h, false);
+		expect(chipLabel(h)).toBe(t('navHistory.scope.all'));
+		expect(h.rows()).toHaveLength(3);
+	});
+
+	it('takes the picked file back off the list again', () => {
+		const h = harness(entries(), 3, files);
+		openMenu(h);
+		pick(h, 'a.md');
+		expect(h.rows()).toHaveLength(1);
+
+		openMenu(h);
+		pick(h, t('navHistory.scope.all'));
+
+		expect(chipLabel(h)).toBe(t('navHistory.scope.all'));
+		expect(chip(h)!.classList.contains('is-active')).toBe(false);
+		expect(h.rows()).toHaveLength(3);
 	});
 
 	it('narrows the list to that note, and the segment counts follow it', () => {
 		const h = harness(entries(), 3, files);
 		expect(h.rows()).toHaveLength(3);
 
-		setScope(h, true);
+		setSwitch(h, true);
+
+		// one click, no menu: this is the pick the switch exists for
+		expect(chipLabel(h)).toBe('c.md');
+		expect(chip(h)!.classList.contains('is-active')).toBe(true);
+		expect(h.el.querySelector('.position-restore-nav-toggle')?.classList.contains('is-active')).toBe(true);
 
 		const rows = h.rows();
 		expect(rows).toHaveLength(1);
@@ -253,7 +368,7 @@ describe('NavHistoryModal — file scope', () => {
 	it('asks for "no other position" rather than blaming an absent query', () => {
 		// the current note has no other landing at all
 		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, files);
-		setScope(h, true);
+		setSwitch(h, true);
 		expect(h.rows()).toHaveLength(0);
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
 			.toBe(t('navHistory.scopeEmpty', 'b.md'));
@@ -261,7 +376,7 @@ describe('NavHistoryModal — file scope', () => {
 
 	it('composes with the search box: the query is judged inside the scope', () => {
 		const h = harness(entries(), 3, files);
-		setScope(h, true);
+		setSwitch(h, true);
 		// this matches the OTHER note, which the scope has already dropped
 		filterBox(h).value = 'b.md';
 		filterBox(h).dispatchEvent(new Event('input', { bubbles: true }));
@@ -279,7 +394,7 @@ describe('NavHistoryModal — file scope', () => {
 
 		// Scoping to c.md drops b.md, and the selection goes with it: the only
 		// back step left is c.md's earlier spot.
-		setScope(h, true);
+		setSwitch(h, true);
 		expect(h.rows()).toHaveLength(1);
 		expect(h.rows()[0].classList.contains('is-selected')).toBe(false);
 
@@ -288,26 +403,85 @@ describe('NavHistoryModal — file scope', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
-	it('hands focus back to the search box, so the toggle does not stop typing', () => {
+	it('gives the menu the arrows and Enter while it is up, and Escape only the menu', () => {
 		const h = harness(entries(), 3, files);
-		// a real click focuses the checkbox before it fires change
-		box(h)!.focus();
+		openMenu(h);
+
+		// ↓ walks the MENU from the scope the list already shows ("all files"),
+		// and the selection behind the overlay must not move with it.
+		h.key('ArrowDown');
+		expect(h.rows().some(r => r.classList.contains('is-selected'))).toBe(false);
+		h.key('Enter');
+		expect(menuOpen(h)).toBe(false);
+		expect(chipLabel(h)).toBe('a.md');
+
+		// Escape is next: the menu's own key while it is up. The app closes a
+		// modal on Escape through a document handler, so the event must not
+		// reach one — stopping it is what keeps the panel open for one more
+		// look at the list.
+		const seen: string[] = [];
+		const spy = (ev: KeyboardEvent) => seen.push(ev.key);
+		document.addEventListener('keydown', spy);
+		openMenu(h);
+		const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+		h.modal.modalEl.dispatchEvent(esc);
+		document.removeEventListener('keydown', spy);
+
+		expect(menuOpen(h)).toBe(false);
+		expect(esc.defaultPrevented).toBe(true);
+		expect(seen).toEqual([]);
+	});
+
+	it('puts the menu away when the user clicks elsewhere or starts typing', () => {
+		const h = harness(entries(), 3, files);
+
+		openMenu(h);
+		click(filterBox(h));
+		expect(menuOpen(h)).toBe(false);
+
+		openMenu(h);
+		h.key('b'); // a printable key means "I am typing a filter, not choosing"
+		expect(menuOpen(h)).toBe(false);
+
+		// ...and so does editing what is already there
+		openMenu(h);
+		h.key('Backspace');
+		expect(menuOpen(h)).toBe(false);
+	});
+
+	it('hands focus back to the search box, so neither control stops typing', () => {
+		const h = harness(entries(), 3, files);
+		// a real click focuses a control before its handler runs
+		chip(h)!.focus();
 		expect(document.activeElement).not.toBe(filterBox(h));
 
-		setScope(h, true);
+		openMenu(h);
+		expect(document.activeElement).toBe(filterBox(h));
 
+		pick(h, 'a.md');
+		expect(document.activeElement).toBe(filterBox(h));
+
+		switchBox(h)!.focus();
+		expect(document.activeElement).not.toBe(filterBox(h));
+		setSwitch(h, true);
 		expect(document.activeElement).toBe(filterBox(h));
 	});
 
 	it('does not raise the keyboard when a finger narrows the list', () => {
-		// Same toggle, touch device: taking the focus is what unfolds the
+		// Same two controls, touch device: taking the focus is what unfolds the
 		// on-screen keyboard over the list the user just narrowed.
 		const h = harness(entries(), 3, files, [], {}, {}, true);
 
-		setScope(h, true);
+		openMenu(h);
+		pick(h, 'a.md');
 
 		expect(document.activeElement).not.toBe(filterBox(h));
-		expect(h.el.querySelector('.position-restore-nav-toggle')?.classList.contains('is-active')).toBe(true);
+		expect(chip(h)!.classList.contains('is-active')).toBe(true);
+		expect(h.rows()).toHaveLength(1);
+
+		setSwitch(h, false);
+		expect(document.activeElement).not.toBe(filterBox(h));
+		expect(h.rows()).toHaveLength(3);
 	});
 });
 

@@ -279,16 +279,70 @@ export function matchesNavFilter(entry: NavHistoryEntry, query: string): boolean
 	return tokens.every(tok => hay.includes(tok));
 }
 
-// The file-scope filter ("only in this note"): does the entry sit in the file
-// the pinned card shows? `path` is that file's path, or undefined when there is
-// nothing to scope to (an empty history, a pathless view step) — then the scope
-// is inert and lets everything through, so a stale toggle can never blank the
-// list. A view entry has no path, so it never matches: the scope answers "where
-// else in THIS note was I", and a graph step is not a place in a note.
+// The file-scope filter (the picker's predicate): does the entry sit in the
+// file the scope names? `path` is that file's path, or undefined for "all
+// files" — then the scope is inert and lets everything through, so a stale
+// choice can never blank the list. A view entry has no path, so it never
+// matches a narrowed scope: the scope answers "where else in THIS note was I",
+// and a graph step is not a place in a note.
 export function inFileScope(entry: NavHistoryEntry, path: string | undefined): boolean {
 	if (path === undefined)
 		return true;
 	return entry.kind !== 'view' && entry.path === path;
+}
+
+// One item of the scope picker: a note the history has been in, and how much of
+// the history sits there. The count is STEPS, the unit the segment headers
+// count in (see renderChronological) — it is what decides whether narrowing to
+// this note is worth losing the rest of the list.
+export interface HistoryFileOption {
+	path: string;
+	// What the item says: the last segment, exactly as a row names it.
+	name: string;
+	// The parent folder, set ONLY for a name that another option shares — two
+	// notes called "index" in different folders are otherwise one item, and the
+	// choice between them could not be made. Sparse rather than always-on
+	// because the folder is long, faint, and usually the same on every item.
+	folder?: string;
+	count: number;
+}
+
+// The distinct files the history has been in. View entries (the graph) have no
+// path and are skipped, as they are by every other file-scoped question (see
+// inFileScope). Pure: what the picker offers is testable without a DOM.
+export function historyFileOptions(entries: NavHistoryEntry[]): HistoryFileOption[] {
+	const byPath = new Map<string, HistoryFileOption>();
+	for (const entry of entries) {
+		if (entry.kind === 'view')
+			continue;
+		const seen = byPath.get(entry.path);
+		if (seen)
+			seen.count++;
+		else
+			byPath.set(entry.path, { path: entry.path, name: baseName(entry.path), count: 1 });
+	}
+	const out = Array.from(byPath.values());
+	// By NAME, not by recency. The panel answers "recently" twice already: the
+	// pinned card and the direct "only this note" switch cover the note you are
+	// in, and the list underneath is chronological with an age on every row. So
+	// what is left for a picker is "the note called X" — a lookup, and a lookup
+	// wants a position it can be found at TWICE, not a rank that moves every
+	// time the note is visited. Alphabetical is also the one index the list
+	// itself never shows. Folder order breaks a tie between same-named notes,
+	// which are exactly the ones whose folders are on screen.
+	out.sort((a, b) =>
+		a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+		|| a.path.localeCompare(b.path));
+	const names = new Map<string, number>();
+	for (const o of out)
+		names.set(o.name, (names.get(o.name) ?? 0) + 1);
+	for (const o of out) {
+		if ((names.get(o.name) ?? 0) > 1) {
+			const cut = o.path.lastIndexOf('/');
+			o.folder = cut === -1 ? '/' : o.path.slice(0, cut);
+		}
+	}
+	return out;
 }
 
 // A row's time label. This is the browser's PRIMARY index: a user recalls
@@ -465,9 +519,11 @@ const NAME_COL_WIDTH_SHARE = 0.35;
 //    preview for the whole note (see requestPagePreview), and on a touch device
 //    — where there is no hover — the same information is a panel under the list,
 //    with the tap-to-point model and a button to travel;
-//  - the toolbar can narrow the list to the note the pinned card shows (the
-//    scope), and to matching text; the two compose, and the scope is what makes
-//    "where in this note was I" askable at all;
+//  - the toolbar can narrow the list to matching text, and to ONE file: a
+//    direct switch for the note the pinned card shows (the commonest pick, one
+//    click), and a dropdown of every note the history has been in for the rest.
+//    The two compose with the text filter, and the scope is what makes "where
+//    in this note was I" askable at all;
 //  - choosing an entry time-travels there (NavHistory.jumpTo): the target is
 //    re-pushed on top, so back always returns to where you were.
 // Repeat landings collapse into one row with a ×N count, so the list shows
@@ -489,11 +545,28 @@ export class NavHistoryModal extends Modal {
 	// guessing (a missing entry can be previewed but never selected).
 	private previewed = -1;
 	private filter = '';
-	// The file scope toggle (see inFileScope): off by default, because the
-	// question this panel is opened with is usually "where was I", not "where
-	// in this note was I". Not called `scope`: Modal already owns that name for
-	// its keymap scope, and shadowing it with a boolean does not typecheck.
-	private fileOnly = false;
+	// The file the list is narrowed to, or undefined for the whole history.
+	// This replaced a boolean "only this note" toggle: the same question —
+	// "where else in this note was I" — generalized to any note the history has
+	// been in, because the old chip could only ever mean the note the pinned
+	// card shows. Off by default, because the question this panel is opened
+	// with is usually "where was I", not "where in this note was I". Not called
+	// `scope`: Modal already owns that name for its keymap scope, and shadowing
+	// it does not typecheck.
+	private scopeTo: string | undefined = undefined;
+	// The scope picker: the direct switch, the chip, its dropdown, and the items
+	// in it. The switch exists independently of the chip (a current note is a
+	// file, whether or not the rest of the history has any).
+	private scopeToggle?: HTMLElement;
+	private scopeBox?: HTMLInputElement;
+	private scopeButton?: HTMLButtonElement;
+	private scopeLabel?: HTMLElement;
+	private scopeMenu?: HTMLElement;
+	private scopeItems: { path: string | undefined; el: HTMLElement }[] = [];
+	// Which item the keyboard is on, and whether the menu is up (see onKeyDown:
+	// while it is, the menu owns the arrow keys, Enter and Escape).
+	private scopeActive = 0;
+	private scopeOpen = false;
 	private listEl!: HTMLElement;
 	private hereEl!: HTMLElement;
 	private previewEl!: HTMLElement;
@@ -566,6 +639,14 @@ export class NavHistoryModal extends Modal {
 		// would otherwise move its caret); Escape stays native (closes).
 		this.modalEl.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 		this.toolbar();
+		// A click anywhere else in the panel puts the scope menu away — the
+		// filter box, a row, the card. The chip and its items are inside the
+		// wrapper, so this cannot fight the click that opened the menu.
+		this.modalEl.addEventListener('click', (ev) => {
+			const el = ev.target as HTMLElement | null;
+			if (!el?.closest?.('.position-restore-nav-scope'))
+				this.closeScopeMenu();
+		});
 		this.hereEl = this.contentEl.createDiv({ cls: 'position-restore-nav-here' });
 		// The list, and the landing panel. It starts out beside the list, but on
 		// a touch device it does not stay there: it opens UNDER the selected row,
@@ -712,6 +793,42 @@ export class NavHistoryModal extends Modal {
 	}
 
 	private onKeyDown(ev: KeyboardEvent): void {
+		// While the scope menu is up it owns the same keys the list does. The
+		// selection behind an overlay must not move where the user cannot see
+		// it, Enter must pick the menu's item, and Escape must put the MENU away
+		// rather than the whole panel — the modal's Escape is the app's own
+		// keymap on document, so stopping the event here is what keeps this
+		// dialog open for one more look at the list.
+		if (this.scopeOpen) {
+			if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+				ev.preventDefault();
+				this.moveScopeActive(ev.key === 'ArrowDown' ? 1 : -1);
+				return;
+			}
+			if (ev.key === 'Enter') {
+				// An item the user tabbed to handles its own Enter (a focused
+				// button fires click); the active item is for the case where the
+				// focus is still on the chip.
+				if ((ev.target as HTMLElement | null)?.closest?.('.nav-scope-item'))
+					return;
+				ev.preventDefault();
+				this.pickScope(this.scopeItems[this.scopeActive]?.path);
+				return;
+			}
+			if (ev.key === 'Escape') {
+				ev.preventDefault();
+				ev.stopPropagation();
+				this.closeScopeMenu();
+				return;
+			}
+			// A key that EDITS text means the user has decided to type a filter
+			// rather than pick a file: the menu gets out of the way and the key
+			// lands in the box (which openScopeMenu left focused).
+			if (ev.key.length === 1 || ev.key === 'Backspace' || ev.key === 'Delete') {
+				if (!ev.ctrlKey && !ev.metaKey && !ev.altKey)
+					this.closeScopeMenu();
+			}
+		}
 		if (ev.key === 'ArrowDown') {
 			ev.preventDefault();
 			this.move(1);
@@ -746,40 +863,20 @@ export class NavHistoryModal extends Modal {
 			this.render();
 		});
 		this.filterInput = input;
-		// The file-scope chip sits beside the search box: "where else in this
-		// note was I" is a question the chronological list answers badly, since
-		// a handful of cross-file hops buries a note's own landings. The toggle
-		// only exists when there is a file to scope to (see scopePath).
+		// The file scope sits beside the search box: "where else in this note
+		// was I" is a question the chronological list answers badly, since a
+		// handful of cross-file hops buries a note's own landings.
 		//
-		// The label names the ACTION, not the file: a fixed string is what keeps
-		// the chip's width predictable (a long note name used to ellipsize it,
-		// and in a short window it competed with the search box for the row — see
-		// styles.css), and "this note" says exactly what the scope means, because
-		// the scope IS the file the pinned card below shows. Which file that is
-		// is carried by the tooltip, so a narrowed list can still be explained
-		// without spending a variable-width label on the name.
-		const path = this.scopePath();
-		if (path !== undefined) {
-			const label = bar.createEl('label', {
-				cls: 'position-restore-nav-toggle',
-				title: t('navHistory.onlyThisFileTip', baseName(path)),
-			});
-			const box = label.createEl('input', { type: 'checkbox' });
-			label.createSpan({ text: t('navHistory.onlyThisFile') });
-			box.addEventListener('change', () => {
-				this.fileOnly = box.checked;
-				label.toggleClass('is-active', this.fileOnly);
-				this.render();
-				// The search box is this toolbar's keyboard surface and the
-				// modal's keydown handler routes every key through the modal:
-				// a click that narrows the list must not cost the user the
-				// ability to keep typing in it. On touch, though, taking the
-				// focus IS the cost — it raises the on-screen keyboard over the
-				// list the user is narrowing, so the box is left alone there.
-				if (!this.mobile)
-					this.filterInput.focus();
-			});
-		}
+		// TWO controls, ONE state. The switch is the shortcut that was always
+		// here — the note the pinned card shows, in one click, and still the
+		// commonest pick by far. The picker generalizes it to any note the
+		// history has been in, which is what the panel could not answer before.
+		// They can never disagree: the switch is checked exactly while the scope
+		// IS that note (see syncScopeChip), and picking that note in the menu
+		// checks it.
+		this.buildScopeToggle(bar);
+		this.buildScopePicker(bar);
+		this.syncScopeChip();
 		// What the panel can be driven by is the whole difference between the two
 		// devices: a keyboard on one, a finger on the other.
 		bar.createSpan({
@@ -788,12 +885,192 @@ export class NavHistoryModal extends Modal {
 		});
 	}
 
-	// The file the scope narrows to: the pinned card's file. A view step (the
-	// graph) has none, and then the chip is not rendered at all rather than
-	// offering a filter that cannot mean anything. The current entry cannot
-	// change while the modal is open (only jump() moves the pointer, and it
-	// closes first), so this is stable for the modal's lifetime — which is why
-	// the chip's label can be built once, with the rest of the toolbar.
+	// The one-click switch to the current note: the file-scope chip's original
+	// meaning, kept as a control of its own so the commonest pick never costs a
+	// menu. Its label names the ACTION, as it always did (a fixed string keeps
+	// the chip's width off the length of a note name); which note that is comes
+	// from the tooltip and from the pinned card below.
+	private buildScopeToggle(bar: HTMLElement): void {
+		const home = this.scopePath();
+		if (home === undefined)
+			return;
+		const label = bar.createEl('label', {
+			cls: 'position-restore-nav-toggle',
+			title: t('navHistory.onlyThisFileTip', home),
+		});
+		const box = label.createEl('input', { type: 'checkbox' });
+		label.createSpan({ text: t('navHistory.onlyThisFile') });
+		box.addEventListener('change', () => {
+			// Checked means "only this note"; unchecked means "no scope at all".
+			// From a scope on another note the box is already unchecked, so one
+			// click lands on this note — which is what its label promises.
+			this.pickScope(box.checked ? home : undefined);
+		});
+		this.scopeToggle = label;
+		this.scopeBox = box;
+	}
+
+	// The scope chip and its dropdown, built once with the toolbar: the history
+	// cannot change while the panel is open (only jump() moves the stack
+	// pointer, and it closes first), so the item list is a snapshot — which is
+	// what lets the chip's label be derived from it, as scopePath does.
+	// "All files" is always the first item, so the chip can always say what it
+	// is showing and a narrowed list always has a way back.
+	private buildScopePicker(bar: HTMLElement): void {
+		const files = historyFileOptions(this.nav.entries);
+		if (files.length === 0)
+			return;
+
+		const wrap = bar.createDiv({ cls: 'position-restore-nav-scope' });
+		this.scopeButton = wrap.createEl('button', {
+			cls: 'position-restore-nav-scope-btn',
+			attr: { type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' },
+		});
+		this.scopeLabel = this.scopeButton.createSpan({ cls: 'nav-scope-label' });
+		this.scopeButton.createSpan({ cls: 'nav-scope-caret', text: '▾' });
+		this.scopeButton.addEventListener('click', () => this.toggleScopeMenu());
+		const menu = wrap.createDiv({
+			cls: 'position-restore-nav-scope-menu is-closed',
+			attr: { role: 'listbox' },
+		});
+		this.scopeMenu = menu;
+
+		const add = (path: string | undefined, label: string, folder?: string, count?: number) => {
+			const item = menu.createEl('button', {
+				cls: 'nav-scope-item',
+				attr: { type: 'button', role: 'option' },
+			});
+			item.createSpan({ text: label, cls: 'nav-scope-item-name' });
+			if (folder)
+				item.createSpan({ text: folder, cls: 'nav-scope-item-folder' });
+			// Zero is left off rather than printed: it is not a selling point,
+			// and the empty list it leads to says the same thing better.
+			if (count)
+				item.createSpan({ text: t('navHistory.scope.count', count), cls: 'nav-scope-item-count' });
+			item.addEventListener('click', () => this.pickScope(path));
+			this.scopeItems.push({ path, el: item });
+		};
+
+		add(undefined, t('navHistory.scope.all'));
+		// …and the notes themselves, sorted by name (see historyFileOptions).
+		// The note the pinned card shows is in this list like any other: the
+		// switch beside the chip is its shortcut, and picking it here just sets
+		// the same scope. The count is the list the pick will show, so the
+		// current note's own step — the card, never a row — is not counted.
+		const home = this.scopePath();
+		menu.createDiv({ cls: 'nav-scope-sep' });
+		for (const f of files)
+			add(f.path, f.name, f.folder, f.count - (f.path === home ? 1 : 0));
+	}
+
+	// Point both controls at the scope the list is showing. Scoped, the chip's
+	// label takes the normal text colour (its own class, in styles.css) so a
+	// narrowed list has a visible cause.
+	private syncScopeChip(): void {
+		// The switch is the same state seen from the current note's side: checked
+		// exactly while the scope IS the note the pinned card shows.
+		const home = this.scopePath();
+		if (this.scopeBox && this.scopeToggle) {
+			const on = home !== undefined && this.scopeTo === home;
+			this.scopeBox.checked = on;
+			this.scopeToggle.toggleClass('is-active', on);
+		}
+		if (!this.scopeButton || !this.scopeLabel || !this.scopeMenu)
+			return;
+		const scoped = this.scopeTo !== undefined;
+		this.scopeLabel.setText(scoped ? baseName(this.scopeTo as string) : t('navHistory.scope.all'));
+		this.scopeButton.toggleClass('is-active', scoped);
+		this.scopeButton.setAttr('title', scoped
+			? t('navHistory.onlyThisFileTip', this.scopeTo as string)
+			: t('navHistory.scope.pick'));
+		this.scopeActive = this.scopeIndexOf();
+		this.markScopeActive();
+	}
+
+	// Which item stands for the current scope: "all files" (0) when nothing is
+	// scoped.
+	private scopeIndexOf(): number {
+		const at = this.scopeItems.findIndex(it => it.path === this.scopeTo);
+		return at === -1 ? 0 : at;
+	}
+
+	private markScopeActive(): void {
+		this.scopeItems.forEach((it, i) => {
+			const on = i === this.scopeActive;
+			it.el.toggleClass('is-active', on);
+			it.el.setAttr('aria-selected', on ? 'true' : 'false');
+		});
+		this.scopeItems[this.scopeActive]?.el.scrollIntoView({ block: 'nearest' });
+	}
+
+	private toggleScopeMenu(): void {
+		if (this.scopeOpen)
+			this.closeScopeMenu();
+		else
+			this.openScopeMenu();
+	}
+
+	private openScopeMenu(): void {
+		if (!this.scopeMenu || !this.scopeButton)
+			return;
+		this.scopeOpen = true;
+		this.scopeMenu.removeClass('is-closed');
+		this.scopeButton.setAttr('aria-expanded', 'true');
+		// The keyboard starts on the scope the list already shows, so ↓ walks
+		// away from where the user is rather than from the top of the list.
+		this.scopeActive = this.scopeIndexOf();
+		this.markScopeActive();
+		// The filter box keeps the keyboard: typing is how the list underneath is
+		// narrowed, and the modal's keydown handler routes ↓/↑/Enter to the menu
+		// while it is open (see onKeyDown). A touch device is left alone —
+		// taking the focus there raises the on-screen keyboard over the list.
+		if (!this.mobile)
+			this.filterInput.focus();
+	}
+
+	private closeScopeMenu(): void {
+		if (!this.scopeOpen || !this.scopeMenu || !this.scopeButton)
+			return;
+		this.scopeOpen = false;
+		this.scopeMenu.addClass('is-closed');
+		this.scopeButton.setAttr('aria-expanded', 'false');
+	}
+
+	private moveScopeActive(d: number): void {
+		const n = this.scopeItems.length;
+		if (n === 0)
+			return;
+		this.scopeActive = (this.scopeActive + d + n) % n;
+		this.markScopeActive();
+	}
+
+	// Choosing an item NARROWS the list to that file; it does not travel there.
+	// A file holds several landings and which one is the entire question the
+	// list is on screen to answer — a jump here would both guess and close the
+	// panel before the user could look. Picking the scope already in force just
+	// puts the menu away.
+	private pickScope(path: string | undefined): void {
+		this.closeScopeMenu();
+		// The search box is this toolbar's keyboard surface and the modal's
+		// keydown handler routes every key through the modal: a click that
+		// narrows the list must not cost the user the ability to keep typing in
+		// it. On touch, though, taking the focus IS the cost — it raises the
+		// on-screen keyboard over the list the user is narrowing.
+		if (!this.mobile)
+			this.filterInput.focus();
+		if (path === this.scopeTo)
+			return;
+		this.scopeTo = path;
+		this.syncScopeChip();
+		this.render();
+	}
+
+	// The pinned card's file: the scope its own picker item means. A view step
+	// (the graph) has none, and then that item is simply not offered. The
+	// current entry cannot change while the modal is open (only jump() moves
+	// the pointer, and it closes first), so this is stable for the modal's
+	// lifetime — which is why the picker's contents can be built once, with the
+	// rest of the toolbar.
 	private scopePath(): string | undefined {
 		const entry = this.nav.entries[this.nav.index];
 		return entry && entry.kind !== 'view' ? entry.path : undefined;
@@ -855,10 +1132,10 @@ export class NavHistoryModal extends Modal {
 		this.trailHover = false;
 
 		const query = this.filter.trim();
-		// The scope narrows on the current entry's file; a query narrows on
-		// text. They compose — the answer to "where in this note did 'scroll'
+		// The scope narrows on the file picked in the toolbar; a query narrows
+		// on text. They compose — the answer to "where in this note did 'scroll'
 		// come up" is the intersection, not either half.
-		const path = this.fileOnly ? this.scopePath() : undefined;
+		const path = this.scopeTo;
 		const keep = (i: number) =>
 			inFileScope(this.nav.entries[i], path)
 			&& (!query || matchesNavFilter(this.nav.entries[i], query));
