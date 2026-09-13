@@ -1,7 +1,7 @@
 import { App, Notice, TFile } from 'obsidian';
 import { EphemeralState, PluginSettings } from '../../types';
 import { frontmatterDecisionFor } from '../policy/frontmatter';
-import type RememberCursorPosition from '../../../main';
+import type RememberCursorPosition from '../../main';
 import { t } from '../../i18n';
 
 export type CursorDatabase = { [file_path: string]: EphemeralState };

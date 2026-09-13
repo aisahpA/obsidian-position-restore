@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
-import type RememberCursorPosition from '../../main';
+import type RememberCursorPosition from '../main';
 import { ESCAPE_HATCH_PROPERTY } from '../position/policy/frontmatter';
 import { t } from '../i18n';
 

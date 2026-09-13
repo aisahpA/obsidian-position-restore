@@ -15,7 +15,7 @@ if you want to view the source visit the plugins github repository
 const isProd = process.env.PROD === '1';
 
 export default {
-  input: 'main.ts',
+  input: 'src/main.ts',
   output: {
     file: 'main.js',
     sourcemap: isProd ? false : 'inline',
