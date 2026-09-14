@@ -9,6 +9,7 @@ import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryModal } from '@/nav-history/browser/modal';
+import { PathBookkeeper } from './path-bookkeeping';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
@@ -18,9 +19,13 @@ import { NavHistoryModal } from '@/nav-history/browser/modal';
 //  - Restorer: restores a saved position after an open.
 //  - NavHistory: the VSCode-style back/forward stack (records via the patch
 //    and the poll, executes through the native per-tab history).
-//  - File rename/delete bookkeeping.
+//  - PathBookkeeper: the path-keyed bookkeeping for the vault's rename/delete
+//    events — which records move, which are dropped, and why a delete has to be
+//    deferred before it can be dropped (see path-bookkeeping.ts).
 // All cross-phase coordination flags live in the shared PositionState, so the
-// collaborators never desync. main.ts only talks to this class.
+// collaborators never desync. main.ts only talks to this class. Nothing here
+// owns state of its own beyond the collaborators: a method dispatches to the
+// piece that owns the concern.
 export class PositionManager {
 	private app: App;
 	private database: CursorPositionDatabase;
@@ -31,6 +36,7 @@ export class PositionManager {
 	private sampler: Sampler;
 	private backgroundSettler: BackgroundSettler;
 	private nav: NavHistory;
+	private bookkeeper: PathBookkeeper;
 
 	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings) {
 		this.app = app;
@@ -42,6 +48,7 @@ export class PositionManager {
 		this.sampler = new Sampler(app, database, settings, this.state, this.nav);
 		this.patcher = new OpenPatcher(app, settings, this.tabStore, this.nav, this.sampler);
 		this.backgroundSettler = new BackgroundSettler(app, settings, this.tabStore);
+		this.bookkeeper = new PathBookkeeper(app, database, this.nav, this.state);
 	}
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
@@ -159,16 +166,17 @@ export class PositionManager {
 		return this.state.isSearchAnchored();
 	}
 
+	// Vault 'rename' — every path-keyed record moves with the file (see
+	// PathBookkeeper).
 	renameFile(file: TAbstractFile, oldPath: string) {
-		this.database.renameFile(file.path, oldPath);
-		this.nav.renameFile(oldPath, file.path);
-		if (this.state.lastLoadedFilePath == oldPath)
-			this.state.lastLoadedFilePath = file.path;
+		this.bookkeeper.renameFile(file, oldPath);
 	}
 
+	// Vault 'delete' — a scheduled prune, never an immediate one: the vault
+	// reports the same event for a sync plugin's remove-then-rename
+	// replacement, whose undo arrives a moment later (see PathBookkeeper).
 	deleteFile(file: TAbstractFile) {
-		this.database.deleteFile(file.path);
-		this.nav.deleteFile(file.path);
+		this.bookkeeper.deleteFile(file);
 	}
 
 	clearExclusionCache() {

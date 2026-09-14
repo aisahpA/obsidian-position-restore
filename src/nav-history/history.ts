@@ -704,6 +704,12 @@ export class NavHistory {
 				entry.path = newPath;
 	}
 
+	// A real vault delete drops the file's steps (the browser shows the gap as
+	// a missing row until then). NOT called straight off the vault 'delete'
+	// event: PathBookkeeper schedules the prune and re-checks the vault before
+	// it commits, because a sync plugin replaces a changed file by removing it
+	// and renaming the download over it — a delete that is undone a moment
+	// later (see position/path-bookkeeping.ts).
 	deleteFile(path: string) {
 		const kept: NavHistoryEntry[] = [];
 		let removedBefore = 0;
