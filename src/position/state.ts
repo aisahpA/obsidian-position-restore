@@ -1,5 +1,5 @@
 import { WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, TabStateRecord, PluginSettings } from '@/types';
+import { EphemeralState, PluginSettings } from '@/types';
 import { leafIdOf } from '@/shared/leaf';
 import { OpenCover } from './ui/cover';
 import { RestoreCue } from './ui/cue';
@@ -137,9 +137,6 @@ export class PositionState {
 	// still dedup later switches and re-asserts — the replay recognition the
 	// patch depends on.
 	handledLeafIdMap: Map<string, string> = new Map();
-
-	// Device-local per-leaf last state position records.
-	lastStateByLeaf: Map<string, TabStateRecord> = new Map();
 
 	// ===== Open-kind tracking (transient flags passed between patches) =====
 

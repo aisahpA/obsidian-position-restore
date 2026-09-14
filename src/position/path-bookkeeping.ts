@@ -1,11 +1,13 @@
 import { App, TAbstractFile } from 'obsidian';
 import { NavHistory } from '@/nav-history/history';
-import { CursorPositionDatabase } from './storage/database';
+import { PositionStore } from './storage/position-store';
 import { PositionState } from './state';
 
-// Path-keyed state — the position db, the navigation history, the pipeline's
-// current-file pointer — kept in step with the vault's rename and delete events
-// in one place, so the three cannot disagree about what a path change means.
+// Path-keyed state — the position store (which owns BOTH the per-file record
+// and the per-leaf records, so a path change re-keys or drops them together),
+// the navigation history, the pipeline's current-file pointer — kept in step
+// with the vault's rename and delete events in one place, so the three cannot
+// disagree about what a path change means.
 //
 // A delete cannot be acted on when the event arrives: the vault fires the same
 // 'delete' both for a file the user removed and for a sync plugin replacing a
@@ -30,14 +32,17 @@ export class PathBookkeeper {
 
 	constructor(
 		private app: App,
-		private database: CursorPositionDatabase,
+		private store: PositionStore,
 		private nav: NavHistory,
 		private state: PositionState,
 	) {}
 
 	// Each store re-keys itself; the pointer follows only the file it named.
+	// The position store is one call because a per-leaf record still naming the
+	// old path would fail its path guard and silently collapse the per-tab
+	// split onto the file record.
 	renameFile(file: TAbstractFile, oldPath: string) {
-		this.database.renameFile(file.path, oldPath);
+		this.store.renameFile(file.path, oldPath);
 		this.nav.renameFile(oldPath, file.path);
 		if (this.state.lastLoadedFilePath == oldPath)
 			this.state.lastLoadedFilePath = file.path;
@@ -60,7 +65,7 @@ export class PathBookkeeper {
 
 	// The path really is gone: drop it from both stores.
 	private prune(path: string) {
-		this.database.deleteFile(path);
+		this.store.deleteFile(path);
 		this.nav.deleteFile(path);
 	}
 }

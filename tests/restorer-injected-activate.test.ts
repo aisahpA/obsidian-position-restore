@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileView, MarkdownView, type WorkspaceLeaf } from 'obsidian';
 
 import { Restorer } from '@/position/restore/restorer';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 
@@ -122,11 +122,12 @@ function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMa
 			iterateAllLeaves: () => undefined,
 		},
 	};
-	const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+	const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 	const restorer = new Restorer(
 		app as never,
 		glideSource ? { ...DEFAULT_SETTINGS, sourceRestoreMethod: 'glide' } : DEFAULT_SETTINGS,
-		tabStore,
+		store,
+		state,
 	);
 	if (marker) {
 		state.injectedOpenLeafIds.add('leaf-1');
@@ -277,11 +278,12 @@ describe('Restorer.completeInjectedRestore', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(
 			app as never,
 			DEFAULT_SETTINGS,
-			tabStore,
+			store,
+			state,
 		);
 
 		await restorer.completeInjectedRestore(leaf);
@@ -306,11 +308,12 @@ describe('Restorer.completeInjectedRestore', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(
 			app as never,
 			DEFAULT_SETTINGS,
-			tabStore,
+			store,
+			state,
 		);
 
 		await restorer.completeInjectedRestore(leaf);
@@ -333,11 +336,12 @@ describe('Restorer.completeInjectedRestore', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(
 			app as never,
 			DEFAULT_SETTINGS,
-			tabStore,
+			store,
+			state,
 		);
 
 		await restorer.completeInjectedRestore(leaf);

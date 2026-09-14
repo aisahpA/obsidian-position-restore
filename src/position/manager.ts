@@ -1,7 +1,7 @@
 import { App, TAbstractFile, Platform, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
-import { TabStore } from './storage/tab-store';
+import { PositionStore } from './storage/position-store';
 import { PositionState } from './state';
 import { BackgroundSettler } from './restore/background-settle';
 import { Restorer } from './restore/restorer';
@@ -30,7 +30,7 @@ export class PositionManager {
 	private app: App;
 	private database: CursorPositionDatabase;
 	private state: PositionState;
-	private tabStore: TabStore;
+	private store: PositionStore;
 	private restorer: Restorer;
 	private patcher: OpenPatcher;
 	private sampler: Sampler;
@@ -43,12 +43,12 @@ export class PositionManager {
 		this.database = database;
 		this.state = new PositionState(settings);
 		this.nav = new NavHistory(app, settings, this.state);
-		this.tabStore = new TabStore(app, database, this.state);
-		this.restorer = new Restorer(app, settings, this.tabStore);
-		this.sampler = new Sampler(app, database, settings, this.state, this.nav);
-		this.patcher = new OpenPatcher(app, settings, this.tabStore, this.nav, this.sampler);
-		this.backgroundSettler = new BackgroundSettler(app, settings, this.tabStore);
-		this.bookkeeper = new PathBookkeeper(app, database, this.nav, this.state);
+		this.store = new PositionStore(app, database);
+		this.restorer = new Restorer(app, settings, this.store, this.state);
+		this.sampler = new Sampler(app, this.store, settings, this.state, this.nav);
+		this.patcher = new OpenPatcher(app, settings, this.store, this.state, this.nav, this.sampler);
+		this.backgroundSettler = new BackgroundSettler(app, settings, this.store, this.state);
+		this.bookkeeper = new PathBookkeeper(app, this.store, this.nav, this.state);
 	}
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
@@ -109,14 +109,18 @@ export class PositionManager {
 	}
 
 	storePositionData() {
-		// Closing a leaf can't update lastStateByLeaf (no dedicated close
-		// event), so dead records survive until the next fresh open's prune.
-		// Prune at every persist point instead — quit, suspend flush, and the
-		// periodic db flush all funnel here.
-		const droppedLastState = this.restorer.pruneStaleLeafIds();
-		if(this.database.dbDirty || droppedLastState) {
-			this.tabStore.persistLastStateByLeaf(this.state.lastStateByLeaf);
-		}
+		// Closing a leaf can't update the stored leaf records (no dedicated
+		// close event), so dead records survive until the next fresh open's
+		// prune. Prune at every persist point instead — quit, suspend flush,
+		// and the periodic flush all funnel here.
+		this.restorer.pruneStaleLeafIds();
+
+		// The per-leaf overlay rides the same persist points, and it persists
+		// at the same cadence as the database rather than only at quit: it is
+		// the only place a same-file-in-two-tabs split survives a restart, so
+		// holding it in memory until quit lost it to a crash. It dedups its own
+		// writes against the last blob, so an unchanged round is one stringify.
+		this.store.persist();
 
 		// Navigation history rides the same persist points (dirty-checked
 		// against the last written snapshot, so unchanged rounds cost one
@@ -177,6 +181,14 @@ export class PositionManager {
 	// replacement, whose undo arrives a moment later (see PathBookkeeper).
 	deleteFile(file: TAbstractFile) {
 		this.bookkeeper.deleteFile(file);
+	}
+
+	// Prune the records the current settings exclude (and, incidentally, the
+	// ones over the entry cap). Routed through the store so the file layer and
+	// the leaf layer are pruned together — main.ts's startup sweep and the
+	// settings panel both come here.
+	prunePositions(): number {
+		return this.store.pruneDatabase();
 	}
 
 	clearExclusionCache() {

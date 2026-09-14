@@ -12,6 +12,7 @@ import { App, TFile } from 'obsidian';
 import { PositionManager } from '@/position/manager';
 import type { NavHistory } from '@/nav-history/history';
 import type { PositionState } from '@/position/state';
+import type { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
 // Timing is stated as "a beat" and "long after", never as the grace period
@@ -39,11 +40,18 @@ function makeHarness() {
 			getMostRecentLeaf: () => null,
 		},
 	};
+	// The file layer, functional enough that the store's two-layer behaviour is
+	// observable end to end (the spies still record the calls the tests assert).
+	const db: Record<string, { scroll: number }> = { 'a.md': { scroll: 7 } };
 	const database = {
-		db: { 'a.md': { scroll: 7 } },
-		setState: vi.fn(),
-		renameFile: vi.fn(),
-		deleteFile: vi.fn(),
+		db,
+		setState: vi.fn((path: string, st: { scroll: number }) => { db[path] = st; }),
+		renameFile: vi.fn((newPath: string, oldPath: string) => {
+			if (db[oldPath] === undefined) return;
+			db[newPath] = db[oldPath];
+			delete db[oldPath];
+		}),
+		deleteFile: vi.fn((path: string) => { delete db[path]; }),
 	};
 	const manager = new PositionManager(
 		app as unknown as App,
@@ -54,9 +62,10 @@ function makeHarness() {
 	// the same public API the plugin uses.
 	const nav = (manager as unknown as { nav: NavHistory }).nav;
 	const state = (manager as unknown as { state: PositionState }).state;
+	const store = (manager as unknown as { store: PositionStore }).store;
 	const file = (path: string): TAbstractFile => Object.assign(new TFile(), { path }) as TAbstractFile;
 	const paths = () => nav.entries.map(e => (e.kind !== 'view' ? e.path : undefined));
-	return { manager, nav, state, database, files, file, paths };
+	return { manager, nav, state, store, database, files, file, paths };
 }
 
 afterEach(() => {
@@ -115,5 +124,56 @@ describe('PositionManager vault path changes', () => {
 		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.paths()).toEqual(['b.md']);
 		expect(h.nav.index).toBe(0);
+	});
+
+	// The two layers of the position store are re-keyed and dropped TOGETHER.
+	// The per-leaf records are the half the bookkeeper used to miss: a record
+	// still naming the deleted path would be handed back by PositionStore.read
+	// for a file later created at that same path (restoring a dead position),
+	// and one still naming the old path after a rename would fail its path
+	// guard, silently collapsing a per-tab split onto the file record.
+	it('a rename re-keys the per-leaf records along with the file record', () => {
+		const h = makeHarness();
+		h.store.leafStates.set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+
+		h.manager.renameFile(h.file('b.md'), 'a.md');
+
+		expect(h.store.leafStates.get('leaf-1')).toEqual({ filePath: 'b.md', st: { scroll: 42 } });
+		// The tab's own spot still answers for the renamed file...
+		expect(h.store.read('leaf-1', 'b.md')).toEqual({ scroll: 42 });
+		// ...instead of falling back to the file record.
+		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
+	});
+
+	it('a genuine delete drops the per-leaf records of that path too, and only those', () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.store.leafStates.set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		h.store.leafStates.set('leaf-2', { filePath: 'b.md', st: { scroll: 9 } });
+
+		h.files.delete('a.md');
+		h.manager.deleteFile(h.file('a.md'));
+		vi.advanceTimersByTime(LONG_AFTER);
+
+		expect(h.store.leafStates.has('leaf-1')).toBe(false);
+		expect(h.store.leafStates.get('leaf-2')).toEqual({ filePath: 'b.md', st: { scroll: 9 } });
+		// A file later created at the deleted path starts clean.
+		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
+	});
+
+	it('a sync remove + rename keeps the per-leaf records for the surviving path', () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.store.leafStates.set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		h.files.add('a.md');
+
+		h.files.delete('a.md');
+		h.manager.deleteFile(h.file('a.md'));
+		h.files.add('a.md'); // the replacement lands before the window closes
+
+		vi.advanceTimersByTime(LONG_AFTER);
+
+		expect(h.store.leafStates.get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42 } });
+		expect(h.store.read('leaf-1', 'a.md')).toEqual({ scroll: 42 });
 	});
 });

@@ -19,7 +19,7 @@ import type { WorkspaceLeaf } from 'obsidian';
 import { MarkdownView } from 'obsidian';
 
 import { OpenPatcher } from '@/position/restore/patcher';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { TabStateRecord,DEFAULT_SETTINGS } from '@/types';
 
@@ -79,14 +79,14 @@ function makeHarness(
 			rootSplit: { containerEl: { contains: (el: unknown) => el === leaf.containerEl } },
 		},
 	} as never;
-	const tabStore = new TabStore(app, { db } as never, state);
-	// The TabStore constructor loads lastStateByLeaf from storage; tests with
-	// a preset map re-assign it after construction.
-	state.lastStateByLeaf = lastStateByLeaf;
+	const store = new PositionStore(app, { db } as never);
+	// The store constructor seeds leafStates from storage; tests with a preset
+	// map re-assign it after construction.
+	store.leafStates = lastStateByLeaf;
 	const recordOpen = vi.fn();
 	const nav = { recordOpen, refreshTop: () => undefined };
 	const flushOnLeave = vi.fn();
-	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, nav as never, { flushOnLeave } as never);
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, nav as never, { flushOnLeave } as never);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
 	return { state, leaf, inject, flushOnLeave, recordOpen };

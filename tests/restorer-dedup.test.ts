@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { Restorer } from '@/position/restore/restorer';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 
@@ -33,11 +33,12 @@ function makeHarness(liveLeafIds: string[]) {
 			},
 		},
 	};
-	const tabStore = new TabStore(app as never, { db: {} } as never, state);
+	const store = new PositionStore(app as never, { db: {} } as never);
 	const restorer = new Restorer(
 		app as never,
 		DEFAULT_SETTINGS,
-		tabStore,
+		store,
+		state,
 	) as unknown as DedupApi & { hasOpenedLeafPath: DedupApi['hasOpenedLeafPath'] };
 	return { state, restorer };
 }

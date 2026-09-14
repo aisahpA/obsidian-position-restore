@@ -26,7 +26,7 @@ export class SettingTab extends PluginSettingTab {
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
 		if (key === 'excludedFolders' || key === 'frontmatterExcludeProperties') {
 			this.plugin.manager.clearExclusionCache();
-			this.plugin.database.pruneDb();
+			this.plugin.manager.prunePositions();
 		}
 		await this.plugin.saveSettings();
 	}

@@ -17,7 +17,7 @@ import { MarkdownView, FileView, type WorkspaceLeaf } from 'obsidian';
 
 import { PositionState } from '@/position/state';
 import { Restorer } from '@/position/restore/restorer';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS } from '@/types';
 
 describe('PositionState leaf-scoped restore runs', () => {
@@ -156,12 +156,11 @@ describe('cross-leaf restore concurrency (stuck-cover regression)', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(
+		const store = new PositionStore(
 			app as never,
 			{ db: { 'a.md': RECORD, 'b.md': RECORD } } as never,
-			state,
 		);
-		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, tabStore);
+		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
 
 		// Leaf A parks mid-masked-restore under its own restore cover.
 		const promiseA = restorer.restoreEphemeralState();

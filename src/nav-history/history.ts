@@ -29,7 +29,7 @@ import { installOutlineCapture as installOutlineCaptureHook } from './outline-ca
 // activation entries carry no position of their own — their st slot is
 // refreshed on every leave ("where the user actually was"). st only feeds
 // the same-file direct apply in execute(); cross-file traversal restores
-// from the per-file records (database + tab-store).
+// from the per-file records (database + the per-leaf overlay).
 //
 // Same-tab file switches EXECUTE through Obsidian's native per-tab history
 // (leaf.history + app:go-back/go-forward): that covers PDF/canvas and every
@@ -291,7 +291,7 @@ export class NavHistory {
 	private pushIfNew(entry: NewNavEntry, force?: boolean) {
 		const top = this.entries[this.index];
 		// Same location = same file in the SAME tab (+ same jump key). Two
-		// tabs of one file hold independent positions (tab-store is per-leaf),
+		// tabs of one file hold independent positions (the leaf records are per-leaf),
 		// so a leaf switch between them is a real entry (VSCode records editor
 		// identity, group included).
 		if (!force && top && this.sameLocation(top, entry))
@@ -728,7 +728,7 @@ export class NavHistory {
 			: Math.min(this.index - removedBefore, kept.length - 1);
 	}
 
-	// ===== Persistence (device-local, per vault — mirrors tab-store) =====
+	// ===== Persistence (device-local, per vault — mirrors the overlay) =====
 	// The storage format, startup read, and per-entry shape check live in
 	// store.ts.
 

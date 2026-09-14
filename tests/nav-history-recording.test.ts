@@ -25,7 +25,7 @@ import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '@/nav-h
 import { OpenPatcher } from '@/position/restore/patcher';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
@@ -1087,7 +1087,8 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 	const state = new PositionState(fullSettings);
 	const refreshTop = vi.fn();
 	const recordTeleport = vi.fn();
-	const sampler = new Sampler(app as never, database as never, fullSettings, state, {
+	const store = new PositionStore(app as never, database as never);
+	const sampler = new Sampler(app as never, store, fullSettings, state, {
 		entries: [] as NavHistoryEntry[],
 		index: -1,
 		recordOpen: vi.fn(),
@@ -1201,9 +1202,9 @@ function makePatcherHarness(db: Record<string, unknown> = {}) {
 			rootSplit: { containerEl: { contains: (el: unknown) => el === leaf.containerEl } },
 		},
 	} as never;
-	const tabStore = new TabStore(app, { db } as never, state);
+	const store = new PositionStore(app, { db } as never);
 	const nav = { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() };
-	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, nav as never, { flushOnLeave: vi.fn() } as never);
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, nav as never, { flushOnLeave: vi.fn() } as never);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
 	return { state, leaf, inject, nav };

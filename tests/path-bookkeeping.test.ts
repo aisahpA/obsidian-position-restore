@@ -1,8 +1,8 @@
 // PathBookkeeper (position/path-bookkeeping.ts) owns everything the plugin keys
 // by a vault path, for both of the vault's path events:
-//  - a RENAME moves the position record, the navigation-history entries and the
-//    pipeline's current-file pointer together — and leaves the pointer alone
-//    when it named some other file;
+//  - a RENAME moves the position records (both layers, in one store call), the
+//    navigation-history entries and the pipeline's current-file pointer
+//    together — and leaves the pointer alone when it named some other file;
 //  - a DELETE is scheduled, not acted on, and when the window closes the VAULT
 //    decides: a path that is back is not deleted at all (the sync plugin's
 //    remove-then-rename replacement), a path still missing is pruned exactly as
@@ -25,17 +25,17 @@ function makeHarness() {
 	const app = {
 		vault: { getAbstractFileByPath: (path: string) => (files.has(path) ? { path } : null) },
 	};
-	const database = { renameFile: vi.fn(), deleteFile: vi.fn() };
+	const store = { renameFile: vi.fn(), deleteFile: vi.fn() };
 	const nav = { renameFile: vi.fn(), deleteFile: vi.fn() };
 	const state = { lastLoadedFilePath: undefined as string | undefined };
 	const bookkeeper = new PathBookkeeper(
 		app as unknown as App,
-		database as never,
+		store as never,
 		nav as never,
 		state as never,
 	);
 	const file = (path: string) => ({ path }) as TAbstractFile;
-	return { bookkeeper, database, nav, state, files, file };
+	return { bookkeeper, store, nav, state, files, file };
 }
 
 afterEach(() => {
@@ -49,9 +49,10 @@ describe('PathBookkeeper rename', () => {
 
 		h.bookkeeper.renameFile(h.file('b.md'), 'a.md');
 
-		// Each store keeps its own argument order: the db is (new, old), the
-		// history is (old, new) — the bookkeeper is where both are stated once.
-		expect(h.database.renameFile).toHaveBeenCalledWith('b.md', 'a.md');
+		// Each store keeps its own argument order: the position store is
+		// (new, old), the history is (old, new) — the bookkeeper is where both
+		// are stated once.
+		expect(h.store.renameFile).toHaveBeenCalledWith('b.md', 'a.md');
 		expect(h.nav.renameFile).toHaveBeenCalledWith('a.md', 'b.md');
 		expect(h.state.lastLoadedFilePath).toBe('b.md');
 	});
@@ -82,7 +83,7 @@ describe('PathBookkeeper delete', () => {
 
 		vi.advanceTimersByTime(LONG_AFTER);
 
-		expect(h.database.deleteFile).not.toHaveBeenCalled();
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
 		expect(h.nav.deleteFile).not.toHaveBeenCalled();
 	});
 
@@ -92,11 +93,11 @@ describe('PathBookkeeper delete', () => {
 
 		h.bookkeeper.deleteFile(h.file('a.md'));
 		vi.advanceTimersByTime(A_BEAT); // a beat: deferred, not synchronous
-		expect(h.database.deleteFile).not.toHaveBeenCalled();
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
 
 		vi.advanceTimersByTime(LONG_AFTER);
-		expect(h.database.deleteFile).toHaveBeenCalledTimes(1);
-		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
+		expect(h.store.deleteFile).toHaveBeenCalledTimes(1);
+		expect(h.store.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.nav.deleteFile).toHaveBeenCalledTimes(1);
 		expect(h.nav.deleteFile).toHaveBeenCalledWith('a.md');
 	});
@@ -109,10 +110,10 @@ describe('PathBookkeeper delete', () => {
 		vi.advanceTimersByTime(A_BEAT);
 		h.bookkeeper.deleteFile(h.file('a.md')); // restarts the window
 		vi.advanceTimersByTime(A_BEAT);
-		expect(h.database.deleteFile).not.toHaveBeenCalled(); // neither window has closed
+		expect(h.store.deleteFile).not.toHaveBeenCalled(); // neither window has closed
 
 		// Long after BOTH windows: only the restarting one may have fired.
 		vi.advanceTimersByTime(LONG_AFTER);
-		expect(h.database.deleteFile).toHaveBeenCalledTimes(1);
+		expect(h.store.deleteFile).toHaveBeenCalledTimes(1);
 	});
 });

@@ -18,7 +18,7 @@ export default class RememberCursorPosition extends Plugin {
 		this.manager = new PositionManager(this.app, this.database, this.settings);
 
 		await this.database.readDb();
-		this.database.pruneDb();
+		this.manager.prunePositions();
 
 		this.addSettingTab(new SettingTab(this.app, this));
 

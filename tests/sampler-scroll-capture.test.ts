@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { FileView, MarkdownView, Platform } from 'obsidian';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
+import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
 // onScrollCapture is private; tests drive it directly through this alias.
@@ -95,11 +96,12 @@ function makeHarness(options?: {
 		frontmatterExcludeProperties: options?.frontmatterExcludeProperties ?? [],
 	} as PluginSettings;
 	const state = new PositionState(settings);
-	const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+	const store = new PositionStore(app as never, database as never);
+		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 	const capture = (sampler as unknown as { onScrollCapture: ScrollCapture }).onScrollCapture;
 	// Simulate "user just interacted": by default the intent guard is satisfied.
 	state.lastUserInputAt = Date.now();
-	return { sampler, state, database, view, dom, capture };
+	return { sampler, state, database, store, view, dom, capture };
 }
 
 // Appends one more embedded renderer (with an inner scroller) to the host
@@ -275,7 +277,8 @@ describe('Sampler.onScrollCapture — non-markdown views', () => {
 		};
 		const settings = { ...DEFAULT_SETTINGS, recordBaseScroll: true } as PluginSettings;
 		const state = new PositionState(settings);
-		const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		const store = new PositionStore(app as never, database as never);
+		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 		const capture = (sampler as unknown as { onScrollCapture: ScrollCapture }).onScrollCapture;
 		state.lastUserInputAt = Date.now();
 
@@ -294,7 +297,7 @@ describe('environment sanity', () => {
 });
 
 // sampleActiveView is the mobile-only writer of per-tab records
-// (lastStateByLeaf): on mobile there is no scroll-capture listener, so the
+// (the leaf records): on mobile there is no scroll-capture listener, so the
 // 100ms poll must feed the per-tab baseline too, or the same file open in
 // two tabs restores both to the same per-file record after a restart.
 describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
@@ -328,10 +331,11 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			},
 			metadataCache: { getFileCache: () => null }, // no frontmatter by default
 		};
-		const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		const store = new PositionStore(app as never, database as never);
+		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 		const poll = () => sampler.sampleActiveView();
 		return {
-			sampler, state, database,
+			sampler, state, database, store,
 			activate(view: MarkdownView) { activeView = view; },
 			poll,
 		};
@@ -357,8 +361,8 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
 			h.poll();
 
-			expect(h.state.lastStateByLeaf.get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
-			expect(h.state.lastStateByLeaf.get('leaf-2')).toEqual({ filePath: 'a.md', st: { scroll: 99, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
+			expect(h.store.leafStates.get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
+			expect(h.store.leafStates.get('leaf-2')).toEqual({ filePath: 'a.md', st: { scroll: 99, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
 			expect(h.database.setState).toHaveBeenCalledTimes(2);
 		} finally {
 			Platform.isMobileApp = origMobile;
@@ -380,7 +384,7 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			h.poll();
 
 			// Absorbed: leaf-1's record stands, leaf-2 never appears.
-			expect(h.state.lastStateByLeaf.has('leaf-2')).toBe(false);
+			expect(h.store.leafStates.has('leaf-2')).toBe(false);
 			expect(h.database.setState).toHaveBeenCalledTimes(1);
 		} finally {
 			Platform.isMobileApp = origMobile;
@@ -405,7 +409,8 @@ describe('Sampler.sampleActiveView — search-anchor grace window', () => {
 			},
 			metadataCache: { getFileCache: () => null }, // no frontmatter by default
 		};
-		const sampler = new Sampler(app as never, database as never, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		const store = new PositionStore(app as never, database as never);
+		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 		return { sampler, state, poll: () => sampler.sampleActiveView() };
 	}
 

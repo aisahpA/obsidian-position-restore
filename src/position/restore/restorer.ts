@@ -1,6 +1,6 @@
 import { App, FileView, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { getScroller, nextPaint } from '@/shared/wait';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from './modes';
@@ -15,14 +15,14 @@ export class Restorer {
 	private app: App;
 	private settings: PluginSettings;
 	private state: PositionState;
-	private tabStore: TabStore;
+	private store: PositionStore;
 	private modes: RestoreModes;
 
-	constructor(app: App, settings: PluginSettings, tabStore: TabStore) {
+	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState) {
 		this.app = app;
 		this.settings = settings;
-		this.tabStore = tabStore;
-		this.state = tabStore.state;
+		this.store = store;
+		this.state = state;
 		this.modes = new RestoreModes(settings, this.state);
 	}
 
@@ -119,7 +119,7 @@ export class Restorer {
 			return;
 
 		await this.restoreOpen(view, filePath, async (isCurrent, injected) => {
-		const st = this.tabStore.getRestoreSt(view.leaf, filePath);
+		const st = this.store.read(this.state.leafId(view.leaf), filePath);
 			const mode = view.getMode();
 
 			// Dispatch by view mode; each branch owns its own no-record /
@@ -309,7 +309,7 @@ export class Restorer {
 	// re-applies are throttled so a value the content can't reach yet (or
 	// ever) doesn't churn every frame.
 	private async landBaseScroll(view: FileView, filePath: string, isCurrent: () => boolean) {
-		const st = this.tabStore.getRestoreSt(view.leaf, filePath);
+		const st = this.store.read(this.state.leafId(view.leaf), filePath);
 		const scroll = st?.scroll ?? 0;
 		if (scroll <= 0)
 			return;
@@ -367,8 +367,10 @@ export class Restorer {
 
 	// A source open with a saved scroll is handled by glideRestore, which
 	// animates from the top to the saved line, so nothing to inject. Same
-	// predicate as the source branch of restoreEphemeralState.
-	private shouldGlideSource(st: EphemeralState | undefined): boolean {
+	// predicate as the source branch of restoreEphemeralState. The type
+	// predicate is load-bearing: the caller dispatches to glideRestore on a
+	// true result, and glideRestore needs a defined record.
+	private shouldGlideSource(st: EphemeralState | undefined): st is EphemeralState {
 		return this.settings.sourceRestoreMethod === 'glide'
 			&& !!st && (st.scroll ?? 0) > 0;
 	}
@@ -400,12 +402,11 @@ export class Restorer {
 	// Iterates ALL leaves, not just markdown ones: pdf/image leaves hold
 	// dedup entries too, and pruning theirs would re-scroll the file on every
 	// tab activation. Runs on fresh opens (dedup check) AND at persist points
-	// (PositionManager.storePositionData): closing a leaf can't update
-	// lastStateByLeaf (no dedicated close event), so without the persist-side
-	// call dead records would reach the quit/suspend snapshot.
-	// Returns whether any lastStateByLeaf entry was dropped, so the caller
-	// can mark the snapshot dirty.
-	public pruneStaleLeafIds(): boolean {
+	// (PositionManager.storePositionData): closing a leaf can't update the
+	// stored leaf records (no dedicated close event), so without the
+	// persist-side call dead records would reach the overlay snapshot.
+	// The single workspace scan is shared with the store's leaf-record prune.
+	public pruneStaleLeafIds(): void {
 		const liveIds = new Set<string>();
 		// Block body on purpose: this callback MUST return undefined.
 		// Obsidian's iterate helpers treat the callback result as an
@@ -429,15 +430,8 @@ export class Restorer {
 		for (const leaf of this.state.pendingOpenKind.keys())
 			if (!liveIds.has(this.state.leafId(leaf)))
 				this.state.pendingOpenKind.delete(leaf);
-		// Also drop last state markers of closed leaves: closing a leaf can't
-		// update lastStateByLeaf, so its record would otherwise linger until
-		// the next fresh open — and reach the quit/suspend snapshot.
-		let droppedLastState = false;
-		for (const id of this.state.lastStateByLeaf.keys())
-			if (!liveIds.has(id)) {
-				this.state.lastStateByLeaf.delete(id);
-				droppedLastState = true;
-			}
-		return droppedLastState;
+		// And the stored leaf records, which would otherwise linger until the
+		// next fresh open of that leaf and reach the overlay snapshot.
+		this.store.pruneDeadLeaves(liveIds);
 	}
 }

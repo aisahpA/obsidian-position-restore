@@ -12,6 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MarkdownView } from 'obsidian';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
+import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
 import { NavJump, NavTeleport, NavVisit } from '@/nav-history/entry';
 
@@ -70,9 +71,13 @@ function makeHarness(options?: { entries?: TestEntry[] }) {
 				top.st = landing;
 		}),
 	};
-	const sampler = new Sampler(
+	const store = new PositionStore(
 		app as never,
 		{ db: {}, setState: vi.fn(), deleteFile: vi.fn() } as never,
+	);
+	const sampler = new Sampler(
+		app as never,
+		store,
 		settings,
 		state,
 		nav as never,

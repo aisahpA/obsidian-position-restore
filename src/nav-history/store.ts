@@ -1,8 +1,9 @@
 import { App } from 'obsidian';
 import { NavHistoryEntry, NAV_HISTORY_VERSION } from './entry';
 
-// Device-local, per-vault navigation-history persistence (mirrors tab-store):
-// the startup read, the debounced write, and the per-entry shape check.
+// Device-local, per-vault navigation-history persistence (mirrors the position
+// overlay): the startup read, the debounced write, and the per-entry shape
+// check.
 
 // Desktop localStorage is shared across vaults (same app origin); appId is
 // the per-vault discriminator. Not in the public typings.

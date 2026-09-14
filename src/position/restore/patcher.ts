@@ -1,6 +1,6 @@
 import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
 import type { NavHistory } from '@/nav-history/history';
@@ -43,17 +43,17 @@ export class OpenPatcher {
 	private app: App;
 	private settings: PluginSettings;
 	private state: PositionState;
-	private tabStore: TabStore;
+	private store: PositionStore;
 	private nav: NavHistory;
 	private sampler: Sampler;
 
-	constructor(app: App, settings: PluginSettings, tabStore: TabStore, nav: NavHistory, sampler: Sampler) {
+	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState, nav: NavHistory, sampler: Sampler) {
 		this.app = app;
 		this.settings = settings;
-		this.tabStore = tabStore;
+		this.store = store;
 		this.nav = nav;
 		this.sampler = sampler;
-		this.state = tabStore.state;
+		this.state = state;
 	}
 
 	// Installs the patches the restore relies on. registerCleanup must undo
@@ -215,7 +215,7 @@ export class OpenPatcher {
 			this.state.pendingHistoryNav = false;
 			window.clearTimeout(this.state.pendingHistoryNavTimeout);
 			if (!isReplay && viewState.type === 'markdown') {
-				const st = this.tabStore.getRestoreSt(leaf, filePath);
+				const st = this.store.read(leafId, filePath);
 				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
 					const merged = this.buildMergedState(st, this.isSourceModeOpen(leaf, viewState));
 					this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
@@ -260,7 +260,7 @@ export class OpenPatcher {
 
 		// the same file open in two tabs must restore each tab's own spot after
 		// a restart.
-		const st = this.tabStore.getRestoreSt(leaf, filePath);
+		const st = this.store.read(leafId, filePath);
 		if (this.shouldGlideSource(st))
 			return eState;
 
