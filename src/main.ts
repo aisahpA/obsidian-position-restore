@@ -7,7 +7,7 @@ import { HOVER_LINK_SOURCE_ID } from './nav-history/browser/constants';
 import { t } from './i18n';
 
 
-export default class RememberCursorPosition extends Plugin {
+export default class PositionRestorePlugin extends Plugin {
 	settings!: PluginSettings;
 	database!: CursorPositionDatabase;
 	manager!: PositionManager;

@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
-import type RememberCursorPosition from '@/main';
+import type PositionRestorePlugin from '@/main';
 import { ESCAPE_HATCH_PROPERTY } from '@/position/policy/frontmatter';
 import { t } from '@/i18n';
 
@@ -11,9 +11,9 @@ declare module 'obsidian' {
 }
 
 export class SettingTab extends PluginSettingTab {
-	plugin: RememberCursorPosition;
+	plugin: PositionRestorePlugin;
 
-	constructor(app: App, plugin: RememberCursorPosition) {
+	constructor(app: App, plugin: PositionRestorePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -324,7 +324,7 @@ export class SettingTab extends PluginSettingTab {
 class DbPathModal extends Modal {
 	constructor(
 		app: App,
-		private plugin: RememberCursorPosition,
+		private plugin: PositionRestorePlugin,
 		private onApply: () => void
 	) {
 		super(app);
@@ -551,7 +551,7 @@ function formatHotkey(hk: Hotkey): string {
 // Reads the user-configured hotkeys for one of this plugin's commands.
 // (hotkeyManager is runtime API absent from the public typings — same cast
 // family as MetadataCache.getAllPropertyInfos above.)
-function currentHotkeyText(plugin: RememberCursorPosition, commandId: string): string {
+function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): string {
 	const manager = (plugin.app as unknown as {
 		hotkeyManager?: { getHotkeys(id: string): Hotkey[] | null };
 	}).hotkeyManager;
@@ -570,7 +570,7 @@ function currentHotkeyText(plugin: RememberCursorPosition, commandId: string): s
 // returns), so the query prefill retries until the hotkeys tab is live.
 // All runtime APIs here are untyped — a missing member or exhausted
 // retries degrade silently to an unfiltered list.
-function openHotkeySettings(plugin: RememberCursorPosition): void {
+function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
 			openTabById(id: string): void;
