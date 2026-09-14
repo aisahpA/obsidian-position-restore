@@ -526,6 +526,27 @@ describe('NavHistory persistence', () => {
 		expect(nav.entries.length).toBe(2);
 		expect(nav.index).toBe(1);
 	});
+
+	it('the write dedup belongs to the instance, not to the module', () => {
+		// The dedup must not be shared state: a second history (another vault in
+		// the same page, or the next test) would otherwise assume the blob on
+		// disk is its own and skip a write it owes.
+		const setItem = vi.spyOn(Storage.prototype, 'setItem');
+		try {
+			const first = makeNav();
+			first.recordOpen('a.md', 'leaf-1');
+			first.persist();
+			expect(setItem).toHaveBeenCalledTimes(1);
+			first.persist(); // unchanged: deduped
+			expect(setItem).toHaveBeenCalledTimes(1);
+
+			const second = makeNav();
+			second.persist();
+			expect(setItem).toHaveBeenCalledTimes(2);
+		} finally {
+			setItem.mockRestore();
+		}
+	});
 });
 
 // A cross-tab traversal fixture: leaf-2 is the entry's own (target) tab,

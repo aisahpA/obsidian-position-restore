@@ -839,7 +839,14 @@ export class NavHistory {
 	// The storage format, startup read, and per-entry shape check live in
 	// store.ts.
 
+	// The last blob THIS instance wrote (the flush dedup — see
+	// persistNavHistory). An instance field, not module state: the history is
+	// per vault, and a dedup shared between instances would let one skip a
+	// write it owes.
+	private lastPersisted = '';
+
 	persist() {
-		persistNavHistory(this.app, this.entries, this.index);
+		this.lastPersisted = persistNavHistory(
+			this.app, this.entries, this.index, this.lastPersisted);
 	}
 }

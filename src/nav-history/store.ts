@@ -68,17 +68,28 @@ export function serializeNavHistory(entries: NavHistoryEntry[], index: number): 
 	return JSON.stringify({ v: NAV_HISTORY_VERSION, entries, index });
 }
 
-// Debounced write: the dedup against the last serialized blob lives here so
-// callers don't track it.
-let lastPersisted = '';
-export function persistNavHistory(app: App, entries: NavHistoryEntry[], index: number): void {
+// Writes the history unless the blob is byte-identical to `previous` — the
+// dedup that lets the 5s flush round cost one stringify when nothing moved.
+// Returns the blob now on disk, which the CALLER keeps and passes back next
+// time: the dedup state belongs to the owner of the history (one per plugin
+// instance), never to this module. Held here it would be shared by every
+// instance in the page — a second vault would inherit the first one's blob and
+// skip a write it owes — and by every test in a suite.
+// A failed write returns `previous` unchanged, so the next round retries.
+export function persistNavHistory(
+	app: App,
+	entries: NavHistoryEntry[],
+	index: number,
+	previous: string,
+): string {
+	const serialized = serializeNavHistory(entries, index);
+	if (serialized === previous)
+		return previous;
 	try {
-		const serialized = serializeNavHistory(entries, index);
-		if (serialized === lastPersisted)
-			return;
 		window.localStorage.setItem(navHistoryStorageKey(app), serialized);
-		lastPersisted = serialized;
+		return serialized;
 	} catch (e) {
 		console.error('Position Restore: can not persist navigation history:', e);
+		return previous;
 	}
 }
