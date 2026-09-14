@@ -29,6 +29,13 @@ const DELETE_PRUNE_GRACE_MS = 2000;
 export class PathBookkeeper {
 	// Deleted paths waiting out their window (path → timer).
 	private pendingDeletes = new Map<string, number>();
+	// The startup sweep's paths, waiting out the same window. A map of its own
+	// because the outcome differs, not the timing: a vault delete drops the
+	// position records too, while a swept path keeps them — the db is a SYNCED
+	// file, so a vault that has not finished materializing a file on this
+	// device must not erase the positions the other devices still need (which
+	// is also why db pruning never consults the vault, see pruneDatabase).
+	private pendingSweeps = new Map<string, number>();
 
 	constructor(
 		private app: App,
@@ -51,15 +58,42 @@ export class PathBookkeeper {
 	// A second delete for the same path restarts the window, so windows never
 	// overlap.
 	deleteFile(file: TAbstractFile) {
-		const path = file.path;
-		const pending = this.pendingDeletes.get(path);
+		this.deferMissing(this.pendingDeletes, file.path, () => this.prune(file.path));
+	}
+
+	// The startup sweep for navigation history: a file deleted while Obsidian
+	// was closed fires no 'delete' event, so its entries would sit in the
+	// browser as dead rows forever — and, worse, hold slots in the capped
+	// stack. Only the history is swept, deliberately: see pendingSweeps.
+	// Deferred through the same window as a live delete, and for the same
+	// reason (a sync plugin that is still downloading the file must not lose
+	// it) — which also means the sweep's vault check runs well after onload,
+	// with the index certainly built.
+	sweepMissingHistory() {
+		for (const path of this.nav.knownPaths())
+			if (!this.app.vault.getAbstractFileByPath(path))
+				this.deferMissing(this.pendingSweeps, path, () => {
+					this.nav.deleteFile(path);
+					// The prune is the point: don't leave it to the next flush
+					// (the history is device-local, so writing it out cannot
+					// race another device).
+					this.nav.persist();
+				});
+	}
+
+	// (Re)start the grace window for `path`, then run `act` only if the vault
+	// still does not have it. The vault is the arbiter (see the class
+	// comment): the same 'delete' arrives for a sync plugin's temporary
+	// remove, and a path that is back a moment later is not deleted at all.
+	private deferMissing(map: Map<string, number>, path: string, act: () => void) {
+		const pending = map.get(path);
 		if (pending !== undefined)
 			window.clearTimeout(pending);
-		this.pendingDeletes.set(path, window.setTimeout(() => {
-			this.pendingDeletes.delete(path);
+		map.set(path, window.setTimeout(() => {
+			map.delete(path);
 			if (this.app.vault.getAbstractFileByPath(path))
 				return;
-			this.prune(path);
+			act();
 		}, DELETE_PRUNE_GRACE_MS));
 	}
 

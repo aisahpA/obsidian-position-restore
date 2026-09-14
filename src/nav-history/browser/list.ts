@@ -31,6 +31,10 @@ export interface NavHistoryListOptions {
 	currentIndex: number;
 	// The search box's current text.
 	filter: () => string;
+	// The note the browser shows when the stack ceiling has discarded older
+	// steps, or undefined while nothing has been dropped. Composed by the
+	// browser (it owns the history), rendered here at the foot of the list.
+	capNote: () => string | undefined;
 	// The file the list is narrowed to, or undefined for the whole history.
 	scope: () => string | undefined;
 	// One entry's display pieces (cached by the browser).
@@ -131,6 +135,12 @@ export class NavHistoryList {
 						? t('navHistory.scopeEmpty', baseName(path))
 						: t('navHistory.empty'),
 			});
+		// The ceiling's own footnote, at the very foot and regardless of the
+		// filter: it explains a stack that looks shorter than the session the
+		// user remembers, which no row or segment can say.
+		const capNote = this.opts.capNote();
+		if (capNote)
+			this.opts.list.createDiv({ cls: 'position-restore-nav-cap-note', text: capNote });
 		// A row the filter dropped is no longer on screen to be pointed at.
 		if (this.previewed >= 0 && !this.rowEls.has(this.previewed))
 			this.previewed = -1;

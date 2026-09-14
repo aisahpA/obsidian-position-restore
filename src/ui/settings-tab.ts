@@ -28,6 +28,11 @@ export class SettingTab extends PluginSettingTab {
 			this.plugin.manager.clearExclusionCache();
 			this.plugin.manager.prunePositions();
 		}
+		// The ceiling is otherwise only applied on the next navigation: the
+		// stack (and the browser) would keep its old size until then, and then
+		// drop a large chunk at once.
+		if (key === 'navStackCap')
+			this.plugin.manager.applyNavStackCap();
 		await this.plugin.saveSettings();
 	}
 

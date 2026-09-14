@@ -55,10 +55,14 @@ function makeHarness() {
 		}),
 		deleteFile: vi.fn((path: string) => { delete db[path]; }),
 	};
+	// The settings object the manager (and the history it owns) holds: the
+	// settings panel mutates THIS instance in place, so a test that changes a
+	// setting must change it here.
+	const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
 	const manager = new PositionManager(
 		app as unknown as App,
 		database as never,
-		{ ...DEFAULT_SETTINGS } as PluginSettings,
+		settings,
 	);
 	// The collaborators the manager owns; the tests seed and read them through
 	// the same public API the plugin uses.
@@ -67,7 +71,7 @@ function makeHarness() {
 	const store = (manager as unknown as { store: PositionStore }).store;
 	const file = (path: string): TAbstractFile => Object.assign(new TFile(), { path }) as TAbstractFile;
 	const paths = () => nav.entries.map(e => (e.kind !== 'view' ? e.path : undefined));
-	return { manager, nav, state, store, database, files, file, paths };
+	return { manager, nav, state, store, database, files, file, paths, settings };
 }
 
 afterEach(() => {
@@ -177,5 +181,56 @@ describe('PositionManager vault path changes', () => {
 
 		expect(leafStatesOf(h.store).get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42 } });
 		expect(h.store.read('leaf-1', 'a.md')).toEqual({ scroll: 42 });
+	});
+});
+
+// The two maintenance paths that have no vault event behind them: the stack
+// ceiling changing in the settings, and history left over for files deleted
+// while Obsidian was closed.
+describe('PositionManager navigation history maintenance', () => {
+	it('a changed stack cap trims the stack already in memory', () => {
+		const h = makeHarness();
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
+			h.nav.recordOpen(p, 'leaf-1');
+
+		h.settings.navStackCap = 2;
+		h.manager.applyNavStackCap();
+
+		// Trimmed NOW, not on the next navigation (which would drop a large
+		// chunk at once, long after the setting was changed).
+		expect(h.paths()).toEqual(['c.md', 'd.md']);
+		expect(h.nav.index).toBe(1);
+		expect(h.nav.droppedByCap).toBe(2);
+	});
+
+	it('the startup sweep drops a missing file\'s history but keeps its position record', () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.files.add('a.md');
+		h.nav.recordOpen('a.md', 'leaf-1');
+		h.nav.recordOpen('gone.md', 'leaf-1'); // deleted while Obsidian was closed
+
+		h.manager.sweepMissingHistory();
+		vi.advanceTimersByTime(LONG_AFTER);
+
+		expect(h.paths()).toEqual(['a.md']);
+		// History is device-local and disposable; the db is neither — it is
+		// synced, so a vault that has not materialized the file yet must not
+		// erase the position the other devices still hold.
+		expect(h.database.deleteFile).not.toHaveBeenCalled();
+	});
+
+	it('the startup sweep leaves the history of a file the vault still has', () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.files.add('a.md');
+		h.files.add('b.md');
+		h.nav.recordOpen('a.md', 'leaf-1');
+		h.nav.recordOpen('b.md', 'leaf-1');
+
+		h.manager.sweepMissingHistory();
+		vi.advanceTimersByTime(LONG_AFTER);
+
+		expect(h.paths()).toEqual(['a.md', 'b.md']);
 	});
 });

@@ -26,7 +26,12 @@ function makeHarness() {
 		vault: { getAbstractFileByPath: (path: string) => (files.has(path) ? { path } : null) },
 	};
 	const store = { renameFile: vi.fn(), deleteFile: vi.fn() };
-	const nav = { renameFile: vi.fn(), deleteFile: vi.fn() };
+	const nav = {
+		renameFile: vi.fn(),
+		deleteFile: vi.fn(),
+		persist: vi.fn(),
+		knownPaths: vi.fn((): string[] => []),
+	};
 	const state = { lastLoadedFilePath: undefined as string | undefined };
 	const bookkeeper = new PathBookkeeper(
 		app as unknown as App,
@@ -115,5 +120,59 @@ describe('PathBookkeeper delete', () => {
 		// Long after BOTH windows: only the restarting one may have fired.
 		vi.advanceTimersByTime(LONG_AFTER);
 		expect(h.store.deleteFile).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('PathBookkeeper startup sweep', () => {
+	it('drops the history of a path the vault does not have — and only the history', () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.nav.knownPaths.mockReturnValue(['a.md', 'b.md']);
+		h.files.add('b.md'); // still there: not swept
+
+		h.bookkeeper.sweepMissingHistory();
+		vi.advanceTimersByTime(A_BEAT); // a beat: deferred, like a live delete
+		expect(h.nav.deleteFile).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(LONG_AFTER);
+		expect(h.nav.deleteFile).toHaveBeenCalledTimes(1);
+		expect(h.nav.deleteFile).toHaveBeenCalledWith('a.md');
+		// The position records are kept on purpose: the db is a synced file, so
+		// a vault that has not finished materializing a file on this device
+		// must not erase the positions the other devices still need.
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
+		// The prune is written out at once (the point of the sweep is that the
+		// dead rows are gone), rather than left to the next flush.
+		expect(h.nav.persist).toHaveBeenCalled();
+	});
+
+	it('a swept path that is back within the window keeps its history', () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.nav.knownPaths.mockReturnValue(['a.md']);
+
+		h.bookkeeper.sweepMissingHistory();
+		h.files.add('a.md'); // the sync plugin finished downloading
+
+		vi.advanceTimersByTime(LONG_AFTER);
+
+		expect(h.nav.deleteFile).not.toHaveBeenCalled();
+		expect(h.nav.persist).not.toHaveBeenCalled();
+	});
+
+	it('a live delete of a swept path still drops both stores', () => {
+		// The two deferrals are independent maps, so a vault 'delete' arriving
+		// while a sweep is pending must not be narrowed to history-only by it.
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.nav.knownPaths.mockReturnValue(['a.md']);
+
+		h.bookkeeper.sweepMissingHistory();
+		h.bookkeeper.deleteFile(h.file('a.md'));
+
+		vi.advanceTimersByTime(LONG_AFTER);
+
+		expect(h.store.deleteFile).toHaveBeenCalledWith('a.md');
+		expect(h.nav.deleteFile).toHaveBeenCalledWith('a.md');
 	});
 });

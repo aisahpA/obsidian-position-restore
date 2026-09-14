@@ -67,6 +67,13 @@ function entry(path: string, leafId = 'leaf-1'): NavHistoryEntry {
 	return { kind: 'visit', path, leafId, t: 1 };
 }
 
+// The settings panel mutates the settings object the history was handed (they
+// share one instance, see NavHistory.settings) — this is that mutation, without
+// going through the whole settings tab.
+function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
+	(nav as unknown as { settings: PluginSettings }).settings.navStackCap = cap;
+}
+
 // These tests build file-only stacks (a graph entry appears in exactly one
 // full-object equality assertion); the helpers narrow the file kinds so the
 // per-index reads stay terse.
@@ -377,6 +384,76 @@ describe('NavHistory recording settings', () => {
 		nav.recordOpen('a.md', 'leaf-1');
 		nav.recordOpen('b.md', 'leaf-1');
 		expect(nav.entries.map(pathOf)).toEqual(['b.md']);
+	});
+
+	it('a cap that is not a number at all falls back to the default', () => {
+		// "abc" would make every `length > cap` comparison false and disable the
+		// ceiling entirely; null would collapse it to 1.
+		const nav = makeNav(makeApp(), { navStackCap: 'abc' as unknown as number });
+		expect(nav.stackCap()).toBe(DEFAULT_SETTINGS.navStackCap);
+	});
+
+	it('lowering the cap trims the stack at once, keeping the pointer on the top', () => {
+		const nav = makeNav();
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
+			nav.recordOpen(p, 'leaf-1');
+		expect(nav.entries.length).toBe(5);
+
+		// The settings panel mutates the settings object the history holds.
+		setCap(nav, 2);
+		expect(nav.applyStackCap()).toBe(3);
+
+		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
+		expect(nav.index).toBe(1);
+		expect(nav.droppedByCap).toBe(3);
+		// ...and nothing more is dropped on a second call.
+		expect(nav.applyStackCap()).toBe(0);
+		expect(nav.droppedByCap).toBe(3);
+	});
+
+	it('a cap that falls below the current depth stops the pointer on the oldest survivor', () => {
+		// An active file view, so canNavigate reports the STACK's reachability
+		// rather than "nothing is focused".
+		const app = makeApp();
+		const leaf = leafWithFile('leaf-1', 'd.md');
+		const ws = app.workspace as unknown as {
+			getActiveViewOfType: () => unknown;
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		};
+		ws.getActiveViewOfType = () => leaf.view;
+		ws.iterateAllLeaves = (cb) => cb(leaf);
+
+		const nav = makeNav(app);
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
+			nav.recordOpen(p, 'leaf-1');
+		(nav as unknown as { index: number }).index = 1; // two steps back
+		setCap(nav, 2);
+
+		nav.applyStackCap();
+
+		// The entry "now" was on is gone. The pointer has to land somewhere
+		// valid: the oldest survivor, so forward still walks what is left
+		// instead of traversal being disabled outright.
+		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
+		expect(nav.index).toBe(0);
+		expect(nav.canNavigate(-1)).toBe(false);
+		expect(nav.canNavigate(1)).toBe(true);
+	});
+
+	it('a stored stack over the ceiling is trimmed on load', () => {
+		// The cap is lowered (and persisted) while the stack blob still holds
+		// the old, longer history: the ceiling must win from the first render.
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: NAV_HISTORY_VERSION,
+			entries: [entry('a.md'), entry('b.md'), entry('c.md'), entry('d.md')],
+			index: 3,
+		}));
+
+		const nav = makeNav(makeApp(), { navStackCap: 2 });
+
+		expect(nav.entries.map(pathOf)).toEqual(['c.md', 'd.md']);
+		expect(nav.index).toBe(1);
+		expect(nav.droppedByCap).toBe(2);
 	});
 
 	it('navRecordActivation off: tab (and graph) activation records nothing', () => {

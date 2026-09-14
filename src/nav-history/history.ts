@@ -1,5 +1,5 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState, PluginSettings } from '@/types';
+import { NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
 import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
@@ -92,6 +92,13 @@ export class NavHistory {
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
 
+	// How many entries the stack ceiling has discarded since the plugin
+	// loaded. The browser reports it: those steps are gone with no other
+	// trace, and only the user can judge whether that matters (raise the cap
+	// in the settings). Cumulative on purpose — a step dropped earlier is
+	// still dropped after the cap is raised again.
+	droppedByCap = 0;
+
 	// True while a back/forward traversal is executing: the opens it triggers
 	// (openFile, native go-back) are the traversal itself, not new jumps.
 	private executing = false;
@@ -103,7 +110,54 @@ export class NavHistory {
 		const restored = loadNavHistory(app);
 		this.entries = restored.entries;
 		this.index = restored.index;
+		// A stored blob can exceed the ceiling in force now (the cap is lowered
+		// in the settings, which persist, while the stack is only written at
+		// the flush points): trim it here so the cap is authoritative from the
+		// first render rather than after the next navigation.
+		this.applyStackCap();
 		this.modes = new RestoreModes(settings, state);
+	}
+
+	// The stack ceiling in force: the setting, clamped, with a fallback for a
+	// value that is not a number at all (a hand-edited data.json would
+	// otherwise make every `length > cap` comparison false and disable the
+	// ceiling entirely).
+	stackCap(): number {
+		const cap = Math.floor(this.settings.navStackCap);
+		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.navStackCap;
+	}
+
+	// Trim the stack to the ceiling NOW. Called by push (the ordinary path),
+	// by the settings panel when the cap changes (otherwise the trim waits for
+	// the next navigation and then drops a large chunk at once), and once on
+	// load (above).
+	// @returns how many entries were discarded.
+	applyStackCap(): number {
+		const cap = this.stackCap();
+		if (this.entries.length <= cap)
+			return 0;
+		const removed = this.entries.length - cap;
+		// The oldest entries drop (see push).
+		this.entries.splice(0, removed);
+		// The pointer follows the entries that survived. One that sat on a
+		// dropped entry (the cap fell below the current depth) has nothing left
+		// to describe "now": it stops on the oldest survivor rather than going
+		// negative, so forward still walks what remains instead of traversal
+		// being disabled outright.
+		this.index = this.entries.length === 0 ? -1 : Math.max(0, this.index - removed);
+		this.droppedByCap += removed;
+		return removed;
+	}
+
+	// Every distinct file path the stack still names (view entries name none).
+	// The caller pairs this with a vault check — the startup sweep for files
+	// deleted while Obsidian was closed (see PathBookkeeper.sweepMissingHistory).
+	knownPaths(): string[] {
+		const seen = new Set<string>();
+		for (const entry of this.entries)
+			if (entry.kind !== 'view')
+				seen.add(entry.path);
+		return Array.from(seen);
 	}
 
 	// ===== Recording =====
@@ -337,12 +391,11 @@ export class NavHistory {
 		// A fresh jump discards the forward part (VSCode semantics).
 		this.entries.length = this.index + 1;
 		this.entries.push({ ...entry, t: Date.now() });
-		// Stack ceiling (settings.navStackCap); on overflow the OLDEST
-		// entries drop. Clamp guards hand-edited data.json values.
-		const cap = Math.max(1, Math.floor(this.settings.navStackCap));
-		if (this.entries.length > cap)
-			this.entries.splice(0, this.entries.length - cap);
+		// The pushed entry is the current location BEFORE the ceiling is
+		// applied, so the trim moves the pointer relative to the TOP that was
+		// just established, not to the entry the push replaced.
 		this.index = this.entries.length - 1;
+		this.applyStackCap();
 	}
 
 	// ===== Traversal =====

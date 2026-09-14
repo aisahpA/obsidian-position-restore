@@ -754,6 +754,20 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	font-size: var(--font-ui-smaller);
 }
 
+/* The stack ceiling's footnote, at the foot of the list. Quieter than the empty
+   state (it qualifies a list that IS showing something) and separated from the
+   last row by a hairline, so it reads as a remark about the list rather than one
+   more entry. Wraps rather than ellipsizing: it is a sentence, and the number
+   that matters sits at its front. */
+.position-restore-nav-cap-note {
+	margin-top: 6px;
+	padding: 8px 8px 2px;
+	border-top: 1px solid var(--background-modifier-border);
+	color: var(--nav-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+}
+
 /* Landing preview panel: where the pointed-at row sits, the heading chain it
    sits under, and the lines around the landing. TOUCH ONLY — a pointing device
    has the native page preview instead (see the popover rules at the top), which

@@ -55,6 +55,9 @@ function harness(
 	// say which tabs are open now. Without it the `live` editors stand in as one
 	// tab per path — which is never ambiguous, as in a real vault.
 	layout: { leafId: string; path: string }[] = [],
+	// How many steps the stack ceiling has discarded (0 = the footnote is
+	// absent). The modal reads it off the history it was handed.
+	droppedByCap = 0,
 ) {
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
@@ -106,7 +109,9 @@ function harness(
 	Platform.isMobile = mobile;
 	let modal: NavHistoryModal;
 	try {
-		modal = new NavHistoryModal(app as never, { entries, index, jumpTo } as never);
+		modal = new NavHistoryModal(app as never, {
+			entries, index, jumpTo, droppedByCap, stackCap: () => 50,
+		} as never);
 	} finally {
 		Platform.isMobile = previous;
 	}
@@ -127,6 +132,23 @@ afterEach(() => {
 	vi.restoreAllMocks();
 	document.body.innerHTML = '';
 	document.body.className = '';
+});
+
+describe('NavHistoryModal — dropped history footnote', () => {
+	it('reports how many older steps the stack ceiling discarded', () => {
+		const entries = [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' }, [], {}, {}, false, [], 7);
+
+		const note = h.el.querySelector('.position-restore-nav-cap-note');
+		expect(note?.textContent).toBe(t('navHistory.capNote', 7, 50));
+	});
+
+	it('says nothing while no step has been discarded', () => {
+		const entries = [visit('a.md', NOW)];
+		const h = harness(entries, 0, { 'a.md': '' });
+
+		expect(h.el.querySelector('.position-restore-nav-cap-note')).toBeNull();
+	});
 });
 
 describe('NavHistoryModal — current position', () => {

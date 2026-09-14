@@ -183,6 +183,21 @@ export class PositionManager {
 		this.bookkeeper.deleteFile(file);
 	}
 
+	// Startup sweep for navigation history: files deleted while Obsidian was
+	// closed fire no 'delete' event, so their entries would sit in the browser
+	// as dead rows (holding slots in the capped stack) for good. History only —
+	// the position records are deliberately left alone (see PathBookkeeper).
+	sweepMissingHistory() {
+		this.bookkeeper.sweepMissingHistory();
+	}
+
+	// The history stack's ceiling changed in the settings: apply it to the
+	// stack already in memory instead of waiting for the next navigation to
+	// drop a large chunk at once (see NavHistory.applyStackCap).
+	applyNavStackCap(): void {
+		this.nav.applyStackCap();
+	}
+
 	// Prune the records the current settings exclude (and, incidentally, the
 	// ones over the entry cap). Routed through the store so the file layer and
 	// the leaf layer are pruned together — main.ts's startup sweep and the
