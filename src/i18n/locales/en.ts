@@ -126,14 +126,18 @@ export const en = {
 	'navHistory.noMatch': 'No matching entry.',
 	// The file scope, carried by TWO controls that are one state: the direct
 	// "only this note" switch (the shortcut, one click) and the picker chip
-	// beside it, which names the file in force and opens the list of every note
-	// the history has been in — or "all files" while nothing is narrowed. The
-	// full path is the tooltip both of them carry.
+	// beside it, which opens the list of every note the history has been in
+	// ("all files" first). The chip's label is the fixed ACTION below, never the
+	// file's name: a label whose width followed the name moved the control out
+	// from under the click that had just picked it, and it was redundant anyway
+	// — the narrowed list prints that file on every row, and the empty state
+	// names it. Neither control has a tooltip, so the accessible name is the one
+	// place the scope is still spelled out.
+	'navHistory.scope.filter': 'Filter by file',
+	'navHistory.scope.current': 'Filter by file: {0}',
 	'navHistory.scope.all': 'All files',
-	'navHistory.scope.pick': 'Narrow the list to one file',
 	'navHistory.scope.count': '{0} steps',
 	'navHistory.onlyThisFile': 'Only this note',
-	'navHistory.onlyThisFileTip': 'Only show positions in {0}',
 	'navHistory.scopeEmpty': 'No other position in {0}.',
 	'navHistory.current': 'Current position',
 	'navHistory.empty': 'Navigation history is empty.',

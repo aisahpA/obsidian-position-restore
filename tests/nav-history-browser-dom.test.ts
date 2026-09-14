@@ -232,6 +232,21 @@ describe('NavHistoryModal — file scope', () => {
 		h.el.querySelector<HTMLElement>('.position-restore-nav-scope-btn');
 	const chipLabel = (h: ReturnType<typeof harness>) =>
 		h.el.querySelector('.nav-scope-label')?.textContent;
+	// The file in force, as the chip alone still reports it: its visible label is
+	// a CONSTANT (the chip is the control a pick is made from, and must not move
+	// when the pick lands), it carries no tooltip, and so the accessible name is
+	// the only place the scope is written down.
+	const chipNames = (h: ReturnType<typeof harness>, path: string) => {
+		expect(chip(h)!.getAttribute('aria-label')).toBe(t('navHistory.scope.current', path));
+		expect(chip(h)!.getAttribute('title')).toBeNull();
+	};
+	// …and the same pair while nothing is narrowed.
+	const chipFree = (h: ReturnType<typeof harness>) => {
+		expect(chipLabel(h)).toBe(t('navHistory.scope.filter'));
+		expect(chip(h)!.getAttribute('aria-label')).toBe(t('navHistory.scope.filter'));
+		expect(chip(h)!.getAttribute('title')).toBeNull();
+		expect(chip(h)!.classList.contains('is-active')).toBe(false);
+	};
 	const menu = (h: ReturnType<typeof harness>) =>
 		h.el.querySelector<HTMLElement>('.position-restore-nav-scope-menu');
 	const menuOpen = (h: ReturnType<typeof harness>) =>
@@ -262,7 +277,7 @@ describe('NavHistoryModal — file scope', () => {
 	it('shows the whole history until a file is picked, and offers the notes it has been in', () => {
 		const h = harness(entries(), 3, files);
 		// Nothing is narrowed on open: both controls say so and the menu is down.
-		expect(chipLabel(h)).toBe(t('navHistory.scope.all'));
+		chipFree(h);
 		expect(menuOpen(h)).toBe(false);
 		expect(switchBox(h)!.checked).toBe(false);
 		expect(h.rows()).toHaveLength(3);
@@ -292,9 +307,10 @@ describe('NavHistoryModal — file scope', () => {
 		pick(h, 'a.md');
 
 		expect(menuOpen(h)).toBe(false);
-		expect(chipLabel(h)).toBe('a.md');
+		// Which file, without the label having moved a pixel to say it: the chip
+		// still reads as the fixed action it read before the pick.
+		chipNames(h, 'a.md');
 		expect(chip(h)!.classList.contains('is-active')).toBe(true);
-		expect(chip(h)!.getAttribute('title')).toBe(t('navHistory.onlyThisFileTip', 'a.md'));
 
 		const rows = h.rows();
 		expect(rows).toHaveLength(1);
@@ -330,16 +346,16 @@ describe('NavHistoryModal — file scope', () => {
 	it('keeps the switch and the picker on one state', () => {
 		const h = harness(entries(), 3, files);
 
-		// the switch narrows to the current note; the chip names it
+		// the switch narrows to the current note; the chip reports which file
 		setSwitch(h, true);
-		expect(chipLabel(h)).toBe('c.md');
+		chipNames(h, 'c.md');
 
 		// picking ANOTHER note unchecks the switch: the scope is no longer this
 		// note, and a checked box would claim it was
 		openMenu(h);
 		pick(h, 'a.md');
 		expect(switchBox(h)!.checked).toBe(false);
-		expect(chipLabel(h)).toBe('a.md');
+		chipNames(h, 'a.md');
 
 		// picking THIS note checks it again — one state, two controls
 		openMenu(h);
@@ -349,7 +365,7 @@ describe('NavHistoryModal — file scope', () => {
 
 		// …and switching off from there is "no scope", not "that other note"
 		setSwitch(h, false);
-		expect(chipLabel(h)).toBe(t('navHistory.scope.all'));
+		chipFree(h);
 		expect(h.rows()).toHaveLength(3);
 	});
 
@@ -362,9 +378,47 @@ describe('NavHistoryModal — file scope', () => {
 		openMenu(h);
 		pick(h, t('navHistory.scope.all'));
 
-		expect(chipLabel(h)).toBe(t('navHistory.scope.all'));
-		expect(chip(h)!.classList.contains('is-active')).toBe(false);
+		chipFree(h);
 		expect(h.rows()).toHaveLength(3);
+	});
+
+	it('keeps the chip its own size: the label never becomes the file name', () => {
+		// The control a pick is made FROM must not move when the pick lands.
+		// jsdom measures no layout, so the observable proxy is the label itself:
+		// one string for unscoped, scoped and scoped-elsewhere alike, with the
+		// file riding on the accessible name and the tooltip.
+		const h = harness(entries(), 3, files);
+		const fixed = chipLabel(h);
+		chipFree(h);
+
+		openMenu(h);
+		pick(h, 'a.md');
+		expect(chipLabel(h)).toBe(fixed);
+		chipNames(h, 'a.md');
+
+		setSwitch(h, true);
+		expect(chipLabel(h)).toBe(fixed);
+		chipNames(h, 'c.md');
+
+		setSwitch(h, false);
+		expect(chipLabel(h)).toBe(fixed);
+		chipFree(h);
+	});
+
+	it('leaves the hover hints off both scope controls', () => {
+		// Each control is named by its own label, and which note "this" is, is
+		// what the pinned card below already shows. A tooltip over the switch and
+		// another over the chip were one sentence said twice, once per control.
+		const h = harness(entries(), 3, files);
+		const toggle = () => h.el.querySelector('.position-restore-nav-toggle');
+		expect(toggle()?.getAttribute('title')).toBeNull();
+		expect(chip(h)!.getAttribute('title')).toBeNull();
+
+		// …and narrowing the list does not put one back on either of them
+		openMenu(h);
+		pick(h, 'a.md');
+		expect(toggle()?.getAttribute('title')).toBeNull();
+		expect(chip(h)!.getAttribute('title')).toBeNull();
 	});
 
 	it('narrows the list to that note, and the segment counts follow it', () => {
@@ -374,7 +428,7 @@ describe('NavHistoryModal — file scope', () => {
 		setSwitch(h, true);
 
 		// one click, no menu: this is the pick the switch exists for
-		expect(chipLabel(h)).toBe('c.md');
+		chipNames(h, 'c.md');
 		expect(chip(h)!.classList.contains('is-active')).toBe(true);
 		expect(h.el.querySelector('.position-restore-nav-toggle')?.classList.contains('is-active')).toBe(true);
 
@@ -438,7 +492,7 @@ describe('NavHistoryModal — file scope', () => {
 		expect(h.rows().some(r => r.classList.contains('is-selected'))).toBe(false);
 		h.key('Enter');
 		expect(menuOpen(h)).toBe(false);
-		expect(chipLabel(h)).toBe('a.md');
+		chipNames(h, 'a.md');
 
 		// Escape is next: the menu's own key while it is up. The app closes a
 		// modal on Escape through a document handler, so the event must not

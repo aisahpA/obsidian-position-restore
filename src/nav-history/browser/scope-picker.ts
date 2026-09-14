@@ -1,10 +1,9 @@
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { t } from '@/i18n';
 import { historyFileOptions } from './listing';
-import { baseName } from './model';
 
-// The file scope: the one-click "only this note" switch, the chip that names the
-// scope in force, its dropdown of every note the history has been in, and the
+// The file scope: the one-click "only this note" switch, the fixed-label chip
+// that opens it, its dropdown of every note the history has been in, and the
 // keyboard ownership that goes with an open menu.
 //
 // TWO controls, ONE state. The switch is the shortcut that was always here — the
@@ -13,9 +12,22 @@ import { baseName } from './model';
 // disagree: the switch is checked exactly while the scope IS that note (see
 // syncScopeChip), and picking that note in the menu checks it.
 //
+// The chip's visible label is the SAME string in both states — the action, never
+// the file. A label that followed the file name changed the chip's width, and
+// with it the search box beside it, the moment a pick was made: the control the
+// user had just clicked slid out from under the pointer (and on a narrow strip
+// it re-decided which item shared its line). It was redundant as well — every
+// row of the narrowed list prints that file and an empty scope names it — and
+// the chip itself could only ever show the name TRUNCATED (16em, see
+// styles.css). The name survives where it costs no layout: the accessible name
+// — the one thing that still spells the state out. Neither control carries a
+// TOOLTIP either: each is named by its own visible label, and the two hints that
+// used to hang there were a checkbox and a menu saying the same sentence about
+// the same note.
+//
 // The history cannot change while the panel is open (only a jump moves the stack
 // pointer, and it closes first), so the item list is a snapshot — which is what
-// lets the chip's label be derived from it.
+// lets the menu mark the scope in force without rebuilding.
 
 export interface NavScopePickerOptions {
 	// The toolbar the controls are built into (they are built once, with it).
@@ -47,7 +59,6 @@ export class NavScopePicker {
 	private scopeToggle?: HTMLElement;
 	private scopeBox?: HTMLInputElement;
 	private scopeButton?: HTMLButtonElement;
-	private scopeLabel?: HTMLElement;
 	private scopeMenu?: HTMLElement;
 	private scopeItems: { path: string | undefined; el: HTMLElement }[] = [];
 	// Which item the keyboard is on, and whether the menu is up (see handleKey:
@@ -71,17 +82,14 @@ export class NavScopePicker {
 
 	// The one-click switch to the current note: the file-scope chip's original
 	// meaning, kept as a control of its own so the commonest pick never costs a
-	// menu. Its label names the ACTION, as it always did (a fixed string keeps
-	// the chip's width off the length of a note name); which note that is comes
-	// from the tooltip and from the pinned card below.
+	// menu. Its label names the ACTION, like the chip's does (a fixed string
+	// keeps both widths off the length of a note name); which note "this" is, is
+	// the pinned card below.
 	private buildScopeToggle(bar: HTMLElement): void {
 		const home = this.opts.home;
 		if (home === undefined)
 			return;
-		const label = bar.createEl('label', {
-			cls: 'position-restore-nav-toggle',
-			title: t('navHistory.onlyThisFileTip', home),
-		});
+		const label = bar.createEl('label', { cls: 'position-restore-nav-toggle' });
 		const box = label.createEl('input', { type: 'checkbox' });
 		label.createSpan({ text: t('navHistory.onlyThisFile') });
 		box.addEventListener('change', () => {
@@ -108,7 +116,10 @@ export class NavScopePicker {
 			cls: 'position-restore-nav-scope-btn',
 			attr: { type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' },
 		});
-		this.scopeLabel = this.scopeButton.createSpan({ cls: 'nav-scope-label' });
+		// The label is a CONSTANT (see the class comment): written here, once, and
+		// no code path ever writes it again — which is exactly what keeps the
+		// chip's width off the file the list is showing.
+		this.scopeButton.createSpan({ cls: 'nav-scope-label', text: t('navHistory.scope.filter') });
 		this.scopeButton.createSpan({ cls: 'nav-scope-caret', text: '▾' });
 		this.scopeButton.addEventListener('click', () => this.toggleScopeMenu());
 		const menu = wrap.createDiv({
@@ -145,9 +156,12 @@ export class NavScopePicker {
 			add(f.path, f.name, f.folder, f.count - (f.path === home ? 1 : 0));
 	}
 
-	// Point both controls at the scope the list is showing. Scoped, the chip's
-	// label takes the normal text colour (its own class, in styles.css) so a
-	// narrowed list has a visible cause.
+	// Point both controls at the scope the list is showing. Scoped, the label
+	// takes the normal text colour (its own class, in styles.css) so a narrowed
+	// list has a visible cause. Nothing here moves or says anything new on
+	// screen: the label TEXT is the fixed action written at build (see the class
+	// comment) and there is no tooltip left, so the only thing rewritten is the
+	// accessible name.
 	private syncScopeChip(): void {
 		// The switch is the same state seen from the current note's side: checked
 		// exactly while the scope IS the note the pinned card shows.
@@ -157,14 +171,17 @@ export class NavScopePicker {
 			this.scopeBox.checked = on;
 			this.scopeToggle.toggleClass('is-active', on);
 		}
-		if (!this.scopeButton || !this.scopeLabel || !this.scopeMenu)
+		if (!this.scopeButton || !this.scopeMenu)
 			return;
 		const scoped = this.scopeTo !== undefined;
-		this.scopeLabel.setText(scoped ? baseName(this.scopeTo as string) : t('navHistory.scope.all'));
 		this.scopeButton.toggleClass('is-active', scoped);
-		this.scopeButton.setAttr('title', scoped
-			? t('navHistory.onlyThisFileTip', this.scopeTo as string)
-			: t('navHistory.scope.pick'));
+		// The accessible name is the ONE place the toolbar still spells the scope
+		// out: the visible label says "filter by file" whether or not one is in
+		// force, and the menu that marks the current item has to be opened first.
+		// Set in BOTH states, so the caret is never part of the name either.
+		this.scopeButton.setAttr('aria-label', scoped
+			? t('navHistory.scope.current', this.scopeTo as string)
+			: t('navHistory.scope.filter'));
 		this.scopeActive = this.scopeIndexOf();
 		this.markScopeActive();
 	}

@@ -297,10 +297,17 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
    text size (--font-ui-small is what the app sets on the filter), the same
    muted tier, no button chrome. It reads as a filter, not a setting: while a
    file is in force the label takes the normal text colour, so a narrowed list
-   has a visible cause, and the label ellipsizes (the note's name is what tells
-   the user WHICH file the list is about) rather than pushing the search box out
-   of the toolbar. The rules spell the modal class out because the app skins
-   `button` — same reason the filter box above does. */
+   has a visible cause.
+   The label is a FIXED action, never the file's name: this chip is the control
+   a pick is made FROM, and a label that took the picked name's width would
+   resize the chip — and the search box beside it — under the click that had just
+   happened. Which file is in force is the list's business (every row prints it,
+   and the empty state names it) and, for the chip, the accessible name — the
+   chip carries no tooltip, nor does the switch beside it. The ellipsis stays for
+   a strip too narrow even for the translated label: it must never push the
+   search box out, or wrap the strip.
+   The rules spell the modal class out because the app skins `button` — same
+   reason the filter box above does. */
 .position-restore-nav-scope {
 	flex: 0 0 auto;
 	min-width: 0;

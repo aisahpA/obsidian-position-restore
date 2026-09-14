@@ -127,13 +127,15 @@ export const zh: En = {
 	'navHistory.searchPlaceholder': '按文件或文本过滤…',
 	'navHistory.noMatch': '没有匹配的历史。',
 	// 文件范围由两个控件表达同一个状态：直接的「只看本笔记」开关（常用路径，一次点击）
-	// 和旁边的选择器 chip——它显示当前生效的文件（未收窄时显示「全部文件」），点开是
-	// 历史里出现过的所有笔记。完整路径放在两者的 tooltip 里。
+	// 和旁边的选择器 chip——点开是历史里出现过的所有笔记（首项「全部文件」）。chip 的
+	// 文案固定为下面的动作名，永远不显示文件名：文案宽度跟着文件名变，刚点下的目标会
+	// 从指针下面移走；而且文件名本就多余——收窄后的列表每一行都写着它，空结果也点名。
+	// 两个控件都不带悬浮提示，文件名只留在无障碍名里。
+	'navHistory.scope.filter': '文件筛选',
+	'navHistory.scope.current': '文件筛选：{0}',
 	'navHistory.scope.all': '全部文件',
-	'navHistory.scope.pick': '把列表收窄到某个文件',
 	'navHistory.scope.count': '{0} 处',
 	'navHistory.onlyThisFile': '只看本笔记',
-	'navHistory.onlyThisFileTip': '只显示 {0} 里的位置',
 	'navHistory.scopeEmpty': '{0} 里没有其他位置。',
 	'navHistory.current': '当前位置',
 	'navHistory.empty': '暂无导航历史。',
