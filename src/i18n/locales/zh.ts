@@ -90,6 +90,11 @@ export const zh: En = {
 	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
 
+	'dataStorage.corruptDb.notice':
+		'数据文件无法解析（可能正被同步工具改写），已保留一份副本：{0}。本次从空数据继续，重新打开笔记会重新记录位置。',
+	'dataStorage.corruptDb.noticeNoCopy':
+		'数据文件无法解析（可能正被同步工具改写），且未能写出副本，其中的位置记录无法找回。本次从空数据继续，重新打开笔记会重新记录位置（详情见控制台）。',
+
 	'dataStorage.entries.name': '记录数',
 	'dataStorage.entries.desc':
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',

@@ -32,8 +32,23 @@ export class Modal {
 	onClose(): void {}
 }
 
-// database.ts fires notices on failure paths (switchDbFile validation etc.).
-export class Notice {}
+// database.ts fires notices on failure paths (switchDbFile validation, an
+// unreadable db file). Messages and durations are recorded so tests can assert
+// what the user was told and whether it needed dismissing; tests that look at
+// them reset the list per case.
+export class Notice {
+	static instances: Notice[] = [];
+	readonly message: string;
+	readonly duration: number | undefined;
+	constructor(message: string, duration?: number) {
+		this.message = message;
+		this.duration = duration;
+		Notice.instances.push(this);
+	}
+	static reset(): void {
+		Notice.instances = [];
+	}
+}
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
 

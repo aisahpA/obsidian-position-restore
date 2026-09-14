@@ -1,13 +1,14 @@
 // Unit tests for CursorPositionDatabase (src/database.ts): the compact
-// on-disk codec (write → read round trip), corrupted-data hardening, empty
-// record / tombstone dropping, setState recency bookkeeping, capacity
+// on-disk codec (write → read round trip), unreadable-data hardening (an
+// unparseable file is copied aside and reported, never silently cleared),
+// empty record / tombstone dropping, setState recency bookkeeping, capacity
 // trimming with hysteresis, folder exclusions, rename/delete bookkeeping,
 // the external-sync merge rule (disk wins unless the key was touched after
 // our last flush), and switchDbFile move/adopt semantics.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-import { TFile } from 'obsidian';
+import { Notice, TFile } from 'obsidian';
 
 // i18n resolves the locale from window.moment at module load; provide a
 // stand-in before src/database (and its i18n import) is evaluated.
@@ -16,9 +17,23 @@ vi.hoisted(() => {
 });
 
 import { CursorPositionDatabase } from '@/position/storage/database';
+import { t } from '@/i18n';
 import { DEFAULT_SETTINGS, type PluginSettings } from '@/types';
 
 const DB_PATH = '.obsidian/plugins/position-restore/positions.json';
+const PLUGIN_DIR = '.obsidian/plugins/position-restore';
+
+// Side copies of unreadable db content (the timestamp in the name varies).
+const copies = (files: Record<string, string>): string[] =>
+	Object.keys(files).filter((p) => p.startsWith(`${PLUGIN_DIR}/positions.corrupt-`)).sort();
+
+// The test stub's Notice records what the user was told and for how long; the
+// obsidian typings only declare the real constructor.
+type StubNotice = { message: string; duration: number | undefined };
+const notices = (): StubNotice[] =>
+	(Notice as unknown as { instances: StubNotice[] }).instances;
+const messages = (): string[] => notices().map((n) => n.message);
+const resetNotices = (): void => (Notice as unknown as { reset: () => void }).reset();
 
 const POINT = (line: number, ch: number) => ({ from: { line, ch }, to: { line, ch } });
 
@@ -85,6 +100,7 @@ function makeHarness(files: Record<string, string> = {}, settings: Partial<Plugi
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	resetNotices();
 });
 
 describe('record codec (write → read round trip)', () => {
@@ -143,17 +159,107 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
 
-	it('malformed JSON degrades to an empty db', async () => {
+	it('a readable db is read and leaves no copy behind', async () => {
+		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
+		await db.readDb();
+		expect(db.db).toEqual({ 'a.md': { scroll: 5 } });
+		expect(copies(files)).toEqual([]);
+	});
+
+	it('malformed JSON: empty db, a copy of the bytes, and the user told', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const { db, files } = makeHarness({ [DB_PATH]: '{oops' });
 		await db.readDb();
+
 		expect(db.db).toEqual({});
+		expect(copies(files)).toHaveLength(1);
+		expect(files[copies(files)[0]]).toBe('{oops');
+		// the unreadable file itself stays put — the next flush replaces it
+		expect(files[DB_PATH]).toBe('{oops');
+		expect(messages()).toEqual([expect.stringContaining(copies(files)[0])]);
+		// duration 0 = Obsidian keeps it on screen until the user dismisses it:
+		// the loss is not something to be missed while looking elsewhere
+		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
-	it('non-object JSON degrades to an empty db', async () => {
-		const { db, files } = makeHarness({ [DB_PATH]: '"just a string"' });
+	it('non-object JSON is unreadable too (a bare array is not a db)', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const stringy = makeHarness({ [DB_PATH]: '"just a string"' });
+		await stringy.db.readDb();
+		expect(stringy.db.db).toEqual({});
+		expect(copies(stringy.files)).toHaveLength(1);
+
+		const array = makeHarness({ [DB_PATH]: '[]' });
+		await array.db.readDb();
+		expect(array.db.db).toEqual({});
+		expect(copies(array.files)).toHaveLength(1);
+	});
+
+	it('the flush that follows replaces the file and leaves the copy untouched', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { db, files } = makeHarness({ [DB_PATH]: '{oops' });
 		await db.readDb();
-		expect(db.db).toEqual({});
+
+		db.setState('a.md', { scroll: 1 });
+		await db.writeDb();
+		expect(files[DB_PATH]).toBe('{"a.md":[1]}');
+		expect(copies(files)).toHaveLength(1);
+		expect(files[copies(files)[0]]).toBe('{oops');
+	});
+
+	it('keeps one copy per distinct unreadable content, not one per retry', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{oops' });
+		await h.db.readDb();
+		expect(copies(h.files)).toHaveLength(1);
+
+		// the retry loop reading the same unreadable content again must not
+		// spawn a second copy — or repeat the notice
+		await h.db.mergeExternalChanges();
+		expect(copies(h.files)).toHaveLength(1);
+		expect(messages()).toHaveLength(1);
+
+		// different bytes are a different loss
+		h.externalWrite(DB_PATH, '<<<<<<< LOCAL\n{}');
+		await h.db.mergeExternalChanges();
+		expect(copies(h.files)).toHaveLength(2);
+		expect(messages()).toHaveLength(1);
+	});
+
+	it('records already in memory survive an unparseable external file', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{"a.md":[120]}' });
+		await h.db.readDb();
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 120 } });
+
+		h.externalWrite(DB_PATH, '{torn');
+		await h.db.mergeExternalChanges();
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 120 } });
+		expect(h.files[copies(h.files)[0]]).toBe('{torn');
+	});
+
+	it('an unreadable (not unparseable) file is logged without a copy', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{"a.md":[1]}' });
+		h.adapter.read.mockImplementation(async () => {
+			throw new Error('EACCES');
+		});
+		await h.db.readDb();
+		expect(h.db.db).toEqual({});
+		expect(copies(h.files)).toEqual([]);
+		expect(messages()).toEqual([]);
+	});
+
+	it('says so when not even a copy could be kept', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{oops' });
+		h.adapter.write.mockImplementation(async () => {
+			throw new Error('EROFS');
+		});
+		await h.db.readDb();
+		expect(h.db.db).toEqual({});
+		expect(messages()).toEqual([t('dataStorage.corruptDb.noticeNoCopy')]);
+		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
 	it('non-array values are dropped, arrays are kept', async () => {

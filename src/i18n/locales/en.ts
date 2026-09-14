@@ -88,6 +88,11 @@ export const en = {
 	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',
 
+	'dataStorage.corruptDb.notice':
+		'The database file could not be parsed (a sync client may have been rewriting it). A copy was kept at {0}. Starting from empty — positions are re-recorded as you open notes.',
+	'dataStorage.corruptDb.noticeNoCopy':
+		'The database file could not be parsed (a sync client may have been rewriting it) and no copy could be written, so its positions are unrecoverable. Starting from empty — positions are re-recorded as you open notes (see the console for details).',
+
 	'dataStorage.entries.name': 'Entry count',
 	'dataStorage.entries.desc':
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
