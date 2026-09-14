@@ -29,6 +29,11 @@ export interface NavHistoryListOptions {
 	entries: NavHistoryEntry[];
 	// The stack index rendered as the pinned card rather than as a row.
 	currentIndex: number;
+	// The id the browser gave the list element. Row option ids are built from
+	// it, so they are unique in the document even with a second browser open
+	// (see NavHistoryModal.listId) — aria-activedescendant has to name exactly
+	// one row.
+	listId: string;
 	// The search box's current text.
 	filter: () => string;
 	// The note the browser shows when the stack ceiling has discarded older
@@ -47,6 +52,11 @@ export interface NavHistoryListOptions {
 	paneName: (entry: NavHistoryEntry) => string | undefined;
 	// What is pointed at changed: the landing panel redraws.
 	onPointed: () => void;
+	// The keyboard moved to another row, or off the list (undefined). The focus
+	// never leaves the filter box — typing narrows the list from the same keys
+	// that move through it — so this is what makes the current option audible:
+	// the browser points the box's aria-activedescendant at the row id.
+	onActiveRow: (id: string | undefined) => void;
 	// The selection moved on a touch device: bring the panel into view.
 	onRevealPanel: () => void;
 	// The pointer entered a row's section column: ask for the page preview.
@@ -182,12 +192,14 @@ export class NavHistoryList {
 		return d.line === undefined ? undefined : `${d.line}|${this.opts.entries[i].leafId}`;
 	}
 
-	// Direction divider for the chronological view.
+	// Direction divider for the chronological view. Decorative for the
+	// accessibility tree (the rows say what they are; the arrow and the rule
+	// would only be read as noise out of the listbox they sit in).
 	private segment(label: string, arrow: string, count: number): void {
 		const seg = this.opts.list.createDiv({ cls: 'position-restore-nav-segment' });
-		seg.createSpan({ text: arrow, cls: 'nav-seg-arrow' });
+		seg.createSpan({ text: arrow, cls: 'nav-seg-arrow', attr: { 'aria-hidden': 'true' } });
 		seg.createSpan({ text: `${label} · ${t('navHistory.seg.count', count)}` });
-		seg.createDiv({ cls: 'nav-seg-line' });
+		seg.createDiv({ cls: 'nav-seg-line', attr: { 'aria-hidden': 'true' } });
 	}
 
 	// One row: a single entry, or several entries that landed on the same place.
@@ -214,6 +226,17 @@ export class NavHistoryList {
 		}
 
 		row.dataset.rep = String(rep);
+		// The row is an option of the list's listbox (see the browser's
+		// setActiveRow for the other half of the wiring). The id is what the
+		// filter box's aria-activedescendant points at, so it names exactly this
+		// row; a merged row is one option and carries its representative index.
+		row.setAttr('id', `${this.opts.listId}-row-${rep}`);
+		row.setAttr('role', 'option');
+		row.setAttr('aria-selected', 'false');
+		if (d.missing)
+			// Previewable but never selectable: said in the tree too, not only
+			// in a tooltip a screen reader never shows.
+			row.setAttr('aria-disabled', 'true');
 		// A dead step is marked on the name itself: the type column that used
 		// to carry "missing" is gone, and a row a click cannot reach must look
 		// different from one it can.
@@ -299,6 +322,7 @@ export class NavHistoryList {
 	// at it: the outline, the strip and Enter always describe the same row. A
 	// hidden selection clears to -1 so the next arrow starts from an end.
 	private select(i: number): void {
+		const previous = this.selected;
 		if (this.selected >= 0)
 			this.rowEls.get(this.selected)?.removeClass('is-selected');
 		this.selected = i >= 0 && this.visible.includes(i) ? i : -1;
@@ -306,8 +330,18 @@ export class NavHistoryList {
 			this.previewed = this.selected;
 			const el = this.rowEls.get(this.selected);
 			el?.addClass('is-selected');
+			// Role and id are set once, at render; the flag is state.
+			el?.setAttr('aria-selected', 'true');
 			el?.scrollIntoView({ block: 'nearest' });
 		}
+		// The row left behind keeps its own flag honest — a move within one
+		// render leaves the element in place, an arrow back to it must find it
+		// unselected.
+		if (previous >= 0 && previous !== this.selected)
+			this.rowEls.get(previous)?.setAttr('aria-selected', 'false');
+		this.opts.onActiveRow(this.selected >= 0
+			? `${this.opts.listId}-row-${this.selected}`
+			: undefined);
 		this.opts.onPointed();
 		// On touch the panel hangs BELOW that row (see LandingPanel.render), so
 		// the row alone being on screen is not enough: the panel is where the

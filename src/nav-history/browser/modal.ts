@@ -28,6 +28,9 @@ import { NavScopePicker } from './scope-picker';
 import { NavHistoryList } from './list';
 import { PagePreviewBridge } from './page-preview';
 
+// Per-dialog sequence for the list element's id (see NavHistoryModal.listId).
+let modalSeq = 0;
+
 // "Browse navigation history" modal. A destination picker, laid out around
 // how a user actually gets lost:
 //  - the CURRENT location is a pinned card at the top, so "you are here"
@@ -80,6 +83,10 @@ export class NavHistoryModal extends Modal {
 	// PagePreviewBridge).
 	private pagePreview!: PagePreviewBridge;
 	private closed = false;
+	// The list element's id, unique per dialog: the rows' option ids are built
+	// from it and the filter box's aria-activedescendant points at one of them,
+	// so a second browser opened over this one cannot collide with it.
+	private readonly listId = `position-restore-nav-list-${++modalSeq}`;
 	// Touch devices have no hover at all, so the pointer's "point at a row" and
 	// its "go there" are the same gesture. Read once, here: the tap semantics
 	// below are the only thing that branches on it.
@@ -156,8 +163,16 @@ export class NavHistoryModal extends Modal {
 		// "jump here" button) is off-screen.
 		const body = this.contentEl.createDiv({ cls: 'position-restore-nav-body' });
 		const listEl = body.createDiv({ cls: 'position-restore-nav-list' });
+		// The list is a listbox whose options are the rows (the list tags them;
+		// see NavHistoryList.row) and whose current option the filter box names
+		// through aria-activedescendant (see setActiveRow). The id is what makes
+		// that reference possible, and the label is the dialog's own title.
+		listEl.setAttr('id', this.listId);
+		listEl.setAttr('role', 'listbox');
+		listEl.setAttr('aria-label', t('navHistory.overview.name'));
 		this.list = new NavHistoryList({
 			list: listEl,
+			listId: this.listId,
 			mobile: this.mobile,
 			entries: this.nav.entries,
 			currentIndex: this.nav.index,
@@ -169,6 +184,7 @@ export class NavHistoryModal extends Modal {
 			trailFor: (entry, d) => this.trailFor(entry, d),
 			paneName: entry => this.paneName(entry),
 			onPointed: () => this.panel.render(),
+			onActiveRow: id => this.setActiveRow(id),
 			onRevealPanel: () => this.panel.reveal(),
 			onRequestPreview: (ev, row, rep) => this.pagePreview.request(ev, row, rep),
 			// A showing popover is anchored to the row's own top edge (see
@@ -246,6 +262,18 @@ export class NavHistoryModal extends Modal {
 		}
 	}
 
+	// Tell assistive tech which option the keyboard is on. The focus never
+	// leaves the filter box, so this attribute is the ONLY thing that makes the
+	// arrow keys audible — without it the box reads as an empty text field while
+	// the user walks the list. (The scope menu, which does take the focus,
+	// expresses the same state with aria-selected instead.)
+	private setActiveRow(id: string | undefined): void {
+		if (id)
+			this.filterInput.setAttr('aria-activedescendant', id);
+		else
+			this.filterInput.removeAttribute('aria-activedescendant');
+	}
+
 	// The toolbar is built once (not per render), so the filter input keeps
 	// its focus and caret while typing re-renders the list underneath.
 	private toolbar(): void {
@@ -253,7 +281,18 @@ export class NavHistoryModal extends Modal {
 		const input = bar.createEl('input', {
 			type: 'text',
 			cls: 'position-restore-nav-filter',
-			attr: { placeholder: t('navHistory.searchPlaceholder') },
+			attr: {
+				placeholder: t('navHistory.searchPlaceholder'),
+				// The box IS the list's keyboard: it keeps the focus while the
+				// arrow keys walk the rows, so it is a combobox over the list
+				// (always expanded — the list is on screen, not a popup) and the
+				// current option is reported through aria-activedescendant (see
+				// setActiveRow) instead of by moving focus.
+				role: 'combobox',
+				'aria-controls': this.listId,
+				'aria-expanded': 'true',
+				'aria-autocomplete': 'list',
+			},
 		});
 		input.addEventListener('input', () => {
 			this.filter = input.value;

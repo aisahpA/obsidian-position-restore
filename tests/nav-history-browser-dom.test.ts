@@ -529,6 +529,59 @@ describe('NavHistoryModal — deleted entries', () => {
 		h.key('Enter');
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
+
+	it('says a step is dead in the accessibility tree, not only in a tooltip', () => {
+		// The current entry is the pinned card, so two rows sit below it: a live
+		// step and the deleted one.
+		const entries = [
+			visit('gone.md', NOW - 3 * MINUTE),
+			visit('a.md', NOW - MINUTE),
+			visit('c.md', NOW),
+		];
+		const h = harness(entries, 2, { 'a.md': '', 'c.md': '' }, ['gone.md']);
+
+		const [live, dead] = h.rows();
+		expect(live.textContent).toContain('a.md');
+		expect(live.getAttribute('role')).toBe('option');
+		expect(live.hasAttribute('aria-disabled')).toBe(false);
+
+		expect(dead.textContent).toContain('gone.md');
+		expect(dead.getAttribute('role')).toBe('option');
+		expect(dead.getAttribute('aria-disabled')).toBe('true');
+	});
+});
+
+describe('NavHistoryModal — keyboard is announced', () => {
+	// The focus never leaves the filter box (typing narrows the list from the
+	// same keys that walk it), so the box is an ARIA combobox over the list and
+	// the current option is named by aria-activedescendant. Without that
+	// attribute the arrow keys move a highlight a screen reader cannot see.
+	it('wires the filter box to the list and follows the arrow keys', () => {
+		const entries = [visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)];
+		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
+
+		const input = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter');
+		const list = h.el.querySelector('.position-restore-nav-list');
+		expect(input?.getAttribute('role')).toBe('combobox');
+		expect(input?.getAttribute('aria-expanded')).toBe('true');
+		// The list's own id, whatever the browser numbered it: the two ends only
+		// have to agree.
+		expect(input?.getAttribute('aria-controls')).toBe(list?.id);
+		// Nothing is selected on open, so there is nothing to announce yet.
+		expect(input?.hasAttribute('aria-activedescendant')).toBe(false);
+
+		h.key('ArrowDown'); // the first row, newest first
+		const first = h.rows()[0];
+		expect(input?.getAttribute('aria-activedescendant')).toBe(first.id);
+		expect(first.getAttribute('aria-selected')).toBe('true');
+
+		h.key('ArrowDown');
+		const second = h.rows()[1];
+		expect(input?.getAttribute('aria-activedescendant')).toBe(second.id);
+		expect(second.getAttribute('aria-selected')).toBe('true');
+		// The row left behind stops claiming to be current.
+		expect(first.getAttribute('aria-selected')).toBe('false');
+	});
 });
 
 describe('NavHistoryModal — repeat landings', () => {
