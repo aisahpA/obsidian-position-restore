@@ -22,6 +22,8 @@ import { OpenPatcher } from '@/position/restore/patcher';
 import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { TabStateRecord,DEFAULT_SETTINGS } from '@/types';
+// leafStates is private on the store; this is the test seam.
+import { setLeafStates } from './position-store-seam';
 
 // injectEphemeralStateOnOpen is private; tests drive it through this alias.
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };
@@ -81,8 +83,8 @@ function makeHarness(
 	} as never;
 	const store = new PositionStore(app, { db } as never);
 	// The store constructor seeds leafStates from storage; tests with a preset
-	// map re-assign it after construction.
-	store.leafStates = lastStateByLeaf;
+	// map replace it after construction (private member → the seam cast).
+	setLeafStates(store, lastStateByLeaf);
 	const recordOpen = vi.fn();
 	const nav = { recordOpen, refreshTop: () => undefined };
 	const flushOnLeave = vi.fn();

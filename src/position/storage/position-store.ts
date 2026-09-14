@@ -32,17 +32,16 @@ import type { CursorPositionDatabase } from './database';
 // of pinning a position the user has already left.
 
 export class PositionStore {
-	// leaf.id -> the leaf's last recorded position, path-guarded on read.
-	// The in-memory truth for layer 2: the sampler's change-detection baseline
-	// and the source of a tab's own spot on restore. Seeded from the persisted
-	// overlay at construction.
-	leafStates: Map<string, TabStateRecord> = new Map();
-
 	private app: App;
 	private database: CursorPositionDatabase;
 	// Last blob written to localStorage: the persist dedup, so an unchanged
 	// round (the 5s flush tick when nothing diverged) costs one stringify.
 	private lastPersisted = '';
+	// leaf.id -> the leaf's last recorded position, path-guarded on read.
+	// The in-memory truth for layer 2: the sampler's change-detection baseline
+	// and the source of a tab's own spot on restore. Seeded from the persisted
+	// overlay at construction.
+	private leafStates: Map<string, TabStateRecord>;
 
 	constructor(app: App, database: CursorPositionDatabase) {
 		this.app = app;
@@ -51,18 +50,22 @@ export class PositionStore {
 	}
 
 	// Desktop localStorage is shared across vaults (same app origin); appId is
-	// the per-vault discriminator. Not in the public typings.
-	private storageKey(): string {
-		const appId = (this.app as unknown as { appId?: string }).appId ?? this.app.vault.getName();
+	// the per-vault discriminator. Not in the public typings. Static so the
+	// startup read (loadLeafStates) can build the key before an instance
+	// exists: the reader and the writer must agree on it exactly, or the
+	// persisted overlay is written to a place the next session never looks.
+	private static storageKeyFor(app: App): string {
+		const appId = (app as unknown as { appId?: string }).appId ?? app.vault.getName();
 		return `position-restore:tabs:${appId}`;
 	}
 
 	// Startup read. Static because it must run before the store instance exists
-	// (the constructor above seeds leafStates through it).
-	static loadLeafStates(app: App): Map<string, TabStateRecord> {
+	// (the constructor above seeds leafStates through it); private because the
+	// facade is the only caller that should ever see the overlay.
+	private static loadLeafStates(app: App): Map<string, TabStateRecord> {
 		try {
-			const appId = (app as unknown as { appId?: string }).appId ?? app.vault.getName();
-			const raw = window.localStorage.getItem(`position-restore:tabs:${appId}`);
+			const storageKey = PositionStore.storageKeyFor(app);
+			const raw = window.localStorage.getItem(storageKey);
 			if (!raw)
 				return new Map();
 
@@ -91,28 +94,37 @@ export class PositionStore {
 		return r && r.filePath === filePath ? r.st : this.database.db[filePath];
 	}
 
+	// Does the shared file layer already store exactly this position? This is
+	// the test behind write()'s second skip and behind overlayRecords()'s
+	// definition of a divergence.
+	private fileLayerHolds(filePath: string, st: EphemeralState): boolean {
+		const fileSt = this.database.db[filePath];
+		return fileSt !== undefined && isEphemeralStatesEquals(fileSt, st);
+	}
+
 	// Record a position for (leafId, filePath) in BOTH layers.
 	//
-	// The dedup mirrors what the two writers used to do separately: an
-	// unchanged leaf record is a no-op, and the first sighting of a leaf+file
-	// whose value already matches the file record only seeds the baseline — no
-	// database write, so opening a file and not moving records nothing.
+	// The file layer is shared and synced, so it must keep the last real
+	// divergence rather than the last tick of whichever tab polled. Hence the
+	// two cases that touch it only lightly: a record that has not changed, and
+	// the first sighting of a value the file layer already holds.
 	write(leafId: string, filePath: string, st: EphemeralState): void {
 		const prev = this.leafStates.get(leafId);
-		const sameFile = prev !== undefined && prev.filePath === filePath;
-		if (sameFile && isEphemeralStatesEquals(prev.st, st))
+		// The leaf already owns a record for this file — as opposed to meeting
+		// the file for the first time (no record yet, or one naming a file the
+		// leaf has since left).
+		const leafOwnsFile = prev !== undefined && prev.filePath === filePath;
+
+		// Nothing moved since the previous tick.
+		if (leafOwnsFile && isEphemeralStatesEquals(prev.st, st))
 			return;
 
-		if (!sameFile) {
-			const existing = this.database.db[filePath];
-			if (existing && isEphemeralStatesEquals(existing, st)) {
-				this.leafStates.set(leafId, { filePath, st });
-				return;
-			}
-		}
-
+		// The leaf layer always takes the value: read() prefers it, which is
+		// what keeps two tabs of one file apart. The file layer follows, except
+		// when it already holds the value — possible only on a first sighting.
 		this.leafStates.set(leafId, { filePath, st });
-		this.database.setState(filePath, st);
+		if (leafOwnsFile || !this.fileLayerHolds(filePath, st))
+			this.database.setState(filePath, st);
 	}
 
 	// Forget one leaf's record (its view stopped being recordable: excluded
@@ -196,8 +208,7 @@ export class PositionStore {
 		for (const [leafId, r] of this.leafStates) {
 			if (!r.filePath)
 				continue;
-			const fileSt = this.database.db[r.filePath];
-			if (fileSt && isEphemeralStatesEquals(fileSt, r.st))
+			if (this.fileLayerHolds(r.filePath, r.st))
 				continue;
 			records[leafId] = r;
 		}
@@ -216,7 +227,8 @@ export class PositionStore {
 			const serialized = JSON.stringify(this.overlayRecords());
 			if (serialized === this.lastPersisted)
 				return;
-			window.localStorage.setItem(this.storageKey(), serialized);
+			const storageKey = PositionStore.storageKeyFor(this.app);
+			window.localStorage.setItem(storageKey, serialized);
 			this.lastPersisted = serialized;
 		} catch (e) {
 			// Quota exceeded / storage disabled: the records stay in memory, so

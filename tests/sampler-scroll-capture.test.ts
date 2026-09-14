@@ -16,6 +16,8 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
+// leafStates is private on the store; this is the test seam.
+import { leafStatesOf } from './position-store-seam';
 
 // onScrollCapture is private; tests drive it directly through this alias.
 type ScrollCapture = (ev: Event) => void;
@@ -361,8 +363,8 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
 			h.poll();
 
-			expect(h.store.leafStates.get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
-			expect(h.store.leafStates.get('leaf-2')).toEqual({ filePath: 'a.md', st: { scroll: 99, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
+			expect(leafStatesOf(h.store).get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
+			expect(leafStatesOf(h.store).get('leaf-2')).toEqual({ filePath: 'a.md', st: { scroll: 99, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
 			expect(h.database.setState).toHaveBeenCalledTimes(2);
 		} finally {
 			Platform.isMobileApp = origMobile;
@@ -384,7 +386,7 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			h.poll();
 
 			// Absorbed: leaf-1's record stands, leaf-2 never appears.
-			expect(h.store.leafStates.has('leaf-2')).toBe(false);
+			expect(leafStatesOf(h.store).has('leaf-2')).toBe(false);
 			expect(h.database.setState).toHaveBeenCalledTimes(1);
 		} finally {
 			Platform.isMobileApp = origMobile;

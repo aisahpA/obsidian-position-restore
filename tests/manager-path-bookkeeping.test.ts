@@ -14,6 +14,8 @@ import type { NavHistory } from '@/nav-history/history';
 import type { PositionState } from '@/position/state';
 import type { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
+// leafStates is private on the store; this is the test seam.
+import { leafStatesOf } from './position-store-seam';
 
 // Timing is stated as "a beat" and "long after", never as the grace period
 // itself: the mechanism, not the tuning value, is what these tests pin.
@@ -134,11 +136,11 @@ describe('PositionManager vault path changes', () => {
 	// guard, silently collapsing a per-tab split onto the file record.
 	it('a rename re-keys the per-leaf records along with the file record', () => {
 		const h = makeHarness();
-		h.store.leafStates.set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
 
 		h.manager.renameFile(h.file('b.md'), 'a.md');
 
-		expect(h.store.leafStates.get('leaf-1')).toEqual({ filePath: 'b.md', st: { scroll: 42 } });
+		expect(leafStatesOf(h.store).get('leaf-1')).toEqual({ filePath: 'b.md', st: { scroll: 42 } });
 		// The tab's own spot still answers for the renamed file...
 		expect(h.store.read('leaf-1', 'b.md')).toEqual({ scroll: 42 });
 		// ...instead of falling back to the file record.
@@ -148,15 +150,15 @@ describe('PositionManager vault path changes', () => {
 	it('a genuine delete drops the per-leaf records of that path too, and only those', () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
-		h.store.leafStates.set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
-		h.store.leafStates.set('leaf-2', { filePath: 'b.md', st: { scroll: 9 } });
+		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		leafStatesOf(h.store).set('leaf-2', { filePath: 'b.md', st: { scroll: 9 } });
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
 		vi.advanceTimersByTime(LONG_AFTER);
 
-		expect(h.store.leafStates.has('leaf-1')).toBe(false);
-		expect(h.store.leafStates.get('leaf-2')).toEqual({ filePath: 'b.md', st: { scroll: 9 } });
+		expect(leafStatesOf(h.store).has('leaf-1')).toBe(false);
+		expect(leafStatesOf(h.store).get('leaf-2')).toEqual({ filePath: 'b.md', st: { scroll: 9 } });
 		// A file later created at the deleted path starts clean.
 		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
@@ -164,7 +166,7 @@ describe('PositionManager vault path changes', () => {
 	it('a sync remove + rename keeps the per-leaf records for the surviving path', () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
-		h.store.leafStates.set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
 		h.files.add('a.md');
 
 		h.files.delete('a.md');
@@ -173,7 +175,7 @@ describe('PositionManager vault path changes', () => {
 
 		vi.advanceTimersByTime(LONG_AFTER);
 
-		expect(h.store.leafStates.get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42 } });
+		expect(leafStatesOf(h.store).get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42 } });
 		expect(h.store.read('leaf-1', 'a.md')).toEqual({ scroll: 42 });
 	});
 });

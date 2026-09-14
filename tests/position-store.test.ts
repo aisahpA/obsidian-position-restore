@@ -20,6 +20,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { App } from 'obsidian';
 import { PositionStore } from '@/position/storage/position-store';
 import { EphemeralState, TabStateRecord } from '@/types';
+// leafStates / loadLeafStates are private on the store; this is the test seam.
+import { leafStatesOf, loadLeafStates, setLeafStates } from './position-store-seam';
 
 const APP_STUB = {
 	appId: 'test-vault',
@@ -79,18 +81,18 @@ beforeEach(() => {
 describe('loadLeafStates', () => {
 	it('loads the persisted overlay into a leaf-keyed map', () => {
 		seedStorage({ 'leaf-1': rec('a.md', 42) });
-		const records = PositionStore.loadLeafStates(APP_STUB);
+		const records = loadLeafStates(APP_STUB);
 		expect(records.get('leaf-1')).toEqual(rec('a.md', 42));
 	});
 
 	it('corrupt storage degrades to an empty load without throwing', () => {
 		seedStorage('{not json');
-		expect(PositionStore.loadLeafStates(APP_STUB).size).toBe(0);
+		expect(loadLeafStates(APP_STUB).size).toBe(0);
 	});
 
 	it('drops malformed entries (no path or no state) instead of trusting the parse', () => {
 		seedStorage(JSON.stringify({ 'leaf-1': { scroll: 1 }, 'leaf-2': rec('b.md', 2) }));
-		const records = PositionStore.loadLeafStates(APP_STUB);
+		const records = loadLeafStates(APP_STUB);
 		expect(records.has('leaf-1')).toBe(false);
 		expect(records.get('leaf-2')).toEqual(rec('b.md', 2));
 	});
@@ -99,7 +101,7 @@ describe('loadLeafStates', () => {
 describe('read', () => {
 	it('prefers the leaf record for the file it names, path-guarded, without consuming', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 } }));
-		store.leafStates = new Map([['leaf-1', rec('a.md', 42)]]);
+		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 
 		expect(store.read('leaf-1', 'a.md')).toEqual({ scroll: 42 });
 		// Path guard: the leaf moved on to another file → the file record answers.
@@ -107,7 +109,7 @@ describe('read', () => {
 		// Unknown leaf → the file record answers.
 		expect(store.read('leaf-x', 'a.md')).toEqual({ scroll: 1 });
 		// Read never consumes.
-		expect(store.leafStates.has('leaf-1')).toBe(true);
+		expect(leafStatesOf(store).has('leaf-1')).toBe(true);
 		expect(db.db['a.md']).toEqual({ scroll: 1 });
 	});
 });
@@ -117,13 +119,13 @@ describe('write', () => {
 		const { store, db } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 7 });
 		expect(db.db['a.md']).toEqual({ scroll: 7 });
-		expect(store.leafStates.get('leaf-1')).toEqual(rec('a.md', 7));
+		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('a.md', 7));
 	});
 
 	it('is a no-op when the leaf record is unchanged', () => {
 		const { store, db } = makeStore();
 		const setState = (db.setState = vi.fn());
-		store.leafStates = new Map([['leaf-1', rec('a.md', 7)]]);
+		setLeafStates(store, [['leaf-1', rec('a.md', 7)]]);
 
 		store.write('leaf-1', 'a.md', { scroll: 7 });
 
@@ -137,7 +139,7 @@ describe('write', () => {
 		store.write('leaf-1', 'a.md', { scroll: 7 });
 
 		expect(setState).not.toHaveBeenCalled();
-		expect(store.leafStates.get('leaf-1')).toEqual(rec('a.md', 7));
+		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('a.md', 7));
 	});
 
 	it('keeps two leaves of one file independent (the file layer holds the last write)', () => {
@@ -184,7 +186,7 @@ describe('persist — the overlay holds only the true divergence', () => {
 
 	it('keeps a leaf record that has no file record at all (it is the only copy)', () => {
 		const { store } = makeStore();
-		store.leafStates = new Map([['leaf-1', rec('a.md', 10)]]);
+		setLeafStates(store, [['leaf-1', rec('a.md', 10)]]);
 		store.persist();
 		expect(persisted()).toEqual({ 'leaf-1': rec('a.md', 10) });
 	});
@@ -194,7 +196,7 @@ describe('persist — the overlay holds only the true divergence', () => {
 		const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
 			throw new Error('quota');
 		});
-		store.leafStates = new Map([['leaf-1', rec('a.md', 10)]]);
+		setLeafStates(store, [['leaf-1', rec('a.md', 10)]]);
 		expect(() => store.persist()).not.toThrow();
 		spy.mockRestore();
 	});
@@ -203,12 +205,12 @@ describe('persist — the overlay holds only the true divergence', () => {
 describe('renameFile', () => {
 	it('re-keys the file record AND the leaf records naming that path', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 } }));
-		store.leafStates = new Map([['leaf-1', rec('a.md', 42)]]);
+		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 
 		store.renameFile('b.md', 'a.md');
 
 		expect(db.db['b.md']).toEqual({ scroll: 1 });
-		expect(store.leafStates.get('leaf-1')).toEqual(rec('b.md', 42));
+		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('b.md', 42));
 		// The re-keyed leaf still answers for the new path...
 		expect(store.read('leaf-1', 'b.md')).toEqual({ scroll: 42 });
 		// ...and the old path is gone from both layers.
@@ -217,7 +219,7 @@ describe('renameFile', () => {
 
 	it('survives a restart with the leaf still on the renamed file', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 } }));
-		store.leafStates = new Map([['leaf-1', rec('a.md', 42)]]);
+		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 		store.renameFile('b.md', 'a.md');
 		store.persist();
 
@@ -229,7 +231,7 @@ describe('renameFile', () => {
 describe('deleteFile', () => {
 	it('drops the file record AND every leaf record naming that path', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 }, 'b.md': { scroll: 2 } }));
-		store.leafStates = new Map([
+		setLeafStates(store, [
 			['leaf-1', rec('a.md', 42)],
 			['leaf-2', rec('a.md', 99)],
 			['leaf-3', rec('b.md', 7)],
@@ -238,10 +240,10 @@ describe('deleteFile', () => {
 		store.deleteFile('a.md');
 
 		expect(db.db['a.md']).toBeUndefined();
-		expect(store.leafStates.has('leaf-1')).toBe(false);
-		expect(store.leafStates.has('leaf-2')).toBe(false);
+		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
+		expect(leafStatesOf(store).has('leaf-2')).toBe(false);
 		// Other paths are untouched.
-		expect(store.leafStates.get('leaf-3')).toEqual(rec('b.md', 7));
+		expect(leafStatesOf(store).get('leaf-3')).toEqual(rec('b.md', 7));
 	});
 
 	it('does not hand a deleted position back to a new file at the same path', () => {
@@ -276,7 +278,7 @@ describe('pruneDatabase', () => {
 			return 1;
 		};
 		const { store } = makeStore(db);
-		store.leafStates = new Map([
+		setLeafStates(store, [
 			['leaf-1', rec('ex.txt', 42)],
 			['leaf-2', rec('ok.md', 7)],
 		]);
@@ -284,8 +286,8 @@ describe('pruneDatabase', () => {
 		expect(store.pruneDatabase()).toBe(1);
 
 		// The excluded path is gone from both layers; the other one is intact.
-		expect(store.leafStates.has('leaf-1')).toBe(false);
-		expect(store.leafStates.get('leaf-2')).toEqual(rec('ok.md', 7));
+		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
+		expect(leafStatesOf(store).get('leaf-2')).toEqual(rec('ok.md', 7));
 		expect(store.read('leaf-1', 'ex.txt')).toBeUndefined();
 	});
 
@@ -298,11 +300,11 @@ describe('pruneDatabase', () => {
 		const { store } = makeStore(db);
 		// No file record ever existed for new.md: "absent from the db" must not
 		// be read as "just pruned".
-		store.leafStates = new Map([['leaf-1', rec('new.md', 42)]]);
+		setLeafStates(store, [['leaf-1', rec('new.md', 42)]]);
 
 		store.pruneDatabase();
 
-		expect(store.leafStates.get('leaf-1')).toEqual(rec('new.md', 42));
+		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('new.md', 42));
 	});
 
 	it('writes the overlay out when it dropped records (the settings panel is not a persist point)', () => {
@@ -312,7 +314,7 @@ describe('pruneDatabase', () => {
 			return 1;
 		};
 		const { store } = makeStore(db);
-		store.leafStates = new Map([['leaf-1', rec('ex.txt', 42)]]);
+		setLeafStates(store, [['leaf-1', rec('ex.txt', 42)]]);
 
 		store.pruneDatabase();
 
@@ -323,14 +325,14 @@ describe('pruneDatabase', () => {
 describe('pruneDeadLeaves', () => {
 	it('drops records of leaves that are gone and keeps the live ones', () => {
 		const { store } = makeStore();
-		store.leafStates = new Map([
+		setLeafStates(store, [
 			['leaf-live', rec('a.md', 1)],
 			['leaf-closed', rec('a.md', 2)],
 		]);
 
 		expect(store.pruneDeadLeaves(new Set(['leaf-live']))).toBe(true);
-		expect(store.leafStates.has('leaf-closed')).toBe(false);
-		expect(store.leafStates.get('leaf-live')).toEqual(rec('a.md', 1));
+		expect(leafStatesOf(store).has('leaf-closed')).toBe(false);
+		expect(leafStatesOf(store).get('leaf-live')).toEqual(rec('a.md', 1));
 		// Nothing to drop → false, so callers can skip the persist.
 		expect(store.pruneDeadLeaves(new Set(['leaf-live']))).toBe(false);
 	});
