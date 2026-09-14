@@ -236,6 +236,34 @@ export function remapAnchoredState(
 	return st;
 }
 
+// Shift a recorded position by `delta` lines — the structural anchor's drift:
+// its CURRENT line minus its RECORD-TIME line, both resolved by the caller
+// through metadataCache. Same mechanics as the remap above (immutable copy,
+// scroll clamps at 0, cursor lines clamp too), but driven by an authoritative
+// structural line instead of a ±REMAP_WINDOW text scan, so a shift beyond any
+// window still lands. The text anchor is dropped: it belongs to the
+// record-time line, and the caller has already re-located the position
+// structurally.
+//
+// Shared on purpose by the two consumers that must agree on the shift: an
+// in-file history jump (RestoreModes.historyJumpApply) and the landing a
+// cross-file traversal hands to the open pipeline (NavHistory.landingFor,
+// which cannot run the text remap — the target editor does not exist yet).
+export function shiftNavState(st: NavEntryState, delta: number): NavEntryState {
+	if (delta === 0)
+		return st;
+	const mapped: NavEntryState = { ...st, anchor: undefined };
+	if (mapped.scroll !== undefined)
+		mapped.scroll = Math.max(0, mapped.scroll + delta);
+	if (mapped.cursor) {
+		mapped.cursor = {
+			from: { ...mapped.cursor.from, line: Math.max(0, mapped.cursor.from.line + delta) },
+			to: { ...mapped.cursor.to, line: Math.max(0, mapped.cursor.to.line + delta) },
+		};
+	}
+	return mapped;
+}
+
 export function applyEphemeralState(view: MarkdownView, state: EphemeralState) {
 	const stateToApply: Record<string, unknown> = {};
 	if (state.cursor)

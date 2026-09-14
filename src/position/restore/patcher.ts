@@ -211,15 +211,30 @@ export class OpenPatcher {
 		// per-file record, not the native cursor. No saved record → native
 		// target stands (callerTarget absorbs the landing below). Non-markdown
 		// traversals fall through untouched — their positions are native.
+		//
+		// The landing is the TRAVERSAL TARGET's own position when the entry
+		// carries one (pendingHistoryNavState — a keyed jump's precise
+		// landing, the spot the browser row shows) and the file record only
+		// as the fallback. Both are handed to the restorer through
+		// injectedLeafStates: the injected settle must verify the line core
+		// was actually given. The landing is file-guarded: the flag is global,
+		// so an unrelated open that stole it must not be handed another
+		// file's position.
 		if (this.state.pendingHistoryNav) {
+			const navLanding = this.state.pendingHistoryNavPath === filePath
+				? this.state.pendingHistoryNavState
+				: undefined;
 			this.state.pendingHistoryNav = false;
+			this.state.pendingHistoryNavState = undefined;
+			this.state.pendingHistoryNavPath = undefined;
 			window.clearTimeout(this.state.pendingHistoryNavTimeout);
 			if (!isReplay && viewState.type === 'markdown') {
-				const st = this.store.read(leafId, filePath);
+				const st = navLanding ?? this.store.read(leafId, filePath);
 				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
 					const merged = this.buildMergedState(st, this.isSourceModeOpen(leaf, viewState));
 					this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
 					this.state.injectedOpenLeafIds.add(leafId);
+					this.state.injectedLeafStates.set(leafId, st);
 					this.state.handledLeafIdMap.set(leafId, filePath);
 					return { ...eState, ...merged };
 				}

@@ -451,6 +451,31 @@ describe('NavHistory persistence', () => {
 	});
 });
 
+// A cross-tab traversal fixture: leaf-2 is the entry's own (target) tab,
+// leaf-1 holds the active file view. `targetLeafView` is what that tab shows
+// now — { file: undefined } forces the open path, a MarkdownView showing the
+// target file exercises the "tab already there" path.
+function makeCrossTabHarness(app = makeApp(), targetLeafView: unknown = { file: undefined }) {
+	const targetLeaf = {
+		id: 'leaf-2',
+		isDeferred: false,
+		view: targetLeafView,
+		openFile: vi.fn().mockResolvedValue(undefined),
+	};
+	const activeLeaf = { id: 'leaf-1', isDeferred: false };
+	const view = Object.assign(Object.create(FileView.prototype), {
+		file: { path: 'c.md' },
+		leaf: activeLeaf,
+	});
+	const ws = app.workspace as unknown as {
+		getActiveViewOfType: () => unknown;
+		iterateAllLeaves: (cb: (l: unknown) => void) => void;
+	};
+	ws.getActiveViewOfType = () => view;
+	ws.iterateAllLeaves = (cb) => { cb(activeLeaf); cb(targetLeaf); };
+	return { app, targetLeaf, view };
+}
+
 describe('NavHistory.navigate', () => {
 	it('never leaves the stack bounds', async () => {
 		const nav = makeNav();
@@ -718,6 +743,87 @@ describe('NavHistory.navigate', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it('a cross-tab back arms the target entry its own landing, not the file record', async () => {
+		vi.useFakeTimers();
+		try {
+			const { app } = makeCrossTabHarness();
+			const nav = makeNav(app);
+			const state = (nav as unknown as { state: PositionState }).state;
+			nav.recordOpen('a.md', 'leaf-2');
+			(nav.entries[0] as NavVisit).st = {
+				scroll: 42,
+				cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } },
+			};
+			nav.recordOpen('c.md', 'leaf-1');
+
+			await nav.navigate(-1);
+
+			// The entry's OWN position rides along to the open pipeline (the
+			// file record is only the fallback), so the line the browser row
+			// shows is the line the open is told to land on.
+			expect(state.pendingHistoryNav).toBe(true);
+			expect(state.pendingHistoryNavState).toMatchObject({ scroll: 42 });
+
+			// ...and the safety timeout drops the landing WITH the flag: a
+			// command that never reached setViewState must not leak it onto a
+			// later unrelated open.
+			vi.advanceTimersByTime(1000);
+			expect(state.pendingHistoryNav).toBe(false);
+			expect(state.pendingHistoryNavState).toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a cross-file landing is structurally re-anchored through its heading', async () => {
+		// The heading moved 40 -> 100 (+60) after the entry was recorded. The
+		// injected open has no target editor to run the text-snippet remap
+		// against, so the structural shift is the only edit correction it can
+		// get — and it must be applied BEFORE the landing is handed over.
+		const app = makeApp([{ heading: 'T', level: 2, position: { start: { line: 100 } } }]);
+		makeCrossTabHarness(app);
+		const nav = makeNav(app);
+		const state = (nav as unknown as { state: PositionState }).state;
+		nav.recordOpen('a.md', 'leaf-2', { key: 'outline:## T' });
+		const jump = nav.entries[0] as NavJump;
+		jump.keyLine = 40;
+		jump.st = { scroll: 45, anchor: 'T' };
+		nav.recordOpen('c.md', 'leaf-1');
+
+		await nav.navigate(-1);
+
+		expect(state.pendingHistoryNavState).toMatchObject({ scroll: 105 });
+	});
+
+	it('a cross-tab back to a tab that still shows the file applies the entry landing', async () => {
+		// The tab was left at L7 when the user switched away, but the entry
+		// (and the browser row) promise L42 — so the traversal re-positions
+		// the live tab instead of only activating it where it happens to be.
+		const applied: unknown[] = [];
+		const targetLeaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-2', isDeferred: false };
+		targetLeaf.view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf: targetLeaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 7.2 },
+			editor: { getCursor: () => ({ line: 7, ch: 0 }), lineCount: () => 200 },
+			setEphemeralState: (st: unknown) => { applied.push(st); },
+		});
+		const { app } = makeCrossTabHarness(makeApp(), targetLeaf.view);
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-2');
+		(nav.entries[0] as NavVisit).st = {
+			scroll: 42,
+			cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } },
+		};
+		nav.recordOpen('c.md', 'leaf-1');
+
+		await nav.navigate(-1);
+
+		expect(applied[0]).toMatchObject({ scroll: 42 });
 	});
 
 	it('a same-tab file switch delegates to the native history when its next entry matches', async () => {
@@ -1243,6 +1349,47 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		expect(state.cover.isCovered(leaf)).toBe(true);
+		// ...and the landing is handed to the restorer, so its injected settle
+		// verifies the same line core was given.
+		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 10 });
+	});
+
+	it('a traversal carrying the target entry landing injects THAT over the file record', () => {
+		// A cross-file history jump: the entry's own landing (what the row
+		// shows) must win over the file record, which after reading on holds
+		// the spot the user had drifted to.
+		const { state, leaf, inject } = makePatcherHarness({ 'a.md': RECORD });
+		state.pendingHistoryNav = true;
+		state.pendingHistoryNavPath = 'a.md';
+		state.pendingHistoryNavState = {
+			scroll: 99,
+			cursor: { from: { line: 99, ch: 0 }, to: { line: 99, ch: 0 } },
+		};
+
+		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: 99 });
+		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 99 });
+		// the landing is consumed with the flag — one shot, no leak
+		expect(state.pendingHistoryNav).toBe(false);
+		expect(state.pendingHistoryNavState).toBeUndefined();
+	});
+
+	it('a landing armed for another file never lands on the open that stole the flag', () => {
+		// The flag is global: an unrelated open inside the arming window takes
+		// it. The landing is file-specific, so it must be dropped and the
+		// record of the file actually being opened must stand.
+		const { state, leaf, inject } = makePatcherHarness({ 'b.md': RECORD });
+		state.pendingHistoryNav = true;
+		state.pendingHistoryNavState = { scroll: 99 };
+		state.pendingHistoryNavPath = 'a.md';
+
+		const result = inject(leaf, SOURCE_OPEN_A('b.md'), undefined) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: RECORD.scroll });
+		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: RECORD.scroll });
+		expect(state.pendingHistoryNavState).toBeUndefined();
+		expect(state.pendingHistoryNavPath).toBeUndefined();
 	});
 
 	it('a traversal without a saved record keeps the native target and consumes the flag', () => {

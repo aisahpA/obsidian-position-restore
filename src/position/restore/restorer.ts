@@ -118,8 +118,15 @@ export class Restorer {
 		if (!filePath)
 			return;
 
-		await this.restoreOpen(view, filePath, async (isCurrent, injected) => {
-		const st = this.store.read(this.state.leafId(view.leaf), filePath);
+		await this.restoreOpen(view, filePath, async (isCurrent, injected, injectedSt) => {
+			// An injected open was handed a SPECIFIC landing by the patch (the
+			// traversal target's own entry position, or the file record as the
+			// fallback — see patcher pendingHistoryNav / injectedLeafStates).
+			// Settling to the store record instead would fight the line core
+			// actually applied: after a cross-file history jump the two
+			// deliberately differ (the record is where the user had drifted
+			// to, the entry's landing is what the row promised).
+			const st = injectedSt ?? this.store.read(this.state.leafId(view.leaf), filePath);
 			const mode = view.getMode();
 
 			// Dispatch by view mode; each branch owns its own no-record /
@@ -183,7 +190,7 @@ export class Restorer {
 	private async restoreOpen(
 		view: FileView,
 		filePath: string,
-		body: (isCurrent: () => boolean, injected: boolean) => Promise<void>,
+		body: (isCurrent: () => boolean, injected: boolean, injectedSt: EphemeralState | undefined) => Promise<void>,
 	) {
 		const isMarkdown = view instanceof MarkdownView;
 		const leafId = this.state.leafId(view.leaf);
@@ -205,6 +212,13 @@ export class Restorer {
 		// the same file in two tabs each tab's marker is consumed by its own
 		// file-open (see injectedOpenLeafPaths).
 		const injected = isMarkdown && this.state.injectedOpenLeafIds.delete(leafId);
+		// The landing that injected open was handed, consumed together with its
+		// marker (a later duplicate file-open reads no marker and so must not
+		// read a landing either — it dedups into skipRestoreAndAnchor, while
+		// the winning restore already holds the value).
+		const injectedSt = injected ? this.state.injectedLeafStates.get(leafId) : undefined;
+		if (injected)
+			this.state.injectedLeafStates.delete(leafId);
 
 		// Lift any stale restore cover left by a superseded restore; the
 		// dispatch body re-covers as needed. Bases restores never cover. An
@@ -288,7 +302,7 @@ export class Restorer {
 		try {
 			this.state.lastEphemeralState = undefined;
 			this.state.lastLoadedFilePath = filePath;
-			await body(isCurrent, injected);
+			await body(isCurrent, injected, injectedSt);
 		} finally {
 			// Only the winning restore removes its entry: a superseded
 			// (stale) restore's run no longer matches, so it must not drop
@@ -425,6 +439,11 @@ export class Restorer {
 		for (const id of this.state.injectedOpenLeafIds)
 			if (!liveIds.has(id))
 				this.state.injectedOpenLeafIds.delete(id);
+		// And the landings those injected opens were handed, for the same
+		// reason: a closed leaf's landing has no restore left to consume it.
+		for (const id of this.state.injectedLeafStates.keys())
+			if (!liveIds.has(id))
+				this.state.injectedLeafStates.delete(id);
 		// Also drop pending open-kind markers of closed leaves so the map
 		// can't retain WorkspaceLeaf references forever.
 		for (const leaf of this.state.pendingOpenKind.keys())

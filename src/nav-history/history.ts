@@ -2,7 +2,7 @@ import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { NavEntryState, PluginSettings } from '@/types';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
-import { readNavEntryState, normAnchor } from '@/position/capture/ephemeral';
+import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
 import { resolveAnchorLine, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
@@ -27,9 +27,12 @@ import { installOutlineCapture as installOutlineCaptureHook } from './outline-ca
 // landing settles (outline/anchor) — and are never overwritten afterwards
 // (back/forward must return to the jump target itself); keyless open/
 // activation entries carry no position of their own — their st slot is
-// refreshed on every leave ("where the user actually was"). st only feeds
-// the same-file direct apply in execute(); cross-file traversal restores
-// from the per-file records (database + the per-leaf overlay).
+// refreshed on every leave ("where the user actually was"). st feeds BOTH
+// the same-file direct apply (execute) and the cross-file open: a traversal
+// hands the target's own landing to the open pipeline (landingFor), so the
+// line a row shows is the line the open lands on. Only an entry with no
+// recorded position of its own falls back to the per-file records
+// (database + the per-leaf overlay) — "where the user actually was".
 //
 // Same-tab file switches EXECUTE through Obsidian's native per-tab history
 // (leaf.history + app:go-back/go-forward): that covers PDF/canvas and every
@@ -572,49 +575,104 @@ export class NavHistory {
 			// Only markdown has positions (the entry's st is refreshed at
 			// leave time); a same-file non-markdown entry is a no-op — the
 			// view is already there. (leaf is the active leaf here — the
-			// cross-tab case returned above.)
-			if (activeView instanceof MarkdownView && target.st) {
-				const isCurrent = () => activeView.file?.path === target.path;
-				this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-				await this.modes.historyJumpApply(activeView, target.st, isCurrent, this.resolveAnchorShift(target));
-			}
+			// cross-tab case returned above — so this is the active view.)
+			if (activeView instanceof MarkdownView)
+				await this.applyLanding(activeView, target);
 			return;
 		}
 
 		// Same-tab file switch: ride the native per-tab history when its next
-		// entry matches (keeps PDF/canvas native), else open directly.
-		if (await this.delegateNative(dir, leaf, target.path))
+		// entry matches (keeps PDF/canvas native), else open directly. Both
+		// routes are handed this target's own landing when it has one.
+		if (await this.delegateNative(dir, leaf, target.path, undefined, this.landingFor(target)))
 			return;
 		await this.openInLeaf(leaf, target);
 	}
 
+	// Apply a target's recorded landing to a view that ALREADY shows the file
+	// — the in-file jump both execute() (same file on the active leaf) and
+	// openInLeaf() (a tab that still shows the target file) end in. Re-anchor
+	// structurally first (the entry's lines predate any later edits), then run
+	// the shared apply. Nothing to do without a recorded landing: a keyless
+	// entry that never got its leave-refresh, a legacy entry, or a view entry
+	// (non-markdown views have no position of ours to apply).
+	private async applyLanding(view: MarkdownView, target: NavJump | NavVisit | NavTeleport) {
+		if (!target.st)
+			return;
+		const isCurrent = () => view.file?.path === target.path;
+		this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
+		await this.modes.historyJumpApply(view, target.st, isCurrent, this.resolveAnchorShift(target));
+	}
+
+	// The landing a cross-file traversal hands to the open pipeline: the
+	// entry's OWN recorded position — the spot the browser row shows, and
+	// (per this module's contract) the spot back/forward must return to. The
+	// structural re-anchor is applied when the entry is a keyed jump whose
+	// heading has moved since: the injected open path has no target editor to
+	// run the text-snippet remap against, so the structural shift is the only
+	// edit correction available there. undefined — a keyless entry before its
+	// leave-refresh, a legacy persisted entry, a ^block key (never upgraded) —
+	// leaves the open to the file record: where the user actually was.
+	private landingFor(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		if (!target.st)
+			return undefined;
+		const shift = this.resolveAnchorShift(target);
+		return shift ? shiftNavState(target.st, shift) : target.st;
+	}
+
+	// Arms the one-shot flag the setViewState patch consumes (see
+	// PositionState.pendingHistoryNav): the traversal's own open must inject
+	// this plugin's position over the native entry's cursor-only eState.
+	// `landing` is the target entry's own position when it has one — the patch
+	// injects it in place of the file record, and the restorer settles to the
+	// same value; `path` is the file it belongs to, so a flag stolen by an
+	// unrelated open in the arming window can never inject another file's
+	// landing. The timeout is the safety net for a command that never reached
+	// setViewState, and it must drop the landing WITH the flag: one left
+	// behind would be injected into an unrelated later open.
+	private armHistoryNav(landing: NavEntryState | undefined, path: string) {
+		this.state.pendingHistoryNav = true;
+		this.state.pendingHistoryNavState = landing;
+		this.state.pendingHistoryNavPath = path;
+		this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
+		window.clearTimeout(this.state.pendingHistoryNavTimeout);
+		this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
+			this.state.pendingHistoryNav = false;
+			this.state.pendingHistoryNavState = undefined;
+			this.state.pendingHistoryNavPath = undefined;
+		}, HISTORY_NAV_TIMEOUT_MS);
+	}
+
 	// Opens the target file in `leaf` (activating it first when it is a
-	// different tab). The markdown open restores through the standard
-	// injection pipeline from the per-file records; non-markdown opens rely
-	// on each view's own position handling. (View entries never route here
-	// — execute reactivates them; the parameter type enforces it.)
+	// different tab). A live tab that ALREADY shows the file needs no open —
+	// but the entry's landing still applies: that case is an in-file jump, and
+	// the entry (and the browser row) promises that spot, not wherever the tab
+	// happened to be left when the user switched away from it. The markdown
+	// open restores through the standard injection pipeline, handed this
+	// target's own landing when it has one; non-markdown opens rely on each
+	// view's own position handling. (View entries never route here — execute
+	// reactivates them; the parameter type enforces it.)
 	private async openInLeaf(leaf: WorkspaceLeaf, target: NavJump | NavVisit | NavTeleport) {
 		if (this.app.workspace.getActiveViewOfType(FileView)?.leaf !== leaf)
 			this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		if (leaf.isDeferred)
 			await leaf.loadIfDeferred();
-		const curFile = (leaf.view as FileView | undefined)?.file;
-		if (curFile?.path === target.path)
+		const view = leaf.view;
+		const curFile = (view as FileView | undefined)?.file;
+		if (curFile?.path === target.path) {
+			if (view instanceof MarkdownView)
+				await this.applyLanding(view, target);
 			return;
+		}
 		const file = this.app.vault.getAbstractFileByPath(target.path);
 		if (file instanceof TFile) {
 			// A traversal that opens directly (cross-tab, or the native
 			// stack's next entry didn't match) must land instantly like the
 			// delegated one: arm the same flag delegateNative uses, so the
-			// setViewState patch injects the per-file record over the plain
+			// setViewState patch injects this target's landing over the plain
 			// open and bypasses the glide choice. The timeout clears it when
 			// this open never reaches setViewState.
-			this.state.pendingHistoryNav = true;
-			this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-			window.clearTimeout(this.state.pendingHistoryNavTimeout);
-			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
-				this.state.pendingHistoryNav = false;
-			}, HISTORY_NAV_TIMEOUT_MS);
+			this.armHistoryNav(this.landingFor(target), target.path);
 			await leaf.openFile(file);
 		}
 	}
@@ -630,6 +688,7 @@ export class NavHistory {
 		leaf: WorkspaceLeaf,
 		targetPath: string | undefined,
 		targetViewType?: string,
+		targetLanding?: NavEntryState,
 	): Promise<boolean> {
 		const history = (leaf as unknown as { history?: NativeLeafHistory }).history;
 		const stack = dir < 0 ? history?.backHistory : history?.forwardHistory;
@@ -640,19 +699,14 @@ export class NavHistory {
 		if (!matches)
 			return false;
 
-		// pendingHistoryNav arms the setViewState patch to inject this
-		// plugin's saved position over the native entry's cursor-only
-		// eState — markdown file entries only. A view entry's setViewState
-		// (graph) early-returns in the patch before the flag is read, so
-		// arming it here would just leak 1s onto an unrelated later open.
-		if (targetPath !== undefined) {
-			this.state.pendingHistoryNav = true;
-			this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-			window.clearTimeout(this.state.pendingHistoryNavTimeout);
-			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
-				this.state.pendingHistoryNav = false;
-			}, HISTORY_NAV_TIMEOUT_MS);
-		}
+		// Arm the injection: the setViewState patch then lays this plugin's
+		// position over the native entry's cursor-only eState — markdown file
+		// entries only, carrying the target's own landing when it has one. A
+		// view entry (graph) is left unarmed: its setViewState early-returns
+		// in the patch before the flag is read, so arming it here would only
+		// leak onto an unrelated later open.
+		if (targetPath !== undefined)
+			this.armHistoryNav(targetLanding, targetPath);
 		// (app.commands is part of the runtime API but absent from the
 		// public typings — same cast family as position-state.leafId.)
 		(this.app as unknown as {

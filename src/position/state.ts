@@ -172,6 +172,34 @@ export class PositionState {
 	pendingHistoryNav = false;
 	pendingHistoryNavTimeout = 0;
 
+	// The landing the pending traversal's open must be given, when the target
+	// entry carries its own recorded position (see NavHistory.landingFor): the
+	// setViewState patch injects THIS over the file record, and the injected
+	// restore settles to the same value. undefined = the traversal has no
+	// entry landing of its own, and the file record ("where the user actually
+	// was") stands. Cleared together with the flag, never separately: a
+	// landing left behind by a command that never reached setViewState would
+	// otherwise be injected into an unrelated later open.
+	pendingHistoryNavState: EphemeralState | undefined;
+
+	// The file that landing belongs to. The flag is global (one open in
+	// flight), so a landing is applied only to the open it was armed for: a
+	// setViewState for any other file — the flag stolen by an unrelated open
+	// inside the arming window — reads no landing and falls back to the file
+	// record, which is always about the file it is actually being read for.
+	pendingHistoryNavPath: string | undefined;
+
+	// leafId -> the landing the last injected open on that leaf was handed.
+	// The restorer's injected-source settle must verify the SAME line core was
+	// given; settling to the file record instead would fight the line core
+	// actually applied (after a cross-file history jump the two deliberately
+	// differ — the record is where the user had drifted to, the entry's
+	// landing is what the browser row promises). Keyed by leaf for the same
+	// reason injectedOpenLeafIds is: with one file in two tabs, each tab
+	// injects its own landing. Consumed by the restore that owns the open, and
+	// dropped with the injected marker for closed leaves.
+	injectedLeafStates: Map<string, EphemeralState> = new Map();
+
 	// Deadline until which a restore's landing cue is suppressed: NavHistory
 	// arms it at each moment a traversal triggers a restore (same-file
 	// historyJumpApply, delegateNative, openInLeaf), so back/forward hops
