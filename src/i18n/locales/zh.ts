@@ -139,8 +139,6 @@ export const zh: En = {
 	'navHistory.scopeEmpty': '{0} 里没有其他位置。',
 	'navHistory.current': '当前位置',
 	'navHistory.empty': '暂无导航历史。',
-	// 历史栈上限丢弃旧条目时在列表末尾显示：被挤掉的条目在面板里没有别的痕迹。
-	'navHistory.capNote': '更早的 {0} 条已丢弃（历史栈上限 {1} 条）',
 
 	// 面板自身：钉顶的「当前位置」卡片、前进/后退分段、键盘提示。
 	'navHistory.keyboardHint': '↑↓ 选择 · Enter 跳转 · Esc 关闭',

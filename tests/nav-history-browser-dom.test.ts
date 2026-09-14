@@ -55,9 +55,6 @@ function harness(
 	// say which tabs are open now. Without it the `live` editors stand in as one
 	// tab per path — which is never ambiguous, as in a real vault.
 	layout: { leafId: string; path: string }[] = [],
-	// How many steps the stack ceiling has discarded (0 = the footnote is
-	// absent). The modal reads it off the history it was handed.
-	droppedByCap = 0,
 ) {
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
@@ -110,7 +107,7 @@ function harness(
 	let modal: NavHistoryModal;
 	try {
 		modal = new NavHistoryModal(app as never, {
-			entries, index, jumpTo, droppedByCap, stackCap: () => 50,
+			entries, index, jumpTo, stackCap: () => 50,
 		} as never);
 	} finally {
 		Platform.isMobile = previous;
@@ -134,18 +131,14 @@ afterEach(() => {
 	document.body.className = '';
 });
 
-describe('NavHistoryModal — dropped history footnote', () => {
-	it('reports how many older steps the stack ceiling discarded', () => {
+describe('NavHistoryModal — the dropped-steps footnote', () => {
+	it('is gone: the stack sits at its cap in ordinary use, so it never earned a line', () => {
+		// It reported what the ceiling had discarded, from the foot of the list —
+		// which is below the fold exactly when entries HAVE been dropped (a stack
+		// at the cap is what overflows the dialog), so nobody ever saw it. The
+		// list has no such footnote left to render.
 		const entries = [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
-		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' }, [], {}, {}, false, [], 7);
-
-		const note = h.el.querySelector('.position-restore-nav-cap-note');
-		expect(note?.textContent).toBe(t('navHistory.capNote', 7, 50));
-	});
-
-	it('says nothing while no step has been discarded', () => {
-		const entries = [visit('a.md', NOW)];
-		const h = harness(entries, 0, { 'a.md': '' });
+		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' });
 
 		expect(h.el.querySelector('.position-restore-nav-cap-note')).toBeNull();
 	});

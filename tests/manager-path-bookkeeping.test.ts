@@ -200,7 +200,6 @@ describe('PositionManager navigation history maintenance', () => {
 		// chunk at once, long after the setting was changed).
 		expect(h.paths()).toEqual(['c.md', 'd.md']);
 		expect(h.nav.index).toBe(1);
-		expect(h.nav.droppedByCap).toBe(2);
 	});
 
 	it('the startup sweep drops a missing file\'s history but keeps its position record', () => {

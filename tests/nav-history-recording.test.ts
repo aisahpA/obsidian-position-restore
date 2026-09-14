@@ -405,10 +405,8 @@ describe('NavHistory recording settings', () => {
 
 		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
 		expect(nav.index).toBe(1);
-		expect(nav.droppedByCap).toBe(3);
 		// ...and nothing more is dropped on a second call.
 		expect(nav.applyStackCap()).toBe(0);
-		expect(nav.droppedByCap).toBe(3);
 	});
 
 	it('a cap that falls below the current depth stops the pointer on the oldest survivor', () => {
@@ -453,7 +451,6 @@ describe('NavHistory recording settings', () => {
 
 		expect(nav.entries.map(pathOf)).toEqual(['c.md', 'd.md']);
 		expect(nav.index).toBe(1);
-		expect(nav.droppedByCap).toBe(2);
 	});
 
 	it('navRecordActivation off: tab (and graph) activation records nothing', () => {

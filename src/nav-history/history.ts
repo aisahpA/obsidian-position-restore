@@ -92,13 +92,6 @@ export class NavHistory {
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
 
-	// How many entries the stack ceiling has discarded since the plugin
-	// loaded. The browser reports it: those steps are gone with no other
-	// trace, and only the user can judge whether that matters (raise the cap
-	// in the settings). Cumulative on purpose — a step dropped earlier is
-	// still dropped after the cap is raised again.
-	droppedByCap = 0;
-
 	// True while a back/forward traversal is executing: the opens it triggers
 	// (openFile, native go-back) are the traversal itself, not new jumps.
 	private executing = false;
@@ -131,6 +124,9 @@ export class NavHistory {
 	// by the settings panel when the cap changes (otherwise the trim waits for
 	// the next navigation and then drops a large chunk at once), and once on
 	// load (above).
+	// The discards are SILENT: the stack sits at the cap whenever a session has
+	// been long enough, so anything that reported them would either be permanent
+	// on screen or permanently out of sight (see NavHistoryList.render).
 	// @returns how many entries were discarded.
 	applyStackCap(): number {
 		const cap = this.stackCap();
@@ -145,7 +141,6 @@ export class NavHistory {
 		// negative, so forward still walks what remains instead of traversal
 		// being disabled outright.
 		this.index = this.entries.length === 0 ? -1 : Math.max(0, this.index - removed);
-		this.droppedByCap += removed;
 		return removed;
 	}
 

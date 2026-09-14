@@ -141,9 +141,6 @@ export const en = {
 	'navHistory.scopeEmpty': 'No other position in {0}.',
 	'navHistory.current': 'Current position',
 	'navHistory.empty': 'Navigation history is empty.',
-	// Shown at the foot of the list when the stack ceiling dropped older steps:
-	// what overflowed leaves no other trace anywhere in the panel.
-	'navHistory.capNote': '{0} older steps were dropped (history size {1})',
 
 	// Browser chrome: the pinned "you are here" card, the two direction
 	// segments, and the keyboard affordances.

@@ -177,7 +177,6 @@ export class NavHistoryModal extends Modal {
 			entries: this.nav.entries,
 			currentIndex: this.nav.index,
 			filter: () => this.filter,
-			capNote: () => this.capNote(),
 			scope: () => this.scopePicker.scope,
 			describe: rep => this.reads.describe(rep),
 			clearDescribeCache: () => this.reads.clearDescribeCache(),
@@ -347,17 +346,6 @@ export class NavHistoryModal extends Modal {
 		this.list.render();
 		this.renderHere();
 		this.panel.render();
-	}
-
-	// The ceiling's footnote, or undefined while nothing has been dropped. The
-	// stack is capped, and the entries that fall off the end leave no other
-	// trace: without this the list simply looks shorter than the session the
-	// user remembers, and the setting that caused it is three menus away.
-	private capNote(): string | undefined {
-		const dropped = this.nav.droppedByCap;
-		return dropped > 0
-			? t('navHistory.capNote', dropped, this.nav.stackCap())
-			: undefined;
 	}
 
 	// The pinned "you are here" card: the one entry the list never shows. It is
