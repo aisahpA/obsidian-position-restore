@@ -79,7 +79,7 @@ export class NavHistoryModal extends Modal {
 	private reads: NavHistoryReads;
 	// The touch-only landing panel (see LandingPanel).
 	private panel!: LandingPanel;
-	// Obsidian's own page preview, driven from a row's section column (see
+	// Obsidian's own page preview, driven from a row's file name column (see
 	// PagePreviewBridge).
 	private pagePreview!: PagePreviewBridge;
 	private closed = false;

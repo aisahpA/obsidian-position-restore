@@ -592,11 +592,12 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	background-color: transparent;
 }
 
-/* The row's small print, as one block: ×N, pane, coordinate, age. On a pointing
-   device it is the strip at the row's right edge, right-aligned in the track the
-   section's slack leaves it. Its four cells keep fixed widths, so they line up
-   as columns down the list however long a name or a section is; the age alone is
-   measured (see fitTimeColumn), and the widest label there sets the column. */
+/* The row's small print, as one block: pane, coordinate, age (the ×N rides with
+   the NAME, see .nav-row-count). On a pointing device it is the strip at the
+   row's right edge, right-aligned in the track the section's slack leaves it.
+   Its cells keep fixed widths, so they line up as columns down the list however
+   long a name or a section is; the age alone is measured (see fitTimeColumn),
+   and the widest label there sets the column. */
 .position-restore-nav-row .nav-row-meta {
 	display: flex;
 	align-items: baseline;
@@ -623,35 +624,37 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	color: var(--text-error);
 }
 
-/* The file cell: the note's name, nothing else — the small print (the badges,
-   the coordinate, the age) is one block after the section. The cell is a grid
-   item whose column is the measured name column (see fitNameColumn), so its
-   width is the same on every row. */
+/* The file cell: the note's name and the ×N it earned — the rest of the small
+   print (the pane, the coordinate, the age) is one block after the section. The
+   cell is a grid item whose column is the measured name column (see
+   fitNameColumn), so its width is the same on every row — and the measurement is
+   of the whole cell, so the count can never be what gets clipped. */
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
 	min-width: 0;
 }
 
-/* The name is capped, not greedy: it ellipsizes at 16em rather than swallowing
+/* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing
    the row — min-width: 0 lets it shrink below its content when the row is
    narrow. Inside the measured column it keeps its own text's width, so a short
    name is drawn short (the column's leftover space is simply after it) and the
-   section still starts on the same x. */
+   section still starts on the same x. 20em is the cap the column is measured
+   against too (NAME_COL_CAP_EM), so the two can never disagree. */
 .position-restore-nav-row .nav-row-name {
 	flex: 0 1 auto;
-	max-width: 16em;
+	max-width: 20em;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-/* The note a row above already named: the cell stays blank so a file holding
-   several landings reads as one block instead of as N copies of one name (see
-   list.ts renderChronological). The text is CLIPPED rather than dropped — the
-   row keeps naming its file to a screen reader (an option with no name would
-   read as "L412, 3 min ago"), and the name column measures the rows that print
-   it anyway (see fitNameColumn). */
+/* The note a row above already named: the cell shows the REPEAT MARK instead of
+   the name, so a file holding several landings reads as one block rather than as
+   N copies of one name (see list.ts renderChronological). The text is CLIPPED
+   rather than dropped — the row keeps naming its file to a screen reader (an
+   option with no name would read as "L412, 3 min ago") — and the name column
+   measures the rows that print it anyway (see fitNameColumn). */
 .position-restore-nav-row .nav-row-name.is-continuation {
 	position: absolute;
 	width: 1px;
@@ -662,13 +665,39 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	white-space: nowrap;
 }
 
-/* How many same-landing entries collapsed into this row, and which pane holds
-   the file: one shape, one tier, one right-aligned slot each. The count's 4ch is
-   what "×120" takes, so "×2" and "×12" end on the same edge. The cells exist
-   only while something in the list uses them (see list.ts renderChronological):
-   reserved on every row they printed nothing, and the 8ch they held sat between
-   the coordinate and the age of rows that had neither. */
-.position-restore-nav-row .nav-row-count,
+/* The mark itself (↳, see list.ts row). It sits at the name column's start where
+   the name would have been, faint and small — a signpost, not content: it says
+   WHY the name is missing, which an empty cell never did. It is decorative
+   (aria-hidden), because the clipped name in the same cell is what a screen
+   reader reads. */
+.position-restore-nav-row .nav-row-repeat {
+	flex: 0 0 auto;
+	color: var(--nav-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* How many same-landing entries collapsed into this row. It rides with the name
+   it belongs to — as a column of its own it was reserved on every row of the
+   list and printed nothing on most of them, and past that it said nothing the
+   name does not already anchor. It never gives way when the column runs out: the
+   name ellipsizes, the count stays (see the flex above). "×2" is the commonest
+   count and the emptiest of them, so the count starts at three. On a row that
+   carries the repeat mark the two stand together — "↳ ×3" — which is what that
+   row is: the same note as above, this spot landed on three times. */
+.position-restore-nav-row .nav-row-count {
+	flex: 0 0 auto;
+	margin-inline-start: 0.4em;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--nav-faint);
+}
+
+/* Which pane holds the file: the one badge that is still a COLUMN, because it is
+   what tells two otherwise IDENTICAL rows (one file, one line, two tabs) apart,
+   and it only ever appears for a file that two live tabs hold. Like the
+   coordinate, it is reserved on every row while ANY row uses it — that is what
+   keeps the coordinates of the rows that have none lined up (see list.ts
+   renderChronological). */
 .position-restore-nav-row .nav-row-pane {
 	min-width: 4ch;
 	text-align: right;
@@ -710,18 +739,10 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
    on the same x on every row — the two halves of what a row says, and the one
    place in the list where a column of text is ragged is the sections' own
    ends, which is what reading them is. The extra start margin is what keeps
-   the two halves apart — the grid gap alone read as one run of text.
-   The cell HUGS its crumbs (width: max-content, clamped by the track) rather
-   than stretching across the flexible track: it is also the native page
-   preview's trigger area (see overTrail, which tests the cell's box), and as a
-   stretched item that box was most of the row — the blank space after a short
-   section popped a whole-note preview over the list. Now the trigger is exactly
-   the text a reader can see and point at. */
+   the two halves apart — the grid gap alone read as one run of text. */
 .position-restore-nav-row .nav-row-trail {
 	display: flex;
 	align-items: baseline;
-	width: max-content;
-	max-width: 100%;
 	min-width: 0;
 	margin-inline-start: 0.5rem;
 	overflow: hidden;
@@ -749,15 +770,28 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	white-space: nowrap;
 }
 
-/* The crumbs, not the cell, carry the help cursor: the cursor is the "this does
-   something a click does not" hint, and it belongs on the part that does. */
-.position-restore-nav-row .nav-row-trail .nav-trail-seg,
-.position-restore-nav-row .nav-row-trail .nav-trail-deep {
+/* The separator only ever takes its own width: it is a glyph between two
+   levels, not a level. */
+.position-restore-nav-row .nav-row-trail .nav-trail-sep {
+	flex: 0 0 auto;
+}
+
+/* The NAME cell is the row's hover-preview trigger (see list.ts overName): it is
+   the one cell every row has — a note without headings has nothing in the
+   section column to point at — and it is a bounded target, the measured name
+   column rather than the row's whole flexible middle. The cursor is the "this
+   does something a click does not" hint, so it belongs here; the rest of the row
+   travels on click (pointer). */
+.position-restore-nav-row .nav-row-file {
 	cursor: help;
 }
 
-.position-restore-nav-row .nav-row-trail .nav-trail-sep {
-	flex: 0 0 auto;
+/* …which is NOT the case for a step whose file is gone: its row is inert (the
+   trigger is gated on the row being selectable at all, see list.ts onHover), so
+   the name column must not offer the preview cursor. Same specificity as the
+   rule above, so it has to come after it. */
+.position-restore-nav-row.is-missing .nav-row-file {
+	cursor: default;
 }
 
 .nav-trail-sep {

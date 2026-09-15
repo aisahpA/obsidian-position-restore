@@ -672,7 +672,7 @@ describe('NavHistoryModal — repeat landings', () => {
 	// collapses by.
 	const at = (path: string, line: number, agoMin: number): NavHistoryEntry =>
 		visit(path, NOW - agoMin * MINUTE, { scroll: line });
-	const files = { 'x.md': '', 'y.md': '' };
+	const files = { 'x.md': '', 'y.md': '', 'z.md': '' };
 
 	it('collapses repeat landings into one row, keeping the newest time', () => {
 		// Bouncing between the note being written and its reference: every
@@ -684,10 +684,10 @@ describe('NavHistoryModal — repeat landings', () => {
 
 		expect(h.rows()).toHaveLength(2); // L100 and L412 — not four rows
 		expect(h.rows()[0].textContent).toContain('×3');
-		// the count is its own cell in the row's right-hand strip, and the file
-		// cell holds nothing but the name
-		expect(h.rows()[0].querySelector('.nav-row-count')?.textContent).toBe('×3');
-		expect(h.rows()[0].querySelector('.nav-row-file .nav-row-count')).toBeNull();
+		// the count rides with the NAME it belongs to, right after it — it is not
+		// a cell of the small-print strip
+		expect(h.rows()[0].querySelector('.nav-row-file .nav-row-count')?.textContent).toBe('×3');
+		expect(h.rows()[0].querySelector('.nav-row-meta .nav-row-count')).toBeNull();
 		expect(h.rows()[0].querySelector('.nav-row-time')?.textContent)
 			.toBe(t('navHistory.time.minutes', 10));
 		// the row's newest member is what a click travels to
@@ -704,17 +704,53 @@ describe('NavHistoryModal — repeat landings', () => {
 		expect(h.rows().some(r => r.textContent?.includes('×'))).toBe(false);
 	});
 
-	it('says nothing for a pair: ×2 is a count not worth a cell', () => {
+	it('never merges two different notes that share a leaf and a line', () => {
+		// ONE tab walks from x.md to z.md, and both steps were captured at the
+		// same line — the ordinary way to read two notes side by side. Keyed on
+		// "line|leaf" the two collapsed into a single row that named the NEWER
+		// note over the older one's place, and x.md's place was then unreachable
+		// from the panel (see mergeKey).
+		const h = harness([
+			at('x.md', 100, 20), at('z.md', 100, 10), visit('y.md', NOW),
+		], 2, files);
+
+		expect(h.rows()).toHaveLength(2);
+		expect(h.rows().map(r => r.querySelector('.nav-row-name')?.textContent))
+			.toEqual(['z.md', 'x.md']);
+	});
+
+	it('says nothing for a pair: ×2 is a count not worth printing', () => {
 		// The row IS merged (two steps, one landing) — but two is the commonest
-		// count there is, and the count starts at three. With nothing to say the
-		// strip carries no cell at all: reserved on every row, the slot printed
-		// nothing and cost the coordinate and the age 8ch of quiet zone between
-		// them to do it (see list.ts renderChronological).
+		// count there is, and the count starts at three. Nothing is printed at
+		// all, next to the name or anywhere else.
 		const h = harness([at('x.md', 412, 20), at('x.md', 412, 10), visit('y.md', NOW)], 2, files);
 
 		expect(h.rows()).toHaveLength(1);
 		expect(h.rows()[0].querySelector('.nav-row-count')).toBeNull();
 		expect(h.rows()[0].textContent).not.toContain('×');
+	});
+
+	it('rides the count with the name, and reserves no column for it', () => {
+		// A three-step landing prints ×3 — right after the name it belongs to, on
+		// the row that owns it, and NOWHERE on the row that does not (there is no
+		// column to reserve). The pane's column is a different question: no row
+		// has a pane here, so no row may hold 4ch + a gap for one.
+		const h = harness([
+			at('x.md', 100, 40), at('x.md', 412, 30), at('x.md', 412, 20), at('x.md', 412, 10),
+			visit('y.md', NOW),
+		], 4, files);
+
+		expect(h.rows()).toHaveLength(2); // the ×3 landing, then the single one
+		expect(h.rows()[0].querySelector('.nav-row-file .nav-row-count')?.textContent).toBe('×3');
+		// the element still comes AFTER the name in the DOM, so it reads as
+		// "x.md ×3" and not the other way round
+		expect(h.rows()[0].querySelector('.nav-row-file')?.lastElementChild?.className).toBe('nav-row-count');
+		expect(h.rows()[0].querySelector('.nav-row-meta .nav-row-count')).toBeNull();
+		// the row with no count of its own carries no cell at all
+		expect(h.rows()[1].querySelector('.nav-row-count')).toBeNull();
+		// and the badge is nowhere in the list
+		expect(h.rows()[0].querySelector('.nav-row-pane')).toBeNull();
+		expect(h.rows()[1].querySelector('.nav-row-pane')).toBeNull();
 	});
 
 	it('counts steps in the segment headers, not rows', () => {
@@ -976,9 +1012,9 @@ describe('NavHistoryModal — section chain in a row', () => {
 		expect(list?.style.getPropertyValue('--nav-name-col')).toBe('');
 	});
 
-	it('sizes the name column to the widest name, capped at 16em', () => {
+	it('sizes the name column to the widest name, capped at 20em', () => {
 		// A stub for the one thing jsdom lacks: text metrics. The font size comes
-		// from the stub too, since that is what the 16em cap is computed from.
+		// from the stub too, since that is what the 20em cap is computed from.
 		const widths = new Map<string, number>([
 			['a.md', 30],
 			['a-considerably-longer-name.md', 500],
@@ -1002,8 +1038,8 @@ describe('NavHistoryModal — section chain in a row', () => {
 			], { 'current.md': '', 'a.md': '', 'a-considerably-longer-name.md': '' });
 
 			const list = h.el.querySelector<HTMLElement>('.position-restore-nav-list');
-			// 500px of title, 160px of cap (16em at the stubbed 10px).
-			expect(list?.style.getPropertyValue('--nav-name-col')).toBe('160px');
+			// 500px of title, 200px of cap (20em at the stubbed 10px).
+			expect(list?.style.getPropertyValue('--nav-name-col')).toBe('200px');
 		} finally {
 			ranges.mockRestore();
 			styles.mockRestore();
@@ -1011,7 +1047,7 @@ describe('NavHistoryModal — section chain in a row', () => {
 	});
 
 	it('never lets the name column eat the section column on a narrow panel', () => {
-		// The 16em cap is a cap in FONT units; in a narrow window it can still be
+		// The 20em cap is a cap in FONT units; in a narrow window it can still be
 		// most of the row, and the section — half of what a row says — collapses
 		// to nothing. The measured column is therefore also bounded by a share of
 		// the panel it is measured in.
@@ -1045,8 +1081,8 @@ describe('NavHistoryModal — section chain in a row', () => {
 			], { 'current.md': '', 'a.md': '', 'a-considerably-longer-name.md': '' });
 
 			const list = h.el.querySelector<HTMLElement>('.position-restore-nav-list');
-			// 35% of 300px, well under both the 160px font cap and the 500px name.
-			expect(list?.style.getPropertyValue('--nav-name-col')).toBe('105px');
+			// 45% of 300px, well under both the 200px font cap and the 500px name.
+			expect(list?.style.getPropertyValue('--nav-name-col')).toBe('135px');
 		} finally {
 			if (clientWidth)
 				Object.defineProperty(HTMLElement.prototype, 'clientWidth', clientWidth);
@@ -1055,13 +1091,13 @@ describe('NavHistoryModal — section chain in a row', () => {
 		}
 	});
 
-	it('leaves the badge cells out of a list that has none', () => {
-		// The row is name | section | small print, and the small print's two
-		// badge cells (×N | pane) exist only while something in the list uses
-		// them (see list.ts renderChronological): reserved on every row they
-		// printed nothing, and the 8ch they held sat between the coordinate and
-		// the age of rows that had neither. What must not move is the order of
-		// the cells that remain.
+	it('leaves the pane cell out of a list that has none', () => {
+		// The row is name | section | small print, and the small print is down to
+		// pane | coordinate | age (the ×N rides with the name): the pane cell is
+		// created only while something in the list uses it (see list.ts
+		// renderChronological) — reserved on every row it printed nothing, and the
+		// 4ch + gap it held sat between the coordinate and the age of rows that
+		// had none. What must not move is the order of the cells that remain.
 		const noHeadings = { 'a.md': [] };
 		const body = visit('a.md', NOW - MINUTE, captured(A_DOC.split('\n'), 6));
 		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, noHeadings);
@@ -1127,6 +1163,14 @@ describe('NavHistoryModal — a file that holds several landings', () => {
 			{ text: 'x.md', continuation: true },
 			{ text: 'x.md', continuation: true },
 		]);
+		// …and those rows SAY why their name is missing: a continuation mark
+		// where the name would have been, not an empty cell.
+		expect(h.rows()[0].querySelector('.nav-row-repeat')).toBeNull();
+		expect(h.rows()[1].querySelector('.nav-row-repeat')?.textContent).toBe('↳');
+		expect(h.rows()[2].querySelector('.nav-row-repeat')?.textContent).toBe('↳');
+		// decorative: the clipped name in the same cell is what a screen reader
+		// reads, so the mark is not part of the option's name
+		expect(h.rows()[1].querySelector('.nav-row-repeat')?.getAttribute('aria-hidden')).toBe('true');
 	});
 
 	it('names the file again after a row of another file', () => {
@@ -1137,13 +1181,15 @@ describe('NavHistoryModal — a file that holds several landings', () => {
 			{ text: 'y.md', continuation: false },
 			{ text: 'x.md', continuation: false },
 		]);
+		expect(h.el.querySelectorAll('.nav-row-repeat')).toHaveLength(0);
 	});
 
 	it('names the file again under the second segment header', () => {
 		// x.md sits on BOTH sides of the current entry, with two landings on the
 		// forward side. The divider is a break in the reading order, so the run
-		// does not continue across it: a blank name under a header would read as
-		// a lost row. The rows come forward-segment-first (newest first).
+		// does not continue across it: a mark under a header — like a blank name
+		// before it — would point at nothing. The rows come forward-segment-first
+		// (newest first).
 		const h = harness([at('x.md', 10, 30), visit('y.md', NOW - 20 * MINUTE), at('x.md', 412, 20), at('x.md', 800, 10)], 1, files);
 
 		expect(names(h)).toEqual([
@@ -1151,11 +1197,38 @@ describe('NavHistoryModal — a file that holds several landings', () => {
 			{ text: 'x.md', continuation: true },
 			{ text: 'x.md', continuation: false },
 		]);
+		expect([...h.rows()].map(r => r.querySelector('.nav-row-repeat')?.textContent ?? ''))
+			.toEqual(['', '↳', '']);
+	});
+
+	it('keeps the count on a row that repeats the name above', () => {
+		// ×3 is how many steps landed on THIS row's spot — the row's own fact,
+		// not the name's — so a row that carries the repeat mark still prints its
+		// own count, right after the mark.
+		const h = harness([
+			at('x.md', 200, 40), at('x.md', 200, 30), at('x.md', 200, 20), at('x.md', 100, 10),
+			visit('y.md', NOW),
+		], 4, files);
+
+		expect(h.rows()).toHaveLength(2);
+		expect(names(h)).toEqual([
+			{ text: 'x.md', continuation: false },
+			{ text: 'x.md', continuation: true },
+		]);
+		expect(h.rows()[0].querySelector('.nav-row-count')).toBeNull();
+		const repeatRow = h.rows()[1].querySelector('.nav-row-file')!;
+		expect([...repeatRow.children].map(el => el.className)).toEqual([
+			'nav-row-name is-continuation',
+			'nav-row-repeat',
+			'nav-row-count',
+		]);
+		expect(repeatRow.querySelector('.nav-row-repeat')?.textContent).toBe('↳');
+		expect(repeatRow.querySelector('.nav-row-count')?.textContent).toBe('×3');
 	});
 
 	it('keeps naming a deleted file, whose name carries the warning', () => {
 		// Two steps into a file that is gone: every row has to look dead, so the
-		// name is never blanked for a missing file.
+		// name is never replaced for a missing file — no mark, no blank.
 		const h = harness([
 			visit('gone.md', NOW - 30 * MINUTE, { scroll: 10 }),
 			visit('gone.md', NOW - 20 * MINUTE, { scroll: 412 }),
@@ -1166,6 +1239,7 @@ describe('NavHistoryModal — a file that holds several landings', () => {
 			{ text: 'gone.md', continuation: false },
 			{ text: 'gone.md', continuation: false },
 		]);
+		expect(h.el.querySelectorAll('.nav-row-repeat')).toHaveLength(0);
 	});
 });
 
@@ -1389,8 +1463,8 @@ describe('NavHistoryModal — touch', () => {
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 	});
 
-	it('treats every column the same — the section column is not a special target', () => {
-		// The section column is the row's hover-preview trigger on a pointing
+	it('treats every column the same — the name column is not a special target', () => {
+		// The NAME column is the row's hover-preview trigger on a pointing
 		// device. On touch a tap there used to leak into that path (a WebView
 		// sends a mousemove before the click), which made ONE column of a row
 		// behave unlike the rest — the "why did that one jump?" report.
@@ -1410,7 +1484,7 @@ describe('NavHistoryModal — touch', () => {
 	it('ignores the mousemove a tap synthesises, so the tap still opens the row', () => {
 		// A touch WebView sends mouseover/mousemove before the click. The list's
 		// mousemove handler used to take that for a hover: it selected the row
-		// AND (over the section column, the one part of a row that does something
+		// AND (over the name column, the one part of a row that does something
 		// extra) asked the core page preview for a popover under the finger — so
 		// that column behaved nothing like the rest of the row, and the click that
 		// followed read as "this row is already open, close it again".
@@ -1529,9 +1603,10 @@ describe('NavHistoryModal — native page preview', () => {
 		visit('a.md', NOW - 3 * MINUTE, { ...landing }),
 		visit('b.md', NOW),
 	];
-	// jsdom lays nothing out, so every rect is zero and the section column is a
-	// zero-width strip at x=0: a pointer move at x=0 is ON it, one at x=50 is
-	// not. That is exactly the distinction the trigger makes.
+	// jsdom lays nothing out, so every rect is zero and the NAME column — the
+	// row's preview trigger — is a zero-width strip at x=0: a pointer move at x=0
+	// is ON it, one at x=50 is not. That is exactly the distinction the trigger
+	// makes.
 	const hover = (el: HTMLElement, x = 0) =>
 		el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x }));
 	const payloadOf = (h: ReturnType<typeof harness>) => h.trigger.mock.calls[0][1] as Record<string, unknown>;
@@ -1588,22 +1663,22 @@ describe('NavHistoryModal — native page preview', () => {
 		expect(h.trigger).toHaveBeenCalledTimes(1);
 	});
 
-	it('asks only from the section column, not from the rest of the row', () => {
+	it('asks only from the name column, not from the rest of the row', () => {
 		// Pointing at a row still selects it (a click travels there); what the
 		// row is NOT is a whole-note popover under the pointer every time the
 		// list is scanned.
 		const h = harness(at(), 1, doc);
 
-		hover(h.rows()[0], 50); // the file name / coordinates, say
+		hover(h.rows()[0], 50); // the section / coordinates, say
 		expect(h.trigger).not.toHaveBeenCalled();
 		// ...and the row is selected all the same
 		expect(h.rows()[0].classList.contains('is-selected')).toBe(true);
 
-		hover(h.rows()[0], 0); // onto the section column
+		hover(h.rows()[0], 0); // onto the name column
 		expect(h.trigger).toHaveBeenCalledTimes(1);
 	});
 
-	it('re-arms the section after the pointer leaves the list', () => {
+	it('re-arms the name column after the pointer leaves the list', () => {
 		const h = harness(at(), 1, doc);
 
 		hover(h.rows()[0]);
@@ -1616,11 +1691,11 @@ describe('NavHistoryModal — native page preview', () => {
 		expect(h.trigger).toHaveBeenCalledTimes(2);
 	});
 
-	it('re-arms the section after crossing a non-row area inside the list', () => {
-		// The pointer can leave the section column without leaving the list —
-		// onto a segment header or the bottom padding. Re-entering the SAME
-		// row's section must then ask for the preview again, just as leaving
-		// the list entirely does.
+	it('re-arms the name column after crossing a non-row area inside the list', () => {
+		// The pointer can leave the name column without leaving the list — onto a
+		// segment header or the bottom padding. Re-entering the SAME row's name
+		// must then ask for the preview again, just as leaving the list entirely
+		// does.
 		const h = harness(at(), 1, doc);
 
 		hover(h.rows()[0]);
@@ -1651,11 +1726,11 @@ describe('NavHistoryModal — where the native preview goes', () => {
 	const left = () => document.body.style.getPropertyValue(POPOVER_LEFT_VAR);
 	const top = () => document.body.style.getPropertyValue(POPOVER_TOP_VAR);
 
-	it('asks for the preview beside the section cell, level with the row', () => {
+	it('asks for the preview beside the name cell, level with the row', () => {
 		// jsdom has no layout, so every rect is 0: what this pins is that both
-		// values are OUR coordinates (the section cell's right edge + the gap,
-		// and the row's own top) and that they are rewritten per row, which is
-		// what the stylesheet's clamps consume.
+		// values are OUR coordinates (the name cell's right edge + the gap, and
+		// the row's own top) and that they are rewritten per row, which is what
+		// the stylesheet's clamps consume.
 		const h = harness(at(), 1, files);
 		expect(left()).toBe('8px'); // the resting value, before any hover
 		expect(top()).toBe('0px');
@@ -1667,16 +1742,17 @@ describe('NavHistoryModal — where the native preview goes', () => {
 		expect(document.body.classList.contains('position-restore-nav-open')).toBe(true);
 	});
 
-	it('anchors on the section cell and the row, not on the row box the plugin uses', () => {
+	it('anchors on the name cell and the row, not on the row box the plugin uses', () => {
 		// jsdom lays nothing out, so the rects come from a stub keyed by class:
-		// the row is wide and sits 240px down, its section cell ends well before
-		// the row does. The popover must start at the CELL's right edge — the
-		// column the pointer is on — and at the row's OWN top: the plugin's own
-		// choice (the whole row's edge, one row further down) is what put the
-		// preview half a panel away from the text being pointed at.
+		// the row is wide and sits 240px down, its name cell ends well before the
+		// row does. The popover must start at the CELL's right edge — the column
+		// the pointer is on, the one that asked for the preview — and at the
+		// row's OWN top: the plugin's own choice (the whole row's edge, one row
+		// further down) is what put the preview half a panel away from the column
+		// being pointed at.
 		const boxes: Record<string, { left: number; right: number; top: number }> = {
 			'position-restore-nav-row': { left: 10, right: 700, top: 240 },
-			'nav-row-trail': { left: 300, right: 420, top: 240 },
+			'nav-row-file': { left: 10, right: 180, top: 240 },
 		};
 		const original = Element.prototype.getBoundingClientRect;
 		Element.prototype.getBoundingClientRect = function (this: Element) {
@@ -1695,9 +1771,9 @@ describe('NavHistoryModal — where the native preview goes', () => {
 		try {
 			const h = harness(at(), 1, files);
 
-			hover(h.rows()[0], 350); // on the section cell (see the stub above)
+			hover(h.rows()[0], 100); // on the name cell (see the stub above)
 
-			expect(left()).toBe('428px'); // the cell's 420 + the 8px gap
+			expect(left()).toBe('188px'); // the cell's 180 + the 8px gap
 			expect(top()).toBe('240px'); // the row's own top, not a row below it
 		} finally {
 			Element.prototype.getBoundingClientRect = original;
@@ -1723,7 +1799,7 @@ describe('NavHistoryModal — where the native preview goes', () => {
 		h.modal.hoverPopover = { hoverEl: document.createElement('div'), targetEl: h.rows()[0] } as never;
 		scroll();
 
-		expect(left()).toBe('8px'); // the section cell's 0 + the gap
+		expect(left()).toBe('8px'); // the name cell's 0 + the gap
 		expect(top()).toBe('0px');
 	});
 

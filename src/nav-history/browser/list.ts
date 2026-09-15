@@ -7,22 +7,23 @@ import {
 	formatRelativeTime, inFileScope, matchesNavFilter, mergeByLanding, splitHistorySegments,
 } from './listing';
 import { NavEntryDescription, baseName, rowTrail } from './model';
+import { destinationKey } from './panes';
 
 // The list of steps, and everything that belongs to a row: which entries it
 // shows (the query and the file scope composed), how they collapse into one row
 // per landing, the forward/back segments around the pinned card, the selection
 // the keyboard walks, the measured name/age columns, and the pointer's hover
-// (which selects a row, and asks for the whole-note preview from the section
-// column alone).
+// (which selects a row, and asks for the whole-note preview from the name
+// column alone — the one cell every row has).
 //
-// Three of the row's decisions are LIST-WIDE rather than per-row, because a
-// column is only a column if it comes out the same on every line:
+// Two of the row's decisions are LIST-WIDE rather than per-row, because a column
+// is only a column if it comes out the same on every line:
 //  - the name column is measured from the rows that print it (fitNameColumn),
 //    and a run of one file's landings prints that name ONCE — the rest of the
 //    run leaves the cell blank (see renderChronological);
-//  - the small print's two badges (×N, pane) exist only while some row uses
-//    them, and then every row reserves the column;
-//  - the section chain always keeps its deepest level (see rowTrail).
+//  - the pane marker is a column and is reserved on every row while any row uses
+//    it. The count is NOT: it rides with the file name (see row).
+// The section chain always keeps its deepest level (see rowTrail).
 //
 // The list owns its rows and the two indices that point at them: `visible` (the
 // stack indices on screen, in order) and `selected`/`previewed` (what the
@@ -64,7 +65,7 @@ export interface NavHistoryListOptions {
 	onActiveRow: (id: string | undefined) => void;
 	// The selection moved on a touch device: bring the panel into view.
 	onRevealPanel: () => void;
-	// The pointer entered a row's section column: ask for the page preview.
+	// The pointer entered a row's file name column: ask for the page preview.
 	onRequestPreview: (ev: MouseEvent, row: HTMLElement, rep: number) => void;
 	// The list scrolled: a popover anchored to a row's top edge must follow.
 	onScroll: () => void;
@@ -87,17 +88,17 @@ export class NavHistoryList {
 	// missing entry can be previewed but never selected).
 	private previewed = -1;
 	// Pointer state for the native preview's trigger area: true while the pointer
-	// sits on the pointed-at row's SECTION column. Kept so the preview is asked
-	// for on entering that column and not on every mousemove inside it.
-	private trailHover = false;
+	// sits on the pointed-at row's NAME column. Kept so the preview is asked for
+	// on entering that column and not on every mousemove inside it.
+	private nameHover = false;
 
 	constructor(private opts: NavHistoryListOptions) {
 		// Pointer movement is the only hover signal — see onHover.
 		this.opts.list.addEventListener('mousemove', (ev) => this.onHover(ev));
-		// Leaving the list ends the pointer's stay on the section column: coming
-		// back to the same section must ask for the preview again.
+		// Leaving the list ends the pointer's stay on the name column: coming
+		// back to the same name must ask for the preview again.
 		this.opts.list.addEventListener('mouseleave', () => {
-			this.trailHover = false;
+			this.nameHover = false;
 		});
 		// A showing popover is anchored to a row's own top edge, so scrolling the
 		// list moves the row out from under it (see the browser's preview bridge).
@@ -127,7 +128,7 @@ export class NavHistoryList {
 		this.rowEls = new Map();
 		this.visible = [];
 		// The cells these flags described are gone with the old rows.
-		this.trailHover = false;
+		this.nameHover = false;
 
 		const query = this.opts.filter().trim();
 		// The scope narrows on the file picked in the toolbar; a query narrows
@@ -190,11 +191,13 @@ export class NavHistoryList {
 		]
 			.filter(block => block.indices.length > 0)
 			.map(block => ({ ...block, rows: mergeByLanding(block.indices, (i) => this.mergeKey(i)) }));
-		// ONE decision for the whole list, taken before a single row is drawn:
-		// the small print is a strip of fixed columns, so a badge on any row has
+		// ONE decision for the whole list, taken before a single row is drawn: the
+		// small print is a strip of fixed columns, so a pane marker on any row has
 		// to reserve its column on all of them or the coordinates stop lining up.
-		// While no row carries one — the ordinary case — nothing is reserved.
-		const badges = blocks.some(b => b.rows.some(r => this.hasBadge(r.indices)));
+		// While no row has one — the ordinary case — nothing is reserved. (The
+		// merge count is not part of this: it rides with the file name, so it
+		// reserves nothing.)
+		const paneColumn = blocks.some(b => b.rows.some(r => this.paneOf(r.indices[0]) !== undefined));
 		let emitted = 0;
 		for (const block of blocks) {
 			this.segment(block.label, block.arrow, block.indices.length);
@@ -210,17 +213,16 @@ export class NavHistoryList {
 				const sameFile = key !== undefined && key === lastName
 					&& !this.opts.describe(r.indices[0]).missing;
 				lastName = key;
-				emitted += this.row(r.indices, badges, sameFile);
+				emitted += this.row(r.indices, paneColumn, sameFile);
 			}
 		}
 		return emitted;
 	}
 
-	// Whether a row will print one of the small print's badges: the merge count
-	// (three steps or more — see row) or the pane marker. Asked in a pre-pass
-	// because the columns are reserved list-wide (see renderChronological).
-	private hasBadge(indices: number[]): boolean {
-		return indices.length >= 3 || this.opts.paneName(this.opts.entries[indices[0]]) !== undefined;
+	// Which pane holds a stack index's destination, if it needs saying (see
+	// paneLabel): one lookup, used by both the reservation scan and the row.
+	private paneOf(i: number): string | undefined {
+		return this.opts.paneName(this.opts.entries[i]);
 	}
 
 	// What "the same file" means to the name column: the path, or the view type
@@ -234,13 +236,23 @@ export class NavHistoryList {
 	}
 
 	// A merged row must never hide a reachable position, so the key carries
-	// the leaf: two panes of one file at the same line are different places,
-	// and merging them would make one of them unreachable from the panel. The
-	// caller merges each segment separately, which is what keeps a back entry
+	// BOTH the leaf and the destination:
+	//  - the leaf, because two panes of one file at the same line are different
+	//    places, and merging them would make one of them unreachable;
+	//  - the destination, because ONE tab walks from note to note and two
+	//    different notes can sit on the same line number — keyed on "line|leaf"
+	//    those two steps collapsed into a single row that named the newer note
+	//    over the older one's place, leaving that place unreachable from the
+	//    panel (destinationKey is the browser's own "which destination" spelling,
+	//    the same one the pane marker keys live leaves by).
+	// The caller merges each segment separately, which is what keeps a back entry
 	// from being swallowed by a forward one at the same landing.
 	private mergeKey(i: number): string | undefined {
 		const d = this.opts.describe(i);
-		return d.line === undefined ? undefined : `${d.line}|${this.opts.entries[i].leafId}`;
+		if (d.line === undefined)
+			return undefined;
+		const entry = this.opts.entries[i];
+		return `${d.line}|${entry.leafId}|${destinationKey(entry)}`;
 	}
 
 	// Direction divider for the chronological view. Decorative for the
@@ -262,10 +274,11 @@ export class NavHistoryList {
 	// selection, and lives in the preview panel's head. The landing's own text is
 	// deliberately NOT here either: as a second line it doubled the row height,
 	// and beside the section it squeezed both into ellipses.
-	// `badges` is the list-wide reservation (see renderChronological) and
-	// `sameFile` says the row above has already named this note.
+	// `paneColumn` is the list-wide reservation of the pane's column (see
+	// renderChronological), and `sameFile` says the row above has already named
+	// this note.
 	// Returns 1 so callers can count what was drawn.
-	private row(indices: number[], badges: boolean, sameFile: boolean): number {
+	private row(indices: number[], paneColumn: boolean, sameFile: boolean): number {
 		const rep = indices[0];
 		const entry = this.opts.entries[rep];
 		const d = this.opts.describe(rep);
@@ -299,7 +312,8 @@ export class NavHistoryList {
 		// The note names itself ONCE per run of its own rows: a file holding
 		// several landings would otherwise print the same name down the list
 		// (see renderChronological), and the block reads as one note's places
-		// instead of as N copies of one name. The text stays IN the row — the
+		// instead of as N copies of one name. The rows after the first carry the
+		// repeat mark instead (see below). The text stays IN the row — the
 		// stylesheet clips it — so the option still names its file to a screen
 		// reader, and the name column's width is measured from the rows that
 		// print it.
@@ -307,6 +321,22 @@ export class NavHistoryList {
 			text: d.file,
 			cls: `nav-row-name${sameFile ? ' is-continuation' : ''}`,
 		});
+		// A row that follows its file's first row says so with a mark instead of
+		// an empty cell: "this one belongs to the note above". ↳ (U+21B3) is the
+		// continuation arrow a list UI uses everywhere, and — unlike a ditto mark
+		// (〃), which would read as a typo to anyone not raised on it — it says the
+		// same thing in every locale. Decorative: the clipped name in this very
+		// cell still names the file to a screen reader.
+		if (sameFile)
+			file.createSpan({ text: '↳', cls: 'nav-row-repeat', attr: { 'aria-hidden': 'true' } });
+		// How many steps this row stands for, right after the name it belongs to.
+		// It used to be a column of its own in the small print, which reserved its
+		// width on every row of the list and printed nothing on most of them. A
+		// row that repeats the name above (see renderChronological) still prints
+		// its OWN count: ×3 says how many steps landed HERE, which is this row's
+		// fact and not the name's.
+		if (indices.length >= 3)
+			file.createSpan({ text: `×${indices.length}`, cls: 'nav-row-count' });
 
 		// The section the landing sits in, deepest one or two levels: the coarse
 		// index a reader matches against memory, and the second half of what the
@@ -327,27 +357,22 @@ export class NavHistoryList {
 			});
 		}
 
-		// The small print — how many steps this row stands for, which pane of the
-		// file it came from, the coordinate it lands on, and when: row identity
-		// rather than row content, all of it faint, all of it in one element so
-		// that the two layouts can place it as a block. On a pointing device it
-		// is a strip at the row's right edge, its four cells of fixed width
+		// The small print — which pane of the file this row came from, the
+		// coordinate it lands on, and when: row identity rather than row content,
+		// all of it faint, all of it in one element so that the two layouts can
+		// place it as a block. (The count is not here: it rides with the name.)
+		// On a pointing device it is a strip at the row's right edge, its cells
 		// right-aligned inside it so they line up as columns down the list; on a
-		// phone it is the row's second line (see styles.css). Each cell is
-		// created even when it has nothing to say, but ONLY while something else
-		// in the list does (`badges`): a reserved column printed nothing on every
-		// row of the ordinary history and cost the row ~8ch of quiet zone to do
-		// it, so nothing is reserved until a badge is actually on screen — and
-		// then every row reserves it, or the coordinates stop lining up. A pair
-		// is not worth a chip either: "×2" is the commonest count and the
-		// emptiest of them, so the count starts at three.
+		// phone it is the row's second line (see styles.css). The pane cell is
+		// created even when this row has no pane of its own, but ONLY while some
+		// OTHER row does (`paneColumn`): reserved on every row it printed nothing
+		// on the ordinary history and cost the row its width in quiet zone to do
+		// it, so nothing is reserved until the badge is actually on screen — and
+		// then every row reserves it, or the coordinates stop lining up.
 		const meta = row.createDiv({ cls: 'nav-row-meta' });
-		if (badges) {
-			const count = meta.createSpan({ cls: 'nav-row-count' });
-			if (indices.length >= 3)
-				count.setText(`×${indices.length}`);
+		if (paneColumn) {
 			const pane = meta.createSpan({ cls: 'nav-row-pane' });
-			const paneLabel = this.opts.paneName(entry);
+			const paneLabel = this.paneOf(rep);
 			if (paneLabel)
 				pane.setText(paneLabel);
 		}
@@ -427,13 +452,13 @@ export class NavHistoryList {
 	// pointer — which would steal the keyboard selection and silently
 	// retarget Enter. Only movement the user actually made counts.
 	// A touch device has no hover at all, and there this listener must stay out
-	// of the way: a tap on the section column (the column below, the one part of
-	// a row that does something a click does not) makes the WebView fire a
-	// mousemove before the click, which pointed the panel at the row and asked
-	// the core page preview for a popover — under the finger that opened it, so
-	// tapping that column behaved nothing like tapping the rest of the row, and
-	// the synthesized selection made the tap's click read as "close this row
-	// again". Touch drives this panel with clicks alone.
+	// of the way: a tap on the name column (the one part of a row that does
+	// something a click does not) makes the WebView fire a mousemove before the
+	// click, which pointed the panel at the row and asked the core page preview
+	// for a popover — under the finger that opened it, so tapping that column
+	// behaved nothing like tapping the rest of the row, and the synthesized
+	// selection made the tap's click read as "close this row again". Touch drives
+	// this panel with clicks alone.
 	private onHover(ev: MouseEvent): void {
 		if (this.opts.mobile)
 			return;
@@ -441,17 +466,17 @@ export class NavHistoryList {
 		const rep = row ? Number(row.dataset.rep) : NaN;
 		if (!row || Number.isNaN(rep)) {
 			// Off any row but still inside the list (a segment header, the
-			// bottom padding): the pointer is no longer on the section column,
-			// so coming back to it must ask for the preview again — the same
-			// re-arm mouseleave does, but for moves that never leave the list.
-			this.trailHover = false;
+			// bottom padding): the pointer is no longer on the name column, so
+			// coming back to it must ask for the preview again — the same re-arm
+			// mouseleave does, but for moves that never leave the list.
+			this.nameHover = false;
 			return;
 		}
 		if (rep !== this.previewed) {
 			this.previewed = rep;
-			// The new row has not been pointed at yet: entering its section
-			// column is what asks for a preview.
-			this.trailHover = false;
+			// The new row has not been pointed at yet: entering its name column
+			// is what asks for a preview.
+			this.nameHover = false;
 			// A missing file cannot be selected (Enter must never target it), but
 			// its row still previews — the panel is where "deleted" is explained.
 			if (this.visible.includes(rep))
@@ -459,29 +484,27 @@ export class NavHistoryList {
 			else
 				this.opts.onPointed();
 		}
-		// The whole note is previewed from the SECTION column alone: pointing at
-		// a row selects it (and a click travels there), but throwing a whole-note
+		// The whole note is previewed from the NAME column alone: pointing at a
+		// row selects it (and a click travels there), but throwing a whole-note
 		// popover over the list every time the pointer crosses a row made the
-		// list unusable for the scanning it is there for. The section is also the
-		// part a reader points at to confirm a spot — and the column is only as
-		// wide as its text (see overTrail), so the blank middle of a row is not
-		// part of it.
-		const onTrail = this.overTrail(ev, row);
-		if (onTrail && !this.trailHover && this.visible.includes(rep))
+		// list unusable for the scanning it is there for. The name is the one
+		// cell EVERY row has — a row whose note has no headings (or whose landing
+		// is above the first one) has nothing in the section column to point at,
+		// and asking from the section alone left exactly those rows with no
+		// preview at all. It is also a bounded target: the measured name column,
+		// not the row's whole flexible middle.
+		const onName = this.overName(ev, row);
+		if (onName && !this.nameHover && this.visible.includes(rep))
 			this.opts.onRequestPreview(ev, row, rep);
-		this.trailHover = onTrail;
+		this.nameHover = onName;
 	}
 
-	// Whether the pointer is over the section column — the row's preview target.
-	// Tested by X rather than by DOM containment: a note without headings still
-	// has the cell (the row's grid needs it), but an empty cell has no height to
-	// be hit-tested on, while its column is exactly the strip a user points at.
-	// The cell HUGS its text (see .nav-row-trail in styles.css), which is what
-	// keeps this box test honest: as a stretched grid item it spanned the row's
-	// whole flexible middle track, so most of every row — the blank space after
-	// a short section included — asked for the whole-note popover.
-	private overTrail(ev: MouseEvent, row: HTMLElement): boolean {
-		const cell = row.querySelector<HTMLElement>('.nav-row-trail');
+	// Whether the pointer is over the file name column — the row's preview
+	// target. Tested by X rather than by DOM containment: the cell is what the
+	// pointer has to cross, and a stretch-filled grid item's box is exactly the
+	// column a user sees.
+	private overName(ev: MouseEvent, row: HTMLElement): boolean {
+		const cell = row.querySelector<HTMLElement>('.nav-row-file');
 		if (!cell)
 			return false;
 		const box = cell.getBoundingClientRect();
@@ -540,25 +563,31 @@ export class NavHistoryList {
 		return range.getBoundingClientRect().width;
 	}
 
-	// The name column is the widest name ON SCREEN: the section then starts at
-	// the same x on every row, which is the column the eye runs down. It has no
-	// floor — a list of one-word names gets a one-word column — but it has two
-	// ceilings: the name's own cap (16em, see .nav-row-name) and a share of the
-	// panel, so the section cannot be squeezed out entirely. The measurement is
-	// of the TEXT, which may be longer than the box it is drawn in, so without
-	// either one long title would push the section of every row off the panel.
-	// Where there is no measurement at all the property is left unset and the
-	// stylesheet's `max-content` fallback stands — never 0px, which would erase
-	// the names.
+	// The name column is the widest name (and count) ON SCREEN: the section then
+	// starts at the same x on every row, which is the column the eye runs down.
+	// It has no floor — a list of one-word names gets a one-word column — but it
+	// has two ceilings: the name's own cap (20em, see .nav-row-name) and a share
+	// of the panel, so the section cannot be squeezed out entirely. The
+	// measurement is of the TEXT, which may be longer than the box it is drawn
+	// in, so without either one long title would push the section of every row
+	// off the panel. Where there is no measurement at all the property is left
+	// unset and the stylesheet's `max-content` fallback stands — never 0px, which
+	// would erase the names.
 	// A row whose name the sheet CLIPS (the same file as the row above) is
 	// skipped: its box is a 1px sliver, and the text it repeats is already
 	// measured on the row that prints it.
+	// The FILE CELL is what is measured, not the name span: the ×N rides with the
+	// name (see row), so the width the section may start after is the name the
+	// row shows PLUS the count it carries — measure the name alone and the count
+	// of the widest row would be the thing that gets clipped.
 	private fitNameColumn(): void {
 		let widest = 0;
 		let cap = 0;
 		// Scoped to ROWS: on touch the landing panel lives inside the list too,
 		// and its own copies of these cells are not columns of it.
-		for (const el of Array.from(this.opts.list.querySelectorAll<HTMLElement>('.position-restore-nav-row .nav-row-name:not(.is-continuation)'))) {
+		for (const el of Array.from(this.opts.list.querySelectorAll<HTMLElement>('.position-restore-nav-row .nav-row-file'))) {
+			if (el.querySelector('.nav-row-name.is-continuation'))
+				continue;
 			widest = Math.max(widest, this.textWidth(el));
 			const size = parseFloat(window.getComputedStyle(el).fontSize);
 			if (Number.isFinite(size))

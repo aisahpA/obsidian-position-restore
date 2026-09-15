@@ -16,16 +16,20 @@
 //
 // 2. The row is name | section | small print: the name column is measured so it
 //    comes out the SAME width on every row (the section starts at one x down the
-//    list — the column the eye runs down), and the small print (×N, pane,
-//    coordinate, age) is one block of right-aligned cells after it. The two
-//    badge cells are only there while a row uses one (see list.ts
-//    renderChronological). The name column is never a fixed 16em: it is the
-//    widest name on screen, capped at 16em and at a share of the panel, so a
+//    list — the column the eye runs down), and what is left of the small print
+//    (pane, coordinate, age) is one block of right-aligned cells after it. ×N is
+//    not a column at all: it rides with the file name, and the cell measured for
+//    the name column is the name + its count, so the count is never clipped. The
+//    pane cell is only there while a row uses one (see list.ts
+//    renderChronological). The name column is never a fixed 20em: it is the
+//    widest name on screen, capped at 20em and at a share of the panel, so a
 //    shorter name leaves only the difference to the longest one rather than a
 //    hole the eye cannot cross — and never a dead 11ch age track either, since
-//    that one is measured from the labels too. The section cell hugs its text,
-//    which is also what keeps the native preview's trigger (a box test on that
-//    cell, see list.ts overTrail) the size of the text and not of the row.
+//    that one is measured from the labels too. The name cell is also the native
+//    preview's trigger (a box test on that cell, see list.ts overName): it is the
+//    one cell every row has, and a bounded target rather than the row's whole
+//    flexible middle — which is what the trigger used to be when it sat on the
+//    section column.
 //
 // 3. A touch device gets the same six cells on two lines rather than the old
 //    rule that hid the coordinate and the age below 480px, which left the list
@@ -72,35 +76,41 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/grid-template-columns: minmax\(0, var\(--nav-name-col, max-content\)\) minmax\(0, 1fr\) auto;/,
 		);
-		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 16em/);
+		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
 		expect(browser).toMatch(/\.nav-row-trail\s*\{[^}]*margin-inline-start/);
 		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 5ch/);
 		expect(browser).toMatch(/\.nav-row-time\s*\{[^}]*width: var\(--nav-time-col/);
 	});
 
-	// The section column is also the native preview's trigger area, and the
-	// trigger is a box test on this very cell (see list.ts overTrail). As a
-	// stretched grid item the box was the whole flexible middle track, so the
-	// blank space after a short section popped a whole-note popover over the
-	// list; hugging the crumbs makes the trigger exactly the text.
-	it('hugs the section text, and keeps its deepest level when the column runs out', () => {
-		expect(browser).toMatch(/\.nav-row-trail\s*\{[^}]*width: max-content[^}]*max-width: 100%/);
+	it('keeps the section column\u2019s deepest level when it runs out of room', () => {
 		// The shrink weights are a COLLAPSE ORDER (100:1), not a proportion:
 		// the outer levels give way long before the deepest one ellipsizes.
 		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-seg\s*\{[^}]*flex: 0 100 auto/);
 		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-deep\s*\{[^}]*flex: 0 1 auto/);
-		// The cursor is the "this does something a click does not" hint, so it
-		// belongs on the crumbs rather than on the whole track.
+	});
+
+	// The preview trigger is the NAME cell (see list.ts overName): it is the one
+	// cell every row has, so a note without headings — or a landing above its
+	// first heading — can still be previewed, and it is a bounded target: the
+	// measured name column, not the row's whole flexible middle.
+	it('offers the preview cursor on the name column, and not on a dead row', () => {
+		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*cursor: help/);
+		expect(browser).toMatch(/is-missing \.nav-row-file\s*\{[^}]*cursor: default/);
+		// and the section column stopped being a trigger
 		expect(browser).not.toMatch(/\.nav-row-trail\s*\{[^}]*cursor: help/);
-		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-deep\s*\{[^}]*cursor: help/);
+		expect(browser).not.toMatch(/\.nav-trail-deep\s*\{[^}]*cursor: help/);
 	});
 
 	// A run of one file's landings prints that name once (see list.ts
 	// renderChronological). The repeats keep the text — an option with no name
-	// would read as "L412, 3 min ago" — and are CLIPPED instead.
-	it('clips the repeated name rather than dropping it from the row', () => {
+	// would read as "L412, 3 min ago" — and are CLIPPED instead, with the repeat
+	// mark (↳) standing where the name would have been.
+	it('clips the repeated name, and marks the row instead', () => {
 		expect(browser).toMatch(/\.nav-row-name\.is-continuation\s*\{[^}]*clip-path: inset\(50%\)/);
 		expect(browser).toMatch(/\.nav-row-name\.is-continuation\s*\{[^}]*position: absolute/);
+		// a signpost, not content: the faintest tier, smaller than the row's text
+		expect(browser).toMatch(/\.nav-row-repeat\s*\{[^}]*color: var\(--nav-faint\)/);
+		expect(browser).toMatch(/\.nav-row-repeat\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
 	// A phone gets two lines per row instead of the narrow-screen rule that hid

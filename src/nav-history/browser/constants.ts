@@ -14,11 +14,11 @@ export const HOVER_LINK_SOURCE_ID = 'position-restore-nav-history';
 export const BODY_OPEN_CLASS = 'position-restore-nav-open';
 
 // Where the native preview should put its left edge, in viewport coordinates:
-// just right of the SECTION cell the pointer is on (see placePagePreview). The
+// just right of the NAME cell the pointer is on (see placePagePreview). The
 // core plugin aligns a popover's left edge with its anchor's — the whole row —
 // so left to itself this 450px panel starts at the row's far edge, up to half a
-// panel away from the text the user is actually pointing at, and the hover-link
-// payload has no field for the side. It recomputes that position on every show,
+// panel away from the column that asked for it, and the hover-link payload has
+// no field for the side. It recomputes that position on every show,
 // so the only durable way to say where the popover goes is a CSS variable that
 // styles.css reads with !important (which beats the inline style the plugin
 // writes).
@@ -38,7 +38,7 @@ export const POPOVER_TOP_VAR = '--position-restore-popover-top';
 // opening lines before the preview jumps to the row's position.
 export const POPOVER_PENDING_CLASS = 'is-preview-pending';
 
-// How far right of the section cell the preview starts.
+// How far right of the name cell the preview starts.
 export const POPOVER_GAP = 8;
 
 // How long a preview may be held back waiting for its landing scroll to be
@@ -66,15 +66,16 @@ export const TIME_COL_MIN = 40;
 export const TIME_COL_MAX = 112;
 
 // The cap the name column is measured against (see fitNameColumn): the same
-// 16em the name box itself carries in styles.css, so the column can never be
-// wider than a name is allowed to be drawn.
-export const NAME_COL_CAP_EM = 16;
+// 20em the name box itself carries in styles.css, so the column can never be
+// wider than a name is allowed to be drawn. It was 16em, which cut ordinary
+// note titles (and left the section column more room than it needed).
+export const NAME_COL_CAP_EM = 20;
 
 // …and the other cap, in share of the panel: however long the longest name is,
 // the section column may not be squeezed out of existence by it. One long title
 // in a narrow window would otherwise take the whole row (the small print keeps
 // its fixed cells, the section collapses to nothing, and the list stops saying
 // WHERE in the note each step was — the half of a row's meaning that is not the
-// name). At the panel's usual width this never binds: 35% of 760px is 266px,
-// above the 16em cap.
-export const NAME_COL_WIDTH_SHARE = 0.35;
+// name). At the panel's usual width this never binds: 45% of 760px is 342px,
+// above the 20em cap.
+export const NAME_COL_WIDTH_SHARE = 0.45;

@@ -15,8 +15,8 @@ import { NavEntryDescription } from './model';
 // registered in main.ts.
 //
 // Two things are ours, because the plugin cannot know them:
-//   - WHERE the popover goes: a row's section column, not the row's far edge
-//     (see place);
+//   - WHERE the popover goes: just right of the row's NAME cell — the column the
+//     pointer had to cross to ask for it (see place) — not the row's far edge;
 //   - WHEN it may be shown: only once the landing scroll has been applied, or
 //     the user sees a flash of the file's opening lines first (see hold).
 
@@ -50,17 +50,17 @@ export class PagePreviewBridge {
 	constructor(private opts: PagePreviewBridgeOptions) {}
 
 	// Tell the stylesheet where the native preview goes: its LEFT edge just right
-	// of the section cell the pointer is on — the column a row's hover preview
-	// belongs to, and the part a reader points at to confirm a spot — and its TOP
-	// edge level with the row itself, both in viewport coordinates. The plugin's
-	// own placement aligns the popover with the whole row and hangs it below, so
-	// a row whose section sits at the panel's left put the preview half a panel
-	// down and to the right of the text being pointed at. No row (before any
-	// hover, or after a filter dropped the pointed-at one) → the dialog itself is
-	// the resting anchor.
+	// of the NAME cell the pointer is on — the column that asks for the preview
+	// (see the list's overName), so the panel opens beside the thing that was
+	// pointed at — and its TOP edge level with the row itself, both in viewport
+	// coordinates. The plugin's own placement aligns the popover with the whole
+	// row and hangs it below, so a row near the panel's top put the preview half
+	// a panel down and to the right of the text being pointed at. No row (before
+	// any hover, or after a filter dropped the pointed-at one) → the dialog
+	// itself is the resting anchor.
 	place(row?: HTMLElement | null): void {
 		const anchor = row ?? this.opts.modalEl;
-		const cell = row?.querySelector<HTMLElement>('.nav-row-trail') ?? anchor;
+		const cell = row?.querySelector<HTMLElement>('.nav-row-file') ?? anchor;
 		document.body.style.setProperty(POPOVER_LEFT_VAR, `${cell.getBoundingClientRect().right + POPOVER_GAP}px`);
 		document.body.style.setProperty(POPOVER_TOP_VAR, `${anchor.getBoundingClientRect().top}px`);
 	}
@@ -75,7 +75,7 @@ export class PagePreviewBridge {
 		if (entry.kind === 'view')
 			return;
 		// The plugin aligns the popover with the anchor rather than with the
-		// section cell, and hangs it below the row; say where it goes instead
+		// name cell, and hangs it below the row; say where it goes instead
 		// (and re-say it on every hover, because the plugin rewrites the
 		// position each time).
 		this.place(row);
