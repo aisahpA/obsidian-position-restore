@@ -98,6 +98,10 @@ export const en = {
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
 
 	'navHistory.heading': 'Navigation history',
+	// The settings item is its own heading's content, so it must not repeat the
+	// heading (see settings-tab): what it actually holds is the hotkey list.
+	'navHistory.hotkeys.name': 'Hotkeys',
+	// The modal's own title, where there is no heading above it to repeat.
 	'navHistory.overview.name': 'Navigation history',
 	'navHistory.overview.desc':
 		'VSCode-style "Navigate back" / "Navigate forward" across file switches and in-file jumps (links, outline, search results, large cursor moves). Always on — it only needs hotkeys, none are pre-assigned. Same-tab file switches ride Obsidian\'s native per-tab history (PDF, canvas and other views included); the stack (size configurable below) is device-local and survives restarts.',
@@ -165,13 +169,18 @@ export const en = {
 	'navHistory.time.minutes': '{0} min ago',
 	'navHistory.time.hours': '{0} h ago',
 	'navHistory.time.days': '{0} d ago',
-	// Landing preview strip (3 lines around the row's landing line). It is shown
-	// on touch devices ONLY — desktop hands the same hover to Obsidian's own page
-	// preview — and it opens under the tapped row, so it has no empty state.
-	'navHistory.preview.loading': 'Reading…',
+	// Landing preview panel. It is shown on touch devices ONLY — desktop hands
+	// the same hover to Obsidian's own page preview — and it opens under the
+	// tapped row. It prints the entry's own recorded context block: the lines
+	// the user was looking at when they left, with no read behind it (hence no
+	// "reading…" state left to write).
 	'navHistory.preview.blank': '(blank line)',
 	'navHistory.preview.none': 'No line to preview here (no markdown landing).',
 	'navHistory.preview.gone': 'File deleted.',
+	// The note a plain link was clicked in, and the file's "written since the
+	// step was recorded" marker.
+	'navHistory.preview.via': 'via {0}',
+	'navHistory.preview.modified': 'written since',
 };
 
 export type En = typeof en;

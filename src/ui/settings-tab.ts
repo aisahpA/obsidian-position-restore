@@ -268,7 +268,10 @@ export class SettingTab extends PluginSettingTab {
 				heading: t('navHistory.heading'),
 				items: [
 					{
-						name: t('navHistory.overview.name'),
+						// NOT navHistory.overview.name: the group heading right above
+						// already says "Navigation history", and the item repeated it
+						// verbatim. What the item holds is the hotkey list.
+						name: t('navHistory.hotkeys.name'),
 						render: (setting) => {
 							const frag = createFragment();
 							frag.createDiv({ text: t('navHistory.overview.desc') });

@@ -100,6 +100,10 @@ export const zh: En = {
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',
 
 	'navHistory.heading': '导航历史',
+	// 设置项本身就是分组标题下的内容，不能再重复一遍标题（见 settings-tab）：
+	// 它装的是快捷键清单。
+	'navHistory.hotkeys.name': '快捷键',
+	// 弹窗自己的标题：它上面没有标题可以重复。
 	'navHistory.overview.name': '导航历史',
 	'navHistory.overview.desc':
 		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈大小可在下方调整，按设备保存在 localStorage，重启保留。',
@@ -158,10 +162,13 @@ export const zh: En = {
 	'navHistory.time.minutes': '{0} 分钟前',
 	'navHistory.time.hours': '{0} 小时前',
 	'navHistory.time.days': '{0} 天前',
-	// 落点预览条（该行上下共三行）。这条只在触屏上显示：电脑端同一处悬停
-	// 交给 Obsidian 自带的页面预览，它开在被点的那一行下面，所以不需要空状态。
-	'navHistory.preview.loading': '读取中…',
+	// 落点预览面板。只在触屏上显示：电脑端同一处悬停交给 Obsidian 自带的页面预览；
+	// 它开在被点的那一行下面。渲染的是条目自己记录的上下文块（用户离开时正在看的
+	// 那几行），背后没有任何读取，所以也不再有「读取中」这个状态。
 	'navHistory.preview.blank': '（空行）',
 	'navHistory.preview.none': '（不是一个可预览的 markdown 落点）',
 	'navHistory.preview.gone': '（文件已删除）',
+	// 点击链接进入时，链接所在的那篇笔记；以及「记录之后文件已被写过」的标记。
+	'navHistory.preview.via': '来自「{0}」',
+	'navHistory.preview.modified': '记录后已修改',
 };
