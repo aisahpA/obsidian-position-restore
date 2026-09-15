@@ -210,8 +210,6 @@ describe('NavHistory stack logic', () => {
 		const settle: NavEntryState = {
 			scroll: 14,
 			cursor: { from: { line: 20, ch: 0 }, to: { line: 20, ch: 3 } },
-			mode: 'source',
-			cursorAnchor: '## **Bold** Title',
 		};
 		nav.refreshTop('a.md', 'leaf-1', settle);
 		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
@@ -223,7 +221,7 @@ describe('NavHistory stack logic', () => {
 			{ heading: 'Heading', level: 3, position: { start: { line: 5 } } },
 		]));
 		nav2.recordOpen('a.md', 'leaf-1', { key: 'outline:Heading', force: true });
-		nav2.refreshTop('a.md', 'leaf-1', { scroll: 5, mode: 'preview', anchor: '### Heading' });
+		nav2.refreshTop('a.md', 'leaf-1', { scroll: 5, anchor: '### Heading' });
 		expect(keyOf(nav2.entries[0])).toBe('outline:### Heading');
 		expect((nav2.entries[0] as NavJump).keyLine).toBe(5);
 	});
@@ -233,7 +231,7 @@ describe('NavHistory stack logic', () => {
 			{ heading: 'My Heading', level: 2, position: { start: { line: 12 } } },
 		]));
 		nav.recordOpen('a.md', 'leaf-1', { key: 'a.md#my-heading', force: true });
-		nav.refreshTop('a.md', 'leaf-1', { scroll: 12, mode: 'preview', anchor: '## My Heading' });
+		nav.refreshTop('a.md', 'leaf-1', { scroll: 12, anchor: '## My Heading' });
 		expect(keyOf(nav.entries[0])).toBe('a.md#my-heading');
 		expect((nav.entries[0] as NavJump).keyLine).toBe(12);
 	});
@@ -244,9 +242,8 @@ describe('NavHistory stack logic', () => {
 		]));
 		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Real', force: true });
 		nav.refreshTop('a.md', 'leaf-1', {
-			scroll: 1, mode: 'source',
+			scroll: 1,
 			cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
-			cursorAnchor: '## Other',
 		});
 		expect(keyOf(nav.entries[0])).toBe('outline:Real');
 		expect((nav.entries[0] as NavJump).keyLine).toBeUndefined();
@@ -257,7 +254,7 @@ describe('NavHistory stack logic', () => {
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
 		]));
 		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
-		nav.refreshTop('a.md', 'leaf-1', { scroll: 20, mode: 'preview', anchor: '## **Bold** Title' });
+		nav.refreshTop('a.md', 'leaf-1', { scroll: 20, anchor: '## **Bold** Title' });
 		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
 		// The user clicks the same outline item again: the new record carries
 		// the rendered text, which normalizes equal to the upgraded source

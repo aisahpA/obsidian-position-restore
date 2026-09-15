@@ -14,6 +14,7 @@ import {
 	HOVER_LINK_SOURCE_ID, POPOVER_LEFT_VAR, POPOVER_PENDING_CLASS, POPOVER_TOP_VAR,
 } from '@/nav-history/browser/constants';
 import type { NavHistoryEntry } from '@/nav-history/entry';
+import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
 
@@ -25,6 +26,35 @@ const NOW = Date.now();
 
 const visit = (path: string, stamp: number, st?: NavEntryState): NavHistoryEntry =>
 	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp, st });
+
+// A capture as the plugin records one now: the landing's surrounding NON-BLANK
+// lines with `contextAt` marking it (see NavEntryState.context). Mirrors
+// contextBlock in capture/ephemeral.ts at the same radius, so a fixture's panel
+// content is the production shape instead of a hand-built one.
+function captured(doc: string[], landing: number, lineCount = doc.length): NavEntryState {
+	const side = (from: number, step: 1 | -1) => {
+		const out: { line: number; text: string }[] = [];
+		for (let i = from, taken = 0; i >= 0 && i < doc.length && taken < NAV_CONTEXT_RADIUS; i += step) {
+			const text = doc[i].trim();
+			if (!text)
+				continue;
+			if (step < 0)
+				out.unshift({ line: i, text });
+			else
+				out.push({ line: i, text });
+			taken++;
+		}
+		return out;
+	};
+	const before = side(landing - 1, -1);
+	return {
+		scroll: landing,
+		anchor: doc[landing].trim(),
+		context: [...before, { line: landing, text: doc[landing].trim() }, ...side(landing + 1, 1)],
+		contextAt: before.length,
+		lineCount,
+	};
+}
 
 // Parsed headings for the fixture note below, in the shape the metadata cache
 // hands them over (1-based levels, positions in the file).
@@ -55,6 +85,9 @@ function harness(
 	// say which tabs are open now. Without it the `live` editors stand in as one
 	// tab per path — which is never ambiguous, as in a real vault.
 	layout: { leafId: string; path: string }[] = [],
+	// mtimes for the files above, as the vault would report them now: the
+	// browser compares them with the mtime an entry recorded.
+	mtimes: Record<string, number> = {},
 ) {
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
@@ -73,7 +106,10 @@ function harness(
 			getAbstractFileByPath: (path: string) => {
 				if (deleted.includes(path) || !(path in files))
 					return null;
-				return Object.assign(new TFile(), { path });
+				const file = Object.assign(new TFile(), { path });
+				if (path in mtimes)
+					file.stat = { ctime: 0, mtime: mtimes[path], size: 0 };
+				return file;
 			},
 			cachedRead,
 		},
@@ -635,7 +671,7 @@ describe('NavHistoryModal — repeat landings', () => {
 	// A reading capture lands on a viewport line, which is what the list
 	// collapses by.
 	const at = (path: string, line: number, agoMin: number): NavHistoryEntry =>
-		visit(path, NOW - agoMin * MINUTE, { mode: 'preview', scroll: line, anchor: `line ${line}` });
+		visit(path, NOW - agoMin * MINUTE, { scroll: line });
 	const files = { 'x.md': '', 'y.md': '' };
 
 	it('collapses repeat landings into one row, keeping the newest time', () => {
@@ -668,14 +704,16 @@ describe('NavHistoryModal — repeat landings', () => {
 		expect(h.rows().some(r => r.textContent?.includes('×'))).toBe(false);
 	});
 
-	it('says nothing for a pair: ×2 is a count not worth a chip', () => {
+	it('says nothing for a pair: ×2 is a count not worth a cell', () => {
 		// The row IS merged (two steps, one landing) — but two is the commonest
-		// count there is, and the chip cost every row 4ch of quiet zone to say
-		// it. The count starts at three, so the cell is there and empty.
+		// count there is, and the count starts at three. With nothing to say the
+		// strip carries no cell at all: reserved on every row, the slot printed
+		// nothing and cost the coordinate and the age 8ch of quiet zone between
+		// them to do it (see list.ts renderChronological).
 		const h = harness([at('x.md', 412, 20), at('x.md', 412, 10), visit('y.md', NOW)], 2, files);
 
 		expect(h.rows()).toHaveLength(1);
-		expect(h.rows()[0].querySelector('.nav-row-count')?.textContent).toBe('');
+		expect(h.rows()[0].querySelector('.nav-row-count')).toBeNull();
 		expect(h.rows()[0].textContent).not.toContain('×');
 	});
 
@@ -725,7 +763,7 @@ describe('NavHistoryModal — panes', () => {
 			{ leafId: 'left', path: 'a.md' },
 		]);
 
-		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe('');
+		expect(h.rows()[0].querySelector('.nav-row-pane')).toBeNull();
 		h.rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		expect(h.el.querySelector('.nav-preview-pane')).toBeNull();
 	});
@@ -743,18 +781,22 @@ describe('NavHistoryModal — panes', () => {
 		]);
 
 		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 1, 2));
+		// The row with no number of its own still gets the CELL: the column is
+		// reserved list-wide the moment one row uses it, or the two coordinates
+		// would not line up down the list (see list.ts renderChronological).
 		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe('');
 	});
 });
 
 describe('NavHistoryModal — landing preview', () => {
-	const read = { 'a.md': 'one\ntwo\nthree\nLANDING\nfive\nsix\nseven\neight', 'b.md': 'only line', 'c.md': 'x' };
-	// b.md is current; the row BELOW it is a.md's reading capture (viewport
-	// line 3, text "LANDING"), so a pointed row has a landing to show.
+	const doc = ['one', 'two', 'three', 'LANDING', 'five', 'six', 'seven', 'eight'];
+	const read = { 'a.md': doc.join('\n'), 'b.md': 'only line', 'c.md': 'x' };
+	// b.md is current; the row BELOW it is a.md's capture, landing on the
+	// "LANDING" line, so a pointed row has a recorded block to show.
 	// Two entries only: the list then holds exactly one row (a.md), with no
 	// forward half to sort above it.
 	const withLanding = [
-		visit('a.md', NOW - 5 * MINUTE, { mode: 'preview', scroll: 3, anchor: 'LANDING' }),
+		visit('a.md', NOW - 5 * MINUTE, captured(doc, 3)),
 		visit('b.md', NOW),
 	];
 	// On a touch device the panel is driven by TAPS: a synthesized mousemove is
@@ -783,9 +825,10 @@ describe('NavHistoryModal — landing preview', () => {
 
 		tap(h.rows()[0]);
 
-		// three lines either side of the landing, clamped to the document
+		// The whole recorded block: five non-blank lines either side, clamped to
+		// the document — the eight lines this file has, none of them blank.
 		await vi.waitFor(() => {
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
+			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(8);
 		});
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		const landing = h.el.querySelector('.nav-preview-line.is-landing');
@@ -801,7 +844,7 @@ describe('NavHistoryModal — landing preview', () => {
 		h.key('ArrowDown'); // selects a.md, the row below the current entry
 
 		await vi.waitFor(() => {
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
+			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(8);
 		});
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		expect(h.el.querySelector('.nav-preview-line.is-landing')?.textContent).toContain('LANDING');
@@ -843,6 +886,9 @@ describe('NavHistoryModal — landing preview', () => {
 
 		tap(h.rows()[0]);
 		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.gone'));
+		// Exactly one admission: with no recorded block there is nothing to add,
+		// and "file deleted" has already said the thing that matters.
+		expect(h.el.querySelectorAll('.nav-preview-note')).toHaveLength(1);
 		// it is not a selection, and it grows no button to travel with
 		expect(h.rows()[0].classList.contains('is-selected')).toBe(false);
 		expect(h.el.querySelector('.nav-preview-go')).toBeNull();
@@ -894,7 +940,7 @@ describe('NavHistoryModal — section chain in a row', () => {
 		);
 
 	it('prefixes the row with the deepest section levels', () => {
-		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '预览条：悬停显示上下文三行' });
+		const body = visit('a.md', NOW - MINUTE, captured(A_DOC.split('\n'), 6));
 		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, A_HEADINGS);
 
 		// the deepest two levels, no file read needed
@@ -1009,14 +1055,15 @@ describe('NavHistoryModal — section chain in a row', () => {
 		}
 	});
 
-	it('keeps every cell in place for a row with no section', () => {
-		// The row is name | section | small print, and the small print is a block
-		// of four cells: ×N | pane | coordinate | age. Every cell is rendered even
-		// when empty. A cell left out would let the ones after it slide one column
-		// left — the age into the ×N slot — on every note without headings, and
-		// the strip's columns would stop lining up.
+	it('leaves the badge cells out of a list that has none', () => {
+		// The row is name | section | small print, and the small print's two
+		// badge cells (×N | pane) exist only while something in the list uses
+		// them (see list.ts renderChronological): reserved on every row they
+		// printed nothing, and the 8ch they held sat between the coordinate and
+		// the age of rows that had neither. What must not move is the order of
+		// the cells that remain.
 		const noHeadings = { 'a.md': [] };
-		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '没有标题的笔记' });
+		const body = visit('a.md', NOW - MINUTE, captured(A_DOC.split('\n'), 6));
 		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, noHeadings);
 
 		const row = h.rows()[0];
@@ -1026,17 +1073,16 @@ describe('NavHistoryModal — section chain in a row', () => {
 			'nav-row-meta',
 		]);
 		expect([...row.querySelector('.nav-row-meta')!.children].map(el => el.className)).toEqual([
-			'nav-row-count',
-			'nav-row-pane',
 			'nav-row-pos',
 			'nav-row-time',
 		]);
 		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('');
-		expect(row.querySelector('.nav-row-count')?.textContent).toBe('');
+		expect(row.querySelector('.nav-row-count')).toBeNull();
+		expect(row.querySelector('.nav-row-pane')).toBeNull();
 	});
 
 	it('shows the coordinates and the section, never the landing text', () => {
-		const body = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '预览条：悬停显示上下文三行' });
+		const body = visit('a.md', NOW - MINUTE, captured(A_DOC.split('\n'), 6));
 		const h = harness([body, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, A_HEADINGS);
 
 		const row = h.rows()[0];
@@ -1046,58 +1092,261 @@ describe('NavHistoryModal — section chain in a row', () => {
 		expect(row.textContent).not.toContain('预览条');
 	});
 
-	it('does not repeat the heading the landing line itself carries', () => {
-		// an outline jump lands ON "### 预览": the row already quotes it
+	it('keeps the heading the landing line itself carries as the deepest level', () => {
+		// an outline jump lands ON "### 预览". The row prints no landing text
+		// (only the preview panel does), so that heading is the row's LAST level
+		// — the one a reader places the spot by — and it stays in the chain.
 		const jump = { kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:预览', t: NOW - MINUTE,
-			st: { mode: 'preview', scroll: 4, anchor: '### 预览' } } as NavHistoryEntry;
+			st: captured(A_DOC.split('\n'), 4) } as NavHistoryEntry;
 		const h = harness([jump, visit('b.md', NOW)], 1, { 'a.md': A_DOC, 'b.md': '' }, [], {}, A_HEADINGS);
 
-		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›呈现方案');
+		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+	});
+});
+
+describe('NavHistoryModal — a file that holds several landings', () => {
+	// A reading capture lands on a viewport line, which is what the list
+	// collapses by; two DIFFERENT lines of one file stay two rows.
+	const at = (path: string, line: number, agoMin: number): NavHistoryEntry =>
+		visit(path, NOW - agoMin * MINUTE, { scroll: line });
+	const files = { 'x.md': '', 'y.md': '', 'z.md': '' };
+	const names = (h: ReturnType<typeof harness>) =>
+		h.rows().map(r => ({
+			text: r.querySelector('.nav-row-name')?.textContent,
+			continuation: r.querySelector('.nav-row-name')?.classList.contains('is-continuation'),
+		}));
+
+	it('names the file once, on the first row of its own run', () => {
+		// Three landings in one note: the block reads as one file's places
+		// rather than as three copies of one name.
+		const h = harness([at('x.md', 10, 30), at('x.md', 412, 20), at('x.md', 800, 10), visit('y.md', NOW)], 3, files);
+
+		expect(h.rows()).toHaveLength(3);
+		expect(names(h)).toEqual([
+			{ text: 'x.md', continuation: false },
+			{ text: 'x.md', continuation: true },
+			{ text: 'x.md', continuation: true },
+		]);
+	});
+
+	it('names the file again after a row of another file', () => {
+		const h = harness([at('x.md', 10, 30), at('y.md', 20, 20), at('x.md', 412, 10), visit('z.md', NOW)], 3, files);
+
+		expect(names(h)).toEqual([
+			{ text: 'x.md', continuation: false },
+			{ text: 'y.md', continuation: false },
+			{ text: 'x.md', continuation: false },
+		]);
+	});
+
+	it('names the file again under the second segment header', () => {
+		// x.md sits on BOTH sides of the current entry, with two landings on the
+		// forward side. The divider is a break in the reading order, so the run
+		// does not continue across it: a blank name under a header would read as
+		// a lost row. The rows come forward-segment-first (newest first).
+		const h = harness([at('x.md', 10, 30), visit('y.md', NOW - 20 * MINUTE), at('x.md', 412, 20), at('x.md', 800, 10)], 1, files);
+
+		expect(names(h)).toEqual([
+			{ text: 'x.md', continuation: false },
+			{ text: 'x.md', continuation: true },
+			{ text: 'x.md', continuation: false },
+		]);
+	});
+
+	it('keeps naming a deleted file, whose name carries the warning', () => {
+		// Two steps into a file that is gone: every row has to look dead, so the
+		// name is never blanked for a missing file.
+		const h = harness([
+			visit('gone.md', NOW - 30 * MINUTE, { scroll: 10 }),
+			visit('gone.md', NOW - 20 * MINUTE, { scroll: 412 }),
+			visit('y.md', NOW),
+		], 2, files, ['gone.md']);
+
+		expect(names(h)).toEqual([
+			{ text: 'gone.md', continuation: false },
+			{ text: 'gone.md', continuation: false },
+		]);
 	});
 });
 
 describe('NavHistoryModal — preview source', () => {
 	const doc = '# 面板设计\n\n## 呈现方案\n\n### 预览\n\n预览条：悬停显示上下文三行\n\n尾巴\n';
-	const entry = visit('a.md', NOW - MINUTE, { mode: 'preview', scroll: 6, anchor: '预览条：悬停显示上下文三行' });
+	const entry = visit('a.md', NOW - MINUTE, captured(doc.split('\n'), 6));
 	// touch harnesses: the panel opens on a tap
 	const open = (h: ReturnType<typeof harness>) =>
 		h.rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-	it('reads an open note from its editor, without touching the vault', async () => {
+	it('prints the recorded block, reading neither the vault nor the open editor', () => {
+		// It used to consult the live editor for an open note and one vault read
+		// otherwise. Both are gone: the block is what the user was looking at
+		// when they left, so today's content — possibly rewritten — must never
+		// be printed where the row promises the recorded spot.
 		const h = harness([entry, visit('b.md', NOW)], 1, { 'a.md': doc, 'b.md': '' }, [], { 'a.md': doc }, {}, true);
 
 		open(h);
 
-		await vi.waitFor(() => {
-			// three lines either side of the landing: lines 4..10 of the doc
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
-		});
+		// The doc's non-blank lines around line 6: three before, one after.
+		expect(Array.from(h.el.querySelectorAll('.nav-preview-line')).map(l => l.textContent)).toEqual([
+			'L1# 面板设计',
+			'L3## 呈现方案',
+			'L5### 预览',
+			'L7预览条：悬停显示上下文三行',
+			'L9尾巴',
+		]);
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
-	it('falls back to one vault read for a note that is not open', async () => {
-		const h = harness([entry, visit('b.md', NOW)], 1, { 'a.md': doc, 'b.md': '' }, [], {}, {}, true);
+	it('names the section the landing sits in, deepest last', () => {
+		const h = harness([entry, visit('b.md', NOW)], 1, { 'a.md': doc, 'b.md': '' }, [], {}, A_HEADINGS, true);
 
 		open(h);
 
-		await vi.waitFor(() => {
-			// three lines either side of the landing: lines 4..10 of the doc
-			expect(h.el.querySelectorAll('.nav-preview-line')).toHaveLength(7);
-		});
-		expect(h.cachedRead).toHaveBeenCalledTimes(1);
-	});
-
-	it('names the section the landing sits in, deepest last', async () => {
-		const h = harness([entry, visit('b.md', NOW)], 1, { 'a.md': doc, 'b.md': '' }, [], { 'a.md': doc }, A_HEADINGS, true);
-
-		open(h);
-
-		await vi.waitFor(() => {
-			expect(h.el.querySelector('.nav-preview-trail')).not.toBeNull();
-		});
 		const trail = h.el.querySelector('.nav-preview-trail')!;
 		expect(trail.textContent).toBe(`面板设计›呈现方案›预览`);
 		expect(trail.querySelector('.nav-trail-deep')?.textContent).toBe('预览');
+	});
+});
+
+describe('NavHistoryModal — the recorded landing block', () => {
+	// An entry carries the lines it was left on (see NavEntryState.context), the
+	// file's size then, and the mtime it had: the panel prints them and reads
+	// nothing, and the search box matches them. This block is what the whole
+	// recording change is for, so all three readers are pinned here.
+	const blockState = (extra: NavEntryState = {}): NavEntryState => ({
+		scroll: 11,
+		context: [
+			{ line: 10, text: '上一段：从哪里来' },
+			{ line: 11, text: '落点这一行' },
+			{ line: 12, text: '下一段：到哪里去' },
+		],
+		contextAt: 1,
+		lineCount: 1200,
+		mtime: 1000,
+		...extra,
+	});
+	const withBlock = (extra: NavEntryState = {}): NavHistoryEntry =>
+		visit('a.md', NOW - MINUTE, blockState(extra));
+	const files = { 'a.md': 'live ten\nlive eleven\nlive twelve', 'b.md': '' };
+	const open = (h: ReturnType<typeof harness>) =>
+		h.rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// A step made by clicking a plain [[link]]: keyless, so it keeps an origin.
+	const linkVisit = (viaPath: string, viaText: string, st?: NavEntryState): NavHistoryEntry =>
+		({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st, via: 'link', viaPath, viaText });
+	const search = (h: ReturnType<typeof harness>, q: string) => {
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = q;
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+	};
+
+	it('prints the recorded lines instead of reading the file', () => {
+		const h = harness([withBlock(), visit('b.md', NOW)], 1, files, [], {}, {}, true);
+
+		open(h);
+
+		expect(Array.from(h.el.querySelectorAll('.nav-preview-line')).map(l => l.textContent))
+			.toEqual(['L11上一段：从哪里来', 'L12落点这一行', 'L13下一段：到哪里去']);
+		expect(h.el.querySelector('.nav-preview-line.is-landing')?.textContent).toContain('落点这一行');
+		// Nothing was read: not the vault, and not the open editor either — the
+		// current file content must NOT leak into a block that says what was
+		// there when the user left.
+		expect(h.cachedRead).not.toHaveBeenCalled();
+		expect(h.el.textContent).not.toContain('live eleven');
+	});
+
+	it('shows the recorded block for a DELETED file too', () => {
+		// The file is gone; what stood there is not. This is the only thing left
+		// to recognize the step by, and the reason the block is recorded rather
+		// than read.
+		const h = harness([withBlock(), visit('b.md', NOW)], 1, files, ['a.md'], {}, {}, true);
+
+		open(h);
+
+		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.gone'));
+		expect(h.el.querySelector('.nav-preview-line.is-landing')?.textContent).toContain('落点这一行');
+		// still no way to travel there
+		expect(h.el.querySelector('.nav-preview-go')).toBeNull();
+	});
+
+	it('reads nothing even for an entry with no block: it says so and stops', () => {
+		// The live-read fallback is gone, so the panel cannot consult the editor
+		// or the vault at all. An entry without a block (a state that never went
+		// through the nav read) gets the same admission, not a file read.
+		const h = harness(
+			[visit('a.md', NOW - MINUTE, { scroll: 1 }), visit('b.md', NOW)],
+			1, files, [], { 'a.md': 'live ten\nlive eleven\nlive twelve' }, {}, true,
+		);
+
+		open(h);
+
+		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.none'));
+		expect(h.el.textContent).not.toContain('live eleven');
+		expect(h.cachedRead).not.toHaveBeenCalled();
+	});
+
+	it('shows the coordinate against the recorded file size', () => {
+		const h = harness([withBlock(), visit('b.md', NOW)], 1, files, [], {}, {}, true);
+
+		open(h);
+
+		expect(h.el.querySelector('.nav-preview-head .nav-row-line')?.textContent).toBe('L12 / 1200');
+	});
+
+	it('says so when the file was written after the step was recorded', () => {
+		// Same entry, two live mtimes: unchanged (nothing said) and later (said).
+		const fresh = harness([withBlock(), visit('b.md', NOW)], 1, files, [], {}, {}, true, [], { 'a.md': 1000 });
+		open(fresh);
+		expect(fresh.el.querySelector('.nav-preview-modified')).toBeNull();
+
+		const written = harness([withBlock(), visit('b.md', NOW)], 1, files, [], {}, {}, true, [], { 'a.md': 2000 });
+		open(written);
+		expect(written.el.querySelector('.nav-preview-modified')?.textContent)
+			.toBe(t('navHistory.preview.modified'));
+	});
+
+	it('names where a plain link came from, and how it was made', () => {
+		const linked = linkVisit('notes/来源.md', 'a|另见', blockState());
+		const h = harness([linked, visit('b.md', NOW)], 1, files, [], {}, {}, true);
+
+		open(h);
+
+		// The badge says the step was a link, and the head names the note it was
+		// clicked in — plus the link's own words, which are not the note's name.
+		expect(h.el.querySelector('.nav-preview-type')?.textContent).toBe(t('navHistory.type.link'));
+		expect(Array.from(h.el.querySelectorAll('.nav-preview-via')).map(e => e.textContent))
+			.toEqual([t('navHistory.preview.via', '来源.md'), '「另见」']);
+	});
+
+	it('finds a step by any line of its recorded block', () => {
+		const h = harness([withBlock(), visit('b.md', NOW)], 1, files);
+
+		search(h, '到哪里去');
+
+		expect(h.rows()).toHaveLength(1);
+		expect(h.rows()[0].querySelector('.nav-row-name')?.textContent).toBe('a.md');
+	});
+
+	it('finds a step by the section its row prints', () => {
+		// The section chain is derived from the heading cache, not recorded on
+		// the entry — and it is the column the user reads, so a query must be
+		// able to hit it.
+		const headings = { 'a.md': [{ heading: '架构设计', level: 1, position: { start: { line: 0 } } }] };
+		const h = harness(
+			[visit('a.md', NOW - MINUTE, captured(files['a.md'].split('\n'), 2)), visit('b.md', NOW)],
+			1, files, [], {}, headings,
+		);
+
+		search(h, '架构设计');
+
+		expect(h.rows()).toHaveLength(1);
+	});
+
+	it('finds a step by the note a plain link came from', () => {
+		const linked = linkVisit('notes/来源笔记.md', 'a');
+		const h = harness([linked, visit('b.md', NOW)], 1, files);
+
+		search(h, '来源笔记');
+
+		expect(h.rows()).toHaveLength(1);
 	});
 });
 

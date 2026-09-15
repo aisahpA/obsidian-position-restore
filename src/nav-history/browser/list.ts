@@ -15,6 +15,15 @@ import { NavEntryDescription, baseName, rowTrail } from './model';
 // (which selects a row, and asks for the whole-note preview from the section
 // column alone).
 //
+// Three of the row's decisions are LIST-WIDE rather than per-row, because a
+// column is only a column if it comes out the same on every line:
+//  - the name column is measured from the rows that print it (fitNameColumn),
+//    and a run of one file's landings prints that name ONCE — the rest of the
+//    run leaves the cell blank (see renderChronological);
+//  - the small print's two badges (×N, pane) exist only while some row uses
+//    them, and then every row reserves the column;
+//  - the section chain always keeps its deepest level (see rowTrail).
+//
 // The list owns its rows and the two indices that point at them: `visible` (the
 // stack indices on screen, in order) and `selected`/`previewed` (what the
 // keyboard is on and what the landing panel describes). The browser follows
@@ -123,11 +132,24 @@ export class NavHistoryList {
 		const query = this.opts.filter().trim();
 		// The scope narrows on the file picked in the toolbar; a query narrows
 		// on text. They compose — the answer to "where in this note did 'scroll'
-		// come up" is the intersection, not either half.
+		// come up" is the intersection, not either half. The text half covers
+		// what the row prints (name, path, section chain, "L412") plus what the
+		// entry recorded (the landing's context block, how a link got here).
 		const path = this.opts.scope();
-		const keep = (i: number) =>
-			inFileScope(this.opts.entries[i], path)
-			&& (!query || matchesNavFilter(this.opts.entries[i], query));
+		// The row's own printed text, derived from the vault's heading cache
+		// rather than carried by the entry, so the pure predicate takes it as an
+		// argument (see matchesNavFilter). Built only while a query is up: an
+		// unfiltered list never asks the heading cache for anything.
+		const printed = (i: number): string => {
+			const d = this.opts.describe(i);
+			return `${d.line ?? ''} ${this.opts.trailFor(this.opts.entries[i], d).join(' ')}`;
+		};
+		const keep = (i: number) => {
+			const entry = this.opts.entries[i];
+			if (!inFileScope(entry, path))
+				return false;
+			return !query || matchesNavFilter(entry, query, printed(i));
+		};
 		const emitted = this.renderChronological(keep);
 
 		if (emitted === 0)
@@ -162,18 +184,53 @@ export class NavHistoryList {
 	// count PLACES.
 	private renderChronological(keep: (i: number) => boolean): number {
 		const { forward, back } = splitHistorySegments(this.opts.entries, this.opts.currentIndex, keep);
+		const blocks = [
+			{ label: t('navHistory.seg.forward'), arrow: '→', indices: forward },
+			{ label: t('navHistory.seg.back'), arrow: '←', indices: back },
+		]
+			.filter(block => block.indices.length > 0)
+			.map(block => ({ ...block, rows: mergeByLanding(block.indices, (i) => this.mergeKey(i)) }));
+		// ONE decision for the whole list, taken before a single row is drawn:
+		// the small print is a strip of fixed columns, so a badge on any row has
+		// to reserve its column on all of them or the coordinates stop lining up.
+		// While no row carries one — the ordinary case — nothing is reserved.
+		const badges = blocks.some(b => b.rows.some(r => this.hasBadge(r.indices)));
 		let emitted = 0;
-		if (forward.length) {
-			this.segment(t('navHistory.seg.forward'), '→', forward.length);
-			for (const r of mergeByLanding(forward, (i) => this.mergeKey(i)))
-				emitted += this.row(r.indices);
-		}
-		if (back.length) {
-			this.segment(t('navHistory.seg.back'), '←', back.length);
-			for (const r of mergeByLanding(back, (i) => this.mergeKey(i)))
-				emitted += this.row(r.indices);
+		for (const block of blocks) {
+			this.segment(block.label, block.arrow, block.indices.length);
+			// Which file the row above named. Reset per segment: the divider is a
+			// break in the reading order, and a blank name under it would read as
+			// a lost row rather than as "the same file as above".
+			let lastName: string | undefined;
+			for (const r of block.rows) {
+				const key = this.nameKey(r.indices[0]);
+				// A file that holds several landings names itself once (see row).
+				// A DELETED file never does: its name carries the red warning, and
+				// blanking it would hide that the step is dead.
+				const sameFile = key !== undefined && key === lastName
+					&& !this.opts.describe(r.indices[0]).missing;
+				lastName = key;
+				emitted += this.row(r.indices, badges, sameFile);
+			}
 		}
 		return emitted;
+	}
+
+	// Whether a row will print one of the small print's badges: the merge count
+	// (three steps or more — see row) or the pane marker. Asked in a pre-pass
+	// because the columns are reserved list-wide (see renderChronological).
+	private hasBadge(indices: number[]): boolean {
+		return indices.length >= 3 || this.opts.paneName(this.opts.entries[indices[0]]) !== undefined;
+	}
+
+	// What "the same file" means to the name column: the path, or the view type
+	// for a pathless view step — two rows of the graph view would otherwise
+	// repeat that label too.
+	private nameKey(i: number): string | undefined {
+		const entry = this.opts.entries[i];
+		if (!entry)
+			return undefined;
+		return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
 	}
 
 	// A merged row must never hide a reachable position, so the key carries
@@ -205,8 +262,10 @@ export class NavHistoryList {
 	// selection, and lives in the preview panel's head. The landing's own text is
 	// deliberately NOT here either: as a second line it doubled the row height,
 	// and beside the section it squeezed both into ellipses.
+	// `badges` is the list-wide reservation (see renderChronological) and
+	// `sameFile` says the row above has already named this note.
 	// Returns 1 so callers can count what was drawn.
-	private row(indices: number[]): number {
+	private row(indices: number[], badges: boolean, sameFile: boolean): number {
 		const rep = indices[0];
 		const entry = this.opts.entries[rep];
 		const d = this.opts.describe(rep);
@@ -237,7 +296,17 @@ export class NavHistoryList {
 		const file = row.createSpan({
 			cls: `nav-row-file${d.missing ? ' is-missing' : ''}`,
 		});
-		file.createSpan({ text: d.file, cls: 'nav-row-name' });
+		// The note names itself ONCE per run of its own rows: a file holding
+		// several landings would otherwise print the same name down the list
+		// (see renderChronological), and the block reads as one note's places
+		// instead of as N copies of one name. The text stays IN the row — the
+		// stylesheet clips it — so the option still names its file to a screen
+		// reader, and the name column's width is measured from the rows that
+		// print it.
+		file.createSpan({
+			text: d.file,
+			cls: `nav-row-name${sameFile ? ' is-continuation' : ''}`,
+		});
 
 		// The section the landing sits in, deepest one or two levels: the coarse
 		// index a reader matches against memory, and the second half of what the
@@ -245,13 +314,17 @@ export class NavHistoryList {
 		// left a hole in the middle of every row with a short name.
 		// The cell is created even when there is no section, and empty: the row
 		// is a grid of tracks, so a missing element would let later cells slide
-		// one track left.
-		const trail = rowTrail(this.opts.trailFor(entry, d), d.anchor);
+		// one track left. The levels are tagged so that the deepest one is the
+		// last to give way when the column runs out of room (see styles.css).
+		const trail = rowTrail(this.opts.trailFor(entry, d));
 		const crumb = row.createSpan({ cls: 'nav-row-trail' });
 		for (let i = 0; i < trail.length; i++) {
 			if (i > 0)
 				crumb.createSpan({ text: '›', cls: 'nav-trail-sep' });
-			crumb.createSpan({ text: trail[i] });
+			crumb.createSpan({
+				text: trail[i],
+				cls: i === trail.length - 1 ? 'nav-trail-deep' : 'nav-trail-seg',
+			});
 		}
 
 		// The small print — how many steps this row stands for, which pane of the
@@ -260,21 +333,24 @@ export class NavHistoryList {
 		// that the two layouts can place it as a block. On a pointing device it
 		// is a strip at the row's right edge, its four cells of fixed width
 		// right-aligned inside it so they line up as columns down the list; on a
-		// phone it is the row's second line, starting at the row's left edge
-		// under the name (see styles.css). Either way every cell is created even
-		// when it has nothing to say — the cells are fixed columns, and a missing
-		// element would let the ones after it slide one column left (the age into
-		// the count's slot). A pair is not worth a chip: "×2" is the commonest
-		// count and the emptiest of them, so the count starts at three and below
-		// that the row simply is what it is.
+		// phone it is the row's second line (see styles.css). Each cell is
+		// created even when it has nothing to say, but ONLY while something else
+		// in the list does (`badges`): a reserved column printed nothing on every
+		// row of the ordinary history and cost the row ~8ch of quiet zone to do
+		// it, so nothing is reserved until a badge is actually on screen — and
+		// then every row reserves it, or the coordinates stop lining up. A pair
+		// is not worth a chip either: "×2" is the commonest count and the
+		// emptiest of them, so the count starts at three.
 		const meta = row.createDiv({ cls: 'nav-row-meta' });
-		const count = meta.createSpan({ cls: 'nav-row-count' });
-		if (indices.length >= 3)
-			count.setText(`×${indices.length}`);
-		const pane = meta.createSpan({ cls: 'nav-row-pane' });
-		const paneLabel = this.opts.paneName(entry);
-		if (paneLabel)
-			pane.setText(paneLabel);
+		if (badges) {
+			const count = meta.createSpan({ cls: 'nav-row-count' });
+			if (indices.length >= 3)
+				count.setText(`×${indices.length}`);
+			const pane = meta.createSpan({ cls: 'nav-row-pane' });
+			const paneLabel = this.opts.paneName(entry);
+			if (paneLabel)
+				pane.setText(paneLabel);
+		}
 		const pos = meta.createDiv({ cls: 'nav-row-pos' });
 		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
@@ -387,7 +463,9 @@ export class NavHistoryList {
 		// a row selects it (and a click travels there), but throwing a whole-note
 		// popover over the list every time the pointer crosses a row made the
 		// list unusable for the scanning it is there for. The section is also the
-		// part a reader points at to confirm a spot.
+		// part a reader points at to confirm a spot — and the column is only as
+		// wide as its text (see overTrail), so the blank middle of a row is not
+		// part of it.
 		const onTrail = this.overTrail(ev, row);
 		if (onTrail && !this.trailHover && this.visible.includes(rep))
 			this.opts.onRequestPreview(ev, row, rep);
@@ -398,6 +476,10 @@ export class NavHistoryList {
 	// Tested by X rather than by DOM containment: a note without headings still
 	// has the cell (the row's grid needs it), but an empty cell has no height to
 	// be hit-tested on, while its column is exactly the strip a user points at.
+	// The cell HUGS its text (see .nav-row-trail in styles.css), which is what
+	// keeps this box test honest: as a stretched grid item it spanned the row's
+	// whole flexible middle track, so most of every row — the blank space after
+	// a short section included — asked for the whole-note popover.
 	private overTrail(ev: MouseEvent, row: HTMLElement): boolean {
 		const cell = row.querySelector<HTMLElement>('.nav-row-trail');
 		if (!cell)
@@ -468,12 +550,15 @@ export class NavHistoryList {
 	// Where there is no measurement at all the property is left unset and the
 	// stylesheet's `max-content` fallback stands — never 0px, which would erase
 	// the names.
+	// A row whose name the sheet CLIPS (the same file as the row above) is
+	// skipped: its box is a 1px sliver, and the text it repeats is already
+	// measured on the row that prints it.
 	private fitNameColumn(): void {
 		let widest = 0;
 		let cap = 0;
 		// Scoped to ROWS: on touch the landing panel lives inside the list too,
 		// and its own copies of these cells are not columns of it.
-		for (const el of Array.from(this.opts.list.querySelectorAll<HTMLElement>('.position-restore-nav-row .nav-row-name'))) {
+		for (const el of Array.from(this.opts.list.querySelectorAll<HTMLElement>('.position-restore-nav-row .nav-row-name:not(.is-continuation)'))) {
 			widest = Math.max(widest, this.textWidth(el));
 			const size = parseFloat(window.getComputedStyle(el).fontSize);
 			if (Number.isFinite(size))

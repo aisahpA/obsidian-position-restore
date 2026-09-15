@@ -1,6 +1,6 @@
 // The history browser's constants: its hover-link source id, the body classes
 // and CSS variables it writes for the core page preview, and the tuning numbers
-// behind its layout and its preview reads.
+// behind its layout.
 
 // The id this panel registers as a hover-link source (see main.ts). The core
 // "Page preview" plugin keys its per-source options — including whether the Mod
@@ -51,21 +51,6 @@ export const REVEAL_DEADLINE_MS = 1200;
 // plugin offers from outside — and it is written by the same call that positions
 // the preview, so the popover is complete by the time it appears.
 export const LANDING_MARK_CLASS = '.is-flashing';
-
-// A vault read for the preview is deferred this long: the strip follows the
-// pointer, and a mouse sweep across rows must not queue a whole-file read per
-// row passed over. Only a row the pointer actually rests on is worth reading.
-export const PREVIEW_READ_DELAY_MS = 120;
-
-// How many notes' lines the preview keeps. Each entry is a whole file split
-// into lines, so an unbounded cache pins every note visited in a session.
-export const PREVIEW_CACHE_MAX = 8;
-
-// How many lines either side of the landing the preview shows. The preview is
-// its own scrolling panel beside the list, so it no longer competes with the
-// list for height: a context window deep enough to recognize a spot is now
-// affordable, and the panel scrolls when even that is not enough.
-export const PREVIEW_RADIUS = 3;
 
 // Above this many entries the modal pins its height and scrolls the list
 // inside it (filtering must not resize and re-center the dialog). Below it

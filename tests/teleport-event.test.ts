@@ -220,10 +220,11 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
 	});
 
-	it('flags a left entry whose cursor sat outside the viewport', () => {
+	it('lands a left entry on the viewport when its cursor sat outside it', () => {
 		// The user scrolled the cursor line off screen, then jumped away: the
-		// left entry must describe the viewport (cursorOffscreen → the panel
-		// falls back to scroll + anchor), not the invisible cursor line.
+		// left entry must describe the viewport it actually showed, not the
+		// invisible cursor line — the capture decides this and records the
+		// answer (contextAt), so the assertion is the recorded landing.
 		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
@@ -248,8 +249,10 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 			scroll: 10,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 			anchor: 'line 10',
-			cursorAnchor: 'line 3',
-			cursorOffscreen: true,
+			// The off-screen cursor makes the landing the VIEWPORT top (10), and
+			// the recorded block runs five lines either side of it.
+			context: Array.from({ length: 11 }, (_, i) => ({ line: 5 + i, text: `line ${5 + i}` })),
+			contextAt: 5,
 		});
 	});
 

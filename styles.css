@@ -646,9 +646,28 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	text-overflow: ellipsis;
 }
 
+/* The note a row above already named: the cell stays blank so a file holding
+   several landings reads as one block instead of as N copies of one name (see
+   list.ts renderChronological). The text is CLIPPED rather than dropped — the
+   row keeps naming its file to a screen reader (an option with no name would
+   read as "L412, 3 min ago"), and the name column measures the rows that print
+   it anyway (see fitNameColumn). */
+.position-restore-nav-row .nav-row-name.is-continuation {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 /* How many same-landing entries collapsed into this row, and which pane holds
    the file: one shape, one tier, one right-aligned slot each. The count's 4ch is
-   what "×120" takes, so "×2" and "×12" end on the same edge. */
+   what "×120" takes, so "×2" and "×12" end on the same edge. The cells exist
+   only while something in the list uses them (see list.ts renderChronological):
+   reserved on every row they printed nothing, and the 8ch they held sat between
+   the coordinate and the age of rows that had neither. */
 .position-restore-nav-row .nav-row-count,
 .position-restore-nav-row .nav-row-pane {
 	min-width: 4ch;
@@ -691,18 +710,54 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
    on the same x on every row — the two halves of what a row says, and the one
    place in the list where a column of text is ragged is the sections' own
    ends, which is what reading them is. The extra start margin is what keeps
-   the two halves apart — the grid gap alone read as one run of text. Its strip
-   is also the native page preview's trigger area (see onListHover), which is
-   why it gets a cursor of its own — it is the one part of the row that does
-   something a click does not. */
+   the two halves apart — the grid gap alone read as one run of text.
+   The cell HUGS its crumbs (width: max-content, clamped by the track) rather
+   than stretching across the flexible track: it is also the native page
+   preview's trigger area (see overTrail, which tests the cell's box), and as a
+   stretched item that box was most of the row — the blank space after a short
+   section popped a whole-note preview over the list. Now the trigger is exactly
+   the text a reader can see and point at. */
 .position-restore-nav-row .nav-row-trail {
+	display: flex;
+	align-items: baseline;
+	width: max-content;
+	max-width: 100%;
 	min-width: 0;
 	margin-inline-start: 0.5rem;
 	overflow: hidden;
-	text-overflow: ellipsis;
 	color: var(--nav-muted);
 	font-size: var(--font-ui-smaller);
+}
+
+/* When the column runs out of room the OUTER levels give way first: the shrink
+   weights below are a collapse order, not a proportion (100:1), so the deepest
+   level — the one a reader matches a spot against memory by — keeps its text
+   until only it is left to ellipsize. */
+.position-restore-nav-row .nav-row-trail .nav-trail-seg {
+	flex: 0 100 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.position-restore-nav-row .nav-row-trail .nav-trail-deep {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The crumbs, not the cell, carry the help cursor: the cursor is the "this does
+   something a click does not" hint, and it belongs on the part that does. */
+.position-restore-nav-row .nav-row-trail .nav-trail-seg,
+.position-restore-nav-row .nav-row-trail .nav-trail-deep {
 	cursor: help;
+}
+
+.position-restore-nav-row .nav-row-trail .nav-trail-sep {
+	flex: 0 0 auto;
 }
 
 .nav-trail-sep {
@@ -715,12 +770,21 @@ body.position-restore-nav-open.is-preview-pending > .popover.hover-popover {
 	color: var(--nav-faint);
 }
 
-/* The preview's metadata tokens: which pane holds the entry, and how the step
-   was made (the row's old type column). */
+/* The preview's metadata tokens: which pane holds the entry, how the step was
+   made (the row's old type column), where a link came from, and whether the
+   file has been written since the step was recorded. */
 .position-restore-nav-preview .nav-preview-pane,
-.position-restore-nav-preview .nav-preview-type {
+.position-restore-nav-preview .nav-preview-type,
+.position-restore-nav-preview .nav-preview-via,
+.position-restore-nav-preview .nav-preview-modified {
 	color: var(--nav-muted);
 	font-size: var(--font-ui-smaller);
+}
+
+/* "Written since": a warning about the text below it, so it is the one token
+   that may not read as ordinary quiet metadata. */
+.position-restore-nav-preview .nav-preview-modified {
+	color: var(--text-warning, var(--nav-muted));
 }
 
 /* An inferred teleport (not a deliberate jump): dimmer and italic, the cue

@@ -2,7 +2,7 @@
 // the render order (list → pinned card → panel), the keyboard, and travel; every
 // other piece is a module beside it:
 //   - constants.ts          the tuning numbers and the popover class names
-//   - model.ts / listing.ts / panes.ts / preview-lines.ts   the pure model
+//   - model.ts / listing.ts / panes.ts   the pure model
 //   - reads.ts              every vault read, cached
 //   - list.ts               the rows, the selection, the measured columns
 //   - scope-picker.ts       the "only this note" switch, chip and menu
@@ -103,12 +103,7 @@ export class NavHistoryModal extends Modal {
 		savedPosition?: (path: string) => EphemeralState | undefined,
 	) {
 		super(app);
-		this.reads = new NavHistoryReads(app, nav, {
-			savedPosition,
-			// A deferred read landed: the landing panel is what waits for it.
-			onLinesRead: () => this.panel.render(),
-			isClosed: () => this.closed,
-		});
+		this.reads = new NavHistoryReads(app, nav, { savedPosition });
 	}
 
 	onOpen() {
@@ -207,8 +202,6 @@ export class NavHistoryModal extends Modal {
 			describe: rep => this.reads.describe(rep),
 			trailFor: (entry, d) => this.trailFor(entry, d),
 			paneName: entry => this.paneName(entry),
-			linesFor: path => this.reads.linesFor(path),
-			scheduleRead: path => this.reads.scheduleRead(path),
 			jump: rep => this.jump(rep),
 		});
 		this.render();
@@ -224,7 +217,6 @@ export class NavHistoryModal extends Modal {
 
 	onClose() {
 		this.closed = true;
-		this.reads.cancelRead();
 		this.pagePreview.dispose();
 		document.body.removeClass(BODY_OPEN_CLASS);
 		window.removeEventListener('resize', this.onWindowResize);

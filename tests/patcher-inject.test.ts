@@ -301,4 +301,43 @@ describe('OpenPatcher open classification', () => {
 		inject(leaf, SOURCE_OPEN_A(), undefined);
 		expect(recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
+
+	it('records where a plain link came from, and keeps the step keyless', () => {
+		// A [[note]] link carries no #/^ target, so pendingLinkText stays unset:
+		// the entry must remain a keyless visit (the key regime decides restore
+		// behavior) while still remembering the note the link was clicked in.
+		const { state, leaf, inject, recordOpen } = makeHarness();
+		state.pendingViaPath = 'notes/来源.md';
+		state.pendingViaText = 'b|另见';
+
+		inject(leaf, SOURCE_OPEN_A('b.md'), undefined);
+
+		expect(recordOpen).toHaveBeenCalledWith('b.md', 'leaf-1', {
+			key: undefined,
+			force: false,
+			via: 'link',
+			viaPath: 'notes/来源.md',
+			viaText: 'b|另见',
+		});
+		// Consumed, so the next unrelated open cannot inherit the origin.
+		expect(state.pendingViaPath).toBeUndefined();
+		expect(state.pendingViaText).toBeUndefined();
+	});
+
+	it('a keyed anchor link keeps its key and carries no separate origin', () => {
+		const { state, leaf, inject, recordOpen } = makeHarness();
+		state.pendingLinkText = 'b.md#安装步骤';
+		state.pendingViaPath = 'notes/来源.md';
+		state.pendingViaText = 'b.md#安装步骤';
+
+		inject(leaf, SOURCE_OPEN_A('b.md'), undefined);
+
+		expect(recordOpen).toHaveBeenCalledWith('b.md', 'leaf-1', {
+			key: 'b.md#安装步骤',
+			force: false,
+			via: undefined,
+			viaPath: undefined,
+			viaText: undefined,
+		});
+	});
 });

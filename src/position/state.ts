@@ -163,6 +163,15 @@ export class PositionState {
 	// one entry). Cleared together with pendingLinkKind.
 	pendingLinkText: string | undefined;
 
+	// The same call's ORIGIN, for the navigation history: the note the link
+	// was clicked in and the link's text as written. Separate from
+	// pendingLinkText because it must not touch the dedup/landing regime
+	// (a plain [[note]] link stays a keyless visit) and because it is wanted
+	// for links WITHOUT a target, which pendingLinkText deliberately ignores.
+	// Cleared and timed out together with it.
+	pendingViaPath: string | undefined;
+	pendingViaText: string | undefined;
+
 	// One-shot flag armed by NavHistory right before it invokes the native
 	// app:go-back / app:go-forward command: the resulting setViewState must
 	// inject THIS plugin's saved position over the native entry's eState

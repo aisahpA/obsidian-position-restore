@@ -1,8 +1,8 @@
 // Tests for the history browser's pure pieces (src/nav-history/browser/):
 // row description, merging, filtering, the file-scope picker's contents, time
-// labels, direction segments, pane numbering and the preview window. The
-// modal's own DOM stays untested here; everything whose correctness a reader
-// would doubt is pure.
+// labels, direction segments and pane numbering, plus the landing the panel
+// prints (read from the entry's own recorded block). The modal's DOM stays
+// untested here; everything whose correctness a reader would doubt is pure.
 
 import { describe, it, expect } from 'vitest';
 
@@ -12,13 +12,18 @@ import {
 	splitHistorySegments,
 } from '@/nav-history/browser/listing';
 import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '@/nav-history/browser/panes';
-import { previewWindow } from '@/nav-history/browser/preview-lines';
 import { t } from '@/i18n';
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { NavEntryState } from '@/types';
 
 const hasFile = () => true;
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
+// A recorded landing block, as capture writes it: surrounding lines with the
+// landing at `at`.
+const block = (lines: string[], at: number): NavEntryState => ({
+	context: lines.map((text, i) => ({ line: i, text })),
+	contextAt: at,
+});
 
 describe('describeNavEntry', () => {
 	it('a file entry shows its basename and the key-derived jump type', () => {
@@ -36,27 +41,28 @@ describe('describeNavEntry', () => {
 	});
 
 
-	it('an edit capture shows the cursor line and the cursor line text', () => {
+	it('reads the landing line and its text from the recorded block', () => {
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top', cursorAnchor: 'cursor line' },
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'cursor line', 'z'], 2) },
 		} as NavHistoryEntry, hasFile);
 		expect(edit.type).toBe(t('navHistory.type.teleport'));
-		expect(edit.line).toBe('L100');
-		// the same landing as a 0-based index, for the preview window
-		expect(edit.lineIndex).toBe(99);
+		expect(edit.line).toBe('L3');
+		// the same landing as a 0-based index, for the panel's landing mark
+		expect(edit.lineIndex).toBe(2);
+		// the text is the landing line's own, never the viewport-top anchor's
 		expect(edit.anchor).toBe('cursor line');
 		expect(edit.soft).toBe(true);
 	});
 
-	it('an edit capture without cursorAnchor (legacy entry, blank line) shows no text', () => {
-		// The viewport-top anchor belongs to another line — showing it next
-		// to the cursor line number would misdescribe the landing.
+	it('a blank landing line in the block shows no text', () => {
+		// The viewport-top anchor belongs to another line — showing it next to
+		// the landing line number would misdescribe the landing.
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top' },
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['prev', '', 'next'], 1) },
 		} as NavHistoryEntry, hasFile);
-		expect(edit.line).toBe('L100');
+		expect(edit.line).toBe('L2');
 		expect(edit.anchor).toBeUndefined();
 	});
 
@@ -68,45 +74,45 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L42');
 	});
 
-	it('a reading capture shows the viewport top line and its anchor', () => {
-		// the stale pre-preview cursor is ignored
-		const read = describeNavEntry({
-			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
-			st: { scroll: 41, mode: 'preview', cursor: line(3), anchor: 'viewport top' },
-		} as NavHistoryEntry, hasFile);
-		expect(read.type).toBe(t('navHistory.type.open'));
-		expect(read.line).toBe('L42');
-		expect(read.anchor).toBe('viewport top');
-	});
-
-	it('a cursorless edit capture shows the viewport line and its anchor', () => {
+	it('a state with no block falls back to the viewport top line and the anchor', () => {
+		// Not reachable for an entry this plugin recorded (see
+		// NavEntryState.context), but a position record fed into the row has no
+		// block, and the viewport top is the honest guess then.
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
-			st: { scroll: 41, mode: 'source', anchor: 'viewport top' },
+			st: { scroll: 41, cursor: line(3), anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
 		expect(d.line).toBe('L42');
-		expect(d.anchor).toBe('viewport top');
-	});
-
-	it('a pre-upgrade entry (no mode) falls back to cursor-first', () => {
-		const d = describeNavEntry({
-			kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题',
-			st: { scroll: 42, cursor: line(99) },
-		} as NavHistoryEntry, hasFile);
-		expect(d.line).toBe('L100');
 		expect(d.anchor).toBeUndefined();
 	});
 
-	it('an off-screen cursor capture falls back to the viewport line and anchor', () => {
-		// Source-mode scrolling left the cursor behind (cursorOffscreen): the
-		// restore lands on the viewport, so the row describes the viewport,
-		// never the invisible cursor line.
+	it('a cursorless state with no block still shows the viewport line', () => {
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
-			st: { scroll: 499, mode: 'source', cursor: line(100), anchor: 'viewport top', cursorAnchor: 'cursor line', cursorOffscreen: true },
+			st: { scroll: 41, anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
-		expect(d.line).toBe('L500');
-		expect(d.anchor).toBe('viewport top');
+		expect(d.line).toBe('L42');
+	});
+
+	it('shows the recorded file size beside the coordinate, and the written-since marker', () => {
+		const st: NavEntryState = { scroll: 41, lineCount: 1200, mtime: 1000 };
+		const at = (mtime?: number) => describeNavEntry(
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', st } as NavHistoryEntry,
+			hasFile, undefined, () => mtime,
+		);
+		expect(at(1000).lineCount).toBe(1200);
+		expect(at(1000).stale).toBe(false);
+		expect(at(2000).stale).toBe(true);
+		// A file the plugin cannot stat reads as unchanged, never as touched.
+		expect(at(undefined).stale).toBe(false);
+	});
+
+	it('an entry with no recorded mtime is never called stale', () => {
+		const d = describeNavEntry(
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', st: { scroll: 1 } } as NavHistoryEntry,
+			hasFile, undefined, () => 999,
+		);
+		expect(d.stale).toBe(false);
 	});
 
 	it('outline and anchor keys label their types; a pathless entry is the graph', () => {
@@ -167,8 +173,11 @@ describe('mergeByLanding', () => {
 	});
 });
 
-// The browser's filter box: tokens AND-match across file name, path, and the
-// anchor text, read straight from the entry (no DOM, no describeNavEntry).
+// The browser's filter box: tokens AND-match across everything the entry
+// recorded (name, path, the landing context block, the legacy anchors, a
+// jump's key, a link's origin) plus the text the ROW prints (the section
+// chain and the line label), handed in by the caller. No DOM, and no
+// describeNavEntry: the predicate is testable on its own.
 describe('matchesNavFilter', () => {
 	const visit = (path: string, st?: NavEntryState): NavHistoryEntry =>
 		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavHistoryEntry);
@@ -197,6 +206,57 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, 'graph')).toBe(true);
 		expect(matchesNavFilter(e, t('navHistory.graphView'))).toBe(true);
 		expect(matchesNavFilter(e, 'canvas')).toBe(false);
+	});
+
+	it('matches the recorded context block, not only the landing line', () => {
+		// The block is what the user was looking at when they left (see
+		// NavEntryState.context) — the whole point of recording it is that a
+		// search may hit any line of it.
+		const e = visit('notes/a.md', {
+			context: [
+				{ line: 10, text: '前一段：换行与量化' },
+				{ line: 11, text: '落点这一行' },
+				{ line: 12, text: '后一段：读取死区' },
+			],
+			contextAt: 1,
+		});
+		expect(matchesNavFilter(e, '读取死区')).toBe(true);
+		expect(matchesNavFilter(e, '换行 落点')).toBe(true);
+		expect(matchesNavFilter(e, '没写过的词')).toBe(false);
+	});
+
+	it('matches what the row prints: the section chain and the line label', () => {
+		// Derived from the vault's heading cache rather than the entry, so the
+		// caller passes it (see NavHistoryList.render).
+		const e = visit('notes/a.md');
+		expect(matchesNavFilter(e, '架构设计', 'L412 总览 › 架构设计')).toBe(true);
+		expect(matchesNavFilter(e, 'L412', 'L412 总览')).toBe(true);
+		expect(matchesNavFilter(e, 'L999', 'L412 总览')).toBe(false);
+	});
+
+	it("matches a jump's own key: the heading, or the anchor the user picked", () => {
+		const outline = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## 架构设计' } as NavHistoryEntry;
+		expect(matchesNavFilter(outline, '架构设计')).toBe(true);
+		const link = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'b.md#安装步骤' } as NavHistoryEntry;
+		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
+	});
+
+	it('ignores a caller target key: a timestamp, not words', () => {
+		// Caller-target jumps (a search-result click) are keyed `caller:<ms>`
+		// purely to take the keyed landing regime — there is nothing in there
+		// a user wrote.
+		const e = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'caller:1730000000000' } as NavHistoryEntry;
+		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
+	});
+
+	it('matches where a plain link came from, and what it said', () => {
+		const e = {
+			kind: 'visit', path: 'b.md', leafId: 'l', t: 0,
+			via: 'link', viaPath: 'notes/来源笔记.md', viaText: 'b|另见',
+		} as NavHistoryEntry;
+		expect(matchesNavFilter(e, '来源笔记')).toBe(true);
+		expect(matchesNavFilter(e, '另见')).toBe(true);
+		expect(matchesNavFilter(e, '别的笔记')).toBe(false);
 	});
 });
 
@@ -395,27 +455,6 @@ describe('paneInfo / paneLabel', () => {
 
 // The preview strip: the landing line plus a neighbour either side, clamped
 // to the document, so a spot is recognized instead of guessed.
-describe('previewWindow', () => {
-	const lines = ['a', 'b', 'c', 'd', 'e'];
-
-	it('returns the landing line with one neighbour either side, marked', () => {
-		expect(previewWindow(lines, 2)).toEqual([
-			{ num: 2, text: 'b', mark: false },
-			{ num: 3, text: 'c', mark: true },
-			{ num: 4, text: 'd', mark: false },
-		]);
-	});
-
-	it('clamps at the document edges', () => {
-		expect(previewWindow(lines, 0).map(l => l.num)).toEqual([1, 2]);
-		expect(previewWindow(lines, 4).map(l => l.num)).toEqual([4, 5]);
-	});
-
-	it('an empty document has nothing to preview', () => {
-		expect(previewWindow([], 0)).toEqual([]);
-	});
-});
-
 // The section a landing sits in: the coarse index a reader scans by, and the
 // reason the strip and the rows can name it without reading the file.
 describe('headingTrailAtLine', () => {
@@ -437,16 +476,15 @@ describe('headingTrailAtLine', () => {
 
 describe('rowTrail', () => {
 	it('keeps the deepest two levels', () => {
-		expect(rowTrail(['A', 'B', 'C'], undefined)).toEqual(['B', 'C']);
-		expect(rowTrail(['A'], undefined)).toEqual(['A']);
+		expect(rowTrail(['A', 'B', 'C'])).toEqual(['B', 'C']);
+		expect(rowTrail(['A'])).toEqual(['A']);
 	});
 
-	it('drops the heading the landing line itself carries', () => {
-		// an outline jump lands ON its heading: the row quotes that text, so
-		// repeating it as a section would say the same thing twice
-		expect(rowTrail(['A', 'B', '决策'], '## 决策')).toEqual(['A', 'B']);
-		expect(rowTrail(['A', 'B', '决策'], '决策')).toEqual(['A', 'B']);
-		// prose that merely mentions the section is not a duplicate
-		expect(rowTrail(['A', 'B'], 'B 的另一半')).toEqual(['A', 'B']);
+	it('keeps the heading the landing line itself carries', () => {
+		// an outline jump lands ON its heading: that heading IS the deepest
+		// level, and the row prints no landing text to repeat it with (only the
+		// preview panel does) — dropping it left the row naming the PARENT
+		// section, which is the one level a reader cannot place the spot by.
+		expect(rowTrail(['A', 'B', '决策'])).toEqual(['B', '决策']);
 	});
 });

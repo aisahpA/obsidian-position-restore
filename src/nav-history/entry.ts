@@ -4,9 +4,8 @@ import { NavEntryState } from '@/types';
 // ('jump' | 'visit' | 'view' | 'teleport'). Every consumer reads the tag, never field
 // presence: a malformed shape fails the type check and the load filter
 // instead of slipping through a property coincidence, and a new variant
-// flags every unexhausted switch. st (NavEntryState): its display fields
-// (anchor/cursorAnchor/mode/cursorOffscreen) come from the low-frequency
-// nav reads only.
+// flags every unexhausted switch. st (NavEntryState): its context block,
+// line count, mtime and anchor come from the low-frequency nav reads only.
 export type NavHistoryEntry = NavJump | NavVisit | NavView | NavTeleport;
 
 // What a recorder constructs: a variant without its timestamp. `t` is added
@@ -55,14 +54,27 @@ export interface NavJump extends NavEntryBase {
 // active editor changes the same way, and an activation following an open
 // of the same file in the same leaf is absorbed by it). Carries no
 // position of its own: st is refreshed on every leave ("where the user
-// actually was"). via only feeds the history browser's badge (switch for an
-// activation, open by default); it never participates in dedup or
-// positioning.
+// actually was").
 export interface NavVisit extends NavEntryBase {
 	kind: 'visit';
 	path: string;
 	st?: NavEntryState;
-	via?: 'switch';
+	// How this step was made. Display-only (the browser's badge): never
+	// participates in dedup or positioning. 'switch' is a tab/pane
+	// activation, 'link' an open that came from clicking a link — the
+	// distinction a plain [[note]] link needed, since it carries no key of
+	// its own (see viaPath/viaText below).
+	via?: 'switch' | 'link';
+	// For a 'link' open: the note the link was CLICKED IN, and the link's own
+	// text as written (which may carry a |display alias). Both are recorded
+	// because neither is derivable later — the destination path above says
+	// where the user arrived, never where they came from — and both are
+	// searchable, so "the note I followed that link from" and "the words the
+	// link said" are queries the history can answer. A link that carried a
+	// #/^ target is recorded as a keyed NavJump instead (its key already
+	// names the target), so these fields describe plain file links only.
+	viaPath?: string;
+	viaText?: string;
 }
 
 // A non-file main-area view destination (the global graph); a pathless
@@ -96,4 +108,7 @@ export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 
 // Persisted nav-history format version: a mismatched stored blob is
 // dropped whole on load — the history is disposable, no migrations.
-export const NAV_HISTORY_VERSION = 2;
+// v3 added the recorded context block / line count / mtime / link origin
+// (see NavEntryState and NavVisit): the browser reads all of them, so a v2
+// blob would render half-empty rows.
+export const NAV_HISTORY_VERSION = 3;

@@ -23,29 +23,47 @@ export interface NavEntryDescription {
 	// The same landing line as a 0-based index (what the preview window reads,
 	// and where `line` is computed from). `line` is the display form: "L412".
 	lineIndex?: number;
+	// The file's line count at capture time, when the entry recorded one — the
+	// denominator that turns "L412" into a place in the note ("L412 / 1200").
+	lineCount?: number;
+	// The file was WRITTEN after this position was recorded (its live mtime
+	// differs from the recorded one), so the recorded landing text may no
+	// longer be what is there. Said out loud rather than hidden: the search box
+	// matches that recorded text.
+	stale?: boolean;
 	anchor?: string;
 	missing: boolean;
 	// An inferred entry (NavTeleport): the user did not deliberately jump
 	// there — the badge renders dimmed to signal lower confidence.
 	soft?: boolean;
+	// For a step made by clicking a link (see NavVisit.viaPath): the note the
+	// link was clicked in, and the link's own text, which may carry a
+	// |display alias. Only the SOURCE is shown, and only in the landing panel's
+	// head (the row has no room); both are searchable.
+	viaName?: string;
+	viaText?: string;
+}
+
+// The display text of a link's own href: `Note|The words shown` keeps only the
+// words, since the target half only repeats the destination the row already
+// names.
+export function linkDisplayText(viaText: string): string {
+	const bar = viaText.lastIndexOf('|');
+	return (bar === -1 ? viaText : viaText.slice(bar + 1)).trim();
 }
 
 // Which line a step lands on, and the text that goes with it (the row shows the
-// number, the preview shows the text): a reading capture lands on the viewport
-// top line (its remap anchor), an edit
-// capture lands on the cursor line (its cursorAnchor — never the viewport
-// top text, a different line; missing for blank cursor lines and legacy
-// entries). An edit capture whose cursor sat OUTSIDE the viewport
-// (cursorOffscreen — source-mode scrolling leaves the cursor behind) falls
-// back to the viewport top line + anchor: the restore lands on the viewport,
-// so that is where the user actually was. Line number semantics by capture
-// mode (see NavEntryState.mode): a reading capture carries the editor's
-// stale pre-preview cursor, so only the recorded mode disambiguates —
-// pre-upgrade entries (no mode) fall back to the cursor-first heuristic.
+// number, the panel shows the block): both come straight out of the capture's
+// recorded context block, where `contextAt` already names the landing — the
+// capture decided it from the view mode and the cursor's visibility, which is
+// geometry no later reader can reconstruct (see capture/ephemeral.ts). The
+// fallbacks are for a state that never went through that read: the file's
+// saved record below, or a view-like object a test feeds in.
 export function describeNavEntry(
 	entry: NavHistoryEntry,
 	hasFile: (path: string) => boolean,
 	savedPosition?: (path: string) => EphemeralState | undefined,
+	mtimeOf?: (path: string) => number | undefined,
 ): NavEntryDescription {
 	if (entry.kind === 'view') {
 		return {
@@ -55,9 +73,10 @@ export function describeNavEntry(
 			missing: false,
 		};
 	}
-	// Jump type from the entry kind; a keyless visit is an open by default
-	// and a tab/pane activation when tagged (via: 'switch'). A teleport is
-	// its own kind (an inferred move, not a deliberate jump).
+	// Jump type from the entry kind; a keyless visit is an open by default,
+	// a tab/pane activation when tagged (via: 'switch'), and an open that came
+	// from clicking a link when tagged (via: 'link'). A teleport is its own
+	// kind (an inferred move, not a deliberate jump).
 	let type: string;
 	if (entry.kind === 'jump') {
 		if (entry.key.startsWith('outline:'))
@@ -66,23 +85,26 @@ export function describeNavEntry(
 			type = t('navHistory.type.link');
 	} else if (entry.kind === 'teleport') {
 		type = t('navHistory.type.teleport');
+	} else if (entry.via === 'switch') {
+		type = t('navHistory.type.switch');
+	} else if (entry.via === 'link') {
+		type = t('navHistory.type.link');
 	} else {
-		type = entry.via === 'switch' ? t('navHistory.type.switch') : t('navHistory.type.open');
+		type = t('navHistory.type.open');
 	}
 	const st = entry.st;
+	// The landing is READ, not derived: the capture recorded the block with the
+	// landing line marked (contextAt) — the choice it made from the view mode
+	// and the cursor's visibility (see navDisplayFields). Without a block (a
+	// state that never went through the nav read: the position record below, or
+	// a view-like object a test feeds in) the viewport top is the honest guess,
+	// then the cursor.
+	const landing = st?.context?.[st.contextAt ?? -1];
 	let n: number | undefined;
 	let anchor: string | undefined;
 	if (st) {
-		if (st.mode === 'preview') {
-			n = st.scroll;
-			anchor = st.anchor;
-		} else if (st.cursor && !st.cursorOffscreen) {
-			n = st.cursor.from.line;
-			anchor = st.cursorAnchor;
-		} else {
-			n = st.scroll;
-			anchor = st.anchor;
-		}
+		n = landing?.line ?? st.scroll ?? st.cursor?.from.line;
+		anchor = landing?.text || undefined;
 	} else {
 		// The entry itself carries no position (a tab/pane activation
 		// predating the leave-refresh, or a legacy persisted entry): fall
@@ -96,15 +118,25 @@ export function describeNavEntry(
 			// still where the restore will aim.
 			n = entry.line;
 	}
+	const missing = !hasFile(entry.path);
+	// Recorded-then-written: the live mtime no longer matches the one stamped
+	// into the entry, so the landing text this browser shows and searches may
+	// be gone. Only decidable for an entry that recorded an mtime; a file
+	// Obsidian cannot stat reads as unchanged.
+	const live = mtimeOf?.(entry.path);
 	return {
 		file: baseName(entry.path),
 		title: entry.path,
 		type,
 		line: n !== undefined ? `L${n + 1}` : undefined,
 		lineIndex: n,
+		lineCount: st?.lineCount,
+		stale: !missing && st?.mtime !== undefined && live !== undefined && live !== st.mtime,
 		anchor,
-		missing: !hasFile(entry.path),
+		missing,
 		soft: entry.kind === 'teleport',
+		viaName: entry.kind === 'visit' && entry.viaPath ? baseName(entry.viaPath) : undefined,
+		viaText: entry.kind === 'visit' ? entry.viaText : undefined,
 	};
 }
 
@@ -138,25 +170,11 @@ export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: num
 	return stack.map(h => h.heading);
 }
 
-// The chain as a ROW prints it: the deepest `depth` levels only (a row has one
-// line of width), with the heading the landing line itself carries dropped —
-// the row already quotes that text, so naming the section too would say the
-// same thing twice.
-export function rowTrail(trail: string[], landingText: string | undefined, depth = 2): string[] {
-	const out = trail.slice();
-	if (landingText !== undefined && out.length) {
-		const line = normalizeHeadingText(landingText);
-		if (line && normalizeHeadingText(out[out.length - 1]) === line)
-			out.pop();
-	}
-	return out.slice(-depth);
-}
-
-function normalizeHeadingText(text: string): string {
-	return text
-		.replace(/^#{1,6}\s*/, '')
-		.replace(/#+\s*$/, '')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.toLowerCase();
+// The chain as a ROW prints it: the deepest `depth` levels only, outermost
+// first (a row has one line of width). The deepest level is KEPT even when it is
+// the heading the landing line itself carries: a row prints no landing text (the
+// preview panel does), so that heading is the last, most specific level the row
+// can name — dropping it left the row naming its PARENT section instead.
+export function rowTrail(trail: string[], depth = 2): string[] {
+	return trail.slice(-depth);
 }

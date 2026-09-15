@@ -17,11 +17,15 @@
 // 2. The row is name | section | small print: the name column is measured so it
 //    comes out the SAME width on every row (the section starts at one x down the
 //    list — the column the eye runs down), and the small print (×N, pane,
-//    coordinate, age) is one block of fixed cells after it. The name column is
-//    never a fixed 16em: it is the widest name on screen, capped at 16em and at
-//    a share of the panel, so a shorter name leaves only the difference to the
-//    longest one rather than a hole the eye cannot cross — and never a dead 11ch
-//    age track either, since that one is measured from the labels too.
+//    coordinate, age) is one block of right-aligned cells after it. The two
+//    badge cells are only there while a row uses one (see list.ts
+//    renderChronological). The name column is never a fixed 16em: it is the
+//    widest name on screen, capped at 16em and at a share of the panel, so a
+//    shorter name leaves only the difference to the longest one rather than a
+//    hole the eye cannot cross — and never a dead 11ch age track either, since
+//    that one is measured from the labels too. The section cell hugs its text,
+//    which is also what keeps the native preview's trigger (a box test on that
+//    cell, see list.ts overTrail) the size of the text and not of the row.
 //
 // 3. A touch device gets the same six cells on two lines rather than the old
 //    rule that hid the coordinate and the age below 480px, which left the list
@@ -72,6 +76,31 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-row-trail\s*\{[^}]*margin-inline-start/);
 		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 5ch/);
 		expect(browser).toMatch(/\.nav-row-time\s*\{[^}]*width: var\(--nav-time-col/);
+	});
+
+	// The section column is also the native preview's trigger area, and the
+	// trigger is a box test on this very cell (see list.ts overTrail). As a
+	// stretched grid item the box was the whole flexible middle track, so the
+	// blank space after a short section popped a whole-note popover over the
+	// list; hugging the crumbs makes the trigger exactly the text.
+	it('hugs the section text, and keeps its deepest level when the column runs out', () => {
+		expect(browser).toMatch(/\.nav-row-trail\s*\{[^}]*width: max-content[^}]*max-width: 100%/);
+		// The shrink weights are a COLLAPSE ORDER (100:1), not a proportion:
+		// the outer levels give way long before the deepest one ellipsizes.
+		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-seg\s*\{[^}]*flex: 0 100 auto/);
+		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-deep\s*\{[^}]*flex: 0 1 auto/);
+		// The cursor is the "this does something a click does not" hint, so it
+		// belongs on the crumbs rather than on the whole track.
+		expect(browser).not.toMatch(/\.nav-row-trail\s*\{[^}]*cursor: help/);
+		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-deep\s*\{[^}]*cursor: help/);
+	});
+
+	// A run of one file's landings prints that name once (see list.ts
+	// renderChronological). The repeats keep the text — an option with no name
+	// would read as "L412, 3 min ago" — and are CLIPPED instead.
+	it('clips the repeated name rather than dropping it from the row', () => {
+		expect(browser).toMatch(/\.nav-row-name\.is-continuation\s*\{[^}]*clip-path: inset\(50%\)/);
+		expect(browser).toMatch(/\.nav-row-name\.is-continuation\s*\{[^}]*position: absolute/);
 	});
 
 	// A phone gets two lines per row instead of the narrow-screen rule that hid

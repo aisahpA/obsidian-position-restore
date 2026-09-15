@@ -170,7 +170,7 @@ export class NavHistory {
 	recordOpen(
 		path: string | undefined,
 		leafId: string,
-		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' } = {},
+		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' | 'link'; viaPath?: string; viaText?: string } = {},
 	) {
 		if (!this.canRecord())
 			return;
@@ -186,7 +186,7 @@ export class NavHistory {
 		this.pushIfNew(
 			opts.key
 				? { kind: 'jump', path, leafId, key: opts.key }
-				: { kind: 'visit', path, leafId, via: opts.via },
+				: { kind: 'visit', path, leafId, via: opts.via, viaPath: opts.viaPath, viaText: opts.viaText },
 			opts.force,
 		);
 	}

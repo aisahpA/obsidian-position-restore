@@ -41,22 +41,54 @@ export function mergeByLanding(
 }
 
 // Pure filter predicate for the search box: every whitespace-separated token
-// must appear (case-insensitive) in the entry's own fields — file name, full
-// path, and the landing/cursor anchor text. Reads the entry directly, never
-// the DOM, so the browser's search is testable without a DOM.
-export function matchesNavFilter(entry: NavHistoryEntry, query: string): boolean {
+// must appear (case-insensitive) somewhere in the entry's searchable text.
+// Two sources, composed here because only the caller knows both:
+//   - the entry's OWN text (navSearchText: file name, path, the recorded
+//     landing context block, the legacy anchors, and the jump's key / link
+//     origin), and
+//   - `extra`, the text the ROW prints (the section chain and the line label),
+//     which the caller derives from the heading cache rather than the entry.
+// Reads no DOM, so the browser's search is testable without one — and a
+// match is always explainable: everything it can hit is either on the row or
+// in the context block the panel renders.
+export function matchesNavFilter(entry: NavHistoryEntry, query: string, extra?: string): boolean {
 	const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0)
 		return true;
-	let hay: string;
-	if (entry.kind === 'view') {
-		hay = `${entry.viewType} ${t('navHistory.graphView')}`;
-	} else {
-		const base = baseName(entry.path);
-		hay = `${base} ${entry.path} ${entry.st?.anchor ?? ''} ${entry.st?.cursorAnchor ?? ''}`;
-	}
-	hay = hay.toLowerCase();
+	const hay = `${navSearchText(entry)} ${extra ?? ''}`.toLowerCase();
 	return tokens.every(tok => hay.includes(tok));
+}
+
+// The entry's own searchable text. The recorded context block comes first
+// because it is the one thing that says what the step WAS — the lines the
+// user was looking at when they left — while the name and path only say
+// where. The remap anchor is added on top: it belongs to the viewport's top
+// line, which the block (built around the landing) does not always reach.
+export function navSearchText(entry: NavHistoryEntry): string {
+	if (entry.kind === 'view')
+		return `${entry.viewType} ${t('navHistory.graphView')}`;
+	const parts = [baseName(entry.path), entry.path];
+	const st = entry.st;
+	if (st) {
+		for (const line of st.context ?? [])
+			parts.push(line.text);
+		parts.push(st.anchor ?? '');
+	}
+	// The jump's key: for an outline click the heading's text, for an anchor
+	// link the target the user picked (`Note#heading`, `^block`). It is the
+	// user's own click vocabulary — and the one form a rename cannot fix —
+	// but a caller target's synthetic `caller:<ms>` key is a timestamp, not
+	// words, so it is dropped.
+	if (entry.kind === 'jump' && !entry.key.startsWith('caller:'))
+		parts.push(entry.key.startsWith('outline:') ? entry.key.slice('outline:'.length) : entry.key);
+	// Where a plain link came from, and what it said (see NavVisit.viaPath).
+	if (entry.kind === 'visit') {
+		if (entry.viaPath)
+			parts.push(baseName(entry.viaPath));
+		if (entry.viaText)
+			parts.push(entry.viaText);
+	}
+	return parts.filter(Boolean).join(' ');
 }
 
 // The file-scope filter (the picker's predicate): does the entry sit in the
