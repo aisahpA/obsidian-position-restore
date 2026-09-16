@@ -14,26 +14,18 @@
 //    transparent instead — always the same hue as the text it sits under,
 //    always lighter against the background, in any palette.
 //
-// 2. The row is name | section | small print: the name column is measured so it
-//    comes out the SAME width on every row (the section starts at one x down the
-//    list — the column the eye runs down), and what is left of the small print
-//    (pane, coordinate, age) is one block of right-aligned cells after it. ×N is
-//    not a column at all: it rides with the file name, and the cell measured for
-//    the name column is the name + its count, so the count is never clipped. The
-//    pane cell is only there while a row uses one (see list.ts
-//    renderChronological). The name column is never a fixed 20em: it is the
-//    widest name on screen, capped at 20em and at a share of the panel, so a
-//    shorter name leaves only the difference to the longest one rather than a
-//    hole the eye cannot cross — and never a dead 11ch age track either, since
-//    that one is measured from the labels too. The name cell is also the native
-//    preview's trigger (a box test on that cell, see list.ts overName): it is the
-//    one cell every row has, and a bounded target rather than the row's whole
-//    flexible middle — which is what the trigger used to be when it sat on the
-//    section column.
+// 2. The list is a TREE: a note's row is its caret plus the name (and its count,
+//    where there are landings to open), and a landing indents under it as
+//    coordinate | section | pane. The name is capped (max-width: 20em), NOT
+//    measured across rows — the tree says with its indent what the flat list
+//    needed a shared name column for — and the pane cell is only there while a
+//    row has one (two live tabs hold that note). The age is not a row cell at
+//    all any more: it lives in the drawer's head.
 //
-// 3. A touch device gets the same six cells on two lines rather than the old
-//    rule that hid the coordinate and the age below 480px, which left the list
-//    saying nothing but file names.
+// 3. On touch a LANDING gets two lines — the coordinate and the section, then the
+//    pane — while a note's row stays on one, rather than the old rule that hid
+//    the coordinate and the age below 480px and left the list saying nothing but
+//    file names.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -64,54 +56,62 @@ describe('history browser quiet tiers', () => {
 		expect(browser.match(/var\(--text-(?:faint|muted)\)/g) ?? []).toEqual([]);
 	});
 
-	// The name column used to be a fixed 16em track, which left a hole the width
-	// of the longest note between the name and the section of every shorter-named
-	// row; content-sizing it fixed the hole but made the section start at a
-	// different x on every row. It is measured now — one width for the whole
-	// list, bounded by the name's own cap and by a share of the panel — and that
-	// is the whole fix, so it is worth pinning. The coordinate keeps its own
-	// width inside the small-print block (5ch, in the mono font it is set in),
-	// and the age column is the other measured one, not a fixed track.
-	it('aligns the section column on a measured, capped name track', () => {
-		expect(browser).toMatch(
-			/grid-template-columns: minmax\(0, var\(--nav-name-col, max-content\)\) minmax\(0, 1fr\) auto;/,
-		);
-		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
-		expect(browser).toMatch(/\.nav-row-trail\s*\{[^}]*margin-inline-start/);
+	// The list is a TREE: a note's row is its caret plus the name, and a landing
+	// indents under it with the coordinate in front of its section. There is no
+	// list-wide measured column any more — that existed so a single column of
+	// sections started on one x down a FLAT list, and the tree says the same
+	// thing with its indent (see the next test).
+	it('lays out a note as caret + name, and a landing as coordinate + section', () => {
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: 1\.1em minmax\(0, 1fr\)/);
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
+		// the landing steps in under the note it belongs to
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
+		// the caret is a fixed square, so a run of names starts on one x
+		expect(browser).toMatch(/\.nav-file-caret\s*\{[^}]*text-align: center/);
+		// the coordinate keeps its own width: the sections below still line up
 		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 5ch/);
-		expect(browser).toMatch(/\.nav-row-time\s*\{[^}]*width: var\(--nav-time-col/);
+		// and the name is capped rather than greedy
+		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
 	});
 
-	it('keeps the section column\u2019s deepest level when it runs out of room', () => {
-		// The shrink weights are a COLLAPSE ORDER (100:1), not a proportion:
-		// the outer levels give way long before the deepest one ellipsizes.
-		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-seg\s*\{[^}]*flex: 0 100 auto/);
-		expect(browser).toMatch(/\.nav-row-trail \.nav-trail-deep\s*\{[^}]*flex: 0 1 auto/);
+	// A folder is printed only where two notes on screen share a name, and it may
+	// be clipped when the name needs the room: the name is what a reader scans,
+	// the folder only what decides between two of them.
+	it('prints the disambiguating folder before the name, and lets the name win', () => {
+		expect(browser).toMatch(/\.nav-row-folder\s*\{[^}]*flex: 0 100 auto[^}]*text-overflow: ellipsis/);
+		expect(browser).toMatch(/\.nav-row-folder\s*\{[^}]*color: var\(--nav-faint\)/);
+		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*flex: 0 1 auto/);
 	});
 
-	// The preview trigger is the NAME cell (see list.ts overName): it is the one
-	// cell every row has, so a note without headings — or a landing above its
-	// first heading — can still be previewed, and it is a bounded target: the
-	// measured name column, not the row's whole flexible middle.
-	it('offers the preview cursor on the name column, and not on a dead row', () => {
-		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*cursor: help/);
-		expect(browser).toMatch(/is-missing \.nav-row-file\s*\{[^}]*cursor: default/);
-		// and the section column stopped being a trigger
-		expect(browser).not.toMatch(/\.nav-row-trail\s*\{[^}]*cursor: help/);
-		expect(browser).not.toMatch(/\.nav-trail-deep\s*\{[^}]*cursor: help/);
+
+	// "You are here" is a dot on the note and on the landing the current entry
+	// recorded: the current position is marked INSIDE the list rather than held
+	// out of it.
+	it('marks the current note and its current landing with a dot', () => {
+		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*color: var\(--interactive-accent\)/);
+		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*flex: 0 0 auto/);
 	});
 
-	// A run of one file's landings prints that name once (see list.ts
-	// renderChronological). The repeats keep the text — an option with no name
-	// would read as "L412, 3 min ago" — and are CLIPPED instead, with the repeat
-	// mark (↳) standing where the name would have been.
-	it('clips the repeated name, and marks the row instead', () => {
-		expect(browser).toMatch(/\.nav-row-name\.is-continuation\s*\{[^}]*clip-path: inset\(50%\)/);
-		expect(browser).toMatch(/\.nav-row-name\.is-continuation\s*\{[^}]*position: absolute/);
-		// a signpost, not content: the faintest tier, smaller than the row's text
-		expect(browser).toMatch(/\.nav-row-repeat\s*\{[^}]*color: var\(--nav-faint\)/);
-		expect(browser).toMatch(/\.nav-row-repeat\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
+	// THE POSITION is painted in one colour whichever hand moved it: the row the
+	// mouse hovered and the row the arrows walked are the same row (see
+	// NavHistoryList.choose), so they must not look different — and the wash has to
+	// survive the pointer reaching that very row.
+	it('paints the position the same for the pointer and the keyboard', () => {
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-selected,\s*\n\.position-restore-nav-row\.is-previewed\s*\{[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\)/,
+		);
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-selected:hover,\s*\n\.position-restore-nav-row\.is-previewed:hover\s*\{[^}]*background-color: color-mix/,
+		);
 	});
+
+	// How many landings open under a note rides with the name, so no column is
+	// reserved for it on the rows that carry no count.
+	it('rides the landing count with the note name', () => {
+		expect(browser).toMatch(/\.nav-row-count\s*\{[^}]*margin-inline-start: 0\.4em/);
+		expect(browser).toMatch(/\.nav-row-count\s*\{[^}]*color: var\(--nav-faint\)/);
+	});
+
 
 	// A phone gets two lines per row instead of the narrow-screen rule that hid
 	// the coordinate and the age — the list then said nothing but file names.
@@ -119,24 +119,21 @@ describe('history browser quiet tiers', () => {
 	// one is information the phone cannot show at all), that the second line
 	// hangs off the ROW rather than the name column (whose width changes from row
 	// to row), and that nothing hides the age or the line number any more.
-	it('gives a touch device two lines and hides no cell', () => {
+	it('gives a phone a two-line LANDING and a one-line note', () => {
+		// A note's row stays one line: two lines for the tree's top level would
+		// push the landings — the reason the list is worth scrolling — off a small
+		// screen. A landing gets the two lines, and its section keeps its row.
 		expect(browser).toMatch(
-			/\.position-restore-nav-modal\.is-touch \.position-restore-nav-row\s*\{[^}]*grid-template-areas/,
+			/\.position-restore-nav-modal\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas:/,
 		);
-		for (const rule of ['nav-row-file { grid-area: name', 'nav-row-trail { grid-area: trail', 'nav-row-meta { grid-area: meta'])
-			expect(browser).toContain(`.position-restore-nav-modal.is-touch .${rule}; }`);
+		expect(browser).toContain('.position-restore-nav-modal.is-touch .nav-row-trail { grid-area: trail; }');
+		expect(browser).toMatch(
+			/\.position-restore-nav-modal\.is-touch \.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/,
+		);
+		// the pane badge, the one cell that can still be a column, keeps its own
+		// place on that second line
+		expect(browser).toMatch(/\.position-restore-nav-modal\.is-touch \.nav-row-pane\s*\{[^}]*grid-area: meta/);
 		expect(browser).not.toMatch(/@media \(max-width: 480px\)/);
-	});
-
-	// The landing panel used to be pinned under the list with a max-height of its
-	// own: a long history took the height it needed away and pushed it off the
-	// bottom of the screen, with the only button a finger can travel with. In the
-	// list's own flow, with no height of its own, nothing can squeeze it out.
-	it('keeps the touch landing panel in the list flow, with a finger-sized button', () => {
-		expect(browser).toMatch(/is-touch \.position-restore-nav-preview\s*\{[^}]*display: block/);
-		expect(browser).not.toMatch(/is-touch \.position-restore-nav-preview\s*\{[^}]*max-height/);
-		expect(browser).toContain('.position-restore-nav-modal.is-touch .position-restore-nav-preview.is-parked {');
-		expect(browser).toMatch(/is-touch \.nav-preview-go\s*\{[^}]*width: 100%/);
 	});
 
 	// Sharing the toolbar row with the filter box cut the touch hint off at the
@@ -147,82 +144,204 @@ describe('history browser quiet tiers', () => {
 		);
 	});
 
-	// Three controls now share that row on a phone (the box, the "only this note"
-	// switch, the file picker), so both scope controls have to be allowed to
-	// give way: as fixed-width items they wrapped the toolbar onto a third line,
-	// and one of them fell off the short dialog entirely.
-	it('lets both scope controls shrink on the touch toolbar', () => {
+	// The landing panel has TWO presentations (see LandingPanel): the drawer
+	// beside the list on a pointing device, the in-flow panel under the row on
+	// touch. The contract worth pinning is that the drawer is a real column of
+	// the body (no fixed height of its own — the body's own growth must not
+	// squeeze it out), and that the touch panel is in the list's flow with a
+	// finger-sized travel button.
+	it('stands the drawer in its own column, and keeps the touch panel in the flow', () => {
 		expect(browser).toMatch(
-			/is-touch \.position-restore-nav-toggle,\s*\.position-restore-nav-modal\.is-touch \.position-restore-nav-scope\s*\{[^}]*flex: 0 1 auto[^}]*min-width: 0/,
+			/\.position-restore-nav-body\s*\{[^}]*flex-direction: row/,
+		);
+		expect(browser).toMatch(
+			/\.position-restore-nav-list\s*\{[^}]*width: 20em/,
+		);
+		// The rule is anchored at a LINE start: `.position-restore-nav-preview {`
+		// also ends the is-fixed selector list (see the fill test below), and a
+		// bare indexOf would slice from there and swallow the list rules too.
+		const drawer = browser.slice(
+			browser.indexOf('\n.position-restore-nav-preview {'),
+			browser.indexOf('.position-restore-nav-modal.is-touch .position-restore-nav-preview {'),
+		);
+		expect(drawer).toContain('flex: 1 1 auto');
+		expect(drawer).toContain('overflow-y: auto');
+		// the drawer has no fixed height of its own to be pushed around by: only
+		// the min/max pair the body's growth respects
+		expect(drawer).not.toMatch(/(^|[^-])height:/);
+		// the touch presentation takes the whole width of the list it sits in
+		expect(browser).toMatch(
+			/is-touch \.position-restore-nav-preview\s*\{[^}]*width: auto[^}]*max-height: none/,
+		);
+		expect(browser).toMatch(/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*font-size: var\(--font-ui-small\)/);
+	});
+
+	// A pinned-height dialog must be FILLED by the columns inside it. Both
+	// carried `max-height: 60vh` from when a "you are here" card stood above them
+	// and made the difference up; with the card gone the list stopped two thirds
+	// of the way down a dialog that had already claimed its height, and the rest
+	// was dead space the scrollbar was not even in. The height is pinned so that
+	// filtering cannot resize and re-center the dialog (see is-fixed), so the fix
+	// is to fill it.
+	it('fills the pinned height with the columns instead of stopping short of it', () => {
+		expect(browser).toMatch(
+			/is-fixed \.position-restore-nav-list,\s*\.modal\.position-restore-nav-modal\.is-fixed \.position-restore-nav-preview\s*\{\s*max-height: none/,
+		);
+		// and the short-history case keeps its cap: there the dialog sizes to its
+		// content and a 60vh column would be the tallest thing in it
+		expect(browser).toMatch(/\.position-restore-nav-list\s*\{[^}]*max-height: 60vh/);
+		// on touch the body is a COLUMN, so the list — the one scroller there,
+		// with the panel inside it — has to take the leftover height rather than
+		// keep sizing itself
+		expect(browser).toMatch(
+			/is-fixed\.is-touch \.position-restore-nav-list\s*\{\s*flex: 1 1 auto/,
 		);
 	});
 
-	// The core "Page preview" plugin owns the popover, and what the browser can
-	// say about it is said through two variables and a hold class
-	// (nav-history/browser/page-preview.place / hold). None of that renders in
-	// jsdom, so the contract is pinned here: both plugin placement edges are
-	// overridden by OUR coordinates (its own choice put the preview under the row
-	// and across the panel), and the hold hides the popover while it is still
-	// showing the top of the note — invisible, but not out of the layout the
-	// renderer is still measuring.
-	it('places and holds the native preview popover from the browser own rules', () => {
-		const popover = browser.slice(0, browser.indexOf('.modal.position-restore-nav-modal {'));
-		expect(popover).toContain('body.position-restore-nav-open > .popover.hover-popover');
-		expect(popover).toContain('var(--position-restore-popover-left, 0px)');
-		expect(popover).toContain('var(--position-restore-popover-top, 0px)');
-		// the plugin bottom-anchors the popover when it chooses to open upward
-		expect(popover).toContain('bottom: auto !important');
-		expect(popover).toMatch(
-			/body\.position-restore-nav-open\.is-preview-pending > \.popover\.hover-popover \{\s*visibility: hidden !important;/,
+	// The drawer is a COLUMN WITH ONE SCROLLER: the note's name, its section and
+	// the two controls are pinned at the top, and only the lines move under them.
+	// Reading a long recorded block — or any whole note — used to push all three
+	// out of the panel, so the reader scrolled back UP to travel, which is the one
+	// thing the panel exists for. (The DOM half of this contract is pinned in
+	// nav-history-browser-dom.test.ts: the two blocks and what is in each.)
+	it('pins the head and the controls, and scrolls only the lines', () => {
+		expect(browser).toMatch(
+			/\.position-restore-nav-preview\s*\{[^}]*display: flex[^}]*flex-direction: column[^}]*overflow: hidden/,
 		);
+		// the header is a recessed strip that runs to the panel's own edge: the
+		// drawer's padding-left is the CONTENT inset, so the strip takes it back
+		expect(browser).toMatch(
+			/\.nav-preview-top\s*\{[^}]*margin-left: -12px[^}]*background-color: var\(--background-secondary\)/,
+		);
+		// …and on touch it is flat again: inline under a row, a band inside the
+		// list reads as one more row rather than as a panel
+		expect(browser).toMatch(
+			/is-touch \.nav-preview-top\s*\{[^}]*margin-left: 0[^}]*background-color: transparent/,
+		);
+		// the fixed half does not grow or shrink
+		expect(browser).toMatch(/\.nav-preview-top\s*\{[^}]*flex: 0 0 auto[^}]*border-bottom: 1px solid/);
+		// …and the moving half is the one scroller: `min-height: 0` is what lets a
+		// flex item be shorter than its content at all
+		expect(browser).toMatch(
+			/\.nav-preview-scroll\s*\{[^}]*flex: 1 1 auto[^}]*min-height: 0[^}]*overflow-y: auto/,
+		);
+		// on touch the panel is in the LIST's scroll: a second scroll area nested
+		// inside the only one a finger can use is a way to get stuck
+		expect(browser).toMatch(/is-touch \.nav-preview-scroll\s*\{[^}]*overflow: visible/);
 	});
 
-	// The scope picker's dropdown is an OVERLAY, not a row in the toolbar: the
-	// panel's height is pinned precisely so a filter cannot resize and re-center
-	// the dialog (see is-fixed), and a menu in the flow would do that on every
-	// open. It scrolls inside a bounded height — the history can hold every note
-	// in the vault — and it floats on the very same --background-primary as the
-	// dialog it covers, so it needs an edge of its own to read as one.
-	// It opens to the LEFT, from the TOOLBAR's right edge: the chip sits at the
-	// right end of the strip, and a menu anchored at its left edge grew straight
-	// off the panel, clipped on the right — folder and count included. Anchoring
-	// to the strip gives the menu the whole dialog's width to unfold into. That
-	// is what `right: 0` and the toolbar's `position: relative` are pinned for.
-	it('floats the scope menu, opening inward rather than off the panel', () => {
-		expect(browser).toMatch(/\.position-restore-nav-toolbar\s*\{[^}]*position: relative/);
+	// The drawer's head reads as a headline over small print: the note's NAME is
+	// the biggest thing in the panel (the row that led here names it too, and this
+	// is the place with room to set it properly), the folder in front of it is
+	// faint and gives way first (the collapse order the rows use), and the facts
+	// about the step — pane, type, where a link came from, the coordinate, the
+	// warning — are one quiet line under it. The panel's one action is a real
+	// button, but deliberately not a filled accent one: the drawer is the second
+	// column of a list the reader is scanning.
+	it('sets the note name as the panel\'s headline over a line of small print', () => {
+		expect(browser).toMatch(/\.nav-preview-title\s*\{[^}]*font-size: var\(--font-ui-medium\)[^}]*font-weight: 600/);
+		expect(browser).toMatch(/\.nav-preview-folder\s*\{[^}]*flex: 0 100 auto[^}]*text-overflow: ellipsis/);
+		expect(browser).toMatch(/\.nav-preview-meta\s*\{[^}]*flex: 1 0 100%/);
+		// the panel's one action is a QUIET accent button: an accent wash under the
+		// accent's own text — the app's filled primary button was too loud beside a
+		// list the reader is scanning, and a plain outline read as disabled in dark
+		// themes. Its height is shared with the switch beside it (24px; the app
+		// sizes a button at --input-height, 30px, a line too tall for this bar), and
+		// on touch it is a band a finger can hit.
 		expect(browser).toMatch(
-			/\.position-restore-nav-scope-menu\s*\{[^}]*position: absolute[^}]*right: 0[^}]*box-sizing: border-box[^}]*max-height: min\(46vh, 320px\)[^}]*overflow-y: auto/,
+			/\.nav-preview-go\s*\{[^}]*height: 24px[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\)[^}]*color: var\(--text-accent\)/,
 		);
+		expect(browser).toMatch(/\.nav-preview-modes \.nav-preview-mode\s*\{[^}]*height: 22px/);
+		expect(browser).toMatch(/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*height: auto/);
+		// Every line of the pinned block keeps its room whether or not the entry
+		// has anything for it: the pointer walks the list, and a block that is one
+		// line shorter for the entries with no section (or a deleted note, which
+		// has no controls at all) makes everything under it jump.
+		expect(browser).toMatch(/\.nav-preview-trail\s*\{[^}]*min-height: 1lh/);
+		expect(browser).toMatch(/\.nav-preview-meta\s*\{[^}]*flex-wrap: nowrap[^}]*min-height: 1lh/);
+		// …a token too long for the column is ellipsized rather than given a line
+		expect(browser).toMatch(/\.nav-preview-meta > span\s*\{[^}]*text-overflow: ellipsis/);
+		expect(browser).toMatch(/\.nav-preview-bar\s*\{[^}]*min-height: 24px/);
+		// …and the reserved-but-empty lines are a DESKTOP answer only: on touch a
+		// tap opens one panel under its row, so there is no shape to hold still and
+		// the empty lines are dropped instead
 		expect(browser).toMatch(
-			/\.position-restore-nav-scope-menu\s*\{[^}]*border: 1px solid var\(--background-modifier-border\)[^}]*background: var\(--background-primary\)/,
+			/is-touch \.nav-preview-meta:empty,\s*\.position-restore-nav-modal\.is-touch \.nav-preview-trail:empty,[^}]*display: none/,
 		);
-		// a menu hanging off the right edge is the bug this replaced
-		expect(browser).not.toMatch(/\.position-restore-nav-scope-menu\s*\{[^}]*left: 0/);
-		// the items use the menu's box model, or each one overflows it by its padding
-		expect(browser).toMatch(/button\.nav-scope-item\s*\{[^}]*box-sizing: border-box/);
+		// the two view buttons are ONE control: one box, a hairline between the
+		// halves, and the selected half on the app's own active tint
+		expect(browser).toMatch(/\.nav-preview-modes\s*\{[^}]*border: 1px solid var\(--background-modifier-border\)/);
+		expect(browser).toMatch(
+			/\.nav-preview-mode \+ \.nav-preview-mode\s*\{[^}]*border-left: 1px solid var\(--background-modifier-border\)/,
+		);
+		expect(browser).toMatch(/\.nav-preview-mode\.is-active\s*\{[^}]*background-color: var\(--background-modifier-active-hover\)/);
+		// the switch may not resize under the click that set it: the active state
+		// changes colour and background, never type weight or padding
+		const active = browser.slice(
+			browser.indexOf('.nav-preview-modes .nav-preview-mode.is-active {'),
+			browser.indexOf('.nav-preview-caption {'),
+		);
+		expect(active.length).toBeGreaterThan(20);
+		expect(active).not.toMatch(/font-weight|padding/);
+	});
+
+	// The two things a reader can DO about a landing — go there, and say which
+	// view to read — share one bar ABOVE the content: at the foot of the panel a
+	// long note pushed the travel button off the bottom, so the only control for
+	// "I want to go there" was the one thing that had to be scrolled to. On touch
+	// the button is a band a finger can hit rather than a label in a corner.
+	it('puts the travel button above the content, beside the view switch', () => {
+		expect(browser).toMatch(/\.nav-preview-bar\s*\{[^}]*display: flex[^}]*flex-wrap: wrap/);
+		expect(browser).toMatch(/\.nav-preview-bar \.nav-preview-go\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
+		expect(browser).toMatch(
+			/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*width: 100%/,
+		);
+		// the switch rides at the far end, away from the button it must not be
+		// mistaken for
+		expect(browser).toMatch(/\.nav-preview-modes\s*\{[^}]*margin-left: auto/);
+		// nothing is left hanging under the content
+		expect(browser).not.toContain('.nav-preview-actions');
+	});
+
+	// The content is Obsidian's own rendered markdown, which is why the drawer
+	// stopped reading as a debug dump: both classes are the reading view's, and
+	// the type therefore comes from the theme rather than from this plugin. The
+	// one thing that must NOT come with them is the reading view's box — a
+	// viewport height and the file's margins inside a dialog column would fight
+	// the drawer's own scroll and padding.
+	it('draws the content as a reading view, with the view box undone', () => {
+		expect(browser).toMatch(
+			/\.position-restore-nav-preview \.nav-preview-content\.markdown-preview-view\s*\{[^}]*height: auto[^}]*padding: 0[^}]*overflow: visible/,
+		);
+		// the spot is a snippet, not a document: its headings must not outrank the
+		// panel they sit in
+		expect(browser).toMatch(/\.nav-preview-content\.is-spot :is\(h1, h2, h3, h4, h5, h6\)\s*\{[^}]*font-size:/);
+		// the landing is marked in both views: by Obsidian's own ==…== in the
+		// recorded block, and by this class for a line found in a whole note
+		expect(browser).toMatch(/\.nav-preview-content mark\s*\{/);
+		expect(browser).toMatch(/\.nav-preview-content \.nav-preview-landing\s*\{/);
+		// and the content switch says which of the two is showing
+		expect(browser).toMatch(/\.nav-preview-modes \.nav-preview-mode\.is-active\s*\{[^}]*color: var\(--text-normal\)/);
 	});
 
 	// A phone held sideways has ~370px of height for everything (title bar,
-	// filter, "you are here" card, list): every one of these is a line the list
-	// gets back.
+	// filter, list): every one of these is a line the list gets back.
 	it('compacts the short-dialog (landscape phone) layout', () => {
 		const landscape = browser.slice(browser.indexOf('@media (max-height: 520px)'));
-		expect(landscape.length).toBeGreaterThan(1000);
+		expect(landscape.length).toBeGreaterThan(500);
 
 		// the hint goes entirely
 		expect(landscape).toMatch(/is-touch \.position-restore-nav-hint\s*\{\s*display: none/);
-		// the box and BOTH scope controls share one line instead of wrapping,
-		// and both labels truncate rather than pushing the box out
+		// the box keeps the one line the toolbar has left
 		expect(landscape).toMatch(/is-touch \.position-restore-nav-toolbar\s*\{[^}]*flex-wrap: nowrap/);
-		expect(landscape).toMatch(/nav-toggle > span,[^}]*\{[^}]*max-width: 12em/);
-		expect(landscape).toMatch(/nav-scope-btn\s*\{[^}]*max-width: 12em/);
-		// the card is one line: marker, file, coordinate — no age or anchor
-		expect(landscape).toMatch(/position-restore-nav-here\s*\{[^}]*display: flex/);
-		expect(landscape).toMatch(
-			/nav-here-head \.nav-row-time,\s*\.position-restore-nav-modal \.position-restore-nav-here \.nav-here-anchor \{\s*display: none;/,
-		);
-		// rows back to one line each
-		expect(landscape).toMatch(/is-touch \.position-restore-nav-row\s*\{[^}]*grid-template-areas: none/);
+		expect(landscape).toMatch(/input\.position-restore-nav-filter\s*\{[^}]*flex: 1 1 5em/);
+		// …and nothing of the chrome it used to compact is left: the "you are
+		// here" card and the file scope both went (see NavHistoryModal)
+		expect(browser).not.toContain('position-restore-nav-here');
+		expect(browser).not.toContain('position-restore-nav-scope');
+		expect(browser).not.toContain('position-restore-nav-toggle');
+		// the landing row goes back to one line too (the note's never left one)
+		expect(landscape).toMatch(/is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas: none/);
 		// and the travel button is no longer a full-width band
 		expect(landscape).toMatch(/is-touch \.nav-preview-go\s*\{[^}]*width: auto/);
 	});

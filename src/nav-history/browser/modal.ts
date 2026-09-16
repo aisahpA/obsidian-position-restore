@@ -1,101 +1,104 @@
 // "Browse navigation history" panel: the shell. It owns the dialog's lifecycle,
-// the render order (list → pinned card → panel), the keyboard, and travel; every
+// the render order (list → panel), the keyboard, and travel; every
 // other piece is a module beside it:
-//   - constants.ts          the tuning numbers and the popover class names
+//   - constants.ts          the tuning numbers
 //   - model.ts / listing.ts / panes.ts   the pure model
 //   - reads.ts              every vault read, cached
-//   - list.ts               the rows, the selection, the measured columns
-//   - scope-picker.ts       the "only this note" switch, chip and menu
-//   - landing-panel.ts      the touch-only landing panel
-//   - page-preview.ts       Obsidian's own page preview, driven from a row
+//   - list.ts               the tree of notes, the position, the double click
+//   - landing-panel.ts      the landing described: head, trail, content switch
+//                           and the travel button — the right-hand drawer on a
+//                           pointing device, the in-flow panel on touch
+//   - preview-content.ts    what that panel draws: the recorded lines, or the
+//                           whole note, through Obsidian's markdown renderer
+//   - markdown.ts           the recorded lines dressed as markdown for it
 // The name says BROWSER because the history itself — how a step is recorded,
 // persisted and restored — is the rest of nav-history/ (history.ts, entry.ts,
 // store.ts, outline-capture.ts), which this panel only reads and never writes.
 
-import { App, FileView, HoverPopover, Modal, Platform } from 'obsidian';
+import { App, FileView, Modal, Platform } from 'obsidian';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
 import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { BODY_OPEN_CLASS, FIXED_HEIGHT_MIN_ENTRIES } from './constants';
+import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';
 import { headingTrailAtLine, NavEntryDescription } from './model';
-import { formatRelativeTime } from './listing';
 import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
 import { NavHistoryReads } from './reads';
 import { LandingPanel } from './landing-panel';
-import { NavScopePicker } from './scope-picker';
+import { NavPreviewContent } from './preview-content';
 import { NavHistoryList } from './list';
-import { PagePreviewBridge } from './page-preview';
 
 // Per-dialog sequence for the list element's id (see NavHistoryModal.listId).
 let modalSeq = 0;
 
 // "Browse navigation history" modal. A destination picker, laid out around
 // how a user actually gets lost:
-//  - the CURRENT location is a pinned card at the top, so "you are here"
-//    never scrolls out of view;
-//  - the default list is CHRONOLOGICAL (newest first), split into forward and
-//    back segments around the pinned card, each row labelled with a relative
-//    time — the index a user remembers "where I was" by;
-//  - Enter acts on the SELECTED row and on nothing else: going back one step
-//    is the app's own back command (a hotkey on the desktop, a named command on
-//    a phone), which needs no panel at all, and the entry it would reach is the
-//    first row of the back segment anyway — visible, and showing where it
-//    lands before the click commits to it;
-//  - picking a spot is by RECOGNITION, never by retrieval, and that is what a
-//    row's hover is for: on a pointing device it asks Obsidian's own page
-//    preview for the whole note (see PagePreviewBridge.request), and on a touch device
-//    — where there is no hover — the same information is a panel under the list,
-//    with the tap-to-point model and a button to travel;
-//  - the toolbar can narrow the list to matching text, and to ONE file: a
-//    direct switch for the note the pinned card shows (the commonest pick, one
-//    click), and a dropdown of every note the history has been in for the rest.
-//    The two compose with the text filter, and the scope is what makes "where
-//    in this note was I" askable at all;
+//  - the list is a TREE OF NOTES, newest note first, one row per note with its
+//    landings open under it — by line, top of the note first, and not at all for
+//    a note with a single landing, which is a leaf: a note opened ten times is
+//    one line, not ten, and two notes sharing a name print their folders to say
+//    which is which;
+//  - one click opens a note (or closes it again), two clicks travel — and on a
+//    touch device, where there is no second click and no hover, one tap opens,
+//    points or puts the panel away, and the panel's own button travels;
+//  - the CURRENT note is pinned first and its landing carries the "you are
+//    here" marker, so the current position is a place in the same tree — the
+//    first row, marked — and not a line of chrome above it;
+//  - picking a spot is by RECOGNITION, never by retrieval, which is what the
+//    LANDING's recorded lines are for: the few lines the reader was looking at
+//    when they left, drawn as markdown so they look like the note they came from
+//    (see PreviewContent), with the note as it stands now one switch away. On a
+//    pointing device they stand in a column beside the list and follow the row the
+//    reader is on — hover and the arrow keys move the SAME position (see list.ts),
+//    so there is no separate selection for the drawer to disagree with; on a touch
+//    device, where there is no hover and no room for two columns, the same content
+//    opens under the tapped row with a button to travel;
+//  - the toolbar can narrow the list to matching text — a name, a path, a
+//    section, a line, or a phrase the step recorded. That is the only narrowing
+//    there is: the file scope that used to sit beside it (a "only this note"
+//    switch and a chip of every file the history had been in) was a second way
+//    to ask a question the search box already answers — a note's name IS text it
+//    matches on — and it cost a control, a dropdown and a modal's worth of state
+//    to say what typing three letters says;
 //  - choosing an entry time-travels there (NavHistory.jumpTo): the target is
 //    re-pushed on top, so back always returns to where you were.
-// Repeat landings collapse into one row with a ×N count, so the list shows
-// distinct places rather than distinct steps (the step count stays in the
-// segment headers). A missing file's row is rendered but never selectable:
-// jumping to it moves the stack pointer while nothing can be restored.
+// The forward/back segments and the step counts are gone: this panel answers
+// "which note, and where in it", and a direction of travel is not part of that
+// answer. A deleted note's row is still the note — it opens, and its recorded
+// landings still say what stood there — but nothing under it travels.
 export class NavHistoryModal extends Modal {
 	// The list of steps, its rows and what is pointed at (see NavHistoryList).
 	private list!: NavHistoryList;
 	// The search box's text. The list's own query.
 	private filter = '';
-	// The file scope (the switch, the chip and its menu) and the state it
-	// carries. Not called `scope`: Modal already owns that name for its keymap
-	// scope, and shadowing it does not typecheck.
-	private scopePicker!: NavScopePicker;
-	private hereEl!: HTMLElement;
 	private previewEl!: HTMLElement;
 	// Where the preview panel waits when it has no row to open under (touch).
 	private previewHost!: HTMLElement;
 	private filterInput!: HTMLInputElement;
 	private panes: PaneInfo = { live: new Map() };
-	// Every vault read the panel makes, cached: an entry's display pieces, a
-	// file's parsed headings, and a file's lines (see reads.ts).
+	// Every vault lookup the panel makes, cached: an entry's display pieces, a
+	// file's parsed headings, the end of a file's frontmatter, and a file's text
+	// (see reads.ts).
 	private reads: NavHistoryReads;
-	// The touch-only landing panel (see LandingPanel).
+	// The landing panel: the right-hand drawer on a pointing device, the in-flow
+	// panel under the tapped row on touch (see LandingPanel).
 	private panel!: LandingPanel;
-	// Obsidian's own page preview, driven from a row's file name column (see
-	// PagePreviewBridge).
-	private pagePreview!: PagePreviewBridge;
+	// What the panel draws as the landing's content: the recorded lines, or the
+	// whole note, both through Obsidian's own markdown renderer (see
+	// PreviewContent). Owned by the dialog, because the rendered DOM and the
+	// components hung on it have to be unloaded when the dialog closes.
+	private content: NavPreviewContent;
 	private closed = false;
 	// The list element's id, unique per dialog: the rows' option ids are built
 	// from it and the filter box's aria-activedescendant points at one of them,
 	// so a second browser opened over this one cannot collide with it.
 	private readonly listId = `position-restore-nav-list-${++modalSeq}`;
-	// Touch devices have no hover at all, so the pointer's "point at a row" and
-	// its "go there" are the same gesture. Read once, here: the tap semantics
-	// below are the only thing that branches on it.
+	// Touch devices have no hover at all, so there the only way to move the position
+	// is a tap and "point at a row" and "go there" are the same gesture. Read once,
+	// here: this also picks the panel's presentation (drawer vs in-flow), the hint,
+	// and whether the filter box focuses itself.
 	private mobile = Platform.isMobile;
-	// Where the core "Page preview" plugin parks the popover it shows for us
-	// (the HoverParent contract). Declared because Obsidian's Modal is not a
-	// HoverParent in its own typings, even though the plugin assigns this field
-	// at runtime and reads it back to hide its own popover.
-	hoverPopover: HoverPopover | null = null;
 
 	constructor(
 		app: App,
@@ -104,34 +107,24 @@ export class NavHistoryModal extends Modal {
 	) {
 		super(app);
 		this.reads = new NavHistoryReads(app, nav, { savedPosition });
+		this.content = new NavPreviewContent({
+			app,
+			// The browser's only vault read: the panel's whole-note view of a note,
+			// and the source view of a file that is not one (see
+			// NavHistoryReads.textFor).
+			read: path => this.reads.textFor(path),
+			// …and the metadata lookup that keeps a recorded block starting inside
+			// the properties from rendering as a heading rule (see contextMarkdown).
+			frontmatterEnd: path => this.reads.frontmatterEnd(path),
+		});
 	}
 
 	onOpen() {
 		this.modalEl.addClass('position-restore-nav-modal');
-		// The landing panel is touch-only (see LandingPanel.render): a pointing device
-		// has the native page preview instead. One flag, so the class and the
-		// rendering decision can never disagree.
+		// Touch gets the panel's in-flow presentation instead of the drawer (see
+		// LandingPanel.render). One flag, so the class and the rendering decision
+		// can never disagree.
 		this.modalEl.toggleClass('is-touch', this.mobile);
-		// The native page preview we ask for from a row would otherwise render
-		// behind this dialog (see BODY_OPEN_CLASS).
-		document.body.addClass(BODY_OPEN_CLASS);
-		this.pagePreview = new PagePreviewBridge({
-			app: this.app,
-			modalEl: this.modalEl,
-			hoverParent: this,
-			popover: () => this.hoverPopover,
-			entryAt: rep => this.nav.entries[rep],
-			describe: rep => this.reads.describe(rep),
-			isClosed: () => this.closed,
-		});
-		// A resting place for the preview's edges: without a value the
-		// stylesheet's clamp would pin the first popover to the window's corner
-		// before any row has been pointed at.
-		this.pagePreview.place(null);
-		// The modal is sized in % of the window, so a resize moves the rows the
-		// preview is placed against; the core plugin re-runs its own placement
-		// on resize, and this keeps OUR coordinate in step with it.
-		window.addEventListener('resize', this.onWindowResize);
 		// Pin the height once the list overflows, so filtering can't resize
 		// the modal and shift it vertically (see styles.css is-fixed).
 		this.modalEl.toggleClass('is-fixed', this.nav.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
@@ -141,21 +134,13 @@ export class NavHistoryModal extends Modal {
 		// would otherwise move its caret); Escape stays native (closes).
 		this.modalEl.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 		this.toolbar();
-		// A click anywhere else in the panel puts the scope menu away — the
-		// filter box, a row, the card. The chip and its items are inside the
-		// wrapper, so this cannot fight the click that opened the menu.
-		this.modalEl.addEventListener('click', (ev) => {
-			const el = ev.target as HTMLElement | null;
-			if (!el?.closest?.('.position-restore-nav-scope'))
-				this.scopePicker.closeMenu();
-		});
-		this.hereEl = this.contentEl.createDiv({ cls: 'position-restore-nav-here' });
-		// The list, and the landing panel. It starts out beside the list, but on
-		// a touch device it does not stay there: it opens UNDER the selected row,
-		// inside the list's own scroll (see LandingPanel.render) — a panel parked at
-		// the bottom of the dialog runs out of room the moment there is history
-		// to scroll, and then the one control that can travel with a finger (its
-		// "jump here" button) is off-screen.
+		// The list, and the landing panel. On a pointing device the panel IS the
+		// body's second column (see styles.css) and follows the pointer. On touch
+		// it does not stay there: it opens UNDER the tapped row, inside the list's
+		// own scroll (see LandingPanel.render) — a panel parked at the bottom of
+		// the dialog runs out of room the moment there is history to scroll, and
+		// then the one control that can travel with a finger (its "jump here"
+		// button) is off-screen.
 		const body = this.contentEl.createDiv({ cls: 'position-restore-nav-body' });
 		const listEl = body.createDiv({ cls: 'position-restore-nav-list' });
 		// The list is a listbox whose options are the rows (the list tags them;
@@ -172,21 +157,14 @@ export class NavHistoryModal extends Modal {
 			entries: this.nav.entries,
 			currentIndex: this.nav.index,
 			filter: () => this.filter,
-			scope: () => this.scopePicker.scope,
 			describe: rep => this.reads.describe(rep),
 			clearDescribeCache: () => this.reads.clearDescribeCache(),
+			noteExists: path => this.reads.hasFile(path),
 			trailFor: (entry, d) => this.trailFor(entry, d),
 			paneName: entry => this.paneName(entry),
 			onPointed: () => this.panel.render(),
 			onActiveRow: id => this.setActiveRow(id),
 			onRevealPanel: () => this.panel.reveal(),
-			onRequestPreview: (ev, row, rep) => this.pagePreview.request(ev, row, rep),
-			// A showing popover is anchored to the row's own top edge (see
-			// PagePreviewBridge.reposition), so scrolling the list while one is
-			// up moves the row out from under it. Only re-placed while a popover
-			// is actually showing: otherwise this would write the body's style
-			// on every wheel tick.
-			onScroll: () => this.pagePreview.reposition(),
 			onTravel: rep => this.jump(rep),
 		});
 		this.previewEl = body.createDiv({ cls: 'position-restore-nav-preview' });
@@ -196,12 +174,17 @@ export class NavHistoryModal extends Modal {
 			panel: this.previewEl,
 			parkAt: this.previewHost,
 			mobile: this.mobile,
-			previewed: () => this.list.pointed,
+			position: () => this.list.position,
+			here: () => this.nav.index,
+			standsFor: rep => this.list.standsFor(rep),
 			entryAt: rep => this.nav.entries[rep],
 			rowOf: rep => this.list.rowOf(rep),
+			positionRow: () => this.list.currentRow(),
+			onPreviewed: rep => this.list.markPreviewed(rep),
 			describe: rep => this.reads.describe(rep),
 			trailFor: (entry, d) => this.trailFor(entry, d),
 			paneName: entry => this.paneName(entry),
+			content: (host, mode, entry, d) => this.content.show(host, mode, entry, d),
 			jump: rep => this.jump(rep),
 		});
 		this.render();
@@ -217,47 +200,43 @@ export class NavHistoryModal extends Modal {
 
 	onClose() {
 		this.closed = true;
-		this.pagePreview.dispose();
-		document.body.removeClass(BODY_OPEN_CLASS);
-		window.removeEventListener('resize', this.onWindowResize);
+		// The rendered preview and everything hung on it (embeds, math, plugin
+		// children) belong to this dialog: closing it unloads them.
+		this.content.destroy();
 	}
 
-	private onWindowResize = (): void => {
-		this.pagePreview.place(this.list.rowOf(this.list.pointed) ?? null);
-		// The labels did not change with the window, but their font may have.
-		this.list.fitColumns();
-	};
-
 	private onKeyDown(ev: KeyboardEvent): void {
-		// While the scope menu is up it owns the same keys the list does — see
-		// NavScopePicker.handleKey, which also explains why Escape is stopped
-		// here rather than closing the dialog.
-		if (this.scopePicker.handleKey(ev))
-			return;
 		if (ev.key === 'ArrowDown') {
 			ev.preventDefault();
 			this.list.move(1);
 		} else if (ev.key === 'ArrowUp') {
 			ev.preventDefault();
 			this.list.move(-1);
+		} else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+			// The tree's own moves: close and open the note under the position,
+			// which is what a row's single click does and the vertical walk
+			// cannot. Only an open/close is consumed — the left and right arrows
+			// keep their ordinary meaning in the filter box otherwise.
+			if (this.list.handleKey(ev))
+				ev.preventDefault();
 		} else if (ev.key === 'Enter') {
-			// The selection is the whole story: with nothing pointed at, Enter has
-			// nothing to do. (It used to fall back to "go back one step", which
-			// made one key mean two things depending on whether the pointer had
-			// crossed a row — and duplicated the app's own back command.)
-			const selected = this.list.selection;
-			if (selected < 0)
-				return;
-			ev.preventDefault();
-			this.jump(selected);
+			// Enter acts on the POSITION and on nothing else — the one row the mouse
+			// moves by hovering and the arrows by walking (see the list's choose) — and
+			// with no position it does nothing. (It used to fall back to "go back one
+			// step", which made one key mean two things depending on whether the pointer
+			// had crossed a row — and duplicated the app's own back command.)
+			// The travel goes through the list, which is what knows whether the
+			// row the position is on may be travelled to: a note whose file is gone
+			// opens (and is where "file deleted" is explained) but never jumps.
+			if (this.list.travel())
+				ev.preventDefault();
 		}
 	}
 
 	// Tell assistive tech which option the keyboard is on. The focus never
 	// leaves the filter box, so this attribute is the ONLY thing that makes the
 	// arrow keys audible — without it the box reads as an empty text field while
-	// the user walks the list. (The scope menu, which does take the focus,
-	// expresses the same state with aria-selected instead.)
+	// the user walks the list.
 	private setActiveRow(id: string | undefined): void {
 		if (id)
 			this.filterInput.setAttr('aria-activedescendant', id);
@@ -287,31 +266,16 @@ export class NavHistoryModal extends Modal {
 		});
 		input.addEventListener('input', () => {
 			this.filter = input.value;
-			// The list, the card's age and the panel all follow the filter, so the
+			// The list and the panel both follow the filter, so the
 			// whole body re-renders (the toolbar does not).
 			this.render();
 		});
 		this.filterInput = input;
-		// The file scope sits beside the search box: "where else in this note
-		// was I" is a question the chronological list answers badly, since a
-		// handful of cross-file hops buries a note's own landings.
-		//
-		// TWO controls, ONE state. The switch is the shortcut that was always
-		// here — the note the pinned card shows, in one click, and still the
-		// commonest pick by far. The picker generalizes it to any note the
-		// history has been in, which is what the panel could not answer before.
-		// They can never disagree: the switch is checked exactly while the scope
-		// IS that note (see NavScopePicker), and picking that note in the menu
-		// checks it.
-		this.scopePicker = new NavScopePicker({
-			bar,
-			entries: this.nav.entries,
-			home: this.scopePath(),
-			mobile: this.mobile,
-			focusFilter: () => this.filterInput.focus(),
-			onChange: () => this.render(),
-		});
-		this.scopePicker.build();
+		// The hint, and nothing else: the box is the whole toolbar. The file
+		// scope that used to sit beside it — a "only this note" switch and a chip
+		// of every note the history had been in — is gone: a note's name is text
+		// the box already matches, so the two controls were a slower way to type
+		// it, and they cost the list the width and the row they stood on.
 		// What the panel can be driven by is the whole difference between the two
 		// devices: a keyboard on one, a finger on the other.
 		bar.createSpan({
@@ -320,49 +284,20 @@ export class NavHistoryModal extends Modal {
 		});
 	}
 
-	// The pinned card's file: the scope its own picker item means. A view step
-	// (the graph) has none, and then that item is simply not offered. The
-	// current entry cannot change while the modal is open (only jump() moves
-	// the pointer, and it closes first), so this is stable for the modal's
-	// lifetime — which is why the picker's contents can be built once, with the
-	// rest of the toolbar.
-	private scopePath(): string | undefined {
-		const entry = this.nav.entries[this.nav.index];
-		return entry && entry.kind !== 'view' ? entry.path : undefined;
-	}
-
 	private render(): void {
 		this.panes = paneInfo(this.liveLeaves());
 		// The list first (it rebuilds rows, the selection and the panel), then the
-		// card and the panel around it.
+		// panel around it.
 		this.list.render();
-		this.renderHere();
 		this.panel.render();
 	}
 
-	// The pinned "you are here" card: the one entry the list never shows. It is
-	// an INDICATOR, not a control: it used to be tappable (to go back one step on
-	// touch, to re-apply the current position on a desktop), and neither earned
-	// its place — going back one step is the app's own back command, which needs
-	// no panel at all, and re-applying where you already are is what closing the
-	// dialog does. Both cost a hint line over the list.
-	private renderHere(): void {
-		const card = this.hereEl;
-		card.empty();
-		const entry = this.nav.entries[this.nav.index];
-		if (!entry)
-			return;
-		const d = this.reads.describe(this.nav.index);
-		const head = card.createDiv({ cls: 'nav-here-head' });
-		head.createSpan({ text: `● ${t('navHistory.current')}`, cls: 'nav-here-title' });
-		head.createSpan({ text: formatRelativeTime(entry.t), cls: 'nav-row-time' });
-		const main = card.createDiv({ cls: 'nav-here-main' });
-		main.createSpan({ text: d.file, cls: 'nav-row-file' });
-		if (d.line)
-			main.createSpan({ text: d.line, cls: 'nav-row-line' });
-		if (d.anchor)
-			main.createSpan({ text: `“${d.anchor}”`, cls: 'nav-here-anchor' });
-	}
+	// The "you are here" CARD that used to stand between the toolbar and the list
+	// is gone. The current entry is a row in the tree like any other — pinned
+	// first, marked `●` — and the card said the same thing a second time, in a
+	// second place, in a second layout: one line of chrome bought with the height
+	// the list needed, and a reader had to learn which of the two "current
+	// position"s was authoritative. The row is.
 
 	// The heading chain the entry's landing sits in. Empty for a view entry, a
 	// deleted file, or an entry with no recorded line.

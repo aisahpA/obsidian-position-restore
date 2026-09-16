@@ -63,6 +63,65 @@ export function debounce(fn: unknown): unknown {
 	return fn;
 }
 
+// The history browser hangs its rendered preview on a Component and unloads it
+// when the dialog closes (see PreviewContent). Enough of the real lifecycle for
+// a test to see which of the two happened.
+export class Component {
+	loaded = false;
+	load(): void {
+		this.loaded = true;
+		this.onload();
+	}
+	unload(): void {
+		this.loaded = false;
+		this.onunload();
+	}
+	onload(): void {}
+	onunload(): void {}
+}
+
+// The drawer draws its content with Obsidian's OWN renderer, which lives in the
+// app and not in this typings package. The stand-in is deliberately minimal:
+// one block element per blank-line-separated block, `==…==` as <mark>, headings
+// by level, single newlines as <br> (Obsidian renders them as breaks). Tests
+// assert on the recorded SOURCE and on the mark a reader would see, never on
+// Obsidian's own typography — that is the app's, not this plugin's.
+export class MarkdownRenderer {
+	static async render(
+		_app: unknown,
+		markdown: string,
+		el: HTMLElement,
+		_sourcePath: string,
+		_component: unknown,
+	): Promise<void> {
+		for (const block of markdown.split(/\n{2,}/)) {
+			const lines = block.split('\n');
+			const heading = /^(#{1,6})\s+(.*)$/.exec(lines[0]);
+			if (heading)
+				lines[0] = heading[2];
+			const node = document.createElement(heading ? `h${heading[1].length}` : 'p');
+			lines.forEach((line, i) => {
+				if (i)
+					node.appendChild(document.createElement('br'));
+				// `==words==` split with a capture: the odd slots are the marked
+				// runs, the even ones the text around them.
+				line.split(/==([^=]+)==/).forEach((part, slot) => {
+					if (part === '')
+						return;
+					if (slot % 2 === 1) {
+						const mark = document.createElement('mark');
+						mark.textContent = part;
+						node.appendChild(mark);
+					} else {
+						node.appendChild(document.createTextNode(part));
+					}
+				});
+			});
+			el.appendChild(node);
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Obsidian's runtime mixes chainable DOM helpers into the element prototypes
 // (createEl/createDiv/createSpan/empty/setText/addClass/removeClass/

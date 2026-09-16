@@ -126,7 +126,8 @@ export class NavHistory {
 	// load (above).
 	// The discards are SILENT: the stack sits at the cap whenever a session has
 	// been long enough, so anything that reported them would either be permanent
-	// on screen or permanently out of sight (see NavHistoryList.render).
+	// on screen or permanently out of sight — the browser's old stack-cap
+	// footnote was dropped for exactly that reason.
 	// @returns how many entries were discarded.
 	applyStackCap(): number {
 		const cap = this.stackCap();

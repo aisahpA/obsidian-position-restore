@@ -7,21 +7,55 @@ import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 
 // The display name of a path: its last segment. What a row labels itself with,
-// and what the file-scope chip names (the full path is the row's hover title).
+// and what the drawer sets as its headline (the folder in front of it is what
+// says WHICH note, when a name is not enough — see folderOf).
 export function baseName(path: string): string {
 	return path.split('/').pop() ?? path;
+}
+
+// The folder a path sits in, for a name another path shares — "" for a note at
+// the vault root, and undefined for the placeholder group a pathless entry (the
+// graph) gets, whose name is a translated label rather than a path segment. Two
+// notes called "index" are otherwise one row that cannot be told from the other,
+// and the folder is the only thing that distinguishes them; it is printed ONLY
+// where the name collides, because on every other row it is the same folder
+// repeated.
+export function folderOf(path: string): string | undefined {
+	if (path === '')
+		return undefined;
+	const cut = path.lastIndexOf('/');
+	return cut === -1 ? '' : path.slice(0, cut);
+}
+
+// Which of these paths share a name (the last segment), so the list can print
+// the folder on exactly those rows. Built from the entries ON THE LIST rather
+// than from the whole history: a colliding name the filter dropped is not on
+// screen to be confused with anything.
+export function duplicateNames(paths: Iterable<string>): Set<string> {
+	const seen = new Set<string>();
+	const twice = new Set<string>();
+	for (const path of paths) {
+		const name = baseName(path);
+		if (seen.has(name))
+			twice.add(name);
+		seen.add(name);
+	}
+	return twice;
 }
 
 // One row's display pieces, derived from the entry. Pure (the vault lookup
 // comes in as a predicate) so the history browser's labels are testable
 // without a DOM.
 export interface NavEntryDescription {
-	file: string;
-	title: string;
+	// The note's display name: its last path segment. The file group's header
+	// prints it, and prints the folder beside it when another path shares the
+	// name (see folderOf).
+	name: string;
 	type: string;
 	line?: string;
-	// The same landing line as a 0-based index (what the preview window reads,
-	// and where `line` is computed from). `line` is the display form: "L412".
+	// The same landing line as a 0-based index (what the drawer reads to place the
+	// landing in the note, and where `line` is computed from). `line` is the
+	// display form: "L412".
 	lineIndex?: number;
 	// The file's line count at capture time, when the entry recorded one — the
 	// denominator that turns "L412" into a place in the note ("L412 / 1200").
@@ -52,13 +86,37 @@ export function linkDisplayText(viaText: string): string {
 	return (bar === -1 ? viaText : viaText.slice(bar + 1)).trim();
 }
 
+// The landing a step recorded, in the entry's own terms: which line it left the
+// reader on, and the text of that line when the recorded block carries it. It
+// comes straight out of the capture's context block, where `contextAt` already
+// names the landing — the capture decided that from the view mode and the
+// cursor's visibility, which is geometry no later reader can reconstruct (see
+// capture/ephemeral.ts) — with the viewport top and then the cursor as the
+// fallbacks for a state that never went through that read.
+//
+// Exported because this is what "the SAME landing" means anywhere the browser
+// has to tell two steps apart without a DOM: the list collapses the steps that
+// landed on one line into one spot (see groupByFile), and the panel's caption
+// names the range the block covers.
+export interface RecordedLanding {
+	line?: number;
+	text?: string;
+}
+
+export function recordedLanding(entry: NavHistoryEntry): RecordedLanding | undefined {
+	if (entry.kind === 'view')
+		return undefined;
+	const st = entry.st;
+	if (!st)
+		return undefined;
+	const at = st.context?.[st.contextAt ?? -1];
+	return { line: at?.line ?? st.scroll ?? st.cursor?.from.line, text: at?.text || undefined };
+}
+
 // Which line a step lands on, and the text that goes with it (the row shows the
-// number, the panel shows the block): both come straight out of the capture's
-// recorded context block, where `contextAt` already names the landing — the
-// capture decided it from the view mode and the cursor's visibility, which is
-// geometry no later reader can reconstruct (see capture/ephemeral.ts). The
-// fallbacks are for a state that never went through that read: the file's
-// saved record below, or a view-like object a test feeds in.
+// number, the panel shows the block). The fallbacks are for a state that never
+// went through the nav read: the file's saved record below, or a view-like
+// object a test feeds in.
 export function describeNavEntry(
 	entry: NavHistoryEntry,
 	hasFile: (path: string) => boolean,
@@ -67,8 +125,7 @@ export function describeNavEntry(
 ): NavEntryDescription {
 	if (entry.kind === 'view') {
 		return {
-			file: t('navHistory.graphView'),
-			title: entry.viewType,
+			name: t('navHistory.graphView'),
 			type: t('navHistory.type.graph'),
 			missing: false,
 		};
@@ -99,12 +156,12 @@ export function describeNavEntry(
 	// state that never went through the nav read: the position record below, or
 	// a view-like object a test feeds in) the viewport top is the honest guess,
 	// then the cursor.
-	const landing = st?.context?.[st.contextAt ?? -1];
+	const recorded = recordedLanding(entry);
 	let n: number | undefined;
 	let anchor: string | undefined;
 	if (st) {
-		n = landing?.line ?? st.scroll ?? st.cursor?.from.line;
-		anchor = landing?.text || undefined;
+		n = recorded?.line;
+		anchor = recorded?.text;
 	} else {
 		// The entry itself carries no position (a tab/pane activation
 		// predating the leave-refresh, or a legacy persisted entry): fall
@@ -125,8 +182,7 @@ export function describeNavEntry(
 	// Obsidian cannot stat reads as unchanged.
 	const live = mtimeOf?.(entry.path);
 	return {
-		file: baseName(entry.path),
-		title: entry.path,
+		name: baseName(entry.path),
 		type,
 		line: n !== undefined ? `L${n + 1}` : undefined,
 		lineIndex: n,

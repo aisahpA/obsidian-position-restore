@@ -126,61 +126,69 @@ export const en = {
 	'navHistory.type.link': 'Link',
 	'navHistory.type.graph': 'Graph',
 	'navHistory.graphView': 'Graph view',
-	'navHistory.searchPlaceholder': 'Filter by file or text…',
+	'navHistory.searchPlaceholder': 'Filter by note name or text…',
 	'navHistory.noMatch': 'No matching entry.',
-	// The file scope, carried by TWO controls that are one state: the direct
-	// "only this note" switch (the shortcut, one click) and the picker chip
-	// beside it, which opens the list of every note the history has been in
-	// ("all files" first). The chip's label is the fixed ACTION below, never the
-	// file's name: a label whose width followed the name moved the control out
-	// from under the click that had just picked it, and it was redundant anyway
-	// — the narrowed list prints that file on every row, and the empty state
-	// names it. Neither control has a tooltip, so the accessible name is the one
-	// place the scope is still spelled out.
-	'navHistory.scope.filter': 'Filter by file',
-	'navHistory.scope.current': 'Filter by file: {0}',
-	'navHistory.scope.all': 'All files',
-	'navHistory.scope.count': '{0} steps',
-	'navHistory.onlyThisFile': 'Only this note',
-	'navHistory.scopeEmpty': 'No other position in {0}.',
-	'navHistory.current': 'Current position',
-	'navHistory.empty': 'Navigation history is empty.',
+	// There used to be a file scope here: an "only this note" switch plus a chip
+	// listing every note the history had been in. Both asked a question the
+	// search box already answers — a note's name IS text it matches on — and each
+	// cost the toolbar a cell and the dialog a piece of state, so both are gone
+	// (see modal.ts).
+	'navHistory.empty': 'Nowhere else to go.',
 
-	// Browser chrome: the pinned "you are here" card, the two direction
-	// segments, and the keyboard affordances.
-	'navHistory.keyboardHint': '↑↓ select · Enter jump · Esc close',
+	// Browser chrome: the keyboard affordances. The two direction segments that
+	// used to label the list are gone with the step-count index, and so is the
+	// pinned "you are here" card (see modal.ts): the list is a tree of notes now,
+	// the note being stood in is its first row, and a note's own landings open
+	// under it.
+	'navHistory.keyboardHint': '↑↓ select · ←→ open/close · Enter jump · Esc close',
 	// A touch device has no keyboard, so its hint may only name things a finger
-	// can do (see NavHistoryModal.mobile).
-	'navHistory.touchHint': 'Tap a row for its landing, then “Jump here” to go',
+	// can do (see NavHistoryModal.mobile): one tap opens a note or points at one
+	// of its landings, and the panel's own button travels.
+	'navHistory.touchHint': 'Tap a note to open it, a landing to see its spot',
 	// Touch only: a tap selects a row (there is no hover), so the preview panel
 	// needs its own way to actually travel there.
 	'navHistory.jumpHere': 'Jump here',
-	'navHistory.seg.forward': 'Forward',
-	'navHistory.seg.back': 'Back',
-	'navHistory.seg.count': '{0} steps',
 	// A leaf holding a second tab/pane of the same file: without this the
 	// browser's rows for the two panes are indistinguishable. Rendered as
 	// "which of how many" — two digits and no word, because the word was the
 	// widest thing in the row's quiet zone.
 	'navHistory.pane': '{0}/{1}',
 	'navHistory.disabledTip': 'File deleted — this step cannot be restored',
-	// Relative time is the browser's primary index (see NavEntryBase.t).
+	// Relative time is no longer a column of the list (see listing.ts): it
+	// survives in the landing panel's head alone.
 	'navHistory.time.now': 'just now',
 	'navHistory.time.minutes': '{0} min ago',
 	'navHistory.time.hours': '{0} h ago',
 	'navHistory.time.days': '{0} d ago',
-	// Landing preview panel. It is shown on touch devices ONLY — desktop hands
-	// the same hover to Obsidian's own page preview — and it opens under the
-	// tapped row. It prints the entry's own recorded context block: the lines
-	// the user was looking at when they left, with no read behind it (hence no
-	// "reading…" state left to write).
-	'navHistory.preview.blank': '(blank line)',
+	// Landing drawer. It prints the entry's own recorded context block — the
+	// lines the user was looking at when they left, with no read behind it — and
+	// can switch to the note as it stands now (one vault read, see
+	// PreviewContent). Both go through Obsidian's OWN markdown renderer, so
+	// there is no "reading…" state and no raw source on screen.
 	'navHistory.preview.none': 'No line to preview here (no markdown landing).',
 	'navHistory.preview.gone': 'File deleted.',
+	// The drawer's two contents, as its switch names them.
+	'navHistory.preview.spot': 'Spot',
+	'navHistory.preview.note': 'Whole note',
+	// The range the recorded block covers: the rendered lines have no gutter of
+	// their own left to say which numbers they are.
+	'navHistory.preview.recorded': 'On screen then · L{0}–L{1}',
+	// …and what the whole-note view is, said out loud because those lines are
+	// today's file rather than the recorded ones.
+	'navHistory.preview.aside': 'The note as it stands now',
+	// A file that is not a note has one view — its own source — and no recorded
+	// spot to name a range for.
+	'navHistory.preview.source': 'File source',
+	// …and one with no text at all (a PDF, an image). The travel button is what
+	// opens it, so it is named rather than left to be discovered.
+	'navHistory.preview.binary': 'Nothing to preview in a file like this (a PDF, an image…) — "Jump here" opens it',
 	// The note a plain link was clicked in, and the file's "written since the
 	// step was recorded" marker.
 	'navHistory.preview.via': 'via {0}',
 	'navHistory.preview.modified': 'written since',
+	// The drawer's empty state: nothing is pointed at, so the column says what it
+	// is for instead of sitting blank.
+	'navHistory.preview.pick': 'Point at a note or one of its landings to see the lines you left behind',
 };
 
 export type En = typeof en;
