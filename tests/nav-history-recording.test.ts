@@ -1517,3 +1517,75 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 	});
 });
+
+// The signal a RESIDENT browser lives on (see NavHistory.subscribe): the modal
+// is opened, read and closed inside one render and needs none of this, but a
+// sidebar panel is on screen for hours and has no other way to learn that the
+// stack moved under it.
+describe('NavHistory change notification', () => {
+	const ST: NavEntryState = {
+		scroll: 12,
+		cursor: { from: { line: 12, ch: 0 }, to: { line: 12, ch: 0 } },
+	};
+
+	it('tells a subscriber about a pushed step, and stops when it unsubscribes', () => {
+		const nav = makeNav();
+		const seen = vi.fn();
+		const off = nav.subscribe(seen);
+
+		nav.recordOpen('a.md', 'leaf-1');
+		expect(seen).toHaveBeenCalledTimes(1);
+
+		// The panel was closed: a step recorded afterwards must not be drawn into
+		// a body that has already been torn down.
+		off();
+		nav.recordOpen('b.md', 'leaf-1');
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('tells a subscriber about a leave-refresh, a rename and a prune — and about nothing that changed nothing', () => {
+		const nav = makeNav();
+		nav.recordOpen('a.md', 'leaf-1');
+		const seen = vi.fn();
+		nav.subscribe(seen);
+
+		// Where the reader actually was when they left: the row's line and the
+		// panel's preview are this (see refreshTop).
+		nav.refreshTop('a.md', 'leaf-1', ST);
+		expect(seen).toHaveBeenCalledTimes(1);
+
+		// The entry refuses a refresh that names another file or another leaf, so
+		// nothing on screen moved and nothing is announced.
+		nav.refreshTop('other.md', 'leaf-1', ST);
+		expect(seen).toHaveBeenCalledTimes(1);
+
+		// A rename is the same stack naming a different path: every row that
+		// names it is stale until the browser redraws.
+		nav.renameFile('a.md', 'z.md');
+		expect(seen).toHaveBeenCalledTimes(2);
+		nav.renameFile('nothing.md', 'else.md');
+		expect(seen).toHaveBeenCalledTimes(2);
+
+		// …and the prune of a deleted file's steps is the same claim the other way
+		// round.
+		nav.deleteFile('z.md');
+		expect(seen).toHaveBeenCalledTimes(3);
+		nav.deleteFile('z.md');
+		expect(seen).toHaveBeenCalledTimes(3);
+	});
+
+	it('tells a subscriber when the ceiling drops the oldest entries', () => {
+		const nav = makeNav(undefined, { navStackCap: 2 });
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordOpen('b.md', 'leaf-1');
+		const seen = vi.fn();
+		nav.subscribe(seen);
+
+		nav.recordOpen('c.md', 'leaf-1');
+
+		// The push and the trim it caused are one redraw's worth of news; either
+		// notice is enough for a panel that redraws the whole list.
+		expect(seen.mock.calls.length).toBeGreaterThan(0);
+		expect(nav.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
+	});
+});

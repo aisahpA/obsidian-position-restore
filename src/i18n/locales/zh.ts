@@ -120,6 +120,9 @@ export const zh: En = {
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
 	'navHistory.commands.browseHistory': '浏览导航历史',
+	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
+	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
+	'navHistory.commands.browseHistorySidebar': '在侧边栏打开导航历史',
 
 	'navHistory.type.open': '打开',
 	'navHistory.type.switch': '切换',
@@ -139,10 +142,15 @@ export const zh: En = {
 	// 位置」卡片也去掉了（见 modal.ts）：列表现在是一棵笔记树，正在站的那篇是它的第
 	// 一行，落点开在笔记下面。
 	'navHistory.keyboardHint': '↑↓ 选择 · ←→ 展开/收起 · Enter 跳转 · Esc 关闭',
-	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryModal.mobile）：
-	// 一次轻点打开笔记、或指向某个落点，前往由面板自己的按钮承担。
-	'navHistory.touchHint': '轻点笔记展开，轻点落点看那一处',
-	// 仅触屏：点击行只是"选中"（没有 hover），所以预览面板要自带一个真正前往的入口。
+	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryBrowserOptions.touch）：行首的
+	// 箭头负责前往，轻点笔记展开，轻点落点在下方面板里看那一处。
+	'navHistory.touchHint': '轻点 ↪ 跳转，轻点笔记展开，轻点落点看那一处',
+	// ……鼠标下的同一套手势：侧栏常驻面板刻意跑在「点击」模式里，悬停什么也不做；
+	// 单击展开笔记或指向落点，前往由行首的箭头承担（见 NavHistoryBrowserOptions.tap 与
+	// NavHistoryList.go）。原来在这里的双击已经去掉：它会把每一次单击都押后一个双击窗口，
+	// 于是列表响应发钝，而且跳转前还会把笔记或面板闪开一下。
+	'navHistory.clickHint': '↪ 直接跳转 · 单击展开/收起',
+	// 行首的箭头和面板里的按钮做的是同一件事，这里是它们共用的说法——右键菜单也一样。
 	'navHistory.jumpHere': '跳到这里',
 	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
 	// 只写“第几个/共几个”：不用词，因为那个词是行内“安静区”里最宽的东西。

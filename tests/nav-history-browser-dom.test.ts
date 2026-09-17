@@ -6,7 +6,7 @@
 // nav-history-browser.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MarkdownRenderer, MarkdownView, Platform, TFile } from 'obsidian';
+import { MarkdownRenderer, MarkdownView, Menu, Platform, TFile } from 'obsidian';
 
 import { NavHistoryModal } from '@/nav-history/browser/modal';
 import { setPreviewMode } from '@/nav-history/browser/preview-content';
@@ -180,13 +180,17 @@ function harness(
 	// ONE click on a note: open it (or close it again).
 	const open = (name: string) =>
 		note(name).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	// TWO clicks on the same row inside the double-click window: travel. The
-	// second click is the one that carries the action, so every test that means
-	// "go there" spends both.
-	const dbl = (row: HTMLElement) => {
-		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	};
+	// The arrow in front of a row: the panel's own way to travel, and ONE click (see
+	// NavHistoryList.go). It replaced the double click, which could not be told from a
+	// single click until the second had arrived — so the row's own action had to wait
+	// out the double-click window, and a pair of clicks flashed the note open on its
+	// way to a travel.
+	const go = (row: HTMLElement) => row.querySelector<HTMLElement>('.nav-row-go')!
+		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// …and the same destination in words, for the reader who right-clicks a row.
+	const rightClick = (row: HTMLElement) => row.dispatchEvent(
+		new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+	);
 	// A real pointer move over a row. The handler hit-tests by event TARGET, so
 	// the zeroed rects jsdom cannot lay out do not matter. Every call is a move to a
 	// NEW spot — the coordinates advance unless a test says otherwise — because a
@@ -198,7 +202,7 @@ function harness(
 			clientX: at?.x ?? (pointer += 20),
 			clientY: at?.y ?? pointer,
 		}));
-	const key = (k: string) => modal.modalEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+	const key = (k: string) => modal.contentEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
 	// The drawer's content, as Obsidian's renderer received it: the recorded block
 	// for a spot, the whole file for a note. What is ASSERTED on is this source —
 	// the rendering itself is Obsidian's (see the stub's minimal stand-in).
@@ -213,7 +217,7 @@ function harness(
 		.find(b => b.textContent === label);
 	return {
 		modal, jumpTo, cachedRead, el: modal.contentEl,
-		rows, notes, note, place, open, dbl, hoverRow, key, source, marks, content, modeButton,
+		rows, notes, note, place, open, go, rightClick, hoverRow, key, source, marks, content, modeButton,
 	};
 }
 
@@ -222,6 +226,9 @@ beforeEach(() => {
 	// Children (and any class a test left on the body), or one test's DOM leaks
 	// into the next.
 	document.body.className = '';
+	// The menus the browser showed (see the stub's Menu.shown): a test that reads one
+	// must read the one ITS right-click opened.
+	Menu.reset();
 	// The view switch is a SESSION preference (see setPreviewMode), so a test that
 	// flips it would otherwise decide the view for every test after it.
 	setPreviewMode('spot');
@@ -485,12 +492,25 @@ describe('NavHistoryModal — deleted entries', () => {
 		// the type cell that used to spell this out is gone; the name carries it
 		expect(row.querySelector('.nav-row-file')?.classList.contains('is-missing')).toBe(true);
 
-		// A double click has nothing to travel to.
-		h.dbl(row);
+		// A row with nothing to travel to carries no arrow: the CELL is still drawn —
+		// it is the row's first grid track, and without it this note's name would
+		// slide a track to the left — but it holds nothing to click. A dead arrow
+		// would promise a step that moves the stack pointer with nothing to show.
+		expect(row.querySelector('.nav-row-go')).not.toBeNull();
+		expect(row.querySelector('.nav-row-go')?.classList.contains('is-empty')).toBe(true);
+
+		// The right-click menu says the same thing in words: the reason, and no item
+		// to pick.
+		h.rightClick(row);
+		const item = Menu.last?.items[0];
+		expect(item?.title).toBe(t('navHistory.disabledTip'));
+		expect(item?.disabled).toBe(true);
+		item!.pick();
 		expect(h.jumpTo).not.toHaveBeenCalled();
+
 		// Enter is a different question: it travels to whatever the cursor is on,
-		// and the cursor IS on this note now (a double click points at it before
-		// it refuses). Its refusal is what the assertion above pins — a missing
+		// and the cursor IS on this note now (a click points at it before it
+		// refuses). Its refusal is what the assertion above pins — a missing
 		// note's row opens (that is how its recorded landings and the "file
 		// deleted" panel are reached), and never travels.
 		h.key('Enter');
@@ -531,7 +551,8 @@ describe('NavHistoryModal — deleted entries', () => {
 		for (const place of places) {
 			expect(place.classList.contains('is-missing')).toBe(true);
 			expect(place.getAttribute('aria-disabled')).toBe('true');
-			h.dbl(place);
+			// …and no arrow on any of them: there is nothing under them to go back to.
+			expect(place.querySelector('.nav-row-go')?.classList.contains('is-empty')).toBe(true);
 		}
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
@@ -618,15 +639,31 @@ describe('NavHistoryModal — one note, many landings', () => {
 		expect(h.rows()).toHaveLength(0); // a click opens nothing: there is no group of one
 
 		// …and → is not consumed by it either, so the key keeps its ordinary
-		// meaning in the search box (see NavHistoryModal.onKeyDown)
+		// meaning in the search box (see NavHistoryBrowser.onKeyDown)
 		const right = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
-		h.modal.modalEl.dispatchEvent(right);
+		h.modal.contentEl.dispatchEvent(right);
 		expect(right.defaultPrevented).toBe(false);
 		expect(h.rows()).toHaveLength(0);
 
-		// It is still a destination: the double click travels to its one spot.
-		h.dbl(h.note('x.md'));
+		// It is still a destination: the row's own arrow travels to its one spot.
+		h.go(h.note('x.md'));
 		expect(h.jumpTo).toHaveBeenCalledWith(0);
+	});
+
+	it('travels from a note\'s arrow without the row\'s own click running too', () => {
+		// x.md holds two landings, so its row's OWN click has something to do: open
+		// them. That must not happen on the way to a travel — a sublist flashing open
+		// and shut is exactly what the double click cost the reader, and the arrow
+		// exists to end it (see NavHistoryList.go). The dialog closes itself on the
+		// travel, so the row is asked, detached, what it would have opened.
+		const h = harness([at('x.md', 100, 30), at('x.md', 412, 10), visit('y.md', NOW)], 2, files);
+
+		h.go(h.note('x.md'));
+
+		// The top of the note, which is the landing its row stands for
+		// (see NavHistoryList.activeRep).
+		expect(h.jumpTo).toHaveBeenCalledWith(0);
+		expect(h.rows()).toHaveLength(0);
 	});
 
 	it('never merges two notes, however alike their steps are', () => {
@@ -951,16 +988,16 @@ describe('NavHistoryModal — a landing row', () => {
 	it('puts the coordinate before the section, and no time column anywhere', () => {
 		// The row used to be name | section | small print (pane, coordinate, age)
 		// with the age in a measured column of its own. The note is the row now,
-		// so a landing is coordinate | section, plus the pane cell only while two
-		// live tabs hold that note — and the age has left the list entirely (it
-		// survives in the panel).
+		// so a landing is the travel arrow | coordinate | section, plus the pane cell
+		// only while two live tabs hold that note — and the age has left the list
+		// entirely (it survives in the panel).
 		const h = harness(body(), 2, files, [], {}, A_HEADINGS);
 
 		h.open('a.md');
 
 		const row = h.rows()[1];
 		expect([...row.children].map(el => el.className))
-			.toEqual(['nav-row-pos', 'nav-row-trail']);
+			.toEqual(['nav-row-go svg-icon svg-icon-corner-up-right', 'nav-row-pos', 'nav-row-trail']);
 		expect(row.querySelector('.nav-row-time')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-list .nav-row-time')).toBeNull();
 	});
@@ -1661,10 +1698,27 @@ describe('NavHistoryModal — touch', () => {
 		expect(panel.parentElement?.className).toBe('position-restore-nav-body');
 	});
 
-	it('leaves a pointing device its double-click travel', () => {
+	it('lets a pointing device travel from the row itself, in one click', () => {
+		// The arrow is not a touch affordance: a mouse gets the same one click, and
+		// the hover-driven drawer is left describing whatever the pointer is on.
 		const h = harness(entries(), 2, files);
 
-		h.dbl(h.note('b.md'));
+		h.go(h.note('b.md'));
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
+	});
+
+	it('opens a row\'s travel in a right-click menu, and only travels when it is picked', () => {
+		const h = harness(entries(), 2, files);
+
+		h.rightClick(h.note('b.md'));
+
+		const item = Menu.last?.items[0];
+		expect(item?.title).toBe(t('navHistory.jumpHere'));
+		expect(item?.disabled).toBe(false);
+		// Showing a menu is a question, not an answer.
+		expect(h.jumpTo).not.toHaveBeenCalled();
+
+		item!.pick();
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
@@ -1857,9 +1911,9 @@ describe('NavHistoryModal — the landing drawer', () => {
 		expect(h.el.querySelectorAll('.is-previewed')).toHaveLength(1);
 
 		// A closed note has no landing row to mark, so the note's own row stands for
-		// the spot the column is showing. ← is how the note is closed here: a second
-		// CLICK on the note row inside the double-click window is a travel, not a
-		// toggle (see NavHistoryList.onClick).
+		// the spot the column is showing. ← is how the note is closed here: a click on
+		// the note row would do it too — its own soft action, and never a travel (see
+		// NavHistoryList.onClick: travel is the row's arrow).
 		h.key('ArrowLeft');
 		expect(h.rows()).toHaveLength(0);
 		expect(h.note('x.md').classList.contains('is-previewed')).toBe(true);

@@ -12,12 +12,14 @@ English | [简体中文](README-zh.md)
 - **Cursor and scroll, both restored** — exact line and column; records persist with the vault across restarts and devices
 - **Per-tab positions** — the same note open in several tabs keeps a separate position per tab
 - **Navigation history** — VSCode-style back/forward across files, tabs and in-file jumps, with a browsable history list
+- **Resident history sidebar** — the same list as a permanent sidebar panel that follows the history while you work, instead of a dialog you open and dismiss
 - **Mobile ready** — works on both desktop and mobile
 
 ## Features
 
 - **Position restore** — remembers cursor and scroll per note; the restore completes during the file open itself, hidden under a brief blank
 - **Navigation history** — VSCode-style back/forward across files, tabs and in-file jumps (outline clicks, anchor links, large cursor moves, graph view), plus a browsable history list; provided as commands you can bind hotkeys to
+- **History sidebar** — "Open navigation history in sidebar" turns the same list into a resident panel: it stays where you put it, follows the history as it moves, and a jump leaves it standing. It is click-only — nothing happens on hover — so the panel cannot change under a passing mouse; a jump is one click on the arrow in front of a row, or a right-click on the row for the same thing in words
 - **Restore modes** — source / reading mode each choose instant or glide (smooth scroll) restore
 - **Restore indicator** — optional breadcrumb showing your position in the folder hierarchy after a restore
 - **Recording filters** — excluded folders, minimum line count, frontmatter property exclusion, and a per-file `position-restore` opt-out/in

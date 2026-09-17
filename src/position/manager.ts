@@ -9,6 +9,7 @@ import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryModal } from '@/nav-history/browser/modal';
+import { NavHistoryView, activateNavHistoryView, createNavHistoryView } from '@/nav-history/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
@@ -155,6 +156,23 @@ export class PositionManager {
 		// position before the browser renders so it is not a bare type badge.
 		this.nav.syncCurrentPosition();
 		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path]).open();
+	}
+
+	// The resident form of the same browser (main.ts command) — see
+	// NavHistoryView. Same history, same rows, standing in a sidebar instead of
+	// asked and dismissed.
+	openNavHistorySidebar() {
+		// Same reason as the modal's: the panel draws the stack as it stands, and
+		// the note being sat in has had no leave-refresh yet.
+		this.nav.syncCurrentPosition();
+		void activateNavHistoryView(this.app, this.nav, (path) => this.database.db[path]);
+	}
+
+	// The factory main.ts hands to Plugin.registerView: the view needs the
+	// history and the saved positions, both of which this facade owns, so the
+	// wiring is handed out here rather than reached for through it.
+	navHistoryViewCreator(): (leaf: WorkspaceLeaf) => NavHistoryView {
+		return createNavHistoryView(this.nav, (path) => this.database.db[path]);
 	}
 
 	// Tab/pane activation records a nav entry (VSCode semantics) — see

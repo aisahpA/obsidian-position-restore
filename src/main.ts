@@ -3,6 +3,7 @@ import { SettingTab } from './ui/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
+import { NAV_HISTORY_VIEW_TYPE } from './nav-history/browser/view';
 import { t } from './i18n';
 
 
@@ -21,6 +22,13 @@ export default class PositionRestorePlugin extends Plugin {
 		this.manager.sweepMissingHistory();
 
 		this.addSettingTab(new SettingTab(this.app, this));
+
+		// The history browser's resident form: registered BEFORE the layout is
+		// restored, which is what lets a saved sidebar panel come back as itself
+		// on the next start. Nothing detaches it on unload, deliberately — the
+		// workspace closes a disabled plugin's views, and detaching the leaf here
+		// would throw away where the reader had dragged it to.
+		this.registerView(NAV_HISTORY_VIEW_TYPE, this.manager.navHistoryViewCreator());
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
@@ -86,6 +94,18 @@ export default class PositionRestorePlugin extends Plugin {
 			name: t('navHistory.commands.browseHistory'),
 			icon: 'history',
 			callback: () => this.manager.openNavHistoryModal(),
+		});
+		// …and the same browser as a RESIDENT sidebar panel: a place in the
+		// workspace rather than a question asked and dismissed. A separate
+		// command, deliberately — the two answer the same question in two
+		// different moods (a picker, and a panel to work beside), and which one
+		// is wanted is the reader's call at the moment they ask, not a setting
+		// they have to get right beforehand.
+		this.addCommand({
+			id: 'open-nav-history-sidebar',
+			name: t('navHistory.commands.browseHistorySidebar'),
+			icon: 'panel-right',
+			callback: () => this.manager.openNavHistorySidebar(),
 		});
 		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
 		// and the toolbar only exists while editing, so one tap (the mobile

@@ -52,6 +52,69 @@ export class Notice {
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
 
+// The history browser offers a row's travel in a right-click menu as well as on the
+// row's own arrow (see NavHistoryList.rowMenu), and draws that arrow with Obsidian's
+// icon helper. jsdom has neither menus nor icons, so the pair is stood in for: the
+// icon records its NAME (the drawing is the app's), and a menu records the items put
+// in it so a test can read what the reader would see and pick one the way a reader
+// would. It is kept in `Menu.shown`, because the browser builds it and drops it in
+// one statement and a test has nothing else to hold on to.
+export function setIcon(el: HTMLElement, icon: string): void {
+	el.addClass('svg-icon', `svg-icon-${icon}`);
+	el.setAttribute('data-icon', icon);
+}
+
+export class MenuItem {
+	title: string | DocumentFragment = '';
+	icon: string | null = null;
+	disabled = false;
+	private action?: () => void;
+
+	setTitle(title: string | DocumentFragment): this {
+		this.title = title;
+		return this;
+	}
+	setIcon(icon: string | null): this {
+		this.icon = icon;
+		return this;
+	}
+	setDisabled(disabled: boolean): this {
+		this.disabled = disabled;
+		return this;
+	}
+	onClick(action: () => void): this {
+		this.action = action;
+		return this;
+	}
+	/** The reader picked this item; a disabled item cannot be picked. */
+	pick(): void {
+		if (!this.disabled)
+			this.action?.();
+	}
+}
+
+export class Menu {
+	/** Every menu shown since the last reset, newest last. */
+	static shown: Menu[] = [];
+	static reset(): void {
+		Menu.shown = [];
+	}
+	static get last(): Menu | undefined {
+		return Menu.shown[Menu.shown.length - 1];
+	}
+	readonly items: MenuItem[] = [];
+	addItem(cb: (item: MenuItem) => unknown): this {
+		const item = new MenuItem();
+		this.items.push(item);
+		cb(item);
+		return this;
+	}
+	showAtMouseEvent(_ev: MouseEvent): this {
+		Menu.shown.push(this);
+		return this;
+	}
+}
+
 // i18n.ts picks its locale at import time via getLanguage().
 export function getLanguage(): string {
 	return 'en';
@@ -78,6 +141,45 @@ export class Component {
 	}
 	onload(): void {}
 	onunload(): void {}
+}
+
+// The resident history panel is an ItemView (see browser/view.ts): the plugin
+// registers it with the workspace, a leaf builds it, and the workspace opens and
+// closes it. Enough of that shape for a test to mount one by hand — the view
+// builds its DOM in contentEl, which is the one element of the real class the
+// panel touches — and to see whether it was opened or closed.
+export class WorkspaceLeaf {
+	view: unknown = null;
+	async setViewState(state: unknown): Promise<void> {
+		this.state = state;
+	}
+	state: unknown = null;
+	async loadIfDeferred(): Promise<void> {}
+}
+
+export class View extends Component {
+	leaf: WorkspaceLeaf;
+	app: unknown;
+	containerEl: HTMLElement;
+	constructor(leaf: WorkspaceLeaf) {
+		super();
+		this.leaf = leaf;
+		this.app = (leaf as unknown as { app?: unknown }).app;
+		this.containerEl = document.createElement('div');
+		this.containerEl.className = 'workspace-leaf-content';
+	}
+	getViewType(): string {
+		return '';
+	}
+	onResize(): void {}
+}
+
+export class ItemView extends View {
+	contentEl: HTMLElement;
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.contentEl = this.containerEl.createDiv({ cls: 'view-content' });
+	}
 }
 
 // The drawer draws its content with Obsidian's OWN renderer, which lives in the

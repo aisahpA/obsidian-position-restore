@@ -279,6 +279,9 @@ export class SettingTab extends PluginSettingTab {
 							list.createEl('li', { text: `${t('navHistory.commands.navigateBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
 							list.createEl('li', { text: `${t('navHistory.commands.navigateForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
 							list.createEl('li', { text: `${t('navHistory.commands.browseHistory')}: ${currentHotkeyText(this.plugin, 'browse-nav-history')}` });
+							// The resident panel is a command like the other three, so it
+							// is bound (or not) in the same place — see view.ts.
+							list.createEl('li', { text: `${t('navHistory.commands.browseHistorySidebar')}: ${currentHotkeyText(this.plugin, 'open-nav-history-sidebar')}` });
 							setting.setDesc(frag);
 							setting.addExtraButton((btn) => {
 								btn.setIcon('keyboard').setTooltip(t('navHistory.overview.openHotkeySettings'))

@@ -92,6 +92,13 @@ export class NavHistory {
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
 
+	// Who wants to hear that the stack as a BROWSER sees it changed (see
+	// subscribe). Nothing in the recording or the traversal reads this: it exists
+	// for the one consumer that outlives a single render — the resident sidebar
+	// panel, which draws the stack as it stands and has no other way to learn
+	// that it moved.
+	private listeners = new Set<() => void>();
+
 	// True while a back/forward traversal is executing: the opens it triggers
 	// (openFile, native go-back) are the traversal itself, not new jumps.
 	private executing = false;
@@ -142,7 +149,40 @@ export class NavHistory {
 		// negative, so forward still walks what remains instead of traversal
 		// being disabled outright.
 		this.index = this.entries.length === 0 ? -1 : Math.max(0, this.index - removed);
+		// A resident panel draws the dropped entries until it is told (see
+		// subscribe). The constructor's own call reaches nobody.
+		if (removed > 0)
+			this.changed();
 		return removed;
+	}
+
+	// ===== Change notification =====
+
+	// Hear about every change a BROWSER would have to redraw for: a push, a step,
+	// a leave-refresh, a prune, a rename, a jump. @returns how to stop hearing
+	// about them.
+	//
+	// It exists for a panel that is on screen for hours (the sidebar view): the
+	// modal is opened, read and closed inside one render, but a resident panel has
+	// to catch a history that moves under it. The signal is deliberately coarse —
+	// "something changed", never what — because the only honest consumer redraws
+	// the whole body anyway, and a finer vocabulary would be a second model for the
+	// one thing the browser already derives from the stack itself.
+	//
+	// Every caller is a user-scale event (a navigation, a leave, a settings change),
+	// never a per-tick one: the 100ms poll records cursor movement in the position
+	// store and only reaches the stack through refreshTop on a settle or a mobile
+	// teleport (see sampler), so a listener may redraw synchronously.
+	subscribe(fn: () => void): () => void {
+		this.listeners.add(fn);
+		return () => {
+			this.listeners.delete(fn);
+		};
+	}
+
+	private changed(): void {
+		for (const fn of this.listeners)
+			fn();
 	}
 
 	// Every distinct file path the stack still names (view entries name none).
@@ -283,16 +323,19 @@ export class NavHistory {
 			if (!top.st) {
 				top.st = st;		
 				this.upgradeKeyLine(top, st);
+				this.changed();
 			}
 			return;
 		}
 		if (top.kind === 'teleport') {
 			if (!top.st) {
 				top.st = st;
+				this.changed();
 			}
 			return;
 		}
 		top.st = st;
+		this.changed();
 	}
 
 	// Upgrade a keyed jump with the anchor's RECORD-TIME line from
@@ -392,6 +435,7 @@ export class NavHistory {
 		// just established, not to the entry the push replaced.
 		this.index = this.entries.length - 1;
 		this.applyStackCap();
+		this.changed();
 	}
 
 	// ===== Traversal =====
@@ -424,6 +468,9 @@ export class NavHistory {
 		if (!this.canStep(dir))
 			return;
 		await this.runBracketed(() => this.traverse(dir));
+		// The pointer moved even where no step was pushed (a traversal that only
+		// reactivates a tab), and "you are here" moved with it.
+		this.changed();
 	}
 
 	// Time travel to an arbitrary entry (the history browser). Same bracket
@@ -456,6 +503,10 @@ export class NavHistory {
 				this.push({ ...this.entries[index] });
 			await this.execute(this.entries[this.index], dir);
 		});
+		// The stack moved under whoever is drawing it (see subscribe). The push
+		// above already announced the new top; this catches the jump onto the
+		// entry the reader is already standing on, which pushes nothing.
+		this.changed();
 	}
 
 	// The bracket shared by navigate/jumpTo: one position change, not new
@@ -802,9 +853,15 @@ export class NavHistory {
 	// ===== Bookkeeping =====
 
 	renameFile(oldPath: string, newPath: string) {
+		let renamed = false;
 		for (const entry of this.entries)
-			if (entry.kind !== 'view' && entry.path === oldPath)
+			if (entry.kind !== 'view' && entry.path === oldPath) {
 				entry.path = newPath;
+				renamed = true;
+			}
+		// The rows name the OLD path until the browser redraws (see subscribe).
+		if (renamed)
+			this.changed();
 	}
 
 	// A real vault delete drops the file's steps (the browser shows the gap as
@@ -825,10 +882,18 @@ export class NavHistory {
 			}
 			kept.push(entry);
 		}
+		// A path no step names (the bookkeeper re-checks the vault, and a sync
+		// plugin's replace-and-rename is one path that comes straight back): the
+		// stack is not rewritten and no browser is told anything.
+		if (kept.length === this.entries.length)
+			return;
 		this.entries = kept;
 		this.index = kept.length === 0
 			? -1
 			: Math.min(this.index - removedBefore, kept.length - 1);
+		// The rows for the pruned steps stay on screen until the browser redraws
+		// (see subscribe).
+		this.changed();
 	}
 
 	// ===== Persistence (device-local, per vault — mirrors the overlay) =====

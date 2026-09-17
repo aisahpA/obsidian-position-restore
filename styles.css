@@ -81,7 +81,12 @@ body.is-mobile .position-restore-cue {
 
 /* History browser (NavHistoryModal): a TREE of notes with their landings, and
    the landing drawer beside it (the recorded lines the pointed-at landing sits
-   among — see LandingPanel). */
+   among — see LandingPanel). TWO shells stand around one body (see body.ts): the
+   "Browse navigation history" dialog and the resident sidebar panel
+   (NavHistoryView), and everything they share is written against
+   .position-restore-nav-panel — the class BOTH roots carry. Only what is
+   genuinely a dialog (its width, its pinned height, the compaction a short window
+   needs) is written against the modal's own class. */
 /* A note's name, its folder when another note shares it, and the section of each
    landing: the modal runs wider than the stock one to hold all three beside a
    drawer that has to show real lines of text (min() keeps phones near-full). */
@@ -91,23 +96,29 @@ body.is-mobile .position-restore-cue {
 	   recorded lines that are the reason the dialog is open. */
 	width: min(900px, 94vw);
 	max-width: min(900px, 94vw);
+}
 
-	/* This panel's two quiet tiers, defined here and used by every rule below in
-	   place of --text-faint / --text-muted. Those two are ordinary theme
-	   variables: a theme may re-hue them to anything, and then the QUIETEST tier
-	   comes out LOUDER than the row's own text — under Soft Paper (Catppuccin)
-	   --text-faint is a saturated cyan and --text-muted a second hue, so every
-	   coordinate, age and section read as a coloured highlight while the note's
-	   name stayed gray. Mixing the theme's own PRIMARY text colour toward
-	   transparent cannot go wrong: the result is always the same hue as the text
-	   it sits under, always lighter against the background, in any palette, light
-	   or dark (55% reproduces the stock theme's --text-faint grey almost exactly,
-	   so nothing changes where those were sane to begin with). The section column
-	   is the one secondary text a reader actually scans by, so this tier sits
-	   higher than the stock --text-muted did: 88%, still clearly under the note's
-	   name (100%) but no longer washed out. */
+/* This panel's two quiet tiers, defined on the shell both forms share and used by
+   every rule below in place of --text-faint / --text-muted. Those two are ordinary
+   theme variables: a theme may re-hue them to anything, and then the QUIETEST tier
+   comes out LOUDER than the row's own text — under Soft Paper (Catppuccin)
+   --text-faint is a saturated cyan and --text-muted a second hue, so every
+   coordinate, age and section read as a coloured highlight while the note's
+   name stayed gray. Mixing the theme's own PRIMARY text colour toward
+   transparent cannot go wrong: the result is always the same hue as the text
+   it sits under, always lighter against the background, in any palette, light
+   or dark (55% reproduces the stock theme's --text-faint grey almost exactly,
+   so nothing changes where those were sane to begin with). The section column
+   is the one secondary text a reader actually scans by, so this tier sits
+   higher than the stock --text-muted did: 88%, still clearly under the note's
+   name (100%) but no longer washed out. */
+.position-restore-nav-panel {
 	--nav-muted: color-mix(in srgb, var(--text-normal) 88%, transparent);
 	--nav-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
+	/* The travel arrow's gutter — the first grid track of BOTH row kinds (see
+	   .nav-row-go). One number for the two, because a note's row and its landings
+	   have to start their text on the same x as far as the tree's indent allows. */
+	--nav-go-track: 1.5em;
 }
 
 /* A long history pins the height and scrolls the list inside it: otherwise
@@ -204,10 +215,13 @@ body.is-mobile .position-restore-cue {
 	--input-border-width-focus: 0;
 }
 
-/* One rule under the caret, and no focus glow. The modal class in the selector
-   is load-bearing: the app styles inputs as `input[type='text']`, so only a
-   selector at least that specific can take the box away. */
-.modal.position-restore-nav-modal input.position-restore-nav-filter {
+/* One rule under the caret, and no focus glow. The shell class in the selector is
+   load-bearing: the app styles inputs as `input[type='text']`, so only a selector
+   at least that specific can take the box away — which is what the [type='text']
+   below adds back, now that the selector is written against the shell both forms
+   carry rather than against `.modal.position-restore-nav-modal` (three class-ish
+   steps then, three now: shell + input class + type attribute). */
+.position-restore-nav-panel input.position-restore-nav-filter[type='text'] {
 	flex: 1 1 auto;
 	min-width: 0;
 	height: auto;
@@ -219,14 +233,14 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-small);
 }
 
-.modal.position-restore-nav-modal input.position-restore-nav-filter:focus,
-.modal.position-restore-nav-modal input.position-restore-nav-filter:focus-visible {
+.position-restore-nav-panel input.position-restore-nav-filter[type='text']:focus,
+.position-restore-nav-panel input.position-restore-nav-filter[type='text']:focus-visible {
 	border-bottom-color: var(--interactive-accent);
 	box-shadow: none;
 	outline: none;
 }
 
-.modal.position-restore-nav-modal input.position-restore-nav-filter::placeholder {
+.position-restore-nav-panel input.position-restore-nav-filter::placeholder {
 	color: var(--nav-faint);
 }
 
@@ -248,12 +262,12 @@ body.is-mobile .position-restore-cue {
    the row with the filter box left it cut off at the panel's edge (the box
    shrinks, the hint does not), so the one line that says how the panel works was
    the one line nobody could read. */
-.position-restore-nav-modal.is-touch .position-restore-nav-toolbar {
+.position-restore-nav-panel.is-touch .position-restore-nav-toolbar {
 	flex-wrap: wrap;
 	row-gap: 2px;
 }
 
-.position-restore-nav-modal.is-touch .position-restore-nav-hint {
+.position-restore-nav-panel.is-touch .position-restore-nav-hint {
 	flex: 1 0 100%;
 	white-space: normal;
 	line-height: 1.3;
@@ -309,13 +323,65 @@ body.is-mobile .position-restore-cue {
 	opacity: 0.6;
 }
 
-/* A NOTE: its caret, then its name and what the name could not say alone. It is
-   NOT indented — the note is the top level of the tree, and its landings are what
-   step in under it. The caret owns a fixed square so that a run of names starts
-   on one x whether or not any of them is open. */
+/* A NOTE: the travel arrow, then its caret, then its name and what the name could
+   not say alone. It is NOT indented — the note is the top level of the tree, and
+   its landings are what step in under it. The caret and the arrow each own a fixed
+   square so that a run of names starts on one x whether or not any of them is open,
+   and whether or not it can be travelled to at all. */
 .position-restore-nav-row.is-file {
 	display: grid;
-	grid-template-columns: 1.1em minmax(0, 1fr);
+	grid-template-columns: var(--nav-go-track) 1.1em minmax(0, 1fr);
+}
+
+/* THE TRAVEL ARROW: the one click that goes where the row points — to the landing
+   itself, or to the top of the note a note's row stands for (see
+   NavHistoryList.go). It replaced a double click, which could not be told from a
+   single one until the second had arrived: the row's own action had to wait out
+   the double-click window (every plain click answered 300ms late), and a click
+   that did turn out to be a pair had already flashed the note open. A visible
+   target has neither problem — it says what it does before it is used, and it
+   answers the moment it is hit.
+   A row with nothing to travel to (a deleted note's) keeps the CELL and loses the
+   arrow: the track is what lines the names up, and a row without it would slide
+   its own name — and only its own — a track to the left (see NavHistoryList.go). */
+.position-restore-nav-row .nav-row-go {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	/* Centred in the row, not sat on its text baseline: on a phone two of these span
+	   a two-line landing row (see the touch rules below). */
+	align-self: center;
+	/* A button inside a clickable row: the row's own box is the padding, so this one
+	   has none of its own, and none of the app's chrome either — an outlined button
+	   on every line would be a wall of boxes down the list. */
+	margin: 0;
+	padding: 0;
+	border: none;
+	background: none;
+	box-shadow: none;
+	/* The FAINT tier: it is a target the eye finds when it looks for it, not a label
+	   competing with the names it sits beside. */
+	color: var(--nav-faint);
+	cursor: pointer;
+}
+
+.position-restore-nav-row .nav-row-go svg {
+	width: 1.05em;
+	height: 1.05em;
+}
+
+/* The arrow comes forward with the row under the pointer, and with the row the
+   position is on: still quiet, but legible the moment a reader reaches for it. */
+.position-restore-nav-row:hover .nav-row-go:not(.is-empty),
+.position-restore-nav-row.is-selected .nav-row-go:not(.is-empty),
+.position-restore-nav-row.is-previewed .nav-row-go:not(.is-empty) {
+	color: var(--nav-muted);
+}
+
+/* …and it says it is a button when the pointer is on it, which is the one place the
+   quiet tier is not enough. */
+.position-restore-nav-row .nav-row-go:not(.is-empty):hover {
+	color: var(--text-normal);
 }
 
 .position-restore-nav-row .nav-file-caret {
@@ -329,16 +395,16 @@ body.is-mobile .position-restore-cue {
 	transform: rotate(90deg);
 }
 
-/* ONE OF A NOTE'S LANDINGS: the coordinate, the section it sits in, then the one
-   badge that can still be a column (the pane, which only ever appears for a note
-   two live tabs hold). Its indent is what says it belongs to the note above: the
-   bar is drawn with a shadow rather than a border so the row keeps its own
-   padding box, and the row is clickable across its whole width. */
+/* ONE OF A NOTE'S LANDINGS: the travel arrow, the coordinate, the section it sits
+   in, then the one badge that can still be a column (the pane, which only ever
+   appears for a note two live tabs hold). Its indent is what says it belongs to the
+   note above: the bar is drawn with a shadow rather than a border so the row keeps
+   its own padding box, and the row is clickable across its whole width. */
 .position-restore-nav-row.is-place {
 	display: grid;
 	/* The position track keeps the coordinate's own width so the sections start
 	   on one x down the whole list (see .nav-row-pos). */
-	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-columns: var(--nav-go-track) auto minmax(0, 1fr) auto;
 	margin-inline-start: 1.5em;
 	box-shadow: inset 2px var(--background-modifier-border);
 }
@@ -599,7 +665,7 @@ body.is-mobile .position-restore-cue {
    the row it describes. Its height is its content: the list is the scroller, and a
    panel capped to a height of its own would open a second scroll area inside the only
    one a finger has — a way to get stuck. */
-.position-restore-nav-modal.is-inline .position-restore-nav-preview {
+.position-restore-nav-panel.is-inline .position-restore-nav-preview {
 	flex: 0 0 auto;
 	display: block;
 	width: auto;
@@ -612,7 +678,7 @@ body.is-mobile .position-restore-cue {
 
 /* The panel has already been emptied by the renderer; not showing it at all is
    what "nothing to open under" looks like inline. */
-.position-restore-nav-modal.is-inline .position-restore-nav-preview.is-parked {
+.position-restore-nav-panel.is-inline .position-restore-nav-preview.is-parked {
 	display: none;
 }
 
@@ -621,9 +687,9 @@ body.is-mobile .position-restore-cue {
    Inline a tap opens ONE panel under its row and that is the whole of what the reader
    is looking at — there is nothing to hold still, and a reserved line of nothing is a
    line of nothing on a small screen. */
-.position-restore-nav-modal.is-inline .nav-preview-meta:empty,
-.position-restore-nav-modal.is-inline .nav-preview-trail:empty,
-.position-restore-nav-modal.is-inline .nav-preview-bar:empty {
+.position-restore-nav-panel.is-inline .nav-preview-meta:empty,
+.position-restore-nav-panel.is-inline .nav-preview-trail:empty,
+.position-restore-nav-panel.is-inline .nav-preview-bar:empty {
 	display: none;
 }
 
@@ -633,7 +699,7 @@ body.is-mobile .position-restore-cue {
    it: inline under the row the panel is that row's own detail, and a recessed band
    inside a list reads as one more row rather than as a panel. The hairline under the
    fixed half stays — it is the same two kinds of thing on a phone. */
-.position-restore-nav-modal.is-inline .nav-preview-scroll {
+.position-restore-nav-panel.is-inline .nav-preview-scroll {
 	overflow: visible;
 	min-height: 0;
 	padding-top: 6px;
@@ -649,7 +715,7 @@ body.is-mobile .position-restore-cue {
    The background has to be opaque now (rows slide under it) and is the dialog's own, so
    the band reads as the top of the list rather than as one more row; the recessed strip
    and its negative start margin are the drawer's devices and are undone here. */
-.position-restore-nav-modal.is-inline .nav-preview-top {
+.position-restore-nav-panel.is-inline .nav-preview-top {
 	position: sticky;
 	top: 0;
 	z-index: 1;
@@ -666,23 +732,23 @@ body.is-mobile .position-restore-cue {
    the list while the reader reads, and on a phone a line of nothing but the age is a
    line of the content's room. The row itself is what stays in sight: see the pinned-row
    rules below. */
-.position-restore-nav-modal.is-inline .nav-preview-ident {
+.position-restore-nav-panel.is-inline .nav-preview-ident {
 	display: none;
 }
 
-.position-restore-nav-modal.is-inline .nav-preview-head {
+.position-restore-nav-panel.is-inline .nav-preview-head {
 	flex-wrap: nowrap;
 	overflow: hidden;
 }
 
 /* The DOM order is name, age, small print; with the name gone the age is moved back to
    where it sits in the drawer (the far end) and the machinery takes what is left. */
-.position-restore-nav-modal.is-inline .nav-preview-meta {
+.position-restore-nav-panel.is-inline .nav-preview-meta {
 	order: 1;
 	flex: 1 1 auto;
 }
 
-.position-restore-nav-modal.is-inline .nav-preview-head .nav-row-time {
+.position-restore-nav-panel.is-inline .nav-preview-head .nav-row-time {
 	order: 2;
 }
 
@@ -698,7 +764,7 @@ body.is-mobile .position-restore-cue {
    Squared off: it is the top of the list for as long as it is pinned, and a rounded corner
    is a hole onto whatever is sliding under it. The hairline is the edge the pinned band
    below no longer draws between the two. */
-.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck {
+.position-restore-nav-panel.is-inline .position-restore-nav-row.is-stuck {
 	position: sticky;
 	top: 0;
 	z-index: 2;
@@ -707,16 +773,16 @@ body.is-mobile .position-restore-cue {
 	box-shadow: 0 1px 0 var(--background-modifier-border);
 }
 
-.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-selected,
-.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-previewed {
+.position-restore-nav-panel.is-inline .position-restore-nav-row.is-stuck.is-selected,
+.position-restore-nav-panel.is-inline .position-restore-nav-row.is-stuck.is-previewed {
 	background-image: linear-gradient(
 		color-mix(in srgb, var(--interactive-accent) 12%, transparent),
 		color-mix(in srgb, var(--interactive-accent) 12%, transparent)
 	);
 }
 
-.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-selected:hover,
-.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-previewed:hover {
+.position-restore-nav-panel.is-inline .position-restore-nav-row.is-stuck.is-selected:hover,
+.position-restore-nav-panel.is-inline .position-restore-nav-row.is-stuck.is-previewed:hover {
 	background-image: linear-gradient(
 		color-mix(in srgb, var(--interactive-accent) 20%, transparent),
 		color-mix(in srgb, var(--interactive-accent) 20%, transparent)
@@ -726,11 +792,11 @@ body.is-mobile .position-restore-cue {
 /* …and the block under it starts at the row's own foot instead of at the top of the list,
    which would put it under the pinned row: the height comes from the panel, which measured
    the row while it was still in its slot (see LandingPanel.render). */
-.position-restore-nav-modal.is-inline .position-restore-nav-preview.is-row-pinned .nav-preview-top {
+.position-restore-nav-panel.is-inline .position-restore-nav-preview.is-row-pinned .nav-preview-top {
 	top: var(--nav-pin-row, 0px);
 }
 
-.position-restore-nav-modal.is-inline .position-restore-nav-body {
+.position-restore-nav-panel.is-inline .position-restore-nav-body {
 	flex-direction: column;
 }
 
@@ -788,7 +854,7 @@ body.is-mobile .position-restore-cue {
    a full-width button is what pushed it onto a second one — two lines of a phone's
    height spent on controls, taken from the content that is the reason the panel is
    open. Wide enough to hit, no wider than the label it carries. */
-.position-restore-nav-modal.is-touch .nav-preview-bar .nav-preview-go {
+.position-restore-nav-panel.is-touch .nav-preview-bar .nav-preview-go {
 	width: auto;
 	height: auto;
 	padding: 7px 14px;
@@ -1032,40 +1098,134 @@ body.is-mobile .position-restore-cue {
    coordinate would start at a different x on every row, and the small print
    would stop reading as columns. It takes that line's right edge, so the slack
    falls before it, where a gap reads as a gap. */
-.position-restore-nav-modal.is-touch .position-restore-nav-row {
+.position-restore-nav-panel.is-touch .position-restore-nav-row {
 	row-gap: 2px;
 	/* One line of text is a small target for a finger. */
 	padding: 6px 8px;
 }
 
+/* THE ARROW GETS MORE ROOM UNDER A FINGER: the same gutter, wider, so the target
+   is not a 16px glyph on a screen the reader is holding at arm's length — and it
+   takes the row's whole height rather than sitting centred in it. */
+.position-restore-nav-panel.is-touch {
+	--nav-go-track: 1.9em;
+}
+
+.position-restore-nav-panel.is-touch .nav-row-go {
+	align-self: stretch;
+}
+
 /* A NOTE's row stays ONE line on a phone: two lines for the row that is the
    tree's whole top level would push the landings — the reason the list is worth
    scrolling — off the screen. Giving way is what the name does instead. */
-.position-restore-nav-modal.is-touch .position-restore-nav-row.is-file {
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-file {
 	display: flex;
 	align-items: baseline;
 }
 
-.position-restore-nav-modal.is-touch .position-restore-nav-row.is-file .nav-row-file {
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-file .nav-row-file {
 	flex: 1 1 auto;
 }
 
 /* A LANDING gets the two lines: the coordinate and the section on the first, the
-   pane pushed to the second's right edge. */
-.position-restore-nav-modal.is-touch .position-restore-nav-row.is-place {
-	grid-template-columns: auto minmax(0, 1fr);
+   pane pushed to the second's right edge. The arrow spans both, because the row it
+   belongs to is one thing however many lines it takes. */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-place {
+	grid-template-columns: var(--nav-go-track) auto minmax(0, 1fr);
 	grid-template-areas:
-		'name trail'
-		'meta meta';
+		'go name trail'
+		'go meta meta';
 }
 
-.position-restore-nav-modal.is-touch .nav-row-trail { grid-area: trail; }
-.position-restore-nav-modal.is-touch .nav-row-pane {
+.position-restore-nav-panel.is-touch .nav-row-go { grid-area: go; }
+.position-restore-nav-panel.is-touch .nav-row-pos { grid-area: name; }
+.position-restore-nav-panel.is-touch .nav-row-trail { grid-area: trail; }
+.position-restore-nav-panel.is-touch .nav-row-pane {
 	grid-area: meta;
 	/* Two tabs of one note are otherwise identical landings, so this is the one
 	   badge that must not be the thing that gets clipped — it takes the right
 	   edge of the second line, where there is room for it. */
 	margin-inline-start: auto;
+}
+
+/* THE RESIDENT SIDEBAR PANEL (NavHistoryView): the same body, standing in a
+   workspace leaf. Everything above applies to it unchanged — the tree, the
+   landing panel, the touch layout, the inline presentation — because the shell
+   carries the same .position-restore-nav-panel class. Three things a dialog never
+   has to say, and they are the whole of this section:
+
+   1. THE HEIGHT. A dialog is given one (is-fixed above); a leaf hands the panel
+      whatever the reader has dragged the sidebar to, so the panel has to take it:
+      the view content is a flex COLUMN with no scroll of its own, the list is the
+      one scroller, and the landing panel scrolls under the reader inside it.
+   2. THE WIDTH. The list's 20em is the DRAWER's measure (a readable name column
+      beside a second column of recorded lines — see .position-restore-nav-list).
+      There is no second column here, and no room to spare: the list takes the
+      pane. Which presentation the pane gets is decided in JS, off the PANE's own
+      width rather than the window's (see NavHistoryView.measure) — a 300px rail
+      inside a 1400px window would otherwise be offered two columns it cannot
+      hold.
+   3. THE BACKGROUND. The pinned bands inside an inline panel are painted with
+      the dialog's own colour (see the is-inline rules above), which is right
+      inside a modal and wrong inside a leaf: the band has to be the COLOUR OF
+      THE PANE it is standing in, or rows sliding under it show through the seam.
+
+   The pane's own chrome is untouched: its header, its close button and the
+   layout drag all still belong to Obsidian, which is half the reason this is a
+   view rather than a floating panel. */
+.workspace-leaf-content[data-type='position-restore-nav-history'] .view-content {
+	display: flex;
+	flex-direction: column;
+	/* The leaf's scroll would fight the list's: one scroller, and it is the list
+	   (or the landing panel inside it). */
+	overflow: hidden;
+	padding: 0;
+}
+
+.position-restore-nav-view {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.position-restore-nav-view .position-restore-nav-body {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+/* The list takes the height the toolbar left, and the pane's whole width: see (1)
+   and (2) above. `max-height: none` undoes the 60vh of the short-history dialog
+   rule — a cap measured against a window is meaningless in a pane that has
+   already been given its height. */
+.position-restore-nav-view .position-restore-nav-list {
+	flex: 1 1 auto;
+	width: auto;
+	max-height: none;
+	/* The pane's inset, so the rows are not flush against the splitter. */
+	padding: 0 8px 8px;
+}
+
+/* …and the panel that opens inside it is capped by the same rule: an inline panel
+   is its content's own height there (see the is-inline rule above), and the
+   drawer's cap belonged to a column standing beside a list. */
+.position-restore-nav-view .position-restore-nav-preview {
+	max-height: none;
+}
+
+/* There is no dialog title above the toolbar here — the pane's own header names
+   the panel — so the strip brings its own inset. */
+.position-restore-nav-view .position-restore-nav-toolbar {
+	padding: 6px 8px 8px;
+}
+
+/* …and the pinned bands become the pane's colour rather than the dialog's: a row
+   with the modal's background inside a leaf is a lighter rectangle sliding over
+   the pane (see (3) above). Same specificity as the is-inline rules, later in the
+   file, so these win where they apply and nothing else changes. */
+.position-restore-nav-view.is-inline .nav-preview-top,
+.position-restore-nav-view.is-inline .position-restore-nav-row.is-stuck {
+	background-color: var(--background-secondary);
 }
 
 /* A phone held sideways has ~370px of height for everything: the dialog's name, the
@@ -1129,12 +1289,14 @@ body.is-mobile .position-restore-cue {
 	   coordinate, the section and the pane fit on one line exactly as they do on
 	   the desktop. The note row was never two lines. */
 	.position-restore-nav-modal.is-touch .position-restore-nav-row.is-place {
-		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-columns: var(--nav-go-track) auto minmax(0, 1fr) auto;
 		grid-template-areas: none;
 		row-gap: 0;
 		padding: 4px 8px;
 	}
 
+	.position-restore-nav-modal.is-touch .nav-row-go,
+	.position-restore-nav-modal.is-touch .nav-row-pos,
 	.position-restore-nav-modal.is-touch .nav-row-trail,
 	.position-restore-nav-modal.is-touch .nav-row-pane {
 		grid-area: auto;

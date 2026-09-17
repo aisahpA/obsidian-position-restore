@@ -62,8 +62,8 @@ describe('history browser quiet tiers', () => {
 	// sections started on one x down a FLAT list, and the tree says the same
 	// thing with its indent (see the next test).
 	it('lays out a note as caret + name, and a landing as coordinate + section', () => {
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: 1\.1em minmax\(0, 1fr\)/);
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: var\(--nav-go-track\) 1\.1em minmax\(0, 1fr\)/);
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: var\(--nav-go-track\) auto minmax\(0, 1fr\) auto/);
 		// the landing steps in under the note it belongs to
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
 		// the caret is a fixed square, so a run of names starts on one x
@@ -72,6 +72,29 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 5ch/);
 		// and the name is capped rather than greedy
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
+	});
+
+	// THE TRAVEL ARROW is the row's first track, in BOTH row kinds — so a note's row
+	// and its landings start their text on the same x (as far as the tree's indent
+	// allows) — and it is the affordance that replaced the double click: a double
+	// click cannot be told from a single one until the second has arrived, so the
+	// row's own action had to wait out the double-click window, and a pair of clicks
+	// flashed the note open on its way to a travel (see NavHistoryList.go).
+	it('puts the travel arrow in front of every row, in a track of its own', () => {
+		// One number for the two row kinds, so the two tracks cannot drift apart.
+		expect(browser).toMatch(/--nav-go-track: 1\.5em/);
+		// A control, and the ROW's: no box of its own (a wall of outlined buttons would
+		// run down the list) and the faintest tier the panel has — it is a target the
+		// eye finds when it looks for it, not a label competing with the names.
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*padding: 0[^}]*border: none/);
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*color: var\(--nav-faint\)/);
+		// The icon is drawn at the row's own size rather than at the app's 16px default,
+		// or a 20px row carries a toolbar-sized glyph.
+		expect(browser).toMatch(/\.nav-row-go svg\s*\{[^}]*width: 1\.05em/);
+		// A finger gets a wider gutter and the row's whole height: a 16px glyph is not a
+		// target on a screen held at arm's length.
+		expect(browser).toMatch(/\.position-restore-nav-panel\.is-touch\s*\{\s*--nav-go-track: 1\.9em/);
+		expect(browser).toMatch(/is-touch \.nav-row-go\s*\{[^}]*align-self: stretch/);
 	});
 
 	// A folder is printed only where two notes on screen share a name, and it may
@@ -124,15 +147,20 @@ describe('history browser quiet tiers', () => {
 		// push the landings — the reason the list is worth scrolling — off a small
 		// screen. A landing gets the two lines, and its section keeps its row.
 		expect(browser).toMatch(
-			/\.position-restore-nav-modal\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas:/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas:/,
 		);
-		expect(browser).toContain('.position-restore-nav-modal.is-touch .nav-row-trail { grid-area: trail; }');
+		// …with the arrow spanning BOTH of those lines: the row it belongs to is one
+		// thing however many lines it takes.
 		expect(browser).toMatch(
-			/\.position-restore-nav-modal\.is-touch \.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*'go name trail'/,
+		);
+		expect(browser).toContain('.position-restore-nav-panel.is-touch .nav-row-trail { grid-area: trail; }');
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/,
 		);
 		// the pane badge, the one cell that can still be a column, keeps its own
 		// place on that second line
-		expect(browser).toMatch(/\.position-restore-nav-modal\.is-touch \.nav-row-pane\s*\{[^}]*grid-area: meta/);
+		expect(browser).toMatch(/\.position-restore-nav-panel\.is-touch \.nav-row-pane\s*\{[^}]*grid-area: meta/);
 		expect(browser).not.toMatch(/@media \(max-width: 480px\)/);
 	});
 
@@ -163,7 +191,7 @@ describe('history browser quiet tiers', () => {
 		// bare indexOf would slice from there and swallow the list rules too.
 		const drawer = browser.slice(
 			browser.indexOf('\n.position-restore-nav-preview {'),
-			browser.indexOf('.position-restore-nav-modal.is-inline .position-restore-nav-preview {'),
+			browser.indexOf('.position-restore-nav-panel.is-inline .position-restore-nav-preview {'),
 		);
 		expect(drawer).toContain('flex: 1 1 auto');
 		expect(drawer).toContain('overflow-y: auto');
@@ -311,7 +339,7 @@ describe('history browser quiet tiers', () => {
 		// opens one panel under its row, so there is no shape to hold still and
 		// the empty lines are dropped instead
 		expect(browser).toMatch(
-			/is-inline \.nav-preview-meta:empty,\s*\.position-restore-nav-modal\.is-inline \.nav-preview-trail:empty,[^}]*display: none/,
+			/is-inline \.nav-preview-meta:empty,\s*\.position-restore-nav-panel\.is-inline \.nav-preview-trail:empty,[^}]*display: none/,
 		);
 		// the two view buttons are ONE control: one box, a hairline between the
 		// halves, and the selected half on the app's own active tint

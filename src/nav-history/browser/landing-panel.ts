@@ -205,6 +205,19 @@ export class LandingPanel {
 		this.sync();
 	}
 
+	// Forget the landing the panel was last describing, so the next render starts from
+	// the position / "here" order instead of staying on a subject that has just gone
+	// stale.
+	//
+	// Called by a shell that stays up across a travel (see NavHistoryBrowser's jump):
+	// the jump rewrites the stack, so the landing this column was about — and the stack
+	// index that named it — may now belong to another note. Inline "forgotten" is a
+	// parked panel (nothing is pointed at); in the drawer it is the current entry, which
+	// after a jump is the note the reader asked for.
+	forget(): void {
+		this.lastRep = -1;
+	}
+
 	// The row the panel hangs under is PINNED to the top of the list while the panel is
 	// still under it.
 	//

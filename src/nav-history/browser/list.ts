@@ -1,3 +1,4 @@
+import { Menu, setIcon } from 'obsidian';
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { t } from '@/i18n';
 import { groupByFile, matchesNavFilter } from './listing';
@@ -20,25 +21,37 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // landing has no tree to open: it is a leaf, and the drawer describes that
 // landing for the row itself (see expandable).
 //
-// The row's two halves are the two clicks: a single click opens the note (or
-// closes it again; on a landing there is nothing to open, so it only points), a
-// double click travels — to a landing itself, or to the first landing of the
-// note it was made on. The keyboard does the same walk without a pointer: ↑↓
+// The row's two halves are a single click and an arrow: a click opens the note
+// (or closes it again; on a landing there is nothing to open, so it only points),
+// and the ARROW in front of the row travels — to a landing itself, or to the
+// first landing of the note it was made on. The arrow is not decoration: it
+// replaced a double click, and a double click cannot be told from a single one
+// until the second has either arrived or not — so the single click had to WAIT
+// out the double-click window (every plain click in the panel answered 300ms
+// late, which a reader feels as a dead list), and a click that did turn out to be
+// a pair had already opened the note the travel was about to close again (the
+// sublist flashing open and shut). One click, one target, one meaning — see `go`.
+// The keyboard does the same walk without a pointer: ↑↓
 // step through the rows on screen (a closed note's landings are not on screen),
 // ←→ close and open the note under the cursor, Enter travels.
 //
-// A finger has neither a second click nor a hover, so there ONE tap says it all:
-// tapping a note opens or closes its landings and points at nothing — the panel is
-// for a SPOT, and a spot is a landing row (see onTap) — and tapping a landing (or a
-// note with one, which is a leaf) points the panel at it, a second time putting it
-// away again.
+// A hand with no hover and no second click — a finger, and equally the resident
+// sidebar panel, where the pointer is deliberately treated the same way (see
+// `tap`) — gets the other mode, where ONE click says it all: clicking a note opens
+// or closes its landings and points at nothing — the panel is for a SPOT, and a
+// spot is a landing row (see onTap) — and clicking a landing (or a note with one,
+// which is a leaf) points the panel at it, a second time putting it away again.
+// Nothing moves on hover there: the reader asked for a panel that does not lurch
+// under a passing mouse, and every change of what is described is a click they
+// made. The arrow travels the same way in both modes, and a right-click opens a
+// menu that says the same thing in words (see rowMenu).
 //
 // The list owns its rows and the ONE position in them: `selected`, which the
-// pointer moves by hovering and the keyboard by walking (see choose). It is what
-// the landing panel describes, what Enter travels to, and what is announced to a
-// screen reader — one position, so the two input devices cannot disagree about
-// which row the reader is on. The browser follows it through callbacks — it never
-// reaches into the rows.
+// pointer moves by hovering (in the pointing mode) and the keyboard by walking
+// (see choose). It is what the landing panel describes, what Enter travels to,
+// and what is announced to a screen reader — one position, so the two input
+// devices cannot disagree about which row the reader is on. The browser follows
+// it through callbacks — it never reaches into the rows.
 
 // One row as the class keeps it: the element, and what it stands for. A FILE
 // row's landings are the steps, so a travel from it reads `group`; its `rep`,
@@ -56,8 +69,12 @@ interface RowRef {
 export interface NavHistoryListOptions {
 	// The list element, created by the browser.
 	list: HTMLElement;
-	// Whether this device drives the list with a finger instead of a pointer.
-	mobile: boolean;
+	// Whether the list is driven by discrete clicks rather than by hover: a finger
+	// (which has no hover at all) and the resident sidebar panel (where the reader
+	// asked for a panel that does not change under a passing mouse) are the same
+	// mode — one click says everything a click can say, and travel is the row's own
+	// arrow (see go) or the landing panel's button (see onClick / onHover).
+	tap: boolean;
 	// The history the rows are drawn from, as one snapshot.
 	entries: NavHistoryEntry[];
 	// The stack index of the current entry: its note is pinned first, and its
@@ -89,18 +106,13 @@ export interface NavHistoryListOptions {
 	// same keys that move through it — so this is what makes the current option
 	// audible: the browser points the box's aria-activedescendant at the row id.
 	onActiveRow: (id: string | undefined) => void;
-	// A tap moved the position on a touch device: bring the panel it just opened into
+	// A CLICK moved the position in the tap mode: bring the panel it just opened into
 	// view (see choose). Not called for the keyboard's walk: there the list shows the
 	// step and the reader's own view is what it is (see reveal).
 	onRevealPanel: () => void;
 	// A row was chosen with a pointing device: travel there.
 	onTravel: (rep: number) => void;
 }
-
-// How long two clicks on one row may be apart and still be a double click. A
-// single click has already done its work by then (it opened the note, or pointed
-// at the landing), so this only decides when the second click travels.
-const DOUBLE_CLICK_MS = 300;
 
 // How far the pointer has to travel before it counts as MOVED: a report from a
 // pointer that has not moved is not the reader choosing a row, and the list itself is
@@ -158,13 +170,6 @@ export class NavHistoryList {
 	// the one the reader was reading, and closing a note must not silently move the
 	// subject to a different spot.
 	private aimed = new Map<string, number>();
-	// The last row clicked, by the identity a rebuild preserves (the row's group,
-	// or its stack index), and when: two clicks on one row inside DOUBLE_CLICK_MS
-	// are a travel, one click is the row's own single action. The element itself
-	// would not do — the first click of a double click on a note rebuilds the
-	// list, so the second click arrives on a fresh element for the same row.
-	private lastClick?: string;
-	private lastAt = 0;
 	// Where the pointer last acted on the list, or undefined before it has moved at
 	// all. See HOVER_SLOP: reports from a pointer that has not really moved are the
 	// scroll and the jolt, not the reader.
@@ -189,11 +194,11 @@ export class NavHistoryList {
 	// The row an INLINE landing panel opens under (see LandingPanel.render), or
 	// undefined when the position is on a note whose landings are already on screen:
 	// there the panel is what would push those landings — and the note's own row, the
-	// one a finger has to tap again to close the note — off a phone screen. A note with
-	// ONE landing is a leaf that stands in for it (see expandable), so it keeps the
+	// one the reader has to click again to close the note — off a narrow panel. A note
+	// with ONE landing is a leaf that stands in for it (see expandable), so it keeps the
 	// panel: nothing opens under it to be pushed away.
 	//
-	// A pointing device never asks: its panel is the body's second column and the row
+	// The pointing mode never asks: its panel is the body's second column and the row
 	// is only the subject it describes.
 	panelAnchor(): HTMLElement | undefined {
 		const row = this.selected;
@@ -453,9 +458,20 @@ export class NavHistoryList {
 		row.setAttr('aria-selected', 'false');
 		if (missing || rep === undefined)
 			row.setAttr('aria-disabled', 'true');
-		row.addEventListener('click', () => this.onClick({ el: row, rep, group: index }));
-		row.addEventListener('contextmenu', (ev) => ev.preventDefault());
-		this.refs.push({ el: row, rep, group: index });
+		// One ref object, because three things act through it: the row's own click,
+		// the right-click menu, and the travel arrow — and they have to agree about
+		// which landing they are about.
+		const ref: RowRef = { el: row, rep, group: index };
+		row.addEventListener('click', () => this.onClick(ref));
+		row.addEventListener('contextmenu', (ev) => {
+			ev.preventDefault();
+			this.rowMenu(ev, ref);
+		});
+		this.refs.push(ref);
+		// The travel arrow, in the row's first track (see go). Drawn for every row:
+		// it is a grid track, and leaving it out of the rows that cannot travel would
+		// slide their names a track to the left.
+		this.go(row, ref);
 
 		const open = many && this.expanded.has(index);
 		// The caret's span is created for EVERY note, empty where there is nothing
@@ -509,9 +525,16 @@ export class NavHistoryList {
 		row.setAttr('aria-selected', 'false');
 		if (d.missing)
 			row.setAttr('aria-disabled', 'true');
-		row.addEventListener('click', () => this.onClick({ el: row, rep: i }));
-		row.addEventListener('contextmenu', (ev) => ev.preventDefault());
-		this.refs.push({ el: row, rep: i });
+		// The same three-way ref as a note's row (see fileRow): the click, the menu
+		// and the arrow are one landing.
+		const ref: RowRef = { el: row, rep: i };
+		row.addEventListener('click', () => this.onClick(ref));
+		row.addEventListener('contextmenu', (ev) => {
+			ev.preventDefault();
+			this.rowMenu(ev, ref);
+		});
+		this.refs.push(ref);
+		this.go(row, ref);
 
 		// The coordinate: the coarse "how far in" a reader matches against
 		// memory, and the one thing every landing has.
@@ -545,53 +568,129 @@ export class NavHistoryList {
 		return 1;
 	}
 
-	// A click on a row. The two devices want opposite things from it:
-	//  - a pointing device has the second click, so one click is the row's soft
-	//    action (open/close the note, or point at the landing) and two clicks
-	//    travel;
-	//  - a finger has no second click and no hover, so one tap must be able to
-	//    say everything: a note opens, a landing is pointed at (and tapped again
-	//    to put the panel away), and the panel's own button travels.
+	// A click on a row, and it means the same thing in both modes: it does what the
+	// row's own soft action is — open or close the note, or point at the landing
+	// (the drawer describes it; inline the panel opens under it) — and it goes
+	// NOWHERE. Travel is the row's own arrow (see go) or, with the position already
+	// on a landing, Enter / the panel's button.
+	//
+	// Which of the two soft actions it is comes from the mode: the pointing mode
+	// also moves the position onto the row (`choose`), because there the row under
+	// the pointer is the one being described; the tap mode puts the position on a
+	// landing only, and a note's click is the tree alone — the panel opening under
+	// the note's own row would push the landings it just opened off a narrow list
+	// (see onTap).
 	private onClick(ref: RowRef): void {
-		if (this.opts.mobile) {
-			// A finger has no second click: one tap must be able to say everything
-			// (see onTap), so the double-click bookkeeping is not even kept here —
-			// two taps on one landing must mean open, close, open.
+		if (this.opts.tap) {
 			this.onTap(ref);
 			return;
 		}
-		const now = Date.now();
-		// WHICH row the previous click landed on, by the identity the render
-		// preserves: the element itself is replaced by every rebuild (the first
-		// click of a double click on a note opens it, which renders).
-		const at = ref.group !== undefined ? `g${ref.group}` : `r${ref.rep}`;
-		const double = this.lastClick === at && now - this.lastAt <= DOUBLE_CLICK_MS;
-		this.lastClick = at;
-		this.lastAt = now;
 		this.choose(ref);
-		if (double)
-			this.travelRow(ref);
-		else if (ref.group !== undefined)
+		if (ref.group !== undefined)
 			this.toggle(ref.group);
 	}
 
-	// A touch device's tap: open or close a note's landings, point at a landing, or put
-	// the panel away again when the pointed-at row is tapped a second time.
+	// The arrow that travels, in the row's first track: ONE click, and it goes where
+	// the row stands for — the landing itself, or the top of the note the note's row
+	// stands for (see activeRep).
 	//
-	// A note's row is the TREE, and its tap is the whole of what a finger can do to it:
-	// it opens the landings (or closes them again — on a device with no ← key this tap
-	// is the only way back), and it points at nothing. Opening the panel under the note
-	// instead is what a phone reported: the landings ended up BELOW the content, and the
-	// panel — taller than the screen — pushed the note's own row, the only thing left to
-	// tap, off the top of the list. The panel is for a spot, and a spot is a landing row
-	// (see panelAnchor).
+	// It is the affordance that replaced the double click, and the reason it had to.
+	// A double click is a single click that has not been told yet whether it is one,
+	// so the row's own action can only run after the double-click window has passed:
+	// every plain click in the resident panel answered 300ms late, and a click that
+	// did turn out to be a pair had already opened the note (or the landing panel)
+	// that the travel's own collapse then took away again — a list that flashed open
+	// and a click that felt dead, which is what the report of it said. An arrow is
+	// unambiguous: it means "go there", it is visible before anything is clicked, it
+	// works with a mouse and a finger alike, and the row's own click keeps meaning
+	// exactly what it always meant.
+	//
+	// A row that cannot travel — a deleted note's, or a landing in one — gets the
+	// EMPTY cell rather than no cell: the arrow owns the row's first grid track, and
+	// a row without it would slide its own name (and only its own) a track to the
+	// left. Same reason the caret is drawn for every note, empty where there is no
+	// tree to open (see fileRow).
+	private go(row: HTMLElement, ref: RowRef): void {
+		if (this.targetOf(ref) < 0) {
+			row.createSpan({ cls: 'nav-row-go is-empty', attr: { 'aria-hidden': 'true' } });
+			return;
+		}
+		const go = row.createEl('button', {
+			cls: 'nav-row-go',
+			type: 'button',
+			attr: {
+				// A pointer shortcut, not a second tab stop: the panel's keyboard is the
+				// filter box, and Enter travels to the very same place (see body.ts's
+				// onKeyDown).
+				tabindex: '-1',
+				// …and it is not announced either, for the same reason. The row IS an
+				// option of the listbox, and an option's name is read off its contents:
+				// a labelled button in every row would put "jump here" into every
+				// announcement, while telling a screen-reader user nothing they cannot
+				// already do — Enter on the row travels.
+				'aria-hidden': 'true',
+				// The visible promise of what a click does, for the hand holding the mouse.
+				title: t('navHistory.jumpHere'),
+			},
+		});
+		setIcon(go, 'corner-up-right');
+		// The row's own click is right behind this one and means something else (open
+		// the note): the arrow's click is the arrow's.
+		go.addEventListener('click', (ev) => {
+			ev.stopPropagation();
+			this.travel(ref);
+		});
+	}
+
+	// A right-click on a row: the same travel, in words. The arrow is the fast path;
+	// this is where the panel says what a row can do without the reader having to
+	// work it out from a glyph — and the only way to travel that does not depend on
+	// hitting an icon at all. A row that cannot travel gets the reason instead of a
+	// dead item (the row's own tooltip says it too, but a tooltip is not a menu).
+	private rowMenu(ev: MouseEvent, ref: RowRef): void {
+		const travels = this.targetOf(ref) >= 0;
+		const menu = new Menu();
+		menu.addItem(item => item
+			.setTitle(t(travels ? 'navHistory.jumpHere' : 'navHistory.disabledTip'))
+			.setIcon(travels ? 'corner-up-right' : null)
+			.setDisabled(!travels)
+			.onClick(() => this.travel(ref)));
+		menu.showAtMouseEvent(ev);
+	}
+
+	// Forget where the reader had things opened and aimed, and put the position away:
+	// the tree back to the shape it opens in — every note closed, nothing pointed at.
+	//
+	// A shell that STAYS UP across a travel is the only caller (see view.ts): the jump
+	// rewrites the stack and pins the note it landed on first, so the group index the
+	// reader had opened no longer names the note they opened — redrawing from the old
+	// set would re-open whatever slid into that slot, which is a panel describing a
+	// note nobody chose. Starting the jump from a closed tree is what makes the redraw
+	// that follows it nothing but the new list — and the tree comes back closed for
+	// the reader too, which is where a travel leaves them anyway.
+	collapse(): void {
+		this.expanded.clear();
+		this.aimed.clear();
+		this.clearSelection();
+	}
+
+	// The tap mode's click: open or close a note's landings, point at a landing, or put
+	// the panel away again when the pointed-at row is clicked a second time.
+	//
+	// A note's row is the TREE, and its click is the whole of what the mode can do to it:
+	// it opens the landings (or closes them again — with no hover and no second click
+	// this is the only way back), and it points at nothing. Opening the panel under the
+	// note instead is what a phone reported: the landings ended up BELOW the content, and
+	// the panel — taller than the screen — pushed the note's own row, the only thing left
+	// to click, off the top of the list. The panel is for a spot, and a spot is a landing
+	// row (see panelAnchor).
 	//
 	// A note with ONE landing is the exception, because there is nothing to open: the
 	// row stands in for that landing (see fileRow), so it takes the landing row's
-	// gesture — and with it the only way back out of a preview on a device with no Esc
-	// key under the finger.
+	// gesture — and with it the only way back out of a preview in a mode with no Esc
+	// key under the pointer.
 	//
-	// Either way the row that was tapped is where the reader is standing again, and the
+	// Either way the row that was clicked is where the reader is standing again, and the
 	// list comes back to it if the panel had scrolled it away (see backTo).
 	private onTap(ref: RowRef): void {
 		if (ref.group !== undefined && this.expandable(ref.group)) {
@@ -606,9 +705,9 @@ export class NavHistoryList {
 			this.backTo(ref.el);
 	}
 
-	// A row that POINTS at a landing rather than opening one: the first tap puts the
+	// A row that POINTS at a landing rather than opening one: the first click puts the
 	// position on it (the panel opens under it), a second takes the position away
-	// again and the panel goes with it. @returns whether it was that second tap.
+	// again and the panel goes with it. @returns whether it was that second click.
 	private tapLanding(ref: RowRef): boolean {
 		if (this.selected?.el === ref.el) {
 			this.clearSelection();
@@ -618,13 +717,13 @@ export class NavHistoryList {
 		return false;
 	}
 
-	// Bring the row a tap just put the panel away from back into the list.
+	// Bring the row a click just put the panel away from back into the list.
 	//
 	// Inline the panel hangs in the list's own scroll, and a row the reader has scrolled
-	// past is pinned to the top of the list so that this very tap is possible (see
+	// past is pinned to the top of the list so that this very click is possible (see
 	// LandingPanel.sync). The panel going away leaves the list where the panel's content
 	// was — the middle of a note that is no longer on screen — so the handle that was just
-	// used comes back to where it was tapped: nothing moves unless the row is above the
+	// used comes back to where it was clicked: nothing moves unless the row is above the
 	// list, and then it moves exactly as far as the row.
 	private backTo(row?: HTMLElement): void {
 		if (!row)
@@ -638,27 +737,29 @@ export class NavHistoryList {
 			this.opts.list.scrollTop += delta;
 	}
 
-	// Which row a travel acts on, and whether it may. A landing of a deleted note
-	// has nothing to restore, so neither its row nor its note's row travels.
-	// Public because Enter comes in through the browser's key handler
-	// (NavHistoryModal.onKeyDown): the row the cursor is on is this class's
-	// answer, and so is whether it may be travelled to. @returns whether a
-	// travel was started.
-	travel(ref?: RowRef): boolean {
+	// The stack index a row would travel to, or -1 when it has none: a landing of a
+	// deleted note has nothing to restore, so neither its row nor its note's row is a
+	// destination. Asked twice of every row — once when it is DRAWN (the arrow is
+	// only drawn where it leads somewhere: see go) and once when it is clicked — so
+	// that the arrow a reader can see is the arrow that works.
+	private targetOf(ref?: RowRef): number {
 		const target = ref ?? this.selected;
 		if (!target)
-			return false;
+			return -1;
 		const rep = this.activeRep(target);
-		if (rep < 0 || this.opts.describe(rep).missing)
+		return rep >= 0 && !this.opts.describe(rep).missing ? rep : -1;
+	}
+
+	// Travel to the landing a row stands for. Public because Enter comes in through
+	// the browser's key handler (see body.ts's onKeyDown) and has no row to name: the
+	// row the cursor is on is this class's own answer, and so is whether it may be
+	// travelled to. @returns whether a travel was started.
+	travel(ref?: RowRef): boolean {
+		const rep = this.targetOf(ref);
+		if (rep < 0)
 			return false;
 		this.opts.onTravel(rep);
 		return true;
-	}
-
-	// The internal travel the pointer's double click makes: the same decision,
-	// without the public "started?" answer.
-	private travelRow(ref: RowRef): void {
-		this.travel(ref);
 	}
 
 	// What the keyboard is on.
@@ -667,10 +768,10 @@ export class NavHistoryList {
 	}
 
 	// Point the list at a row: the ONE position (see `selected`), the highlight, the
-	// audible option, the drawer's subject — and, on touch, the panel that has to
-	// follow it into view. Both hands come through here: the pointer's hover (see
-	// onHover) and the arrow keys (see move) move the same row, so the two devices
-	// cannot end up describing different spots. `walked` is the one thing the two
+	// audible option, the drawer's subject — and, in the tap mode, the panel that has
+	// to follow it into view. Both hands come through here: the pointer's hover (see
+	// onHover, pointing mode only) and the arrow keys (see move) move the same row, so
+	// the two devices cannot end up describing different spots. `walked` is the one thing the two
 	// hands do not share: it says the KEYBOARD made this move, which is what decides
 	// whether the list shows the step or merely the row (see reveal).
 	private choose(ref: RowRef, walked = false): void {
@@ -690,14 +791,15 @@ export class NavHistoryList {
 		// the same spot when the note is closed and opened again.
 		this.aimAt(ref);
 		// The panel describes the landing this row stands for (see activeRep) — what
-		// Enter and a double click travel to as well. Settled BEFORE the panel is told
+		// Enter and the row's own arrow travel to as well. Settled BEFORE the panel is
 		// to redraw.
 		this.opts.onPointed();
-		if (this.opts.mobile && !walked) {
+		if (this.opts.tap && !walked) {
 			// The panel hangs BELOW that row, so redrawing it and then bringing it
 			// into view are one step: the row alone being on screen is not enough,
-			// because the button that travels with a finger lives in the panel.
-			// Only a TAP asks for this: the keyboard's walk has just shown the step
+			// because the button that travels lives in the panel — and in the tap
+			// mode there is no other way to travel.
+			// Only a CLICK asks for this: the keyboard's walk has just shown the step
 			// its own way (see reveal), and following it with the panel's scroll would
 			// undo it.
 			this.opts.onRevealPanel();
@@ -732,7 +834,8 @@ export class NavHistoryList {
 		this.selected = undefined;
 		this.opts.onActiveRow(undefined);
 		// Nothing is described any more either: the drawer follows the position, and
-		// on touch "no position" is what parks the panel (see LandingPanel.render).
+		// in the tap mode "no position" is what parks the panel (see
+		// LandingPanel.render).
 		this.opts.onPointed();
 	}
 
@@ -741,10 +844,10 @@ export class NavHistoryList {
 	// toggled is what the reader is looking at. The note's row stands for the landing it
 	// stands for (the one most recently aimed at, see activeRep), so closing a note does
 	// not move the drawer to a different spot, and opening it does not either.
-	// A touch tap does NOT move the position (`point` false): there the panel would open
-	// under the note row and push the landings it just opened off the screen (see onTap
-	// and panelAnchor), so the tree moves and nothing else — and what it opened is shown
-	// (see the end of this method).
+	// A tap-mode click does NOT move the position (`point` false): there the panel would
+	// open under the note row and push the landings it just opened off the screen (see
+	// onTap and panelAnchor), so the tree moves and nothing else — and what it opened is
+	// shown (see the end of this method).
 	// A note with one landing has nothing to open and this does nothing (see
 	// expandable), which is what keeps it a leaf.
 	private toggle(index: number, point = true): void {
@@ -779,9 +882,9 @@ export class NavHistoryList {
 		return at < 0 ? undefined : this.refs.slice(at + 1).find(r => r.group === undefined);
 	}
 
-	// Bring a landing a tap just opened into sight — by the LEAST the list can move, and
+	// Bring a landing a click just opened into sight — by the LEAST the list can move, and
 	// never so far that the note's own row leaves the top: that row is the only thing the
-	// finger can tap to close the note again, and a phone reported exactly that failure
+	// reader can click to close the note again, and a phone reported exactly that failure
 	// ("the file got pushed up and hidden, and I had to scroll for a while to get back to
 	// it"). Deliberately not scrollIntoView: that also scrolls any ANCESTOR that happens
 	// to overflow — on a phone with a short history the dialog itself is one — so the
@@ -858,17 +961,24 @@ export class NavHistoryList {
 	// SAME position the arrow keys walk (see choose), so the row under the pointer is
 	// the row the drawer describes and Enter travels to — one position, whichever
 	// hand moved it.
-	// mouseenter is deliberately NOT used: rows are rebuilt on every keystroke, and a
-	// browser synthesises mouseenter for whatever lands under a stationary pointer —
-	// which would move the position onto a row nobody moved to. Only movement the
-	// user actually made counts.
+	//
+	// This is the POINTING mode's listener and nothing else. Where there is no hover —
+	// a finger, and the resident sidebar panel, where the reader asked for a panel
+	// that does not change under a passing mouse — it must stay out of the way
+	// entirely: there the panel is driven by clicks the reader made (see `tap` and
+	// onTap), and a position that follows the pointer would open a landing panel
+	// nobody asked for, under a row nobody chose.
+	//
+	// mouseenter is deliberately NOT used even here: rows are rebuilt on every
+	// keystroke, and a browser synthesises mouseenter for whatever lands under a
+	// stationary pointer — which would move the position onto a row nobody moved to.
+	// Only movement the user actually made counts.
+	//
 	// Movement off the rows (the list's own padding) moves nothing: the reader has
 	// taken their hand off the list, not chosen a different row, and the drawer stays
 	// on the spot they were reading (see LandingPanel.render).
-	// A touch device has no hover at all, and there this listener must stay out of
-	// the way: touch drives this panel with its own tap semantics (onTap).
 	private onHover(ev: MouseEvent): void {
-		if (this.opts.mobile)
+		if (this.opts.tap)
 			return;
 		// A pointer report is not a pointer MOVE: see HOVER_SLOP.
 		const at = this.hoverAt;

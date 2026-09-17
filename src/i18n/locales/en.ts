@@ -118,6 +118,10 @@ export const en = {
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 	'navHistory.commands.browseHistory': 'Browse navigation history',
+	// The resident form of the same browser: a sidebar panel instead of a dialog
+	// (see view.ts). Named as a PLACE rather than as an action, because that is
+	// the difference — the panel stays where it is put.
+	'navHistory.commands.browseHistorySidebar': 'Open navigation history in sidebar',
 
 	'navHistory.type.open': 'Open',
 	'navHistory.type.switch': 'Switch',
@@ -142,11 +146,19 @@ export const en = {
 	// under it.
 	'navHistory.keyboardHint': '↑↓ select · ←→ open/close · Enter jump · Esc close',
 	// A touch device has no keyboard, so its hint may only name things a finger
-	// can do (see NavHistoryModal.mobile): one tap opens a note or points at one
-	// of its landings, and the panel's own button travels.
-	'navHistory.touchHint': 'Tap a note to open it, a landing to see its spot',
-	// Touch only: a tap selects a row (there is no hover), so the preview panel
-	// needs its own way to actually travel there.
+	// can do (see NavHistoryBrowserOptions.touch): the arrow in front of a row
+	// travels, a tap on a note opens it, a tap on a landing shows its spot in the
+	// panel below.
+	'navHistory.touchHint': 'Tap ↪ to jump, a note to open it, a landing to see its spot',
+	// …and the same gestures with a mouse, in the resident sidebar panel, which
+	// runs in the tap mode on purpose: nothing happens on hover, a click opens a
+	// note or points at a landing, and the arrow in front of the row travels (see
+	// NavHistoryBrowserOptions.tap and NavHistoryList.go). The double-click this
+	// used to name is gone: it held every single click back for its window, so the
+	// list answered late, and it flashed the note open on its way out.
+	'navHistory.clickHint': '↪ jumps there · click a note to open it',
+	// The row's arrow and the panel's own button do the same thing, and this is the
+	// word for both — the menu a right-click opens says the same.
 	'navHistory.jumpHere': 'Jump here',
 	// A leaf holding a second tab/pane of the same file: without this the
 	// browser's rows for the two panes are indistinguishable. Rendered as
