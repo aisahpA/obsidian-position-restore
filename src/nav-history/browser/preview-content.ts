@@ -62,6 +62,14 @@ export interface PreviewContentOptions {
 	// it are not rendered as a heading rule and a paragraph of YAML. Undefined for
 	// a file the vault cannot stat or the cache has not parsed.
 	frontmatterEnd: (path: string) => number | undefined;
+	// Whether the panel is IN the list's own scroll (see NavHistoryModal.inline).
+	// It decides one thing here: whether finding the landing also MOVES the scroller
+	// it is in. The drawer's content has a scroller of its own, so it does; inline
+	// the scroller is the list the rows are in, and centring the landing scrolls the
+	// note's own row — the file name, the only handle a finger has on closing the
+	// note — out of that list. There the landing is marked and the view is left where
+	// the reader put it (see refreshLanding).
+	inline: () => boolean;
 }
 
 export class NavPreviewContent {
@@ -223,8 +231,19 @@ export class NavPreviewContent {
 	// Put the landing on screen: its own recorded words first, because those are
 	// exact — and the recorded line's position in the note when they are gone, so
 	// that "全文" is never an answer that silently shows the top of the file.
+	//
+	// MOVING the scroller is the drawer's half of that answer. Inline there is no
+	// panel scroller to move — the scroller is the list the rows are in — so the mark
+	// is written and the list is left alone: which row the reader is on is theirs, and
+	// a phone report was exactly the note's name scrolling out of the list the moment a
+	// panel opened (see PreviewContentOptions.inline).
 	private reveal(root: HTMLElement, at?: LandingPoint): void {
-		if (!revealLanding(root, at?.anchor, at?.minNeedle))
+		const scroll = !this.opts.inline();
+		if (revealLanding(root, at?.anchor, at?.minNeedle, scroll))
+			return;
+		// The fraction is a scroll and nothing else — no mark — so inline it is skipped
+		// with it: the content simply starts where the note does.
+		if (scroll)
 			revealFraction(root, at?.fraction);
 	}
 

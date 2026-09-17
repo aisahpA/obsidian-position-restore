@@ -167,6 +167,21 @@ describe('revealLanding', () => {
 		spy.mockRestore();
 	});
 
+	it('marks the landing without moving anything when the scroller is not its own', () => {
+		// The mark is what the reader needs; the moving is the DRAWER's business, whose
+		// content has a scroller of its own. Where the panel shares the LIST's scroller
+		// (see NavPreviewContent's inline option) centring the landing scrolls the rows —
+		// the note's own row among them — out of that list, so the mark is written and the
+		// view is left where the reader put it.
+		const root = rendered('<p>一段话</p><h3>落点这一行</h3><p>另一段</p>');
+		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
+
+		expect(revealLanding(root, '落点这一行', 4, false)).toBe(true);
+		expect(root.querySelector('.nav-preview-landing')?.tagName).toBe('H3');
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
 	it('marks nothing when the words are gone, or too short to be a location', () => {
 		// The note was rewritten since the step was recorded: today's file is
 		// still a preview of today's file, and the head already says it is not the

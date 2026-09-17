@@ -229,6 +229,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	// The width query is the one global a test installs (see widthQuery): jsdom has none
+	// of its own, and one left behind would decide the panel's presentation for every
+	// test after it.
+	delete (window as { matchMedia?: unknown }).matchMedia;
 	document.body.innerHTML = '';
 	document.body.className = '';
 });
@@ -1326,6 +1330,321 @@ describe('NavHistoryModal — touch', () => {
 		expect(h.el.querySelectorAll('.position-restore-nav-preview')).toHaveLength(1);
 	});
 
+	it('opens and closes a note from one tap, and never puts the panel over its landings', () => {
+		// Reported from a phone: tapping a note opened its landings AND a panel taller
+		// than the screen under the note's own row, so the landings came out BELOW the
+		// content and the row a finger had to tap again to close the note was pushed off
+		// the top of the list. One tap now opens or closes the tree and points at
+		// nothing: the panel belongs to a SPOT, and a spot is a landing row (see
+		// NavHistoryList.onTap / panelAnchor).
+		const doc = ['one', 'two', 'three', 'LANDING', 'five', 'six', 'seven'];
+		const h = harness([
+			visit('a.md', NOW - 3 * MINUTE, captured(doc, 3)),
+			visit('a.md', NOW - MINUTE, captured(doc, 5)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': doc.join('\n'), 'b.md': '' }, [], {}, {}, true);
+		const panel = h.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
+		const a = () => h.note('a.md');
+
+		tap(a());
+		// the note's landings, directly under the note — and no panel anywhere in the
+		// list, so nothing has been pushed below the content
+		expect(h.rows()).toHaveLength(2);
+		expect(a().nextElementSibling?.className).toContain('is-place');
+		expect(panel.classList.contains('is-parked')).toBe(true);
+		// nothing is pointed at either: the tree moved, the position did not
+		expect(h.el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
+
+		// the same tap closes it again — with no ← key under the finger, this is the
+		// only way out of an open note
+		tap(a());
+		expect(h.rows()).toHaveLength(0);
+		expect(panel.classList.contains('is-parked')).toBe(true);
+
+		// …and a tap on a LANDING opens the panel under that row, which is where a
+		// finger can reach it and what it describes
+		tap(a());
+		const landing = h.rows()[0];
+		tap(landing);
+		expect(landing.classList.contains('is-selected')).toBe(true);
+		expect(panel.classList.contains('is-parked')).toBe(false);
+		expect(landing.nextElementSibling).toBe(panel);
+		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
+
+		// a second tap on the landing puts it away again
+		tap(landing);
+		expect(panel.classList.contains('is-parked')).toBe(true);
+	});
+
+	it('shows the landings a tap just opened, and never past the note\'s own row', () => {
+		// A note near the foot of the list opens its landings UNDER the fold, where the tap
+		// looks like it did nothing at all. The list moves the least it can — one row — and
+		// never past the point where the note's own row would leave the top: that row is the
+		// only thing the finger can tap to close the note again, and a phone reported
+		// exactly that failure (see NavHistoryList.showOpened).
+		const doc = ['one', 'two', 'three', 'LANDING', 'five', 'six', 'seven'];
+		const h = harness([
+			visit('a.md', NOW - 3 * MINUTE, captured(doc, 3)),
+			visit('a.md', NOW - MINUTE, captured(doc, 5)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': doc.join('\n'), 'b.md': '' }, [], {}, {}, true);
+		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
+		// jsdom has no layout: a 300px list, the note's own row at `noteTop` and its first
+		// landing at `landingTop` (the landed row is rebuilt by the tap, so the fixture is
+		// matched by what the elements ARE, not by identity).
+		let noteTop = 280;
+		let landingTop = 310;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			if (this === listEl)
+				return rect(0, 300);
+			if (this.classList.contains('is-place'))
+				return rect(landingTop, 30);
+			if (this.querySelector('.nav-row-name')?.textContent === 'a.md')
+				return rect(noteTop, 30);
+			return rect(0, 0);
+		});
+		const a = () => h.note('a.md');
+
+		// the landing is one row under the fold: the list moves by exactly that much
+		tap(a());
+		expect(listEl.scrollTop).toBe(40); // 340 (the landing's foot) − 300
+		expect(h.note('a.md').nextElementSibling).toBe(h.rows()[0]);
+
+		// …and with the note's own row already at the top of the list, it stops there:
+		// the landing is farther out of sight than the row can pay for
+		listEl.scrollTop = 0;
+		noteTop = 10;
+		landingTop = 400;
+		tap(a()); // close
+		tap(a()); // …and open again
+		expect(listEl.scrollTop).toBe(10);
+
+		// a landing already in sight moves nothing, and closing moves nothing either
+		listEl.scrollTop = 0;
+		landingTop = 200;
+		tap(a());
+		expect(listEl.scrollTop).toBe(0);
+		tap(a());
+		expect(listEl.scrollTop).toBe(0);
+	});
+
+	it('leaves room under the tapped row for the panel it opens there', () => {
+		// The panel hangs below its row, and it is taller than the list: bringing the
+		// PANEL into view whole pushed the row — the only thing left to tap — off the top
+		// (the phone report above). So the list moves just far enough to leave the panel's
+		// pinned top under the row (see LandingPanel.reveal / PANEL_PEEK), and no further.
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		// jsdom has no layout: a 300px list, and a.md's row (the third) sitting 240px down
+		// it — flush against the foot, with nowhere for a panel to open.
+		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
+		vi.spyOn(listEl, 'getBoundingClientRect').mockReturnValue(rect(0, 300));
+		const rows = h.notes();
+		[20, 120, 200].forEach((top, i) =>
+			vi.spyOn(rows[i], 'getBoundingClientRect').mockReturnValue(rect(top, 40)));
+
+		// a row with room under it leaves the list where the reader put it
+		tap(rows[0]);
+		expect(listEl.scrollTop).toBe(0);
+
+		// …and one at the foot is moved up by exactly what the panel needs
+		tap(rows[2]);
+		expect(listEl.scrollTop).toBe(40); // 240 (the row's foot) − (300 − 100)
+	});
+
+	it('never scrolls the note\'s own name out of the list to make room for the panel', () => {
+		// The file name is how the tree is closed again with a tap (see onTap), and a phone
+		// reported it going out of sight the moment a landing's panel opened under it: the
+		// list scrolled to show the panel's head and took the name along. The scroll now
+		// stops when the note's own row reaches the top of the list, however much of the
+		// head is still below the fold — and a landing that was picked sits under that row,
+		// so it stays in sight with it (see LandingPanel.reveal / NavHistoryList.noteRowOf).
+		const doc = ['one', 'two', 'three', 'LANDING', 'five', 'six', 'seven'];
+		const h = harness([
+			visit('a.md', NOW - 3 * MINUTE, captured(doc, 3)),
+			visit('a.md', NOW - MINUTE, captured(doc, 5)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': doc.join('\n'), 'b.md': '' }, [], {}, {}, true);
+		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
+		// jsdom has no layout: a 300px list, the note's own row 20px down it, and its
+		// landings — the one that gets tapped at the very foot.
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			if (this === listEl)
+				return rect(0, 300);
+			if (this.classList.contains('is-place'))
+				return this.querySelector('.nav-row-line')?.textContent === 'L6' ? rect(260, 30) : rect(250, 30);
+			if (this.querySelector('.nav-row-name')?.textContent === 'a.md')
+				return rect(20, 30);
+			return rect(0, 0);
+		});
+
+		tap(h.note('a.md')); // open the note
+		expect(listEl.scrollTop).toBe(0); // its landings are in sight already
+		tap(h.place('L6')); // …and point at the one at the foot
+
+		// The head wants 90px (290 − (300 − 100)); the note's own row allows 20.
+		expect(listEl.scrollTop).toBe(20);
+		expect(h.note('a.md').getBoundingClientRect().top - listEl.scrollTop).toBe(0);
+	});
+
+	it('pins the note\'s own row while its panel is scrolled past, so a tap can put it away', () => {
+		// Inline the row above the panel IS the handle — one tap opens a note and a second
+		// closes it again (see NavHistoryList.onTap) — and the panel hangs in the list's own
+		// scroll: reading a long note scrolled the row off the top, which is what a phone
+		// reported as "the name is gone and I cannot tap it any more". The row sticks to the
+		// top while its panel is still on screen, and drops back into its slot once the panel
+		// has gone by (see LandingPanel.sync).
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
+		// jsdom has no layout: a 300px list, the row, and the panel hanging under it with an
+		// 8px gap — so the panel's own top reaches the list's top 8px after the row's does.
+		let panelTop = 120;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			if (this === listEl)
+				return rect(0, 300);
+			if (this.classList.contains('position-restore-nav-preview'))
+				return rect(panelTop, 600);
+			if (this.querySelector('.nav-row-name')?.textContent === 'b.md')
+				return rect(panelTop - 38, 30);
+			return rect(0, 0);
+		});
+
+		tap(h.note('b.md'));
+		const panel = h.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
+		const row = h.note('b.md');
+		expect(row.classList.contains('is-stuck')).toBe(false);
+		expect(panel.classList.contains('is-row-pinned')).toBe(false);
+		// the block under the row starts at the row's own foot (the height it carries)
+		expect(panel.style.getPropertyValue('--nav-pin-row')).toBe('30px');
+
+		// the reader scrolls on: the row's slot leaves the top, and the row comes back to it
+		panelTop = -120;
+		listEl.dispatchEvent(new Event('scroll'));
+		expect(row.classList.contains('is-stuck')).toBe(true);
+		expect(panel.classList.contains('is-row-pinned')).toBe(true);
+		expect(row.querySelector('.nav-row-name')?.textContent).toBe('b.md');
+
+		// …and once the whole panel has gone by, the row goes back into its slot rather than
+		// hanging over rows that have nothing to do with it
+		panelTop = -700;
+		listEl.dispatchEvent(new Event('scroll'));
+		expect(row.classList.contains('is-stuck')).toBe(false);
+		expect(panel.classList.contains('is-row-pinned')).toBe(false);
+
+		// the pinned row is the same handle it always was: the tap that put the panel there
+		// takes it away again, and the pin goes with it
+		panelTop = -120;
+		listEl.dispatchEvent(new Event('scroll'));
+		expect(row.classList.contains('is-stuck')).toBe(true);
+		tap(row);
+		expect(panel.classList.contains('is-parked')).toBe(true);
+		expect(row.classList.contains('is-stuck')).toBe(false);
+		expect(panel.classList.contains('is-row-pinned')).toBe(false);
+
+		// The drawer needs none of it: the panel is a column of its own there, and no scroll
+		// of the list beside it can take a row out from under the panel.
+		const drawer = harness(entries(), 2, files);
+		drawer.hoverRow(drawer.note('b.md'));
+		const beside = drawer.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		vi.spyOn(beside, 'getBoundingClientRect').mockReturnValue(rect(0, 300));
+		vi.spyOn(drawer.note('b.md'), 'getBoundingClientRect').mockReturnValue(rect(-90, 30));
+		beside.dispatchEvent(new Event('scroll'));
+		expect(drawer.el.querySelector('.nav-preview-go')).not.toBeNull();
+		expect(drawer.el.querySelectorAll('.is-stuck')).toHaveLength(0);
+		expect(
+			drawer.el.querySelector('.position-restore-nav-preview')?.classList.contains('is-row-pinned'),
+		).toBe(false);
+	});
+
+	it('comes back to the row a tap put the panel away from', () => {
+		// A tap on the note's row is what closes a preview on touch, and the panel had the
+		// row pinned because the reader was deep inside the note (see the test above). What
+		// the panel's going away leaves behind is the middle of a note that is no longer on
+		// screen: the row that was just tapped comes back to the top of the list instead, and
+		// nothing moves when the row was in sight all along.
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
+		let rowTop = 120;
+		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+			if (this === listEl)
+				return rect(0, 300);
+			if (this.querySelector('.nav-row-name')?.textContent === 'b.md')
+				return rect(rowTop, 30);
+			return rect(0, 0);
+		});
+
+		// the row is in sight when it is tapped, both ways: the list stays where the reader put it
+		tap(h.note('b.md'));
+		expect(h.el.querySelector('.position-restore-nav-preview')?.classList.contains('is-parked')).toBe(false);
+		expect(listEl.scrollTop).toBe(0);
+		tap(h.note('b.md'));
+		expect(listEl.scrollTop).toBe(0);
+
+		// …and the reader scrolled on before tapping it: the list comes back to the row — 240px
+		// of it — rather than staying on whatever the panel had scrolled away from
+		tap(h.note('b.md'));
+		rowTop = -240;
+		listEl.scrollTop = 500;
+		tap(h.note('b.md'));
+		expect(listEl.scrollTop).toBe(260); // 500 − 240: the row's own distance above the top
+	});
+
+	it('pins the dialog so the LIST is the only scroller, however short the history', () => {
+		// The panel opens inside the list's scroll, so a dialog that sizes to its content
+		// hands the scrolling to the DIALOG as soon as a panel opens — and a scroll there
+		// drags the whole list, the row that was just tapped included, up out of the
+		// dialog. Pinned, the list is the one scroller there is (see
+		// NavHistoryModal.applyPresentation).
+		const short = harness(entries(), 2, files, [], {}, {}, true);
+		expect(short.modal.modalEl.classList.contains('is-fixed')).toBe(true);
+
+		// …while a pointing device keeps the old rule: a full-height box around a
+		// three-entry history is mostly dead space
+		const desktop = harness(entries(), 2, files);
+		expect(desktop.modal.modalEl.classList.contains('is-fixed')).toBe(false);
+	});
+
+	it('puts the landing on screen without scrolling the list it shares', async () => {
+		// The content's own reveal — centring the landing, which is how a landing that
+		// cannot carry the ==…== mark in its source (a heading, a list item, a quote) and
+		// the whole-note view are put on screen at all (see markdown.ts revealLanding) —
+		// walks up to the nearest scroller. Inline that scroller is the LIST the rows are
+		// in, so it scrolled the note's own row — the file name, the one handle a finger
+		// has on closing the note — out of the list, and only for those landings: which is
+		// the "sometimes it pushes the file name away" a phone reported. Inline the mark
+		// is written and the list is left where the reader put it.
+		const heading = ['# 面板设计', '## 呈现方案', '正文', '### 预览'];
+		const files = { 'a.md': heading.join('\n'), 'b.md': '' };
+		const entries = [visit('a.md', NOW - MINUTE, captured(heading, 3)), visit('b.md', NOW)];
+		const centered: Element[] = [];
+		vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
+			this: Element, arg?: boolean | ScrollIntoViewOptions,
+		) {
+			if (typeof arg === 'object' && arg?.block === 'center')
+				centered.push(this);
+		});
+
+		const touch = harness(entries, 1, files, [], {}, {}, true);
+		tap(touch.note('a.md'));
+		await vi.waitFor(() => {
+			expect(touch.content()?.querySelector('.nav-preview-landing')).not.toBeNull();
+		});
+		expect(centered).toEqual([]);
+
+		// …the drawer, by contrast, centres it inside its own column: there the scroller
+		// the reveal walks up to is the panel's, and the rows are not in it
+		const drawer = harness(entries, 1, files);
+		drawer.hoverRow(drawer.note('a.md'));
+		await vi.waitFor(() => {
+			expect(centered).toHaveLength(1);
+		});
+		expect(centered[0]).toBe(drawer.content()?.querySelector('.nav-preview-landing'));
+	});
+
 	it('parks the panel again when the filter takes its row away', () => {
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 
@@ -1373,6 +1692,90 @@ describe('NavHistoryModal — touch', () => {
 
 		expect(h.el.querySelector('.position-restore-nav-hint')?.textContent).toBe(t('navHistory.keyboardHint'));
 		expect(h.el.querySelector('.position-restore-nav-here')).toBeNull();
+	});
+});
+
+describe('NavHistoryModal — a touch screen with room for two columns', () => {
+	// A phone held sideways, or a tablet: the panel has somewhere to stand, so it stops
+	// opening inside the list (see NavHistoryModal.inline / DRAWER_MIN_WIDTH). jsdom has
+	// no matchMedia at all — it has no layout to answer with — so the window's width
+	// query is supplied here, and flipped the way a rotation flips the real one.
+	function widthQuery(wide: boolean) {
+		const listeners = new Set<() => void>();
+		let matches = wide;
+		const original = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+		window.matchMedia = ((query: string) => ({
+			matches, media: query, onchange: null,
+			addEventListener: (_: string, cb: () => void) => { listeners.add(cb); },
+			removeEventListener: (_: string, cb: () => void) => { listeners.delete(cb); },
+			addListener: (cb: () => void) => { listeners.add(cb); },
+			removeListener: (cb: () => void) => { listeners.delete(cb); },
+			dispatchEvent: () => false,
+		})) as unknown as typeof window.matchMedia;
+		return {
+			rotate(next: boolean) {
+				matches = next;
+				for (const cb of [...listeners])
+					cb();
+			},
+			restore() {
+				if (original)
+					Object.defineProperty(window, 'matchMedia', original);
+				else
+					delete (window as { matchMedia?: unknown }).matchMedia;
+			},
+		};
+	}
+
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+	const entries = () => [
+		visit('a.md', NOW - 5 * MINUTE, { scroll: 40 }),
+		visit('b.md', NOW - 2 * MINUTE, { scroll: 80 }),
+		visit('c.md', NOW, { scroll: 120 }),
+	];
+	const tap = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+	it('stands the panel beside the list, and follows the window when it turns upright', () => {
+		const width = widthQuery(true);
+		try {
+			const h = harness(entries(), 2, files, [], {}, {}, true);
+
+			// still a finger's device: no hover, and a tap is the only way to point…
+			expect(h.modal.modalEl.classList.contains('is-touch')).toBe(true);
+			// …but the panel is the drawer — the body's second column, describing "where I
+			// am" until a row is tapped, exactly as it does under a pointer
+			expect(h.modal.modalEl.classList.contains('is-inline')).toBe(false);
+			// …and with the panel in a column of its own, the height pin is back to the
+			// pointer's rule: a short history does not need a full-height dialog
+			expect(h.modal.modalEl.classList.contains('is-fixed')).toBe(false);
+			const panel = h.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
+			expect(panel.classList.contains('is-parked')).toBe(false);
+			expect(panel.parentElement?.className).toContain('position-restore-nav-body');
+			expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('c.md');
+
+			// a tap points the panel at the row, and the panel stays in its own column:
+			// nothing opens inside the list
+			tap(h.note('b.md'));
+			expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
+			expect(panel.parentElement?.className).toContain('position-restore-nav-body');
+			expect(h.note('b.md').nextElementSibling?.className).not.toContain('position-restore-nav-preview');
+
+			// turning it upright is a change of presentation, not of device: the panel
+			// moves into the list under the row it describes (see watchWidth)
+			width.rotate(false);
+			expect(h.modal.modalEl.classList.contains('is-inline')).toBe(true);
+			expect(panel.parentElement?.className).not.toContain('position-restore-nav-body');
+			expect(panel.classList.contains('is-parked')).toBe(false);
+			expect(h.note('b.md').nextElementSibling).toBe(panel);
+
+			// …and its button travels wherever the panel stands. LAST, because travelling
+			// closes the dialog — and with it the width listener (see onClose).
+			h.el.querySelector<HTMLElement>('.nav-preview-go')!
+				.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			expect(h.jumpTo).toHaveBeenCalledWith(1);
+		} finally {
+			width.restore();
+		}
 	});
 });
 

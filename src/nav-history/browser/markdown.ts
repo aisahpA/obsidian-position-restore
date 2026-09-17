@@ -384,8 +384,18 @@ const BLOCKS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, pre, blockquote, .callout
 // characters ("标题", "TODO") match half the file and the first hit could be any
 // of them; the spot view — a dozen recorded lines, one of which is known to be the
 // landing — can afford to look for less (see NavPreviewContent.show).
+// `scroll` says whether finding it also moves the scroller it sits in. It is true
+// for the drawer, whose content has a scroller of its own; where the panel shares
+// the LIST's scroller (see NavPreviewContent's inline option) the mark is what
+// matters and the moving is not: centring the landing scrolls the rows the reader
+// was reading out of the list, the note's own name among them.
 // @returns whether a landing was found and marked.
-export function revealLanding(root: HTMLElement, anchor: string | undefined, minNeedle = 4): boolean {
+export function revealLanding(
+	root: HTMLElement,
+	anchor: string | undefined,
+	minNeedle = 4,
+	scroll = true,
+): boolean {
 	// The previous landing goes first: this DOM is reused while the reader walks
 	// the landings of ONE note, and two marked lines would be two "you are here".
 	for (const marked of Array.from(root.querySelectorAll('.nav-preview-landing')))
@@ -403,7 +413,8 @@ export function revealLanding(root: HTMLElement, anchor: string | undefined, min
 	if (!hit)
 		return false;
 	hit.classList.add('nav-preview-landing');
-	hit.scrollIntoView({ block: 'center' });
+	if (scroll)
+		hit.scrollIntoView({ block: 'center' });
 	return true;
 }
 

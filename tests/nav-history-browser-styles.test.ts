@@ -144,13 +144,14 @@ describe('history browser quiet tiers', () => {
 		);
 	});
 
-	// The landing panel has TWO presentations (see LandingPanel): the drawer
-	// beside the list on a pointing device, the in-flow panel under the row on
-	// touch. The contract worth pinning is that the drawer is a real column of
-	// the body (no fixed height of its own — the body's own growth must not
-	// squeeze it out), and that the touch panel is in the list's flow with a
+	// The landing panel has TWO presentations (see LandingPanel), and which one is on
+	// is the browser's answer about ROOM, not about the device (see
+	// NavHistoryModal.inline): a pointing device always has room for the drawer, and so
+	// does a touch device wide enough. The contract worth pinning is that the drawer is
+	// a real column of the body (no fixed height of its own — the body's own growth must
+	// not squeeze it out), and that the inline panel is in the list's flow with a
 	// finger-sized travel button.
-	it('stands the drawer in its own column, and keeps the touch panel in the flow', () => {
+	it('stands the drawer in its own column, and keeps the inline panel in the flow', () => {
 		expect(browser).toMatch(
 			/\.position-restore-nav-body\s*\{[^}]*flex-direction: row/,
 		);
@@ -162,16 +163,18 @@ describe('history browser quiet tiers', () => {
 		// bare indexOf would slice from there and swallow the list rules too.
 		const drawer = browser.slice(
 			browser.indexOf('\n.position-restore-nav-preview {'),
-			browser.indexOf('.position-restore-nav-modal.is-touch .position-restore-nav-preview {'),
+			browser.indexOf('.position-restore-nav-modal.is-inline .position-restore-nav-preview {'),
 		);
 		expect(drawer).toContain('flex: 1 1 auto');
 		expect(drawer).toContain('overflow-y: auto');
 		// the drawer has no fixed height of its own to be pushed around by: only
 		// the min/max pair the body's growth respects
 		expect(drawer).not.toMatch(/(^|[^-])height:/);
-		// the touch presentation takes the whole width of the list it sits in
+		// …and the inline panel is a block in the list's flow, of its content's own
+		// height: the list is the one scroller there, and a second one nested in it is
+		// a way for a finger to get stuck
 		expect(browser).toMatch(
-			/is-touch \.position-restore-nav-preview\s*\{[^}]*width: auto[^}]*max-height: none/,
+			/is-inline \.position-restore-nav-preview\s*\{[^}]*width: auto[^}]*max-height: none/,
 		);
 		expect(browser).toMatch(/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*font-size: var\(--font-ui-small\)/);
 	});
@@ -190,11 +193,11 @@ describe('history browser quiet tiers', () => {
 		// and the short-history case keeps its cap: there the dialog sizes to its
 		// content and a 60vh column would be the tallest thing in it
 		expect(browser).toMatch(/\.position-restore-nav-list\s*\{[^}]*max-height: 60vh/);
-		// on touch the body is a COLUMN, so the list — the one scroller there,
-		// with the panel inside it — has to take the leftover height rather than
-		// keep sizing itself
+		// inline the body is a COLUMN, so the list — the one scroller there, with the
+		// panel inside it — has to take the leftover height rather than keep sizing
+		// itself
 		expect(browser).toMatch(
-			/is-fixed\.is-touch \.position-restore-nav-list\s*\{\s*flex: 1 1 auto/,
+			/is-fixed\.is-inline \.position-restore-nav-list\s*\{\s*flex: 1 1 auto/,
 		);
 	});
 
@@ -213,10 +216,16 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/\.nav-preview-top\s*\{[^}]*margin-left: -12px[^}]*background-color: var\(--background-secondary\)/,
 		);
-		// …and on touch it is flat again: inline under a row, a band inside the
-		// list reads as one more row rather than as a panel
+		// …and inline it is pinned by the LIST it hangs in instead of by a scroller of
+		// its own: the panel is a child of the list's scroll, so `sticky` is what keeps
+		// the travel button and the view switch in reach while a whole note moves under
+		// them — the reader who had switched to the whole note otherwise had to scroll
+		// the whole note back to switch out of it. Its background is opaque (rows now
+		// slide under it) and is the dialog's own, so the band reads as the top of the
+		// list rather than as one more row; the drawer's recessed strip and its negative
+		// start margin are undone.
 		expect(browser).toMatch(
-			/is-touch \.nav-preview-top\s*\{[^}]*margin-left: 0[^}]*background-color: transparent/,
+			/is-inline \.nav-preview-top\s*\{[^}]*position: sticky[^}]*margin-left: 0[^}]*background-color: var\(--modal-background\)/,
 		);
 		// the fixed half does not grow or shrink
 		expect(browser).toMatch(/\.nav-preview-top\s*\{[^}]*flex: 0 0 auto[^}]*border-bottom: 1px solid/);
@@ -225,9 +234,45 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/\.nav-preview-scroll\s*\{[^}]*flex: 1 1 auto[^}]*min-height: 0[^}]*overflow-y: auto/,
 		);
-		// on touch the panel is in the LIST's scroll: a second scroll area nested
+		// inline the panel is in the LIST's scroll: a second scroll area nested
 		// inside the only one a finger can use is a way to get stuck
-		expect(browser).toMatch(/is-touch \.nav-preview-scroll\s*\{[^}]*overflow: visible/);
+		expect(browser).toMatch(/is-inline \.nav-preview-scroll\s*\{[^}]*overflow: visible/);
+	});
+
+	// Inline the panel hangs directly under the row that names the note, so the name
+	// again is the panel reading its own heading back to the reader — and the line it
+	// spent on it is a line of the content's room on a phone. What is left of the head
+	// is the small print about the step, on one line with the age at its far end.
+	it('drops the repeated name inline, and keeps the small print on one line', () => {
+		expect(browser).toMatch(/is-inline \.nav-preview-ident\s*\{\s*display: none/);
+		expect(browser).toMatch(/is-inline \.nav-preview-head\s*\{[^}]*flex-wrap: nowrap/);
+		// the age moves back to the far end (the DOM order is name, age, small print)
+		// and the machinery takes what is left of the one line
+		expect(browser).toMatch(/is-inline \.nav-preview-meta\s*\{[^}]*flex: 1 1 auto/);
+		expect(browser).toMatch(/is-inline \.nav-preview-head \.nav-row-time\s*\{[^}]*order: 2/);
+	});
+
+	// …and the row the panel hangs under is pinned by that same scroll for as long as the
+	// panel is under it: inline the row IS the handle (one tap opens a note, a second closes
+	// it — see NavHistoryList.onTap), and reading a long note used to scroll it off the top
+	// and leave the reader with a panel they had to scroll back for. Opaque, because the rows
+	// below slide under it, and the position's wash goes OVER that base: the wash alone is a
+	// tint of nothing. (What pins it, and only while the panel is on screen, is
+	// LandingPanel.sync; the DOM half is in nav-history-browser-dom.test.ts.)
+	it('pins the row the panel hangs under, above the pinned block', () => {
+		expect(browser).toMatch(/is-inline \.position-restore-nav-row\.is-stuck\s*\{[^}]*position: sticky[^}]*top: 0/);
+		expect(browser).toMatch(
+			/is-inline \.position-restore-nav-row\.is-stuck\s*\{[^}]*background-color: var\(--modal-background\)/,
+		);
+		// squared off: a rounded corner is a hole onto whatever is sliding under it
+		expect(browser).toMatch(/is-inline \.position-restore-nav-row\.is-stuck\s*\{[^}]*border-radius: 0/);
+		// the wash is painted over the opaque base rather than replacing it
+		expect(browser).toMatch(
+			/is-stuck\.is-selected,[^}]*is-stuck\.is-previewed\s*\{[^}]*background-image: linear-gradient/,
+		);
+		// …and the block below starts where the row ends, not under it: the height the panel
+		// measured off the row while it was still in its slot
+		expect(browser).toMatch(/is-row-pinned \.nav-preview-top\s*\{[^}]*top: var\(--nav-pin-row/);
 	});
 
 	// The drawer's head reads as a headline over small print: the note's NAME is
@@ -262,11 +307,11 @@ describe('history browser quiet tiers', () => {
 		// …a token too long for the column is ellipsized rather than given a line
 		expect(browser).toMatch(/\.nav-preview-meta > span\s*\{[^}]*text-overflow: ellipsis/);
 		expect(browser).toMatch(/\.nav-preview-bar\s*\{[^}]*min-height: 24px/);
-		// …and the reserved-but-empty lines are a DESKTOP answer only: on touch a
-		// tap opens one panel under its row, so there is no shape to hold still and
+		// …and the reserved-but-empty lines are a DRAWER answer only: inline a tap
+		// opens one panel under its row, so there is no shape to hold still and
 		// the empty lines are dropped instead
 		expect(browser).toMatch(
-			/is-touch \.nav-preview-meta:empty,\s*\.position-restore-nav-modal\.is-touch \.nav-preview-trail:empty,[^}]*display: none/,
+			/is-inline \.nav-preview-meta:empty,\s*\.position-restore-nav-modal\.is-inline \.nav-preview-trail:empty,[^}]*display: none/,
 		);
 		// the two view buttons are ONE control: one box, a hairline between the
 		// halves, and the selected half on the app's own active tint
@@ -289,15 +334,17 @@ describe('history browser quiet tiers', () => {
 	// view to read — share one bar ABOVE the content: at the foot of the panel a
 	// long note pushed the travel button off the bottom, so the only control for
 	// "I want to go there" was the one thing that had to be scrolled to. On touch
-	// the button is a band a finger can hit rather than a label in a corner.
+	// the button keeps a finger's height but not a band's width, so that the switch
+	// fits on the SAME line: two lines of a phone's height spent on controls is
+	// height taken from the content the panel is open for.
 	it('puts the travel button above the content, beside the view switch', () => {
 		expect(browser).toMatch(/\.nav-preview-bar\s*\{[^}]*display: flex[^}]*flex-wrap: wrap/);
 		expect(browser).toMatch(/\.nav-preview-bar \.nav-preview-go\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 		expect(browser).toMatch(
-			/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*width: 100%/,
+			/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*width: auto[^}]*height: auto/,
 		);
-		// the switch rides at the far end, away from the button it must not be
-		// mistaken for
+		// the switch rides at the far end of that one line, away from the button it must
+		// not be mistaken for
 		expect(browser).toMatch(/\.nav-preview-modes\s*\{[^}]*margin-left: auto/);
 		// nothing is left hanging under the content
 		expect(browser).not.toContain('.nav-preview-actions');
@@ -324,12 +371,26 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-preview-modes \.nav-preview-mode\.is-active\s*\{[^}]*color: var\(--text-normal\)/);
 	});
 
-	// A phone held sideways has ~370px of height for everything (title bar,
-	// filter, list): every one of these is a line the list gets back.
+	// A phone held sideways has ~370px of height for everything (the dialog's name, the
+	// filter, the list): every one of these is a line the list gets back.
 	it('compacts the short-dialog (landscape phone) layout', () => {
 		const landscape = browser.slice(browser.indexOf('@media (max-height: 520px)'));
 		expect(landscape.length).toBeGreaterThan(500);
 
+		// the dialog's NAME goes: the largest single thing in a 390px-tall dialog, and
+		// the one thing there that only repeats what the list under it says
+		expect(landscape).toMatch(/is-touch \.modal-header\s*\{\s*display: none/);
+		// …and the toolbar takes the row it was in TOGETHER WITH the app's close button,
+		// which is not in the header but floats over the content: the content's top
+		// padding comes down to the button's own inset and the toolbar is as tall as its
+		// box, so the button cannot hang over the list's first row (a 44px target that
+		// closes the dialog, sitting on the row a finger is reaching for)…
+		expect(landscape).toMatch(/is-touch \.modal-content\s*\{[^}]*padding-top: var\(--size-4-3/);
+		expect(landscape).toMatch(/is-touch \.position-restore-nav-toolbar\s*\{[^}]*min-height: var\(--touch-size-m/);
+		// …and it yields the button's column, or the filter box runs under it
+		expect(landscape).toMatch(
+			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*padding-inline-end: calc\(var\(--touch-size-m/,
+		);
 		// the hint goes entirely
 		expect(landscape).toMatch(/is-touch \.position-restore-nav-hint\s*\{\s*display: none/);
 		// the box keeps the one line the toolbar has left
@@ -342,7 +403,9 @@ describe('history browser quiet tiers', () => {
 		expect(browser).not.toContain('position-restore-nav-toggle');
 		// the landing row goes back to one line too (the note's never left one)
 		expect(landscape).toMatch(/is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas: none/);
-		// and the travel button is no longer a full-width band
-		expect(landscape).toMatch(/is-touch \.nav-preview-go\s*\{[^}]*width: auto/);
+		// …and the travel button needs no rule of its own here any more: it is never a
+		// full-width band (see the touch bar test above), so a short dialog has nothing
+		// left to compact about it
+		expect(landscape).not.toMatch(/nav-preview-go/);
 	});
 });

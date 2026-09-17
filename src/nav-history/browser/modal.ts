@@ -21,7 +21,7 @@ import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
 import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';
+import { DRAWER_MIN_WIDTH, FIXED_HEIGHT_MIN_ENTRIES } from './constants';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
 import { NavHistoryReads } from './reads';
@@ -32,6 +32,17 @@ import { NavHistoryList } from './list';
 // Per-dialog sequence for the list element's id (see NavHistoryModal.listId).
 let modalSeq = 0;
 
+// Whether the window has room for the list and the landing panel side by side (see
+// DRAWER_MIN_WIDTH). Asked as a media query so that rotating the device — or dragging
+// the window across the boundary — can be HEARD (see NavHistoryModal.watchWidth), and
+// answered "no" wherever the API is missing (a test environment): the inline
+// presentation is the one that needs no second column, so it is the safe default.
+function drawerFits(): boolean {
+	return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+		? window.matchMedia(`(min-width: ${DRAWER_MIN_WIDTH}px)`).matches
+		: false;
+}
+
 // "Browse navigation history" modal. A destination picker, laid out around
 // how a user actually gets lost:
 //  - the list is a TREE OF NOTES, newest note first, one row per note with its
@@ -40,8 +51,10 @@ let modalSeq = 0;
 //    one line, not ten, and two notes sharing a name print their folders to say
 //    which is which;
 //  - one click opens a note (or closes it again), two clicks travel — and on a
-//    touch device, where there is no second click and no hover, one tap opens,
-//    points or puts the panel away, and the panel's own button travels;
+//    touch device, where there is no second click and no hover, one tap says it
+//    all: a note's row opens or closes its landings and points at nothing, a
+//    landing (or a note with one, which is a leaf) is pointed at and put away
+//    again by the same tap, and the panel's own button travels;
 //  - the CURRENT note is pinned first and its landing carries the "you are
 //    here" marker, so the current position is a place in the same tree — the
 //    first row, marked — and not a line of chrome above it;
@@ -51,9 +64,10 @@ let modalSeq = 0;
 //    (see PreviewContent), with the note as it stands now one switch away. On a
 //    pointing device they stand in a column beside the list and follow the row the
 //    reader is on — hover and the arrow keys move the SAME position (see list.ts),
-//    so there is no separate selection for the drawer to disagree with; on a touch
-//    device, where there is no hover and no room for two columns, the same content
-//    opens under the tapped row with a button to travel;
+//    so there is no separate selection for the drawer to disagree with; where there
+//    is no room for two columns (a phone held upright) the same content opens under
+//    the tapped row instead, with a button to travel and a pinned bar that stays in
+//    reach however long the note is (see LandingPanel);
 //  - the toolbar can narrow the list to matching text — a name, a path, a
 //    section, a line, or a phrase the step recorded. That is the only narrowing
 //    there is: the file scope that used to sit beside it (a "only this note"
@@ -73,7 +87,7 @@ export class NavHistoryModal extends Modal {
 	// The search box's text. The list's own query.
 	private filter = '';
 	private previewEl!: HTMLElement;
-	// Where the preview panel waits when it has no row to open under (touch).
+	// Where the preview panel waits when it has no row to open under (inline).
 	private previewHost!: HTMLElement;
 	private filterInput!: HTMLInputElement;
 	private panes: PaneInfo = { live: new Map() };
@@ -81,8 +95,8 @@ export class NavHistoryModal extends Modal {
 	// file's parsed headings, the end of a file's frontmatter, and a file's text
 	// (see reads.ts).
 	private reads: NavHistoryReads;
-	// The landing panel: the right-hand drawer on a pointing device, the in-flow
-	// panel under the tapped row on touch (see LandingPanel).
+	// The landing panel: the standing second column beside the list, or the in-flow
+	// panel under the tapped row (see LandingPanel).
 	private panel!: LandingPanel;
 	// What the panel draws as the landing's content: the recorded lines, or the
 	// whole note, both through Obsidian's own markdown renderer (see
@@ -96,9 +110,20 @@ export class NavHistoryModal extends Modal {
 	private readonly listId = `position-restore-nav-list-${++modalSeq}`;
 	// Touch devices have no hover at all, so there the only way to move the position
 	// is a tap and "point at a row" and "go there" are the same gesture. Read once,
-	// here: this also picks the panel's presentation (drawer vs in-flow), the hint,
-	// and whether the filter box focuses itself.
+	// here: this also picks the hint and whether the filter box focuses itself.
 	private mobile = Platform.isMobile;
+	// Which of the panel's two presentations this dialog is using: INLINE (the panel
+	// opens inside the list, under the row it describes) or the drawer (a standing
+	// second column). A pointing device always has the room for the drawer; a touch
+	// device gets it whenever the window is wide enough to hold both — a phone held
+	// sideways, a tablet — because stacked there the list is one row tall and the panel
+	// has nowhere to go. Follows a rotation through watchWidth, and the class and the
+	// rendering decision are both read off this one flag, so they cannot disagree.
+	private inline = this.mobile && !drawerFits();
+	// The width query this dialog follows, and the listener on it: kept so that
+	// closing the dialog stops listening to the window (see watchWidth / onClose).
+	private widthQuery?: MediaQueryList;
+	private onWidth?: () => void;
 
 	constructor(
 		app: App,
@@ -116,27 +141,33 @@ export class NavHistoryModal extends Modal {
 			// …and the metadata lookup that keeps a recorded block starting inside
 			// the properties from rendering as a heading rule (see contextMarkdown).
 			frontmatterEnd: path => this.reads.frontmatterEnd(path),
+			// Inline, the panel shares the list's scroll, so putting the landing on
+			// screen must not move it (see NavPreviewContent's option).
+			inline: () => this.inline,
 		});
 	}
 
 	onOpen() {
 		this.modalEl.addClass('position-restore-nav-modal');
-		// Touch gets the panel's in-flow presentation instead of the drawer (see
-		// LandingPanel.render). One flag, so the class and the rendering decision
-		// can never disagree.
+		// The device's own ergonomics, and separately where the panel goes. One flag
+		// per question, so neither class can disagree with the rendering decision it
+		// stands for (see mobile / inline). The width is read again here rather than
+		// only at construction: it is the window as it is NOW that has the room.
+		this.inline = this.mobile && !drawerFits();
 		this.modalEl.toggleClass('is-touch', this.mobile);
-		// Pin the height once the list overflows, so filtering can't resize
-		// the modal and shift it vertically (see styles.css is-fixed).
-		this.modalEl.toggleClass('is-fixed', this.nav.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
+		this.applyPresentation();
 		this.titleEl.setText(t('navHistory.overview.name'));
 		// One keydown listener on the modal covers both the filter input and
 		// the list: while typing, arrows navigate and Enter jumps (the input
 		// would otherwise move its caret); Escape stays native (closes).
 		this.modalEl.addEventListener('keydown', (ev) => this.onKeyDown(ev));
+		// …and the window itself decides between the two presentations: rotating the
+		// device has to move the panel, not wait for the dialog to be reopened.
+		this.watchWidth();
 		this.toolbar();
-		// The list, and the landing panel. On a pointing device the panel IS the
-		// body's second column (see styles.css) and follows the pointer. On touch
-		// it does not stay there: it opens UNDER the tapped row, inside the list's
+		// The list, and the landing panel. With the drawer the panel IS the body's
+		// second column (see styles.css) and follows the position. Inline it does not
+		// stay there: it opens UNDER the row it describes, inside the list's
 		// own scroll (see LandingPanel.render) — a panel parked at the bottom of
 		// the dialog runs out of room the moment there is history to scroll, and
 		// then the one control that can travel with a finger (its "jump here"
@@ -173,13 +204,14 @@ export class NavHistoryModal extends Modal {
 		this.panel = new LandingPanel({
 			panel: this.previewEl,
 			parkAt: this.previewHost,
-			mobile: this.mobile,
+			list: listEl,
+			inline: () => this.inline,
 			position: () => this.list.position,
 			here: () => this.nav.index,
 			standsFor: rep => this.list.standsFor(rep),
 			entryAt: rep => this.nav.entries[rep],
-			rowOf: rep => this.list.rowOf(rep),
-			positionRow: () => this.list.currentRow(),
+			anchorRow: () => this.list.panelAnchor(),
+			noteRowOf: row => this.list.noteRowOf(row),
 			onPreviewed: rep => this.list.markPreviewed(rep),
 			describe: rep => this.reads.describe(rep),
 			trailFor: (entry, d) => this.trailFor(entry, d),
@@ -200,9 +232,65 @@ export class NavHistoryModal extends Modal {
 
 	onClose() {
 		this.closed = true;
+		// A closed dialog has no presentation to keep up to date, and the window
+		// outlives it: the width listener goes with the dialog.
+		this.stopWatchingWidth();
 		// The rendered preview and everything hung on it (embeds, math, plugin
 		// children) belong to this dialog: closing it unloads them.
 		this.content.destroy();
+	}
+
+	// Follow the window's width while the dialog is open: rotating a phone, or dragging
+	// a window across the width the drawer needs, is a change of PRESENTATION — the
+	// panel moves between the list's own flow and the body's second column, which only
+	// a re-render can do (see LandingPanel.render). A WebView too old to have the
+	// listener API simply keeps the presentation the dialog opened with.
+	private watchWidth(): void {
+		if (typeof window.matchMedia !== 'function')
+			return;
+		const query = window.matchMedia(`(min-width: ${DRAWER_MIN_WIDTH}px)`);
+		if (typeof query.addEventListener !== 'function')
+			return;
+		const onWidth = () => this.setPresentation();
+		this.widthQuery = query;
+		this.onWidth = onWidth;
+		query.addEventListener('change', onWidth);
+	}
+
+	private stopWatchingWidth(): void {
+		const query = this.widthQuery;
+		const onWidth = this.onWidth;
+		if (query && onWidth && typeof query.removeEventListener === 'function')
+			query.removeEventListener('change', onWidth);
+		this.widthQuery = undefined;
+		this.onWidth = undefined;
+	}
+
+	private setPresentation(): void {
+		const inline = this.mobile && !drawerFits();
+		if (inline === this.inline)
+			return;
+		this.inline = inline;
+		this.applyPresentation();
+		// The rows are the same rows (the device has not changed, only the room for
+		// two columns): what has to move is the panel.
+		this.render();
+	}
+
+	// How the panel is presented, as the two classes the stylesheet reads. One place,
+	// because the two decisions come from one flag and a rotation has to change both:
+	//  - `is-inline`, the panel in the list's own flow (see LandingPanel.render);
+	//  - `is-fixed`, the dialog's pinned height. Inline it is NOT optional, even for a
+	//    history too short to need it: the panel opens inside the list's scroll, and a
+	//    dialog that sizes to its content hands the scrolling to THE MODAL as soon as a
+	//    panel opens — where a scroll drags the whole list, the row a finger just tapped
+	//    included, out of the dialog. Pinned, the list is the one scroller there is, and
+	//    the panel scrolls under the reader inside it. (A pointing device keeps the old
+	//    rule: a three-entry list in a full-height box is mostly dead space.)
+	private applyPresentation(): void {
+		this.modalEl.toggleClass('is-inline', this.inline);
+		this.modalEl.toggleClass('is-fixed',
+			this.inline || this.nav.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
 	}
 
 	private onKeyDown(ev: KeyboardEvent): void {

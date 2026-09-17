@@ -27,6 +27,12 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // step through the rows on screen (a closed note's landings are not on screen),
 // ←→ close and open the note under the cursor, Enter travels.
 //
+// A finger has neither a second click nor a hover, so there ONE tap says it all:
+// tapping a note opens or closes its landings and points at nothing — the panel is
+// for a SPOT, and a spot is a landing row (see onTap) — and tapping a landing (or a
+// note with one, which is a leaf) points the panel at it, a second time putting it
+// away again.
+//
 // The list owns its rows and the ONE position in them: `selected`, which the
 // pointer moves by hovering and the keyboard by walking (see choose). It is what
 // the landing panel describes, what Enter travels to, and what is announced to a
@@ -83,7 +89,9 @@ export interface NavHistoryListOptions {
 	// same keys that move through it — so this is what makes the current option
 	// audible: the browser points the box's aria-activedescendant at the row id.
 	onActiveRow: (id: string | undefined) => void;
-	// The position moved on a touch device: bring the panel into view.
+	// A tap moved the position on a touch device: bring the panel it just opened into
+	// view (see choose). Not called for the keyboard's walk: there the list shows the
+	// step and the reader's own view is what it is (see reveal).
 	onRevealPanel: () => void;
 	// A row was chosen with a pointing device: travel there.
 	onTravel: (rep: number) => void;
@@ -178,11 +186,22 @@ export class NavHistoryList {
 		return this.selected ? this.activeRep(this.selected) : -1;
 	}
 
-	// The row the position is on — where the landing panel opens under. A note row is
-	// a row the panel can describe (the landing it stands for is what it shows), so
-	// this is not always rowOf(position).
-	currentRow(): HTMLElement | undefined {
-		return this.selected?.el;
+	// The row an INLINE landing panel opens under (see LandingPanel.render), or
+	// undefined when the position is on a note whose landings are already on screen:
+	// there the panel is what would push those landings — and the note's own row, the
+	// one a finger has to tap again to close the note — off a phone screen. A note with
+	// ONE landing is a leaf that stands in for it (see expandable), so it keeps the
+	// panel: nothing opens under it to be pushed away.
+	//
+	// A pointing device never asks: its panel is the body's second column and the row
+	// is only the subject it describes.
+	panelAnchor(): HTMLElement | undefined {
+		const row = this.selected;
+		if (!row)
+			return undefined;
+		if (row.group !== undefined && this.expandable(row.group) && this.expanded.has(row.group))
+			return undefined;
+		return row.el;
 	}
 
 	// Whether any row still STANDS FOR a landing: its own row, or — while its note
@@ -224,6 +243,22 @@ export class NavHistoryList {
 	// a closed note is not, and neither is a row the filter dropped).
 	rowOf(rep: number): HTMLElement | undefined {
 		return rep < 0 ? undefined : this.refs.find(r => r.rep === rep)?.el;
+	}
+
+	// The NOTE row a row belongs to: the file row at or above it (which is the row
+	// itself when it is one). The inline panel asks for it before moving the list: the
+	// note's own name is how the tree is closed again with a tap (see onTap), so opening
+	// a panel may never scroll it out of the list — the scroll stops when it reaches the
+	// top instead (see LandingPanel.reveal).
+	noteRowOf(row: HTMLElement): HTMLElement | undefined {
+		const at = this.refs.findIndex(r => r.el === row);
+		if (at < 0)
+			return undefined;
+		for (let i = at; i >= 0; i--) {
+			if (this.refs[i].group !== undefined)
+				return this.refs[i].el;
+		}
+		return undefined;
 	}
 
 	// The stack index a row acts on: a landing is itself; a note is the FIRST
@@ -425,14 +460,12 @@ export class NavHistoryList {
 		const open = many && this.expanded.has(index);
 		// The caret's span is created for EVERY note, empty where there is nothing
 		// to open: it is the row's first grid track, and leaving it out would slide
-		// that note's name (and only that one's) a track to the left.
+		// that note's name (and only that one's) a track to the left. `is-open` is the
+		// state itself — which the tap toggles and the CSS turns into a rotation.
 		row.createSpan({
 			text: many ? '▸' : '',
 			cls: `nav-file-caret${open ? ' is-open' : ''}`,
-			// The tap semantics read this: a note row that is ALREADY open is not
-			// a toggle-off target (see onTap), and the class is the one place that
-			// state is written where a click can see it.
-			attr: { 'aria-hidden': 'true', 'data-open': open ? 'true' : 'false' },
+			attr: { 'aria-hidden': 'true' },
 		});
 		const file = row.createDiv({ cls: 'nav-row-file' });
 		if (missing)
@@ -542,41 +575,67 @@ export class NavHistoryList {
 			this.toggle(ref.group);
 	}
 
-	// A touch device's tap: open a note, point at a landing, or put the panel away
-	// again when the pointed-at LANDING is tapped a second time.
-	// A note's row is not a toggle-off target: the tap that opens it also selects
-	// it, and a second tap on it would read as "close the note I am reading" —
-	// which is what the reader then has to undo. Closing a note is the ← key's
-	// move (or a click on the note itself on a pointing device): a tap on another
-	// note opens that note TOO and leaves this one open.
-	// A note with ONE landing is the exception, because there is nothing to open:
-	// the row stands in for that landing (see fileRow), so it takes the landing
-	// row's gesture — and with it the only way back out of a preview on a device
-	// with no Esc key under the finger.
+	// A touch device's tap: open or close a note's landings, point at a landing, or put
+	// the panel away again when the pointed-at row is tapped a second time.
+	//
+	// A note's row is the TREE, and its tap is the whole of what a finger can do to it:
+	// it opens the landings (or closes them again — on a device with no ← key this tap
+	// is the only way back), and it points at nothing. Opening the panel under the note
+	// instead is what a phone reported: the landings ended up BELOW the content, and the
+	// panel — taller than the screen — pushed the note's own row, the only thing left to
+	// tap, off the top of the list. The panel is for a spot, and a spot is a landing row
+	// (see panelAnchor).
+	//
+	// A note with ONE landing is the exception, because there is nothing to open: the
+	// row stands in for that landing (see fileRow), so it takes the landing row's
+	// gesture — and with it the only way back out of a preview on a device with no Esc
+	// key under the finger.
+	//
+	// Either way the row that was tapped is where the reader is standing again, and the
+	// list comes back to it if the panel had scrolled it away (see backTo).
 	private onTap(ref: RowRef): void {
-		if (ref.group !== undefined && !this.expandable(ref.group)) {
-			this.tapLanding(ref);
+		if (ref.group !== undefined && this.expandable(ref.group)) {
+			this.clearSelection();
+			this.toggle(ref.group, false);
+			// The rows are rebuilt by the close, so the row that was tapped is found again by
+			// the identity it keeps across a rebuild: the note's group.
+			this.backTo(this.refs.find(r => r.group === ref.group)?.el);
 			return;
 		}
-		if (ref.group !== undefined) {
-			if (!ref.el.querySelector('.nav-file-caret')?.classList.contains('is-open'))
-				this.toggle(ref.group);
-			else
-				this.choose(ref);
-			return;
-		}
-		this.tapLanding(ref);
+		if (this.tapLanding(ref))
+			this.backTo(ref.el);
 	}
 
 	// A row that POINTS at a landing rather than opening one: the first tap puts the
 	// position on it (the panel opens under it), a second takes the position away
-	// again and the panel goes with it.
-	private tapLanding(ref: RowRef): void {
+	// again and the panel goes with it. @returns whether it was that second tap.
+	private tapLanding(ref: RowRef): boolean {
 		if (this.selected?.el === ref.el) {
 			this.clearSelection();
-			return;
+			return true;
 		}
 		this.choose(ref);
+		return false;
+	}
+
+	// Bring the row a tap just put the panel away from back into the list.
+	//
+	// Inline the panel hangs in the list's own scroll, and a row the reader has scrolled
+	// past is pinned to the top of the list so that this very tap is possible (see
+	// LandingPanel.sync). The panel going away leaves the list where the panel's content
+	// was — the middle of a note that is no longer on screen — so the handle that was just
+	// used comes back to where it was tapped: nothing moves unless the row is above the
+	// list, and then it moves exactly as far as the row.
+	private backTo(row?: HTMLElement): void {
+		if (!row)
+			return;
+		const view = this.opts.list.getBoundingClientRect();
+		// No layout to measure (a test): nothing has moved.
+		if (view.height <= 0)
+			return;
+		const delta = row.getBoundingClientRect().top - view.top;
+		if (delta < 0)
+			this.opts.list.scrollTop += delta;
 	}
 
 	// Which row a travel acts on, and whether it may. A landing of a deleted note
@@ -634,10 +693,13 @@ export class NavHistoryList {
 		// Enter and a double click travel to as well. Settled BEFORE the panel is told
 		// to redraw.
 		this.opts.onPointed();
-		if (this.opts.mobile) {
+		if (this.opts.mobile && !walked) {
 			// The panel hangs BELOW that row, so redrawing it and then bringing it
 			// into view are one step: the row alone being on screen is not enough,
 			// because the button that travels with a finger lives in the panel.
+			// Only a TAP asks for this: the keyboard's walk has just shown the step
+			// its own way (see reveal), and following it with the panel's scroll would
+			// undo it.
 			this.opts.onRevealPanel();
 		}
 	}
@@ -674,26 +736,67 @@ export class NavHistoryList {
 		this.opts.onPointed();
 	}
 
-	// Open or close a note, and put the position on the note itself: the two are one
-	// gesture (a click on a note row, or ←→), and the row that toggled is what the
-	// reader is looking at. The note's row stands for the landing it stands for (the
-	// one most recently aimed at, see activeRep), so closing a note does not move the
-	// drawer to a different spot, and opening it does not either.
+	// Open or close a note, and — on a pointing device — put the position on the note
+	// itself: the two are one gesture (a click on a note row, or ←→), and the row that
+	// toggled is what the reader is looking at. The note's row stands for the landing it
+	// stands for (the one most recently aimed at, see activeRep), so closing a note does
+	// not move the drawer to a different spot, and opening it does not either.
+	// A touch tap does NOT move the position (`point` false): there the panel would open
+	// under the note row and push the landings it just opened off the screen (see onTap
+	// and panelAnchor), so the tree moves and nothing else — and what it opened is shown
+	// (see the end of this method).
 	// A note with one landing has nothing to open and this does nothing (see
 	// expandable), which is what keeps it a leaf.
-	private toggle(index: number): void {
+	private toggle(index: number, point = true): void {
 		if (!this.expandable(index))
 			return;
 		const file = this.refs.find(r => r.group === index);
-		if (this.expanded.has(index))
-			this.expanded.delete(index);
-		else
+		const opened = !this.expanded.has(index);
+		if (opened)
 			this.expanded.add(index);
+		else
+			this.expanded.delete(index);
 		// The note's own row is what stays on screen either way (a landing row is gone
-		// after a close), and it is also where the reader's attention now is.
-		if (file)
+		// after a close), and it is also where a pointing device's attention now is.
+		if (file && point)
 			this.choose(file);
 		this.render();
+		// A TAP that opened a note shows what it opened. The landings start below the
+		// note, and a note near the foot of the list opens them under the fold — where
+		// the tap looks like it did nothing at all (see showOpened).
+		if (!point && opened) {
+			const note = this.refs.find(r => r.group === index)?.el;
+			const first = this.firstPlaceOf(index);
+			if (note && first)
+				this.showOpened(note, first.el);
+		}
+	}
+
+	// The first landing drawn under a note: the row directly below the note's own, and
+	// the one a reader who has just opened it is looking for.
+	private firstPlaceOf(group: number): RowRef | undefined {
+		const at = this.refs.findIndex(r => r.group === group);
+		return at < 0 ? undefined : this.refs.slice(at + 1).find(r => r.group === undefined);
+	}
+
+	// Bring a landing a tap just opened into sight — by the LEAST the list can move, and
+	// never so far that the note's own row leaves the top: that row is the only thing the
+	// finger can tap to close the note again, and a phone reported exactly that failure
+	// ("the file got pushed up and hidden, and I had to scroll for a while to get back to
+	// it"). Deliberately not scrollIntoView: that also scrolls any ANCESTOR that happens
+	// to overflow — on a phone with a short history the dialog itself is one — so the
+	// whole panel, list included, went up instead of the list alone.
+	private showOpened(note: HTMLElement, first: HTMLElement): void {
+		const view = this.opts.list.getBoundingClientRect();
+		// No layout to measure (a test): nothing to move the list by.
+		if (view.height <= 0)
+			return;
+		const below = first.getBoundingClientRect().bottom - view.bottom;
+		if (below <= 0)
+			return;
+		// How far the list may move before the note's own row reaches the top.
+		const room = note.getBoundingClientRect().top - view.top;
+		this.opts.list.scrollTop += Math.min(below, Math.max(0, room));
 	}
 
 	// The keyboard's walk: one row on, wrapping at either end. A step is `walked`, so

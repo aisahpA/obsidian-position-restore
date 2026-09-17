@@ -150,20 +150,21 @@ body.is-mobile .position-restore-cue {
 	max-height: none;
 }
 
-/* On touch the body is a COLUMN, so the fill above is not enough: the list is a
-   fixed-size item there (the panel opens INSIDE its scroll, under the tapped
-   row), and without a cap it would size to its content, run past the dialog and
-   be clipped by it — the rows below the fold unreachable, because the list's own
-   scrollbar never engages on a box that is taller than the space it sits in.
-   Taking the remaining height makes it the one scroller it is meant to be. */
-.modal.position-restore-nav-modal.is-fixed.is-touch .position-restore-nav-list {
+/* INLINE (the panel in the list's own flow — see NavHistoryModal.inline) the body is a
+   COLUMN, so the fill above is not enough: the list is a fixed-size item there (the
+   panel opens INSIDE its scroll, under the row it describes), and without a cap it
+   would size to its content, run past the dialog and be clipped by it — the rows
+   below the fold unreachable, because the list's own scrollbar never engages on a box
+   that is taller than the space it sits in. Taking the remaining height makes it the
+   one scroller it is meant to be. */
+.modal.position-restore-nav-modal.is-fixed.is-inline .position-restore-nav-list {
 	flex: 1 1 auto;
 }
 
-/* The list, and the landing panel beside it. A ROW on a pointing device: the
-   list keeps a readable column of its own and the drawer takes the rest (see
-   .position-restore-nav-preview below). On touch it is a COLUMN, because the
-   panel then opens INSIDE the list, under the row that was tapped. */
+/* The list, and the landing panel beside it. A ROW: the list keeps a readable column
+   of its own and the drawer takes the rest (see .position-restore-nav-preview below).
+   INLINE it is a COLUMN, because the panel then opens INSIDE the list, under the row
+   it describes. */
 .position-restore-nav-body {
 	display: flex;
 	flex-direction: row;
@@ -528,23 +529,25 @@ body.is-mobile .position-restore-cue {
 
 /* Landing panel (the drawer): which note the pointed-at landing is in, where in
    it the reader was, the two things that can be done about it — and the recorded
-   lines themselves. TWO PRESENTATIONS (see LandingPanel):
-   - DESKTOP: the standing right-hand column. It answers "which spot was this?"
+   lines themselves. TWO PRESENTATIONS (see LandingPanel), decided by the room the
+   window has (see NavHistoryModal.inline):
+   - DRAWER: the standing right-hand column. It answers "which spot was this?"
      for whatever the pointer or the keyboard is on, and it is what keeps the
      list scannable — a landing's block is seven-odd lines, and carrying them
      inline would have made every row taller than the thing it names.
-   - TOUCH: no hover and no room for two columns, so the same content opens
-     UNDER the row it describes, INSIDE the list's scroll, indented past the
-     row's left edge so it reads as that row's detail. It used to sit at the
-     bottom of the dialog: with history to scroll there was no height left for
-     it, and it went off the bottom of the screen with the only button a finger
-     can travel with. In the flow it cannot be pushed out — it is always the
-     next thing below the row, and the panel scrolls itself into view when it
-     opens. When it has no row to open under it is parked back out of the way.
+   - INLINE: no room for two columns, so the same content opens UNDER the row it
+     describes, INSIDE the list's scroll, indented past the row's left edge so it
+     reads as that row's detail. It used to sit at the bottom of the dialog: with
+     history to scroll there was no height left for it, and it went off the bottom
+     of the screen with the only button a finger can travel with. In the flow it
+     cannot be pushed out — it is always the next thing below the row. When it has
+     no row to open under it is parked back out of the way.
    Its empty state (nothing pointed at) is a sentence, not a blank column.
 
    The drawer is a COLUMN WITH ONE SCROLLER (see .nav-preview-top / -scroll
-   below): what the landing IS stays put while the lines move under it. */
+   below): what the landing IS stays put while the lines move under it. Inline
+   there is no second scroller — the list is the one a finger has — and the pinned
+   block is pinned by THAT instead (see .nav-preview-top below). */
 .position-restore-nav-preview {
 	flex: 1 1 auto;
 	display: flex;
@@ -592,7 +595,11 @@ body.is-mobile .position-restore-cue {
 	padding-top: 8px;
 }
 
-.position-restore-nav-modal.is-touch .position-restore-nav-preview {
+/* INLINE the panel is not a column at all: it is a block in the list's own flow, under
+   the row it describes. Its height is its content: the list is the scroller, and a
+   panel capped to a height of its own would open a second scroll area inside the only
+   one a finger has — a way to get stuck. */
+.position-restore-nav-modal.is-inline .position-restore-nav-preview {
 	flex: 0 0 auto;
 	display: block;
 	width: auto;
@@ -604,42 +611,126 @@ body.is-mobile .position-restore-cue {
 }
 
 /* The panel has already been emptied by the renderer; not showing it at all is
-   what "nothing to open under" looks like on touch. */
-.position-restore-nav-modal.is-touch .position-restore-nav-preview.is-parked {
+   what "nothing to open under" looks like inline. */
+.position-restore-nav-modal.is-inline .position-restore-nav-preview.is-parked {
 	display: none;
 }
 
-/* The pinned block's empty lines are a DESKTOP answer to a desktop problem: the
-   pointer walks the list while the reader reads this column, so the shape has to
-   hold still. On touch a tap opens ONE panel under its row and that is the whole
-   of what the reader is looking at — there is nothing to hold still, and a
-   reserved line of nothing is a line of nothing on a small screen. */
-.position-restore-nav-modal.is-touch .nav-preview-meta:empty,
-.position-restore-nav-modal.is-touch .nav-preview-trail:empty,
-.position-restore-nav-modal.is-touch .nav-preview-bar:empty {
+/* The pinned block's empty lines are a DRAWER answer to a drawer problem: the pointer
+   walks the list while the reader reads this column, so the shape has to hold still.
+   Inline a tap opens ONE panel under its row and that is the whole of what the reader
+   is looking at — there is nothing to hold still, and a reserved line of nothing is a
+   line of nothing on a small screen. */
+.position-restore-nav-modal.is-inline .nav-preview-meta:empty,
+.position-restore-nav-modal.is-inline .nav-preview-trail:empty,
+.position-restore-nav-modal.is-inline .nav-preview-bar:empty {
 	display: none;
 }
 
-/* On touch the panel is IN the list's flow (the list is the scroller there), so
-   the column and its inner scroller are undone: a second scroll area nested in
-   the only one a finger can use is a way to get stuck, and the blocks simply
-   stack. The header strip goes with them: inline under the tapped row the panel
-   is that row's own detail, and a recessed band inside a list reads as one more
-   row rather than as a panel. The hairline under the fixed half stays — it is the
-   same two kinds of thing on a phone. */
-.position-restore-nav-modal.is-touch .nav-preview-scroll {
+/* Inline the panel is IN the list's flow (the list is the scroller there), so the
+   inner scroller is undone: a second scroll area nested in the only one a finger can
+   use is a way to get stuck, and the blocks simply stack. The header strip goes with
+   it: inline under the row the panel is that row's own detail, and a recessed band
+   inside a list reads as one more row rather than as a panel. The hairline under the
+   fixed half stays — it is the same two kinds of thing on a phone. */
+.position-restore-nav-modal.is-inline .nav-preview-scroll {
 	overflow: visible;
 	min-height: 0;
 	padding-top: 6px;
 }
 
-.position-restore-nav-modal.is-touch .nav-preview-top {
+/* …and the pinned block is pinned by the LIST instead, because the panel is a child of
+   the list's scroll. That is the whole answer to the longest note there is: the travel
+   button and the view switch stay in reach while thousands of lines move under them, so
+   a reader who switched to the whole note does not have to scroll the whole note back to
+   switch out of it. `sticky` is bounded by the panel, so the band settles back into
+   place as soon as the panel's own top comes into view, and it leaves with the panel
+   when the list is scrolled above it.
+   The background has to be opaque now (rows slide under it) and is the dialog's own, so
+   the band reads as the top of the list rather than as one more row; the recessed strip
+   and its negative start margin are the drawer's devices and are undone here. */
+.position-restore-nav-modal.is-inline .nav-preview-top {
+	position: sticky;
+	top: 0;
+	z-index: 1;
 	margin-left: 0;
 	padding-left: 0;
-	background-color: transparent;
+	background-color: var(--modal-background);
 }
 
-.position-restore-nav-modal.is-touch .position-restore-nav-body {
+/* The note's NAME is not printed here. The panel opens directly under the row that
+   names it (see LandingPanel.render), and the row is right there above the panel: a
+   second copy one line lower is the panel reading its heading back to the reader. What
+   is left of the head is the small print about the step, moved onto ONE line with the
+   age at its far end — nothing here has to hold a shape still, because no pointer walks
+   the list while the reader reads, and on a phone a line of nothing but the age is a
+   line of the content's room. The row itself is what stays in sight: see the pinned-row
+   rules below. */
+.position-restore-nav-modal.is-inline .nav-preview-ident {
+	display: none;
+}
+
+.position-restore-nav-modal.is-inline .nav-preview-head {
+	flex-wrap: nowrap;
+	overflow: hidden;
+}
+
+/* The DOM order is name, age, small print; with the name gone the age is moved back to
+   where it sits in the drawer (the far end) and the machinery takes what is left. */
+.position-restore-nav-modal.is-inline .nav-preview-meta {
+	order: 1;
+	flex: 1 1 auto;
+}
+
+.position-restore-nav-modal.is-inline .nav-preview-head .nav-row-time {
+	order: 2;
+}
+
+/* …and the ROW the panel hangs under is pinned by that same scroll for as long as the
+   panel is under it (see LandingPanel.sync). Inline the row IS the handle: one tap opens
+   the note and a second closes it again (see NavHistoryList.onTap), and reading a long
+   note used to scroll it — the only way back out — off the top of the list, leaving a
+   panel the reader had to scroll back for before they could put it away. The row sticks
+   itself to the top while the panel is still on screen and drops back into its slot once
+   the panel has gone by (the class is the panel's, which is the only thing that knows).
+   Opaque, because the rows below slide under it — and the position's wash is painted OVER
+   that base rather than replacing it with a tint of nothing (see the is-selected rules).
+   Squared off: it is the top of the list for as long as it is pinned, and a rounded corner
+   is a hole onto whatever is sliding under it. The hairline is the edge the pinned band
+   below no longer draws between the two. */
+.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	background-color: var(--modal-background);
+	border-radius: 0;
+	box-shadow: 0 1px 0 var(--background-modifier-border);
+}
+
+.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-selected,
+.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-previewed {
+	background-image: linear-gradient(
+		color-mix(in srgb, var(--interactive-accent) 12%, transparent),
+		color-mix(in srgb, var(--interactive-accent) 12%, transparent)
+	);
+}
+
+.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-selected:hover,
+.position-restore-nav-modal.is-inline .position-restore-nav-row.is-stuck.is-previewed:hover {
+	background-image: linear-gradient(
+		color-mix(in srgb, var(--interactive-accent) 20%, transparent),
+		color-mix(in srgb, var(--interactive-accent) 20%, transparent)
+	);
+}
+
+/* …and the block under it starts at the row's own foot instead of at the top of the list,
+   which would put it under the pinned row: the height comes from the panel, which measured
+   the row while it was still in its slot (see LandingPanel.render). */
+.position-restore-nav-modal.is-inline .position-restore-nav-preview.is-row-pinned .nav-preview-top {
+	top: var(--nav-pin-row, 0px);
+}
+
+.position-restore-nav-modal.is-inline .position-restore-nav-body {
 	flex-direction: column;
 }
 
@@ -669,13 +760,17 @@ body.is-mobile .position-restore-cue {
    DISABLED button in dark themes, which is the worst thing the only way to act on
    the spot can look. Mixing the accent toward the panel's own background keeps it
    a colour a theme owns, and keeps the label legible on top of it in light and
-   dark alike. */
+   dark alike.
+   It is deliberately a STEP above the row wash (12%, see .is-selected): with the
+   panel open under a row, the two sit one above the other, and a button painted
+   the same as the row it describes reads as that row's background rather than as
+   the thing to press. */
 .nav-preview-bar .nav-preview-go {
 	height: 24px;
 	padding: 0 12px;
 	border: 0;
 	border-radius: var(--radius-s);
-	background-color: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 24%, transparent);
 	box-shadow: none;
 	color: var(--text-accent);
 	font-size: var(--font-ui-smaller);
@@ -684,18 +779,19 @@ body.is-mobile .position-restore-cue {
 }
 
 .nav-preview-bar .nav-preview-go:hover {
-	background-color: color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 36%, transparent);
 	color: var(--text-accent-hover, var(--text-accent));
 }
 
-/* On touch it is a full-width band — a finger needs a target taller and wider
-   than a small label in a corner (the switch wraps to the line below it). */
+/* On touch it keeps a finger's height but NOT a band's width: the button and the view
+   switch share one line (the switch rides at the far end, see .nav-preview-modes), and
+   a full-width button is what pushed it onto a second one — two lines of a phone's
+   height spent on controls, taken from the content that is the reason the panel is
+   open. Wide enough to hit, no wider than the label it carries. */
 .position-restore-nav-modal.is-touch .nav-preview-bar .nav-preview-go {
-	width: 100%;
-	/* A band, not the 24px bar button: a finger needs a target taller and wider
-	   than a small label in a corner. */
+	width: auto;
 	height: auto;
-	padding: 8px 10px;
+	padding: 7px 14px;
 	font-size: var(--font-ui-small);
 }
 
@@ -972,23 +1068,52 @@ body.is-mobile .position-restore-cue {
 	margin-inline-start: auto;
 }
 
-/* A phone held sideways has ~370px of height for everything: the title bar, the
-   filter, the list. Two-line rows left two rows visible — so in a short dialog
-   everything that is not the list gives way: the hint goes (the panel itself
-   teaches the gesture on the first tap) and the rows go back to one line each,
-   because sideways the screen is wide (the dialog is min(900px, 94vw) there) and
-   the coordinate, the section and the pane fit on one line exactly as they do on
-   the desktop. */
+/* A phone held sideways has ~370px of height for everything: the dialog's name, the
+   filter, the list. (It is wide, so the panel stands beside the list there rather than
+   inside it — see NavHistoryModal.inline — but the height is what everything below is
+   about.) Two-line rows left two rows visible — so in a short dialog everything that is
+   not the list gives way: the NAME goes, the hint goes (the panel itself teaches the
+   gesture on the first tap) and the rows go back to one line each, because sideways
+   there is width to spare and the coordinate, the section and the pane fit on one line
+   exactly as they do on the desktop. */
 @media (max-height: 520px) {
+	/* The dialog's NAME — "Navigation history", centred in the app's own 24px of header
+	   padding, above the row of text it names — is the largest single thing in a 390px-tall
+	   dialog, and the one thing here that says nothing the dialog does not: the reader
+	   opened it, and the list it names is the whole of it. So it goes, and the list gets
+	   its room. The app's close button is not IN the header (it is its sibling, positioned
+	   absolutely over it — see .modal-header-button), so the way out does not go with the
+	   name; what the button now floats over is the CONTENT, which is what the two rules
+	   below are for. The dialog is still named for assistive tech: the list carries the
+	   same label (see NavHistoryModal.onOpen). */
+	.position-restore-nav-modal.is-touch .modal-header {
+		display: none;
+	}
+
+	/* …and the hint, which is the other line that teaches what the first tap shows. */
 	.position-restore-nav-modal.is-touch .position-restore-nav-hint {
 		display: none;
 	}
 
-	/* One line, and the box takes it: nothing is left to wrap around it. */
+	/* So the toolbar takes the header's row, and the close button's with it: the content's
+	   own top padding comes down to the button's inset (--size-4-3, which is what the app
+	   sets its `top` to) and the toolbar is as tall as the button's box (--touch-size-m),
+	   which makes the filter line and the button ONE row and puts the body's first row
+	   under both. Without this the button — a 44px target whose job is to close the
+	   dialog — would hang over the top of the list, and a finger reaching for the first
+	   row would put the dialog away instead. */
+	.position-restore-nav-modal.is-touch .modal-content {
+		padding-top: var(--size-4-3, 12px);
+	}
+
+	/* One line, and the box takes it: nothing is left to wrap around it — and the
+	   button's own column on the right, or the box runs straight under it. */
 	.position-restore-nav-modal.is-touch .position-restore-nav-toolbar {
 		flex-wrap: nowrap;
 		row-gap: 0;
 		padding-bottom: 4px;
+		min-height: var(--touch-size-m, 44px);
+		padding-inline-end: calc(var(--touch-size-m, 44px) + var(--size-4-1, 4px));
 	}
 
 	.modal.position-restore-nav-modal input.position-restore-nav-filter {
@@ -1016,11 +1141,4 @@ body.is-mobile .position-restore-cue {
 	}
 
 	.position-restore-nav-modal.is-touch .nav-row-pane { margin-inline-start: 0; }
-
-	/* A full-width button was a whole band of a 370px dialog: as wide as its
-	   label, it costs one short line instead. */
-	.position-restore-nav-modal.is-touch .nav-preview-go {
-		width: auto;
-		padding: 5px 14px;
-	}
 }
