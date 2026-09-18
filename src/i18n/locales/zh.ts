@@ -116,6 +116,12 @@ export const zh: En = {
 	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
+	// 每个文件在历史列表里打印几个落点。默认跟着读者自己的走法——读历史基本是按文件走的，
+	// 最近的那一个才是「返回」会回到的地方。
+	'navHistory.landings.name': '每个文件的落点',
+	'navHistory.landings.desc': '历史列表里一个文件打印几个落点。「仅最后一个」只显示你离开这个文件时所在的位置，列表更短；其余落点仍在该文件那一行上，点一下就能看到。「全部」则把每一个不同的落点都列出来。',
+	'navHistory.landings.options.last': '仅最后一个',
+	'navHistory.landings.options.all': '全部',
 
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
@@ -143,14 +149,17 @@ export const zh: En = {
 	// 一行，落点开在笔记下面。
 	'navHistory.keyboardHint': '↑↓ 选择 · ←→ 展开/收起 · Enter 跳转 · Esc 关闭',
 	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryBrowserOptions.touch）：行首的
-	// 箭头负责前往，轻点笔记展开，轻点落点在下方面板里看那一处。
-	'navHistory.touchHint': '轻点 ↪ 跳转，轻点笔记展开，轻点落点看那一处',
+	// 箭头负责前往，轻点笔记展开，轻点落点在下方面板里看那一处。`{arrow}` 是行上那个箭头
+	// 图标在句子里落笔的位置（见 NavHistoryBrowser.hint）——提示让人去找箭头，就得画出
+	// 列表上真正的那一个，而不是打一个形状不同的字符。
+	'navHistory.touchHint': '轻点 {arrow} 跳转，轻点笔记展开，轻点落点看那一处',
 	// ……鼠标下的同一套手势：侧栏常驻面板刻意跑在「点击」模式里，悬停什么也不做；
 	// 单击展开笔记或指向落点，前往由行首的箭头承担（见 NavHistoryBrowserOptions.tap 与
 	// NavHistoryList.go）。原来在这里的双击已经去掉：它会把每一次单击都押后一个双击窗口，
 	// 于是列表响应发钝，而且跳转前还会把笔记或面板闪开一下。
-	'navHistory.clickHint': '↪ 直接跳转 · 单击展开/收起',
-	// 行首的箭头和面板里的按钮做的是同一件事，这里是它们共用的说法——右键菜单也一样。
+	'navHistory.clickHint': '{arrow} 直接跳转 · 单击展开/收起',
+	// 行首的箭头和在行上右键做的是同一件事，这里是它们共用的说法：箭头拿它当提示
+	// 文字，面板在「没有可预览文本」时也引用它。
 	'navHistory.jumpHere': '跳到这里',
 	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
 	// 只写“第几个/共几个”：不用词，因为那个词是行内“安静区”里最宽的东西。
@@ -167,9 +176,10 @@ export const zh: En = {
 	// 会出现原始 markdown 源码。
 	'navHistory.preview.none': '（不是一个可预览的 markdown 落点）',
 	'navHistory.preview.gone': '（文件已删除）',
-	// 抽屉能显示的两种内容，也就是切换按钮上的两个字。
-	'navHistory.preview.spot': '落点',
-	'navHistory.preview.note': '全文',
+	// 抽屉能显示的两种内容，也就是切换按钮上的两个字——说的是它们各自的「时候」：
+	// 当时记录的落点，还是现在的全文。各两个字，剩下的交给同一行的说明文字。
+	'navHistory.preview.spot': '当时落点',
+	'navHistory.preview.note': '现在全文',
 	// 记录的上下文块覆盖的行号范围：渲染出来的正文没有自己的行号栏来说这件事。
 	'navHistory.preview.recorded': '当时看到 · L{0}–L{1}',
 	// 「全文」是什么，得说明白：那几行是笔记现在的样子，不是当时记录的。

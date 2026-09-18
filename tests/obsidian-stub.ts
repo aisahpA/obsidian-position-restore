@@ -52,67 +52,17 @@ export class Notice {
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
 
-// The history browser offers a row's travel in a right-click menu as well as on the
-// row's own arrow (see NavHistoryList.rowMenu), and draws that arrow with Obsidian's
-// icon helper. jsdom has neither menus nor icons, so the pair is stood in for: the
-// icon records its NAME (the drawing is the app's), and a menu records the items put
-// in it so a test can read what the reader would see and pick one the way a reader
-// would. It is kept in `Menu.shown`, because the browser builds it and drops it in
-// one statement and a test has nothing else to hold on to.
+// The history browser draws the row's arrow, and the one it names in the toolbar
+// hint, with Obsidian's icon helper (see NavHistoryList.go and NavHistoryBrowser.hint).
+// jsdom has no icons, so it is stood in for: the icon builds the element a test can
+// find and records WHICH icon it was asked for — the drawing is the app's, and a test
+// asserts on the name, not on the paths.
 export function setIcon(el: HTMLElement, icon: string): void {
+	el.empty();
 	el.addClass('svg-icon', `svg-icon-${icon}`);
-	el.setAttribute('data-icon', icon);
-}
-
-export class MenuItem {
-	title: string | DocumentFragment = '';
-	icon: string | null = null;
-	disabled = false;
-	private action?: () => void;
-
-	setTitle(title: string | DocumentFragment): this {
-		this.title = title;
-		return this;
-	}
-	setIcon(icon: string | null): this {
-		this.icon = icon;
-		return this;
-	}
-	setDisabled(disabled: boolean): this {
-		this.disabled = disabled;
-		return this;
-	}
-	onClick(action: () => void): this {
-		this.action = action;
-		return this;
-	}
-	/** The reader picked this item; a disabled item cannot be picked. */
-	pick(): void {
-		if (!this.disabled)
-			this.action?.();
-	}
-}
-
-export class Menu {
-	/** Every menu shown since the last reset, newest last. */
-	static shown: Menu[] = [];
-	static reset(): void {
-		Menu.shown = [];
-	}
-	static get last(): Menu | undefined {
-		return Menu.shown[Menu.shown.length - 1];
-	}
-	readonly items: MenuItem[] = [];
-	addItem(cb: (item: MenuItem) => unknown): this {
-		const item = new MenuItem();
-		this.items.push(item);
-		cb(item);
-		return this;
-	}
-	showAtMouseEvent(_ev: MouseEvent): this {
-		Menu.shown.push(this);
-		return this;
-	}
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('data-icon', icon);
+	el.appendChild(svg);
 }
 
 // i18n.ts picks its locale at import time via getLanguage().
@@ -212,16 +162,49 @@ export class MarkdownRenderer {
 						return;
 					if (slot % 2 === 1) {
 						const mark = document.createElement('mark');
-						mark.textContent = part;
+						// Marked runs carry links like any other text (a landing line
+						// with a wikilink in it is the ordinary case).
+						links(mark, part);
 						node.appendChild(mark);
 					} else {
-						node.appendChild(document.createTextNode(part));
+						links(node, part);
 					}
 				});
 			});
 			el.appendChild(node);
 		}
 	}
+}
+
+// The two link forms the content can carry, as the anchors Obsidian draws for them:
+// `[[Target|alias]]` is an internal link (`data-href` is what the app's own click
+// handler reads, the href is what it must never let navigate) and `[text](url)` an
+// external one. The renderer here used to print both as plain text, which meant the
+// browser's link handling — the crash a tablet reported — had nothing to be tested
+// against.
+function links(node: Node, text: string): void {
+	const pattern = /\[\[([^\][|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)/g;
+	let at = 0;
+	for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+		if (m.index > at)
+			node.appendChild(document.createTextNode(text.slice(at, m.index)));
+		const a = document.createElement('a');
+		if (m[1] !== undefined) {
+			const target = m[1].trim();
+			a.setAttribute('data-href', target);
+			a.setAttribute('href', target);
+			a.setAttribute('class', 'internal-link');
+			a.textContent = (m[2] ?? target).trim();
+		} else {
+			a.setAttribute('href', m[4]);
+			a.setAttribute('class', 'external-link');
+			a.textContent = m[3];
+		}
+		node.appendChild(a);
+		at = m.index + m[0].length;
+	}
+	if (at < text.length)
+		node.appendChild(document.createTextNode(text.slice(at)));
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +277,11 @@ function installDomHelpers(): void {
 	proto.setText = function (this: HTMLElement, text: string) {
 		this.textContent = text;
 	};
+	// What the browser's toolbar hint composes its sentence with: an icon between two
+	// runs of text is one appendText on either side of it (see NavHistoryBrowser.hint).
+	proto.appendText = function (this: HTMLElement, text: string) {
+		this.appendChild(document.createTextNode(text));
+	};
 	proto.addClass = function (this: HTMLElement, ...classes: string[]) {
 		this.classList.add(...classes);
 	};
@@ -309,6 +297,17 @@ function installDomHelpers(): void {
 			this.removeAttribute(name);
 		else
 			this.setAttribute(name, String(value));
+	};
+	// The app's own way to style an element from script, which the browser uses where a
+	// value has to be measured rather than declared (and where a stylesheet rule cannot
+	// be trusted to win: see NavHistoryList.go). A test asserting what a reader would see
+	// needs the element's own style to carry them.
+	proto.setCssStyles = function (this: HTMLElement, styles: Record<string, string>) {
+		Object.assign(this.style, styles);
+	};
+	proto.setCssProps = function (this: HTMLElement, props: Record<string, string>) {
+		for (const key of Object.keys(props))
+			this.style.setProperty(key.startsWith('--') ? key : `--${key}`, props[key]);
 	};
 }
 

@@ -6,14 +6,26 @@
 // nav-history-browser-dom.test.ts, where it is driven through the modal.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Menu, TFile, WorkspaceLeaf } from 'obsidian';
+import { TFile, WorkspaceLeaf } from 'obsidian';
 
 import { NAV_HISTORY_VIEW_TYPE, NavHistoryView, activateNavHistoryView } from '@/nav-history/browser/view';
+import type { NavBrowserPrefs } from '@/nav-history/browser/body';
 import type { NavHistoryEntry } from '@/nav-history/entry';
 import { t } from '@/i18n';
 
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
+
+// The browser's two preferences as the plugin hands them over (see
+// NavBrowserPrefs). The panel only READS them, so the shell tests need a set and
+// nothing more — a fresh one per mount, so no test decides another's.
+function browserPrefs(): NavBrowserPrefs {
+	return {
+		previewMode: () => 'spot',
+		setPreviewMode: () => undefined,
+		landings: () => 'last',
+	};
+}
 
 const MINUTE = 60_000;
 const NOW = Date.now();
@@ -82,7 +94,11 @@ function makeApp(paths: string[] = []) {
 	return app as never;
 }
 
-async function mount(entries: NavHistoryEntry[], index: number) {
+async function mount(
+	entries: NavHistoryEntry[],
+	index: number,
+	prefs: NavBrowserPrefs = browserPrefs(),
+) {
 	const nav = new FakeNav();
 	nav.entries = entries;
 	nav.index = index;
@@ -90,7 +106,7 @@ async function mount(entries: NavHistoryEntry[], index: number) {
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
 	// jsdom lays nothing out, so the pane reports width 0 — which is the INLINE
 	// presentation, the one that needs no second column (see NavHistoryView.measure).
-	const view = new NavHistoryView(leaf, nav as never, () => undefined);
+	const view = new NavHistoryView(leaf, nav as never, () => undefined, prefs);
 	await view.onOpen();
 	// The view's OWN container and content elements: what the pane hands the
 	// panel, and what Obsidian asks the view to build in.
@@ -133,8 +149,12 @@ describe('NavHistoryView — the resident panel', () => {
 		expect(document.activeElement).not.toBe(input);
 		// …and it is still one click away, with the hint under it saying what a click
 		// does — the pointer's own wording of the tap mode, since a desktop sidebar is
-		// driven by a mouse that must not change anything by passing over it.
-		expect(el.querySelector('.position-restore-nav-hint')?.textContent).toBe(t('navHistory.clickHint'));
+		// driven by a mouse that must not change anything by passing over it. The arrow
+		// the sentence names is the row's own icon, drawn into the line (see
+		// NavHistoryBrowser.hint).
+		const hint = el.querySelector<HTMLElement>('.position-restore-nav-hint')!;
+		expect(hint.textContent).toBe(t('navHistory.clickHint').replace('{arrow}', ''));
+		expect(hint.querySelector('.nav-hint-go svg')?.getAttribute('data-icon')).toBe('corner-up-right');
 	});
 
 	it('follows the history while it is up', async () => {
@@ -168,7 +188,10 @@ describe('NavHistoryView — the resident panel', () => {
 		// jsdom reports no layout: the inline presentation, which needs no second
 		// column and cannot be wrong about a pane nobody has measured.
 		expect(view.contentEl.classList.contains('is-inline')).toBe(true);
-		expect(el.querySelector('.position-restore-nav-row.is-place')).toBeNull();
+		// …and inline, nothing is opened under a row the reader has not tapped: with
+		// no position there is no row to hang a panel under, so it waits out of the
+		// list (see LandingPanel.render).
+		expect(el.querySelector('.position-restore-nav-preview')?.classList.contains('is-parked')).toBe(true);
 
 		// A wide rail — or, on a phone, the sidebar drawer covering the screen —
 		// has room for the list AND the landing column. The window it sits in is
@@ -181,25 +204,26 @@ describe('NavHistoryView — the resident panel', () => {
 
 describe('NavHistoryView — the pointer is driven by clicks only', () => {
 	// A note with several landings, so the tree has something to open and there is a
-	// landing row to point at (see groupByFile).
+	// landing row to point at (see groupByFile). The stack runs OLDEST FIRST, which
+	// is the order a real history is built in (see NavHistory.push): the newest thing
+	// the reader did in a.md is the second step, not the first.
 	const stack = () => [
-		{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW, st: { scroll: 10 } },
+		{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - 2 * MINUTE, st: { scroll: 10 } },
 		{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st: { scroll: 40 } },
-		{ kind: 'visit', path: 'b.md', leafId: 'leaf-1', t: NOW - 2 * MINUTE, st: { scroll: 0 } },
+		{ kind: 'visit', path: 'b.md', leafId: 'leaf-1', t: NOW, st: { scroll: 0 } },
 	] as NavHistoryEntry[];
 
 	const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// The RIGHT button: the gesture that travels without the arrow (see
+	// NavHistoryList.onContextMenu). The button number IS the gesture — a lingering
+	// finger's `contextmenu` carries the left one and must not travel.
 	const rightClick = (el: HTMLElement) => el.dispatchEvent(
-		new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+		new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }),
 	);
 	// The arrow every row carries, and the one control that travels in this panel (see
 	// NavHistoryList.go). The test clicks it the way a reader does — it is a real
 	// button, so a MouseEvent on it is the whole gesture.
 	const arrow = (row: HTMLElement) => row.querySelector<HTMLElement>('.nav-row-go')!;
-
-	// Menus are built by the browser and dropped in one statement, so the stub keeps
-	// the ones that were shown; one test's menu must not be read by the next.
-	beforeEach(() => Menu.reset());
 
 	it('opens and closes a note on an explicit click, and never on hover', async () => {
 		const { el, nav } = await mount(stack(), 2);
@@ -207,28 +231,32 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
 		const places = () => el.querySelectorAll('.position-restore-nav-row.is-place').length;
 
-		// Nothing is open to begin with: the tree is the notes.
-		expect(places()).toBe(0);
+		// The tree as it opens: a.md's NEWEST landing — the spot the reader left it at
+		// (see NavHistoryList.shownLandings) — and nothing for b.md, whose one landing
+		// makes it a leaf (its row stands for the spot, see activeRep).
+		expect(places()).toBe(1);
 
-		// A mouse merely crossing the rows is not a choice: no note opens, nothing is
-		// pointed at, and no landing panel appears under a row nobody clicked (which
-		// is what "hover to expand" used to do here).
+		// A mouse merely crossing the rows is not a choice: no note opens further,
+		// nothing is pointed at, and no landing panel appears under a row nobody
+		// clicked (which is what "hover to expand" used to do here).
 		note().dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
 		note().dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 40 }));
-		expect(places()).toBe(0);
+		expect(places()).toBe(1);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 
-		// ONE click opens it, and it opens NOW: nothing is held back waiting for a
-		// second click that may never come. That wait is what the double click cost —
-		// every plain click in the panel answered 300ms late, which a reader feels as a
-		// dead list (see NavHistoryList.go) — and it goes nowhere: opening is not going.
+		// ONE click opens the REST of that note's landings, and it opens NOW: nothing is
+		// held back waiting for a second click that may never come. That wait is what
+		// the double click cost — every plain click in the panel answered 300ms late,
+		// which a reader feels as a dead list (see NavHistoryList.go) — and it goes
+		// nowhere: opening is not going.
 		click(note());
 		expect(places()).toBe(2);
 		expect(nav.jumped).toEqual([]);
 
-		// …and one more closes it again, at once: the same gesture undoes itself.
+		// …and one more closes them again, at once: the same gesture undoes itself,
+		// back to the one landing the default prints.
 		click(note());
-		expect(places()).toBe(0);
+		expect(places()).toBe(1);
 		expect(nav.jumped).toEqual([]);
 	});
 
@@ -240,48 +268,72 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 		// The arrow stands in front of the row and says what it does before it is used:
 		// the reader who already knows where they are going spends ONE click — no
-		// opening the note, no pointing at a landing, no reaching for the panel's button.
+		// opening the note, no pointing at a landing.
 		expect(arrow(note())).not.toBeNull();
+		// …and the name follows it directly: the caret that used to lead the row is gone
+		// (see NavHistoryList.fileRow).
+		expect(arrow(note()).nextElementSibling?.className).toBe('nav-row-file');
 		click(arrow(note()));
 
-		// It travels to the landing the note's row stands for (the top of the note — see
-		// NavHistoryList.activeRep), and the note never opened: the arrow's click is the
+		// It travels to the landing the note's row stands for: the NEWEST one, where the
+		// reader left that note — step 1, L40 — and not the top of the note (step 0,
+		// L10), which is what the row meant while its landings ran in line order (see
+		// NavHistoryList.activeRep). And the note never opened: the arrow's click is the
 		// arrow's, not the row's.
-		expect(nav.jumped).toEqual([0]);
-		expect(places()).toBe(0);
+		expect(nav.jumped).toEqual([1]);
+		// The jump re-pushed that note on top, so the list it left is that note alone,
+		// printing the one landing it now stands on.
+		expect(places()).toBe(1);
 	});
 
-	it('offers the same travel in a right-click menu', async () => {
+	it('travels on a right-click too, in the same one press', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
 
 		rightClick(note());
 
-		// The menu is the arrow's meaning in words — the same destination, and the same
-		// word the panel's own button uses.
-		const item = Menu.last?.items[0];
-		expect(item?.title).toBe(t('navHistory.jumpHere'));
-		expect(item?.disabled).toBe(false);
-		// Opening a menu is not choosing from it.
-		expect(nav.jumped).toEqual([]);
-
-		item!.pick();
-		expect(nav.jumped).toEqual([0]);
+		// One press, one journey — the same contract as the arrow, for the hand that
+		// is already on the mouse, and the same destination (the note's newest landing,
+		// see activeRep). It used to open a one-item menu that had to be picked, which
+		// is a confirmation for a gesture that was already a decision (see
+		// NavHistoryList.onContextMenu).
+		expect(nav.jumped).toEqual([1]);
 	});
 
-	it('points at a landing on a click, puts it away on the next, and travels with the panel button', async () => {
+	it('leaves a press that was only held down where it was', async () => {
+		const { el, nav } = await mount(stack(), 2);
+		const note = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
+
+		// The same event a WebView raises for a long touch, with the LEFT button on it:
+		// not the gesture this panel travels on, so the panel does not move (see
+		// NavHistoryList.onContextMenu). It is the one that made a slow tap on a
+		// tablet's file name look like a jump.
+		const held = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
+		note.dispatchEvent(held);
+
+		expect(nav.jumped).toEqual([]);
+		// Still refused, all the same: a row offers no menu, no callout and no
+		// selection — a held press simply does nothing here.
+		expect(held.defaultPrevented).toBe(true);
+	});
+
+	it('points at a landing on a click, puts it away on the next, and leaves the travelling to its row', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
 		click(note);
 
-		const place = el.querySelector<HTMLElement>('.position-restore-nav-row.is-place')!;
+		// a.md's OLDER landing — the step recorded at scroll 10, printed "L11" (the
+		// label is 1-based, see describeNavEntry) and the top of the note by line
+		// order, which is the one the note's row does NOT stand for.
+		const place = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
+			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L11')!;
 		click(place);
-		// The panel opens under the row that was clicked, with a button that travels to
-		// the same landing the row's own arrow does.
+		// The panel opens under the row that was clicked, describing that landing.
 		expect(place.classList.contains('is-selected')).toBe(true);
-		expect(el.querySelector('.nav-preview-go')).not.toBeNull();
+		expect(el.querySelector('.nav-preview-modes')).not.toBeNull();
 
 		// A second click on the same landing puts it away again: the panel goes with it,
 		// and nothing was travelled to.
@@ -289,11 +341,12 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 		expect(nav.jumped).toEqual([]);
 
-		// …and the panel's own button is what travels. The panel stays up afterwards:
-		// this is the resident form (the dialog closes itself — see modal.ts).
+		// …and the row's own arrow is what travels — the panel has no button of its own
+		// any more (see LandingPanel.caption). The panel stays up afterwards: this is
+		// the resident form (the dialog closes itself — see modal.ts).
 		click(place);
-		click(el.querySelector<HTMLElement>('.nav-preview-go')!);
-		expect(nav.jumped).toHaveLength(1);
+		click(arrow(place));
+		expect(nav.jumped).toEqual([0]);
 		expect(el.querySelector('.position-restore-nav-list')).not.toBeNull();
 		expect(nav.listenerCount).toBe(1);
 	});
@@ -320,20 +373,28 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		const preview = () => el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
 
 		click(name('c.md'));
-		expect(places()).toBe(2);
-		// The first landing of c (the top of the note — see groupByFile's line order).
-		const place = el.querySelector<HTMLElement>('.position-restore-nav-row.is-place')!;
+		// b prints its newest landing and c its two (that click just opened them): a and
+		// d are leaves and print none (see shownLandings / expandable).
+		expect(places()).toBe(3);
+		// c's older landing — the step recorded at scroll 7, printed "L8": the top of
+		// that note by line order, which is not the one its own row stands for (the
+		// newest, scroll 30) but the one this reader picked.
+		const place = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
+			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L8')!;
 		click(place);
-		expect(el.querySelector('.nav-preview-go')).not.toBeNull();
+		expect(place.classList.contains('is-selected')).toBe(true);
 
-		click(el.querySelector<HTMLElement>('.nav-preview-go')!);
+		click(arrow(place));
 
 		expect(nav.jumped).toEqual([3]);
 		// The note travelled to is now the current one, pinned first — and b has taken
 		// the group index c was opened at, which is the trap: without the collapse, b's
-		// two landings would be on screen under a row nobody opened.
+		// own tree would come back open under a row nobody opened, printing both of its
+		// landings where the default prints one.
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent).toBe('c.md');
-		expect(places()).toBe(0);
+		// b's newest landing, and nothing else: c is a leaf now and prints none, a is a
+		// leaf.
+		expect(places()).toBe(1);
 		// …and the panel went with it: nothing is pointed at, so the inline panel is
 		// parked rather than describing the landing the old index happened to name.
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
@@ -354,7 +415,7 @@ describe('activateNavHistoryView', () => {
 			},
 		};
 
-		await activateNavHistoryView(app as never, new FakeNav() as never);
+		await activateNavHistoryView(app as never, new FakeNav() as never, undefined, browserPrefs());
 
 		expect(revealLeaf).toHaveBeenCalledWith(leaf);
 		// Two panels of one history, each with its own filter and its own open
@@ -373,7 +434,7 @@ describe('activateNavHistoryView', () => {
 			},
 		};
 
-		await activateNavHistoryView(app as never, new FakeNav() as never);
+		await activateNavHistoryView(app as never, new FakeNav() as never, undefined, browserPrefs());
 
 		expect(leaf.state).toEqual({ type: NAV_HISTORY_VIEW_TYPE, active: true });
 		expect(revealLeaf).toHaveBeenCalledWith(leaf);

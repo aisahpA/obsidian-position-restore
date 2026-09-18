@@ -9,6 +9,7 @@ import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryModal } from '@/nav-history/browser/modal';
+import type { NavBrowserPrefs } from '@/nav-history/browser/body';
 import { NavHistoryView, activateNavHistoryView, createNavHistoryView } from '@/nav-history/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 
@@ -39,7 +40,18 @@ export class PositionManager {
 	private nav: NavHistory;
 	private bookkeeper: PathBookkeeper;
 
-	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings) {
+	constructor(
+		app: App,
+		database: CursorPositionDatabase,
+		// The one shared settings object (main.ts assigns it once, the settings tab
+		// mutates it in place). Kept as a field because the history browser reads its
+		// own two preferences live off it (see browserPrefs).
+		private settings: PluginSettings,
+		// Write the settings object out, for the preferences the browser changes from
+		// the panel rather than from the settings tab. The plugin owns the file; this
+		// facade is only allowed to ask.
+		private save: () => void = () => {},
+	) {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
@@ -155,7 +167,7 @@ export class PositionManager {
 		// The file you are sitting in has had no leave-refresh yet — fill its
 		// position before the browser renders so it is not a bare type badge.
 		this.nav.syncCurrentPosition();
-		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path]).open();
+		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path], this.browserPrefs()).open();
 	}
 
 	// The resident form of the same browser (main.ts command) — see
@@ -165,14 +177,32 @@ export class PositionManager {
 		// Same reason as the modal's: the panel draws the stack as it stands, and
 		// the note being sat in has had no leave-refresh yet.
 		this.nav.syncCurrentPosition();
-		void activateNavHistoryView(this.app, this.nav, (path) => this.database.db[path]);
+		void activateNavHistoryView(this.app, this.nav, (path) => this.database.db[path], this.browserPrefs());
 	}
 
 	// The factory main.ts hands to Plugin.registerView: the view needs the
-	// history and the saved positions, both of which this facade owns, so the
-	// wiring is handed out here rather than reached for through it.
+	// history, the saved positions and the browser's own two preferences, all of
+	// which this facade owns, so the wiring is handed out here rather than reached
+	// for through it.
 	navHistoryViewCreator(): (leaf: WorkspaceLeaf) => NavHistoryView {
-		return createNavHistoryView(this.nav, (path) => this.database.db[path]);
+		return createNavHistoryView(this.nav, (path) => this.database.db[path], this.browserPrefs());
+	}
+
+	// The two preferences the history browser owns (see types.ts): read LIVE off the
+	// shared settings object, so the dialog, the resident panel and the settings tab
+	// cannot hold three opinions about them — and written back through the plugin's
+	// own save, so a choice made in the panel outlives the panel, the dialog and the
+	// app run. One new object per shell: the object is a set of readers over settings
+	// that stay live, not a snapshot of them.
+	private browserPrefs(): NavBrowserPrefs {
+		return {
+			previewMode: () => this.settings.navPreviewMode,
+			setPreviewMode: (mode) => {
+				this.settings.navPreviewMode = mode;
+				this.save();
+			},
+			landings: () => this.settings.navLandings,
+		};
 	}
 
 	// Tab/pane activation records a nav entry (VSCode semantics) — see

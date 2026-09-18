@@ -38,21 +38,12 @@ interface LandingPoint {
 	fraction?: number;
 }
 
-// The view the reader picked, kept for the WHOLE app session rather than per
-// dialog. Opening the browser is asking "where was I", and being put back on the
-// recorded spot at every open is a decision the reader has to make again and
-// again — one they already made, and one this panel has no business second-
-// guessing. Module state is the right lifetime: it is a preference about this
-// session's reading, not a setting to persist across restarts.
-let sessionMode: PreviewMode = 'spot';
-
-export function previewMode(): PreviewMode {
-	return sessionMode;
-}
-
-export function setPreviewMode(mode: PreviewMode): void {
-	sessionMode = mode;
-}
+// The view the reader picked used to be module state here ("for this session's
+// reading, not a setting to persist across restarts"). It is now the plugin's own
+// persisted preference — read and written through NavBrowserPrefs — because the
+// choice was being asked again after every restart, and the panel's switch and the
+// settings file had no way to be the same answer. This module no longer holds it:
+// `show` is told which content to draw, by the panel that also draws the switch.
 
 export interface PreviewContentOptions {
 	app: App;
@@ -70,6 +61,11 @@ export interface PreviewContentOptions {
 	// note — out of that list. There the landing is marked and the view is left where
 	// the reader put it (see refreshLanding).
 	inline: () => boolean;
+	// A LINK inside the rendered content was clicked: the reader wants to go there,
+	// and the journey belongs to the browser (see `wire`). It is the same seam a
+	// row's travel goes through, because it is the same thing — a navigation the
+	// reader asked for by pointing at it.
+	follow: (linktext: string, sourcePath: string) => void;
 }
 
 export class NavPreviewContent {
@@ -180,8 +176,8 @@ export class NavPreviewContent {
 
 	// A file that is not a note: its own source in a code block, whatever the view
 	// switch says. A PDF, an image or an archive has no source to show at all, and
-	// says so instead — with the one thing that can still be done about it, the
-	// travel button, named (jumping to the step opens the file).
+	// says so instead — with the one thing that can still be done about it named: the
+	// row's own arrow, whose tooltip says the same "jump here" the message quotes.
 	private showFile(host: HTMLElement, path: string, gen: number): boolean {
 		if (isBinary(path)) {
 			host.createDiv({ cls: 'nav-preview-note', text: t('navHistory.preview.binary') });
@@ -202,7 +198,7 @@ export class NavPreviewContent {
 	private draw(host: HTMLElement, mode: PreviewMode, key: string, source: string, path: string, at?: LandingPoint): void {
 		if (this.el && this.key === key) {
 			host.appendChild(this.el);
-			this.reveal(this.el, at);
+			this.reveal(this.el, at, mode);
 			return;
 		}
 		this.drop();
@@ -215,6 +211,7 @@ export class NavPreviewContent {
 		});
 		this.el = el;
 		this.key = key;
+		this.wire(el, path);
 		const comp = new Component();
 		comp.load();
 		this.comp = comp;
@@ -223,26 +220,90 @@ export class NavPreviewContent {
 				// The DOM is the one this draw made, or a newer draw replaced it:
 				// the landing is marked only in the first case.
 				if (this.el === el)
-					this.reveal(el, at);
+					this.reveal(el, at, mode);
 			})
 			.catch(e => console.error('Position Restore: preview render failed:', e));
+	}
+
+	// TAKE THE ANCHORS OVER. Obsidian's renderer draws a link and leaves the CLICK to
+	// the view it was rendered into: a MarkdownView registers that handler on its own
+	// container, and this content is not inside one — so nothing was listening, and
+	// the anchor's own behaviour ran instead. On a desktop that is a hand cursor and a
+	// swallowed navigation; on a tablet the WebView follows the href ITSELF and
+	// reloads the app under the reader's finger, which is what got reported as "tapping
+	// a wikilink restarts the program".
+	//
+	// So every anchor in here is answered here, and NONE of them is allowed to navigate
+	// anything by itself: a pane of recorded lines has no business steering the app.
+	// One delegated listener on the element the render produced — it goes when that
+	// element does (see drop), and it covers whatever the note embeds, because an
+	// embedded note's links bubble through this same node.
+	private wire(el: HTMLElement, sourcePath: string): void {
+		el.addEventListener('click', (ev) => {
+			const a = (ev.target as HTMLElement | null)?.closest?.('a');
+			// The check on containment is for a listener that outlives its element's
+			// place in the tree (the cache hands the same node to a new host): the
+			// anchor has to be one of OURS.
+			if (!a || !el.contains(a))
+				return;
+			ev.preventDefault();
+			// Nothing above this is a link handler either: without the stop, a click
+			// on a link is also a click on whatever the panel is nested in.
+			ev.stopPropagation();
+			const href = a.getAttribute('data-href') ?? a.getAttribute('href') ?? '';
+			// A fragment that names something in THIS content — a footnote, a heading
+			// anchor the note links to itself — is answered where it is: the reader
+			// pointed at a place in the text in front of them, not at another trip
+			// through the history.
+			if (href.startsWith('#')) {
+				const to = this.byId(el, href.slice(1));
+				if (to) {
+					to.scrollIntoView({ block: 'center' });
+					return;
+				}
+			}
+			// An external link is a browser's job, and the app's own habit is to hand
+			// it to the system (see styles.css: the app gives these the external-link
+			// class and its own cursor). Never `location.href`: that is the navigation
+			// that reloads a phone's WebView.
+			if (a.classList.contains('external-link')) {
+				window.open(a.getAttribute('href') ?? href);
+				return;
+			}
+			// Everything else is a link into the vault, and the browser follows it the
+			// way it follows a row: same seam, so the tree collapses (a resident panel)
+			// or the dialog closes (a picker) exactly as it does on a travel.
+			if (href)
+				this.opts.follow(href, sourcePath);
+		});
+	}
+
+	// The element an id names, without CSS.escape: the id comes from a footnote or a
+	// heading the renderer generated, and a test environment without the escaping API
+	// should still be able to answer this.
+	private byId(root: HTMLElement, id: string): HTMLElement | undefined {
+		return Array.from(root.querySelectorAll<HTMLElement>('[id]')).find(el => el.id === id);
 	}
 
 	// Put the landing on screen: its own recorded words first, because those are
 	// exact — and the recorded line's position in the note when they are gone, so
 	// that "全文" is never an answer that silently shows the top of the file.
 	//
-	// MOVING the scroller is the drawer's half of that answer. Inline there is no
-	// panel scroller to move — the scroller is the list the rows are in — so the mark
-	// is written and the list is left alone: which row the reader is on is theirs, and
-	// a phone report was exactly the note's name scrolling out of the list the moment a
-	// panel opened (see PreviewContentOptions.inline).
-	private reveal(root: HTMLElement, at?: LandingPoint): void {
-		const scroll = !this.opts.inline();
+	// MOVING the scroller is the drawer's half of that answer. Where the scroller is
+	// decides whether there is one to move: the drawer has its own, and so does the
+	// inline WHOLE-NOTE view — a file is not a row's detail, and its landing is
+	// thousands of lines down a box the reader can scroll (see styles.css). The inline
+	// SPOT view shares the list's scroll, and that is the one scroller the reader must
+	// not be moved under: it holds the note's own row, the only handle a finger has on
+	// putting the panel away (see PreviewContentOptions.inline). There the landing is
+	// marked and the list is left where the reader put it.
+	private reveal(root: HTMLElement, at: LandingPoint | undefined, mode: PreviewMode): void {
+		const scroll = !this.opts.inline() || mode === 'note';
 		if (revealLanding(root, at?.anchor, at?.minNeedle, scroll))
 			return;
-		// The fraction is a scroll and nothing else — no mark — so inline it is skipped
-		// with it: the content simply starts where the note does.
+		// The fraction is a scroll and nothing else — no mark — so where there is no
+		// scroller of our own it is skipped with it: the content simply starts where
+		// the note does.
 		if (scroll)
 			revealFraction(root, at?.fraction);
 	}

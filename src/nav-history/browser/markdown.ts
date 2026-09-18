@@ -385,10 +385,18 @@ const BLOCKS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, pre, blockquote, .callout
 // of them; the spot view — a dozen recorded lines, one of which is known to be the
 // landing — can afford to look for less (see NavPreviewContent.show).
 // `scroll` says whether finding it also moves the scroller it sits in. It is true
-// for the drawer, whose content has a scroller of its own; where the panel shares
-// the LIST's scroller (see NavPreviewContent's inline option) the mark is what
-// matters and the moving is not: centring the landing scrolls the rows the reader
-// was reading out of the list, the note's own name among them.
+// wherever the panel has a scroller of its OWN — the drawer, and the inline
+// whole-note box (see NavPreviewContent's inline option and styles.css) — and false
+// for the inline SPOT view, which shares the LIST's scroller: there the mark is what
+// matters and the moving is not, because centring the landing scrolls the rows the
+// reader was reading out of the list, the note's own name among them.
+//
+// What it moves is that scroller and nothing else: `scrollIntoView` walks every
+// scrollable ANCESTOR too, so a landing brought into view inside the panel also
+// dragged the panel itself into the list's view — the same note's name out of sight,
+// by a longer road. The nearest scroller is measured and set directly (the way
+// revealFraction does it); with no scroller to move, the browser's own call is the
+// honest fallback (a browser without layout, or a panel that is not on screen).
 // @returns whether a landing was found and marked.
 export function revealLanding(
 	root: HTMLElement,
@@ -414,8 +422,21 @@ export function revealLanding(
 		return false;
 	hit.classList.add('nav-preview-landing');
 	if (scroll)
-		hit.scrollIntoView({ block: 'center' });
+		centre(hit);
 	return true;
+}
+
+// Bring an element to the middle of the nearest thing that scrolls, and of nothing
+// above it. The offset is measured against the scroller's own box and added to its
+// scroll: a flow distance, so it is right whether or not it has been scrolled yet.
+function centre(el: HTMLElement): void {
+	const scroller = scrollableAncestor(el);
+	if (!scroller) {
+		el.scrollIntoView({ block: 'center' });
+		return;
+	}
+	const delta = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+	scroller.scrollTop += delta - (scroller.clientHeight - el.offsetHeight) / 2;
 }
 
 // The other half of that answer: WHERE in the note the landing is, when its words

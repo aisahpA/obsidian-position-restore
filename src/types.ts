@@ -100,6 +100,14 @@ interface PluginSettings {
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
 	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
 	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
+	// The history browser's own two preferences. They are persisted rather than held
+	// in the panel because both outlive the panel they are chosen in: a reader who
+	// wants the note as it stands now wants it tomorrow too, and a reader who wants
+	// one landing per note wants that of every note. The MODE has no row in the
+	// settings tab — the switch above the landing's content is where it is chosen
+	// (see LandingPanel) — while the landings setting is an ordinary settings row.
+	navPreviewMode: 'spot' | 'note'; // which content a landing opens on: the spot the step recorded, or the note as it stands now
+	navLandings: 'last' | 'all'; // how many landings one note prints: only the newest, or every distinct spot
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -118,6 +126,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navStackCap: 50,
 	navRecordActivation: true,
 	navRecordTeleport: true,
+	navPreviewMode: 'spot',
+	navLandings: 'last',
 };
 
 export {

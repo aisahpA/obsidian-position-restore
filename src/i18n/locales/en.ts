@@ -114,6 +114,13 @@ export const en = {
 	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
+	// How much of a note's landing tree the history browser prints. The default
+	// follows the reader's own navigation, which is by file: the newest landing is
+	// the one their back button keeps returning to.
+	'navHistory.landings.name': 'Landings per note',
+	'navHistory.landings.desc': 'How many places in one note the history list prints. "Newest only" shows the spot you left the note at, keeping the list short; the rest stay one click away on the note\'s own row. "All" prints every distinct spot.',
+	'navHistory.landings.options.last': 'Newest only',
+	'navHistory.landings.options.all': 'All',
 
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
@@ -148,17 +155,20 @@ export const en = {
 	// A touch device has no keyboard, so its hint may only name things a finger
 	// can do (see NavHistoryBrowserOptions.touch): the arrow in front of a row
 	// travels, a tap on a note opens it, a tap on a landing shows its spot in the
-	// panel below.
-	'navHistory.touchHint': 'Tap ↪ to jump, a note to open it, a landing to see its spot',
+	// panel below. `{arrow}` is where the row's OWN icon is drawn into the sentence
+	// (see NavHistoryBrowser.hint) — the reader is told to look for an arrow, so the
+	// line shows the arrow that is actually on the list.
+	'navHistory.touchHint': 'Tap {arrow} to jump, a note to open it, a landing to see its spot',
 	// …and the same gestures with a mouse, in the resident sidebar panel, which
 	// runs in the tap mode on purpose: nothing happens on hover, a click opens a
 	// note or points at a landing, and the arrow in front of the row travels (see
 	// NavHistoryBrowserOptions.tap and NavHistoryList.go). The double-click this
 	// used to name is gone: it held every single click back for its window, so the
 	// list answered late, and it flashed the note open on its way out.
-	'navHistory.clickHint': '↪ jumps there · click a note to open it',
-	// The row's arrow and the panel's own button do the same thing, and this is the
-	// word for both — the menu a right-click opens says the same.
+	'navHistory.clickHint': '{arrow} jumps there · click a note to open it',
+	// The row's arrow and a right-click on the row do the same thing, and this is the
+	// word for both: the arrow carries it as its tooltip, and the panel's message for
+	// a file with nothing to show quotes it.
 	'navHistory.jumpHere': 'Jump here',
 	// A leaf holding a second tab/pane of the same file: without this the
 	// browser's rows for the two panes are indistinguishable. Rendered as
@@ -179,9 +189,11 @@ export const en = {
 	// there is no "reading…" state and no raw source on screen.
 	'navHistory.preview.none': 'No line to preview here (no markdown landing).',
 	'navHistory.preview.gone': 'File deleted.',
-	// The drawer's two contents, as its switch names them.
-	'navHistory.preview.spot': 'Spot',
-	'navHistory.preview.note': 'Whole note',
+	// The drawer's two contents, as its switch names them: WHEN each one is from —
+	// the spot the step recorded (then) or the note as it stands (now). One word
+	// each, because the caption on the same line says the rest in full.
+	'navHistory.preview.spot': 'Then',
+	'navHistory.preview.note': 'Now',
 	// The range the recorded block covers: the rendered lines have no gutter of
 	// their own left to say which numbers they are.
 	'navHistory.preview.recorded': 'On screen then · L{0}–L{1}',
@@ -191,8 +203,9 @@ export const en = {
 	// A file that is not a note has one view — its own source — and no recorded
 	// spot to name a range for.
 	'navHistory.preview.source': 'File source',
-	// …and one with no text at all (a PDF, an image). The travel button is what
-	// opens it, so it is named rather than left to be discovered.
+	// …and one with no text at all (a PDF, an image). The row's own arrow is what
+	// opens it, so the tooltip it carries is quoted rather than left to be
+	// discovered.
 	'navHistory.preview.binary': 'Nothing to preview in a file like this (a PDF, an image…) — "Jump here" opens it',
 	// The note a plain link was clicked in, and the file's "written since the
 	// step was recorded" marker.

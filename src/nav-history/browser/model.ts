@@ -52,6 +52,12 @@ export interface NavEntryDescription {
 	// name (see folderOf).
 	name: string;
 	type: string;
+	// …and whether that type says anything. An OPEN is what a step is by default —
+	// the file was opened — so printing it is printing the unremarkable case on every
+	// row's small print; the other four (a link, the outline, a tab switch, an
+	// inferred move) are the ones a reader may want to know about. The panel prints
+	// the type only when this is false (see LandingPanel.head).
+	plainOpen?: boolean;
 	line?: string;
 	// The same landing line as a 0-based index (what the drawer reads to place the
 	// landing in the note, and where `line` is computed from). `line` is the
@@ -135,6 +141,7 @@ export function describeNavEntry(
 	// from clicking a link when tagged (via: 'link'). A teleport is its own
 	// kind (an inferred move, not a deliberate jump).
 	let type: string;
+	let plainOpen = false;
 	if (entry.kind === 'jump') {
 		if (entry.key.startsWith('outline:'))
 			type = t('navHistory.type.outline');
@@ -148,6 +155,7 @@ export function describeNavEntry(
 		type = t('navHistory.type.link');
 	} else {
 		type = t('navHistory.type.open');
+		plainOpen = true;
 	}
 	const st = entry.st;
 	// The landing is READ, not derived: the capture recorded the block with the
@@ -184,6 +192,7 @@ export function describeNavEntry(
 	return {
 		name: baseName(entry.path),
 		type,
+		plainOpen,
 		line: n !== undefined ? `L${n + 1}` : undefined,
 		lineIndex: n,
 		lineCount: st?.lineCount,

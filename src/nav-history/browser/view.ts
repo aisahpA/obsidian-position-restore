@@ -27,7 +27,7 @@ import { NavHistory } from '@/nav-history/history';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { DRAWER_MIN_WIDTH } from './constants';
-import { NavHistoryBrowser } from './body';
+import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 
 // The view type, which is also what the layout file remembers: renaming it
 // orphans every reader's saved sidebar (they would find an empty pane where the
@@ -49,7 +49,10 @@ export class NavHistoryView extends ItemView {
 	constructor(
 		leaf: WorkspaceLeaf,
 		private nav: NavHistory,
-		private savedPosition?: (path: string) => EphemeralState | undefined,
+		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
+		// The browser's own two preferences (see NavBrowserPrefs): the plugin owns
+		// and persists them, this shell only hands them down.
+		private prefs: NavBrowserPrefs,
 	) {
 		super(leaf);
 	}
@@ -109,6 +112,7 @@ export class NavHistoryView extends ItemView {
 			// reader asked for. The box is one click away, and the hint under it
 			// says what the arrows do once it has the focus.
 			focusFilter: false,
+			prefs: this.prefs,
 		});
 		this.browser.mount();
 		this.unsubscribe = this.nav.subscribe(() => this.browser?.render());
@@ -156,7 +160,8 @@ export class NavHistoryView extends ItemView {
 export async function activateNavHistoryView(
 	app: App,
 	nav: NavHistory,
-	savedPosition?: (path: string) => EphemeralState | undefined,
+	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
+	prefs: NavBrowserPrefs,
 ): Promise<void> {
 	const existing = app.workspace.getLeavesOfType(NAV_HISTORY_VIEW_TYPE)[0];
 	if (existing) {
@@ -175,7 +180,8 @@ export async function activateNavHistoryView(
 // position is read) is one thing in one file.
 export function createNavHistoryView(
 	nav: NavHistory,
-	savedPosition?: (path: string) => EphemeralState | undefined,
+	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
+	prefs: NavBrowserPrefs,
 ): (leaf: WorkspaceLeaf) => NavHistoryView {
-	return leaf => new NavHistoryView(leaf, nav, savedPosition);
+	return leaf => new NavHistoryView(leaf, nav, savedPosition, prefs);
 }

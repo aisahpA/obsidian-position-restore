@@ -168,16 +168,49 @@ describe('revealLanding', () => {
 	});
 
 	it('marks the landing without moving anything when the scroller is not its own', () => {
-		// The mark is what the reader needs; the moving is the DRAWER's business, whose
-		// content has a scroller of its own. Where the panel shares the LIST's scroller
-		// (see NavPreviewContent's inline option) centring the landing scrolls the rows —
-		// the note's own row among them — out of that list, so the mark is written and the
-		// view is left where the reader put it.
+		// The mark is what the reader needs; the moving belongs to whatever scrolls the
+		// content. Where the panel shares the LIST's scroller — the inline SPOT view, see
+		// NavPreviewContent's option — centring the landing scrolls the rows, the note's
+		// own row among them, out of that list: the mark is written and the view is left
+		// where the reader put it.
 		const root = rendered('<p>一段话</p><h3>落点这一行</h3><p>另一段</p>');
 		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
 
 		expect(revealLanding(root, '落点这一行', 4, false)).toBe(true);
 		expect(root.querySelector('.nav-preview-landing')?.tagName).toBe('H3');
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
+	it('moves ITS OWN scroller, and nothing above it', () => {
+		// `scrollIntoView` walks every scrollable ancestor: a landing centred inside the
+		// panel also dragged the panel into the list's view — the note's own row out of
+		// sight, by a longer road. The nearest scroller is measured and set instead, and
+		// the box around IT is left alone.
+		const outer = document.createElement('div');
+		const inner = document.createElement('div');
+		const root = rendered('<p>一段话</p><p>落点这一行</p>');
+		Object.defineProperty(outer, 'scrollHeight', { value: 4000 });
+		Object.defineProperty(outer, 'clientHeight', { value: 400 });
+		Object.defineProperty(inner, 'scrollHeight', { value: 2000 });
+		Object.defineProperty(inner, 'clientHeight', { value: 200 });
+		inner.appendChild(root);
+		outer.appendChild(inner);
+		document.body.appendChild(outer);
+		const hit = root.querySelector('p:last-of-type')!;
+		vi.spyOn(hit, 'getBoundingClientRect')
+			.mockReturnValue({ top: 900, height: 20 } as DOMRect);
+		// jsdom lays nothing out, so the element's own height is faked with its rect's.
+		Object.defineProperty(hit, 'offsetHeight', { value: 20 });
+		vi.spyOn(inner, 'getBoundingClientRect')
+			.mockReturnValue({ top: 100, height: 200 } as DOMRect);
+		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
+
+		revealLanding(root, '落点这一行');
+
+		// the landing's middle at the inner box's middle: (900 − 100) − (200 − 20) / 2
+		expect(inner.scrollTop).toBe(710);
+		expect(outer.scrollTop).toBe(0);
 		expect(spy).not.toHaveBeenCalled();
 		spy.mockRestore();
 	});

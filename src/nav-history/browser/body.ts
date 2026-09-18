@@ -16,10 +16,10 @@
 //   - model.ts / listing.ts / panes.ts   the pure model
 //   - reads.ts              every vault read, cached
 //   - list.ts               the tree of notes, the position, the travel arrow
-//   - landing-panel.ts      the landing described: head, trail, content switch
-//                           and the travel button — the right-hand drawer on a
-//                           pointing device, the in-flow panel when there is no
-//                           room for two columns
+//   - landing-panel.ts      the landing described: head, trail, caption and the
+//                           switch between the two contents — the right-hand
+//                           drawer on a pointing device, the in-flow panel when
+//                           there is no room for two columns
 //   - preview-content.ts    what that panel draws: the recorded lines, or the
 //                           whole note, through Obsidian's markdown renderer
 //   - markdown.ts           the recorded lines dressed as markdown for it
@@ -34,7 +34,7 @@
 // stood when the panel opened — and one that lives for a second (the modal) is
 // not asked for anything more.
 
-import { App, FileView } from 'obsidian';
+import { App, FileView, setIcon } from 'obsidian';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
 import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
@@ -44,11 +44,37 @@ import { headingTrailAtLine, NavEntryDescription } from './model';
 import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
 import { NavHistoryReads } from './reads';
 import { LandingPanel } from './landing-panel';
-import { NavPreviewContent } from './preview-content';
+import { NavPreviewContent, PreviewMode } from './preview-content';
 import { NavHistoryList, NavHistoryListOptions } from './list';
 
 // Per-body sequence for the list element's id (see NavHistoryBrowser.listId).
 let browserSeq = 0;
+
+// Where a hint's text wants the travel arrow drawn into it (see `hint`). Written
+// into the locale strings rather than assembled from fragments, so a translation can
+// put the icon where its own sentence needs it — in front of the verb, after it, or
+// in the middle.
+const HINT_ICON = '{arrow}';
+
+// The two preferences the browser ITSELF owns, handed to every shell by the plugin
+// that persists them (see PluginSettings and PositionManager.browserPrefs). Both are
+// READERS over the one shared settings object rather than values: a resident panel
+// draws its list from a call made during render, so a settings-tab change is picked
+// up by the next history change instead of being frozen into the panel that happened
+// to be open. The mode is the one the panel can also WRITE — the switch above the
+// landing's content — which is why it comes as a pair.
+export interface NavBrowserPrefs {
+	// Which content a landing opens on (see PreviewMode).
+	previewMode: () => PreviewMode;
+	// The panel's own switch: remember the reader's choice, for good.
+	setPreviewMode: (mode: PreviewMode) => void;
+	// How many landings one note prints (see NavHistoryListOptions.landings).
+	landings: () => LandingsMode;
+}
+
+// How much of a note's landing tree the list draws: every distinct spot, or — the
+// default — only the newest one, with the rest one click away (see NavHistoryList).
+export type LandingsMode = 'last' | 'all';
 
 export interface NavHistoryBrowserOptions {
 	app: App;
@@ -65,7 +91,8 @@ export interface NavHistoryBrowserOptions {
 	// change under a passing mouse. It picks the list's whole interaction mode (see
 	// NavHistoryListOptions.tap) — with no hover, one click says everything a click
 	// can say (a note opens its landings, a landing is pointed at, a second click puts
-	// the panel away), and travel is the row's own arrow or the landing panel's button.
+	// the panel away), and travel is the row's own arrow — the panel describes and
+	// never acts (see onClick).
 	// Read once by the shell, because it is a decision about the SHELL, not about the
 	// pane's width. The arrow is the same in both modes, so no shell loses its way to
 	// go somewhere.
@@ -99,6 +126,10 @@ export interface NavHistoryBrowserOptions {
 	// move: the modal closes here (a picker has answered its question), the
 	// sidebar does nothing (staying put is the whole point of it).
 	onJump?: () => void;
+	// The browser's own two preferences, handed down by the shell (see
+	// NavBrowserPrefs): which content a landing opens on, and how much of a note's
+	// landing tree the list draws.
+	prefs: NavBrowserPrefs;
 }
 
 export class NavHistoryBrowser {
@@ -150,6 +181,9 @@ export class NavHistoryBrowser {
 			// Inline, the panel shares the list's scroll, so putting the landing on
 			// screen must not move it (see NavPreviewContent's option).
 			inline: () => opts.inline(),
+			// A link inside the rendered content goes through the browser's own
+			// navigation seam, so it lands the way a travel does (see follow).
+			follow: (linktext, sourcePath) => this.follow(linktext, sourcePath),
 		});
 	}
 
@@ -163,8 +197,7 @@ export class NavHistoryBrowser {
 		// stay there: it opens UNDER the row it describes, inside the list's
 		// own scroll (see LandingPanel.render) — a panel parked at the bottom of
 		// the dialog runs out of room the moment there is history to scroll, and
-		// then the one control that can travel with a finger (its "jump here"
-		// button) is off-screen.
+		// then the lines it exists to show are off-screen.
 		const body = this.opts.host.createDiv({ cls: 'position-restore-nav-body' });
 		const listEl = body.createDiv({ cls: 'position-restore-nav-list' });
 		// The list is a listbox whose options are the rows (the list tags them;
@@ -178,6 +211,13 @@ export class NavHistoryBrowser {
 			list: listEl,
 			listId: this.listId,
 			tap: this.opts.tap,
+			// …and the device's own ergonomics again, for the one thing the list decides
+			// itself rather than styling: how big the arrow's glyph is under a finger
+			// (see NavHistoryList.go).
+			touch: this.opts.touch,
+			// How much of a note's tree to draw: read LIVE (see NavBrowserPrefs), so a
+			// settings-tab change reaches the next render of a resident panel.
+			landings: () => this.opts.prefs.landings(),
 			// The live stack, re-pointed per render (see render).
 			entries: this.opts.nav.entries,
 			currentIndex: this.opts.nav.index,
@@ -212,7 +252,10 @@ export class NavHistoryBrowser {
 			trailFor: (entry, d) => this.trailFor(entry, d),
 			paneName: entry => this.paneName(entry),
 			content: (host, mode, entry, d) => this.content.show(host, mode, entry, d),
-			jump: rep => this.jump(rep),
+			// The panel's own switch over the plugin's preference: read live, written
+			// back through the same pair the settings file is saved from.
+			previewMode: () => this.opts.prefs.previewMode(),
+			setPreviewMode: mode => this.opts.prefs.setPreviewMode(mode),
 		});
 		// One keydown listener on the shell's own element covers both the filter
 		// input and the list: while typing, arrows navigate and Enter jumps (the
@@ -333,11 +376,35 @@ export class NavHistoryBrowser {
 		// touch device, a click in the resident panel (which uses the same tap-mode
 		// list for a pointer — see `tap`), and the keyboard where the list follows the
 		// mouse as well.
-		bar.createSpan({
-			cls: 'position-restore-nav-hint',
-			text: t(this.opts.touch ? 'navHistory.touchHint'
-				: this.opts.tap ? 'navHistory.clickHint' : 'navHistory.keyboardHint'),
-		});
+		this.hint(bar);
+	}
+
+	// The hint, with the row's own arrow DRAWN into it.
+	//
+	// The hint tells the reader to use the arrow, so the line has to show the arrow
+	// the rows actually carry: a typed stand-in is a different shape from the icon —
+	// "↪" is a text character with a hook, the icon is a squared corner — and a phone
+	// reported exactly that mismatch, reading the sentence and then looking for an
+	// arrow that was not on the list. The locale keeps the icon's PLACE in the
+	// sentence (see HINT_ICON), so each language puts it where its own grammar wants
+	// it; a hint with no placeholder — the keyboard's, which names keys — is plain
+	// text.
+	private hint(bar: HTMLElement): void {
+		const key = this.opts.touch ? 'navHistory.touchHint'
+			: this.opts.tap ? 'navHistory.clickHint' : 'navHistory.keyboardHint';
+		const line = bar.createSpan({ cls: 'position-restore-nav-hint' });
+		const parts = t(key).split(HINT_ICON);
+		for (let i = 0; i < parts.length; i++) {
+			// The icon stands between two runs of text, so the odd slots are the ones
+			// the arrow goes in front of.
+			if (i > 0) {
+				// Not announced: the sentence around it already says "jump", and a
+				// screen reader has Enter for the same thing (see the list's go).
+				const icon = line.createSpan({ cls: 'nav-hint-go', attr: { 'aria-hidden': 'true' } });
+				setIcon(icon, 'corner-up-right');
+			}
+			line.appendText(parts[i]);
+		}
 	}
 
 	// The "you are here" CARD that used to stand between the toolbar and the list
@@ -398,6 +465,28 @@ export class NavHistoryBrowser {
 				live.push({ leafId: leafIdOf(leaf), key: viewDestinationKey(viewType) });
 		});
 		return live;
+	}
+
+	// A link inside the landing's rendered content was clicked (see
+	// NavPreviewContent's `wire`). It is the same journey as a row's travel and it
+	// goes through the same two steps, in the same order:
+	//  - the tree first where the shell is staying up. The open that follows pushes a
+	//    history step, and the rows are rebuilt from the stack the moment it lands —
+	//    a tree that came back from the reader's old open notes would open whatever
+	//    slid into their slots (see the option). Collapsed, the redraw is nothing but
+	//    the new list.
+	//  - then the shell's own reaction: a dialog has answered its question the moment
+	//    the reader went somewhere, and gets out of the way before the open it
+	//    triggered runs.
+	// A sidebar keeps standing, which is the whole point of it.
+	private follow(linktext: string, sourcePath: string): void {
+		if (this.opts.collapseOnJump) {
+			this.panel.forget();
+			this.list.collapse();
+		}
+		this.opts.onJump?.();
+		void Promise.resolve(this.opts.app.workspace.openLinkText(linktext, sourcePath, false))
+			.catch(e => console.error('Position Restore: link follow failed:', e));
 	}
 
 	private jump(i: number): void {

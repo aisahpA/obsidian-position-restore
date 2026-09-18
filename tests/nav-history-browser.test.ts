@@ -158,6 +158,12 @@ describe('describeNavEntry', () => {
 describe('groupByFile', () => {
 	const visit = (path: string, i: number, line: number): NavHistoryEntry =>
 		({ kind: 'visit', path, leafId: 'leaf-1', t: 1000 + i * 100, st: { scroll: line } });
+	// The line each step landed on, resolved the way the browser resolves it (see
+	// NavHistoryList.render). The pure function groups by what it is TOLD: a caller
+	// that says nothing about lines is saying every step of a note is the same
+	// place, which is what a file with no coordinates has (see landingKey).
+	const lines = (entries: NavHistoryEntry[]) => (i: number) =>
+		entries[i].kind === 'view' ? undefined : entries[i].st?.scroll;
 
 	it('groups one note\'s steps together, newest first, and keeps the notes in recency order', () => {
 		const entries = [
@@ -166,10 +172,12 @@ describe('groupByFile', () => {
 			visit('a.md', 2, 30),
 			visit('c.md', 3, 40),
 		];
-		const groups = groupByFile(entries, 3);
+		const groups = groupByFile(entries, 3, undefined, undefined, lines(entries));
 
 		expect(groups.map(g => g.path)).toEqual(['c.md', 'a.md', 'b.md']);
-		expect(groups.map(g => g.indices)).toEqual([[3], [2, 0], [1]]);
+		// …and inside a note the rows come out DOWN the note: L10 before L30, not in
+		// the order they were visited in (see groupByFile).
+		expect(groups.map(g => g.indices)).toEqual([[3], [0, 2], [1]]);
 		expect(groups[0].current).toBe(true);
 	});
 
@@ -206,9 +214,9 @@ describe('groupByFile', () => {
 		// The current entry is a row like any other (see NavHistoryList), but it
 		// is where the reader already is: only the OTHER landings are travels.
 		const entries = [visit('a.md', 0, 10), visit('a.md', 1, 20)];
-		const groups = groupByFile(entries, 1, undefined, i => i !== 1);
+		const groups = groupByFile(entries, 1, undefined, i => i !== 1, lines(entries));
 
-		expect(groups[0]).toMatchObject({ path: 'a.md', indices: [1, 0], reachable: [0] });
+		expect(groups[0]).toMatchObject({ path: 'a.md', indices: [0, 1], reachable: [0] });
 	});
 
 	// The landings under a note are PLACES, not steps (see landingKey): the line
@@ -250,11 +258,10 @@ describe('groupByFile', () => {
 			expect(groups[0].current).toBe(true);
 		});
 
-		it('puts a step whose line nothing can resolve last, where its row says "—"', () => {
-			// No line is no evidence of a shared place: a step that recorded no
-			// position keeps its own row rather than being merged on a guess — and it
-			// cannot be placed in the note's own order either, so it stands after the
-			// landings that can, keeping the recency order it came in with.
+		it('puts the steps whose line nothing can resolve last, where their row says "—"', () => {
+			// A step with no line cannot be placed in the note's own order, so its
+			// landing stands after the ones that can — it is not a guess about WHERE,
+			// it is the one landing a file without coordinates has (see landingKey).
 			const entries = [
 				at('a.md', 0, 10),
 				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
@@ -263,19 +270,24 @@ describe('groupByFile', () => {
 			];
 			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
 
-			expect(groups[0].indices).toEqual([0, 2, 3, 1]);
+			expect(groups[0].indices).toEqual([0, 2, 3]);
 		});
 
-		it('keeps the steps whose line nothing can resolve', () => {
-			// No line is no evidence of a shared place: a step that recorded no
-			// position keeps its own row rather than being merged on a guess.
+		it('merges the steps whose line nothing can resolve into ONE landing', () => {
+			// Two steps of one file with no coordinate between them: a `.base` view, a
+			// PDF, an image — a file with nowhere in it to be. They are the same place,
+			// and the newest step is the one that stands for it (see landingKey: this
+			// used to keep every such step as its own row, which printed one identical
+			// "—" line per visit).
 			const entries = [
 				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
 				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1100 } as NavHistoryEntry,
 			];
 			const groups = groupByFile(entries, 1, undefined, undefined, () => undefined);
 
-			expect(groups[0].indices).toEqual([1, 0]);
+			// ONE landing, and it is the step the reader is ON: the current entry's own
+			// (the newer of the two here).
+			expect(groups[0].indices).toEqual([1]);
 		});
 
 		it('collapses graph steps to the one tab they are', () => {

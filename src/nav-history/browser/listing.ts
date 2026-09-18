@@ -34,7 +34,18 @@ export interface NavFileGroup {
 	// The current entry's own group: pinned to the top of the list, so "you are
 	// here" is a place in the same tree.
 	current: boolean;
+	// The note's NEWEST landing, as a stack index into `indices` — where the reader
+	// last was in this file. It is what the note's own row stands for when nothing
+	// has been aimed at (see NavHistoryList.activeRep) and what the list prints by
+	// default (see NavHistoryListOptions.landings): a reader going back to a file
+	// wants the spot they left, not the top of the document, which is what the
+	// line-ordered rows alone made the row mean. -1 for a group with nothing in it.
+	newest: number;
 }
+
+// How much of a note's landing tree the list draws: every distinct spot, or only the
+// newest one, with the rest one click away (see NavHistoryList.shownLandings).
+export type LandingsMode = 'last' | 'all';
 
 // The path a pathless group (the graph) carries. A view step is not a place in
 // a note: it has no path to group by, and giving it one would let it merge with
@@ -54,14 +65,23 @@ function groupKey(entry: NavHistoryEntry): string {
 // — by five different routes — holds one spot, not five rows that read
 // identically and travel to the same place.
 //
-// A step with no line at all (a capture that recorded no position) gets no key:
-// nothing is merged on a guess. A VIEW step gets the one constant key: a group of
-// them holds a single destination, so the row that opens onto it is "the graph
-// tab" rather than a list of identical graph steps.
-function landingKey(entry: NavHistoryEntry, line: number | undefined): string | undefined {
+// A step that recorded NO line gets the one `none` key, and that is not a guess: a
+// file without coordinates — a `.base` view, a PDF, an image, a canvas — has exactly
+// one place to be, and so does a markdown step whose position could not be resolved.
+// Leaving them unkeyed (which is what this did) made every visit its own landing:
+// opening one `.base` five times put five identical "—" rows under its name, each of
+// them the same destination. Where there is no coordinate there is no way to tell two
+// spots apart, so they are one.
+//
+// A VIEW step gets the one constant key: a group of them holds a single
+// destination, so the row that opens onto it is "the graph tab" rather than a list
+// of identical graph steps.
+const NO_LINE = 'none';
+
+function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 	if (entry.kind === 'view')
 		return 'view';
-	return line === undefined ? undefined : `L${line}`;
+	return line === undefined ? NO_LINE : `L${line}`;
 }
 
 // The filtered steps as one group per note. Groups come out by the recency of
@@ -93,11 +113,17 @@ export function groupByFile(
 	// Per group, the landing each kept step stands for → its slot in `indices`:
 	// what a later step with the same landing is compared against.
 	const seen = new Map<string, Map<string, number>>();
+	// Per group, the LANDING its newest step landed on (see NavFileGroup.newest).
+	// The key and not the index: the sort below permutes the slots, and the current
+	// entry may replace the representative of its own landing with itself — the
+	// landing is the fact that survives either, and its representative is looked up
+	// again at the end.
+	const newest = new Map<string, string>();
 	const open = (entry: NavHistoryEntry): NavFileGroup => {
 		const key = groupKey(entry);
 		let group = groups.get(key);
 		if (!group) {
-			group = { path: entry.kind === 'view' ? NO_PATH : entry.path, indices: [], reachable: [], current: false };
+			group = { path: entry.kind === 'view' ? NO_PATH : entry.path, indices: [], reachable: [], current: false, newest: -1 };
 			groups.set(key, group);
 			seen.set(key, new Map());
 		}
@@ -116,7 +142,7 @@ export function groupByFile(
 		const key = groupKey(entry);
 		const group = open(entry);
 		const landing = landingKey(entry, lineOf(i));
-		const at = landing === undefined ? undefined : seen.get(key)?.get(landing);
+		const at = seen.get(key)?.get(landing);
 		if (at !== undefined) {
 			// Already on the list: the step adds no destination. It is still the
 			// step the reader is ON when it is the current entry, whose own
@@ -128,8 +154,11 @@ export function groupByFile(
 			}
 			continue;
 		}
-		if (landing !== undefined)
-			seen.get(key)?.set(landing, group.indices.length);
+		// The FIRST landing opened for a group is its newest step's, because this
+		// runs backwards through the stack (see NavFileGroup.newest).
+		if (group.indices.length === 0)
+			newest.set(key, landing);
+		seen.get(key)?.set(landing, group.indices.length);
 		group.indices.push(i);
 		if (i === currentIndex)
 			group.current = true;
@@ -145,6 +174,15 @@ export function groupByFile(
 	const rank = (line: number | undefined) => line === undefined ? Number.MAX_SAFE_INTEGER : line;
 	for (const group of groups.values())
 		group.indices.sort((a, b) => rank(lineOf(a)) - rank(lineOf(b)));
+	// …and where each note's newest landing ended up in that order. The landing —
+	// the KEY — is what the sort left alone, so the row that now stands for it is
+	// looked up again by asking each survivor which landing it is: slots mean nothing
+	// after a sort, and the current entry may have taken its own landing's slot over
+	// (see the scan above).
+	for (const [key, group] of groups) {
+		const wanted = newest.get(key);
+		group.newest = group.indices.find(i => landingKey(entries[i], lineOf(i)) === wanted) ?? -1;
+	}
 	// What may be travelled to, over the DISTINCT landings: a note whose file is
 	// deleted keeps its rows but none of them is a destination.
 	for (const group of groups.values())

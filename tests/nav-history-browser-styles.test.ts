@@ -56,45 +56,113 @@ describe('history browser quiet tiers', () => {
 		expect(browser.match(/var\(--text-(?:faint|muted)\)/g) ?? []).toEqual([]);
 	});
 
-	// The list is a TREE: a note's row is its caret plus the name, and a landing
-	// indents under it with the coordinate in front of its section. There is no
-	// list-wide measured column any more — that existed so a single column of
-	// sections started on one x down a FLAT list, and the tree says the same
-	// thing with its indent (see the next test).
-	it('lays out a note as caret + name, and a landing as coordinate + section', () => {
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: var\(--nav-go-track\) 1\.1em minmax\(0, 1fr\)/);
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: var\(--nav-go-track\) auto minmax\(0, 1fr\) auto/);
+	// The list is a TREE: a note's row is its NAME (the arrow leads it, but out of the
+	// row's flow — see the next test), and a landing indents under it with the
+	// coordinate in front of its section. There is no list-wide measured column any
+	// more — that existed so a single column of sections started on one x down a FLAT
+	// list, and the tree says the same thing with its indent (see the next test).
+	it('lays a note out as its name, and a landing as coordinate + section', () => {
+		// The caret is gone outright: the count says the note has landings to open and
+		// the landings drawn under it say that it is open, so a column of every row
+		// repeating that state is a column spent twice (see NavHistoryList.fileRow).
+		expect(browser).not.toContain('nav-file-caret');
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/);
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
 		// the landing steps in under the note it belongs to
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
-		// the caret is a fixed square, so a run of names starts on one x
-		expect(browser).toMatch(/\.nav-file-caret\s*\{[^}]*text-align: center/);
 		// the coordinate keeps its own width: the sections below still line up
 		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 5ch/);
 		// and the name is capped rather than greedy
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
 	});
 
-	// THE TRAVEL ARROW is the row's first track, in BOTH row kinds — so a note's row
-	// and its landings start their text on the same x (as far as the tree's indent
-	// allows) — and it is the affordance that replaced the double click: a double
-	// click cannot be told from a single one until the second has arrived, so the
-	// row's own action had to wait out the double-click window, and a pair of clicks
-	// flashed the note open on its way to a travel (see NavHistoryList.go).
-	it('puts the travel arrow in front of every row, in a track of its own', () => {
-		// One number for the two row kinds, so the two tracks cannot drift apart.
-		expect(browser).toMatch(/--nav-go-track: 1\.5em/);
+	// THE TRAVEL ARROW is the row's first thing on screen, but NOT a grid track: it
+	// sits in the row's own left PADDING, pinned to the row's own height. That is the
+	// difference between a list whose rows are as tall as their text and one whose rows
+	// grew a pixel or two when a button moved in — a <button> carries the browser's
+	// font and line box, which is a size the row knows nothing about. It replaced the
+	// double click, which could not be told from a single one until the second had
+	// arrived: the row's own action had to wait out the double-click window, and a pair
+	// of clicks flashed the note open on its way to a travel (see NavHistoryList.go).
+	it('keeps the travel arrow out of the row\'s flow, in a gutter of its own', () => {
+		// One gutter (and one gap, and one glyph size) for the two row kinds, so they
+		// start their text on one x.
+		expect(browser).toMatch(/--nav-go-track: 1\.7em/);
+		expect(browser).toMatch(/--nav-go-gap: 8px/);
+		expect(browser).toMatch(/--nav-go-icon: 1\.05em/);
+		// The row RESERVES gutter and gap together, and can hold what it reserves.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\s*\{[^}]*position: relative[^}]*padding: 4px 8px 4px calc\(var\(--nav-go-track\) \+ var\(--nav-go-gap\)\)/,
+		);
+		// …and the arrow fills the GUTTER (not the gap), top to bottom: pinned to both
+		// edges it cannot make the row any taller than it already is. The height pair is
+		// not decoration — the app styles every button it has, and an over-constrained
+		// absolute box (top, bottom and a height) throws its `bottom` away. The width is
+		// the point of the fix a tablet reported: a box as wide as the whole padding put
+		// the target on the file name, so a tap on the name travelled.
+		expect(browser).toMatch(
+			/\.nav-row-go\s*\{[^}]*position: absolute[^}]*inset-block: 0[^}]*inset-inline-start: 0[^}]*width: var\(--nav-go-track\)/,
+		);
+		expect(browser).not.toMatch(/width: calc\(var\(--nav-go-track\)/);
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*height: auto[^}]*min-height: 0/);
+		// THE SELECTOR IS ONE CLASS LONGER THAN THE STRIP, and that class is the whole of
+		// the difference between the devices a reader reported: the app's own tablet rule
+		// is `.is-tablet button:not(.clickable-icon)` — two classes and a TYPE, so it
+		// outranks a two-class rule — and it pads every button it finds by 4px 20px. Inside
+		// this 30px border box that is a content box of nothing, and the glyph was squeezed
+		// away: a tablet showed an empty gutter while the phone and the desktop drew the
+		// arrow. Two classes lost the fight; three (panel, row, arrow) win it.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\s+\.position-restore-nav-row\s+\.nav-row-go\s*\{[^}]*position: absolute/,
+		);
+		// The BOX is the gutter exactly, and the GAP stays dead ground: nothing of the
+		// target may lean into the text, so there is no padding of its own to spill
+		// (that padding used to sit to the right of the gutter, and a theme that flipped
+		// box-sizing put it outside the box and over the name).
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*box-sizing: border-box[^}]*padding: 0;/);
+		expect(browser).not.toMatch(/\.nav-row-go\s*\{[^}]*padding-inline-end/);
+		// …and it is painted ON TOP of the row's own text. The spec says so of a
+		// positioned box, but a tablet painted the arrow BEHIND the file name it
+		// overlapped and showed no arrow at all — while the button kept working.
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*z-index: 0/);
 		// A control, and the ROW's: no box of its own (a wall of outlined buttons would
-		// run down the list) and the faintest tier the panel has — it is a target the
-		// eye finds when it looks for it, not a label competing with the names.
+		// run down the list), the faintest tier the panel has, and the row's font rather
+		// than the browser's, which is what `em` inside it has to be measured in.
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*font: inherit/);
 		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*padding: 0[^}]*border: none/);
 		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*color: var\(--nav-faint\)/);
-		// The icon is drawn at the row's own size rather than at the app's 16px default,
-		// or a 20px row carries a toolbar-sized glyph.
-		expect(browser).toMatch(/\.nav-row-go svg\s*\{[^}]*width: 1\.05em/);
-		// A finger gets a wider gutter and the row's whole height: a 16px glyph is not a
-		// target on a screen held at arm's length.
-		expect(browser).toMatch(/\.position-restore-nav-panel\.is-touch\s*\{\s*--nav-go-track: 1\.9em/);
-		expect(browser).toMatch(/is-touch \.nav-row-go\s*\{[^}]*align-self: stretch/);
+		// The glyph has a size of its own, and the app's own icon variable carries it as
+		// well: the panel's rule on the `svg` is what a reader's theme usually sees, and
+		// a global icon rule that got there first would otherwise decide it.
+		expect(browser).toMatch(/\.nav-row-go svg\s*\{[^}]*width: var\(--nav-go-icon\)/);
+		expect(browser).toMatch(/\.nav-row-go\s*\{[^}]*--icon-size: var\(--nav-go-icon\)/);
+		// A finger gets a bigger target AND a bigger glyph, and there they are PIXELS:
+		// the gutter was already a fingertip's worth of height, but an em-sized glyph
+		// follows the reader's font — and a tablet, whose rows carry the same small UI
+		// font on a screen held further away, reported the arrow as "very small, like a
+		// dot".
+		expect(browser).toMatch(/\.[\w-]*is-touch\s*\{\s*--nav-go-track: 30px;\s*--nav-go-icon: 20px;/);
+		// …and the touch row still RESERVES gutter and gap. The two-value shorthand that
+		// stood here dropped the left padding to 8px, which is what put the arrow's
+		// whole target on top of the file name on a phone (and behind it on a tablet).
+		expect(browser).toMatch(
+			/is-touch \.position-restore-nav-row\s*\{[^}]*padding: 6px 8px 6px calc\(var\(--nav-go-track\) \+ var\(--nav-go-gap\)\)/,
+		);
+		// …and there the arrow is a tier louder: a finger has no hover to bring it
+		// forward, so the faintest tier would be the one thing the hint tells it to hit.
+		expect(browser).toMatch(
+			/is-touch \.position-restore-nav-row \.nav-row-go\s*\{[^}]*color: var\(--nav-muted\)/,
+		);
+	});
+
+	// The hint tells the reader to use the arrow, so it draws the arrow the rows carry
+	// rather than a text stand-in of another shape (see NavHistoryBrowser.hint).
+	it('draws the row\'s arrow into the hint that names it', () => {
+		expect(browser).toMatch(/\.position-restore-nav-hint \.nav-hint-go\s*\{[^}]*display: inline-flex/);
+		// An inline SVG sits ON the baseline, which leaves it riding high beside
+		// lowercase text; the hint's own small tier sizes it.
+		expect(browser).toMatch(/\.nav-hint-go\s*\{[^}]*vertical-align: -0\.2em/);
+		expect(browser).toMatch(/\.nav-hint-go svg\s*\{[^}]*width: 1\.15em/);
 	});
 
 	// A folder is printed only where two notes on screen share a name, and it may
@@ -149,15 +217,10 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas:/,
 		);
-		// …with the arrow spanning BOTH of those lines: the row it belongs to is one
-		// thing however many lines it takes.
-		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*'go name trail'/,
-		);
+		// …and the arrow is NOT one of those areas: it is out of the flow, in the
+		// row's padding, on every row of both kinds (see the go test above).
+		expect(browser).not.toContain('go name trail');
 		expect(browser).toContain('.position-restore-nav-panel.is-touch .nav-row-trail { grid-area: trail; }');
-		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/,
-		);
 		// the pane badge, the one cell that can still be a column, keeps its own
 		// place on that second line
 		expect(browser).toMatch(/\.position-restore-nav-panel\.is-touch \.nav-row-pane\s*\{[^}]*grid-area: meta/);
@@ -204,7 +267,20 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/is-inline \.position-restore-nav-preview\s*\{[^}]*width: auto[^}]*max-height: none/,
 		);
-		expect(browser).toMatch(/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*font-size: var\(--font-ui-small\)/);
+		// …and it is a BOUNDED card: four sides of its own, so a reader can see where
+		// the recorded lines (or a whole note) end and the rows below begin. A left rule
+		// alone left the note's text running into the next file's row, which a reader
+		// read straight through before realising the text had changed hands.
+		expect(browser).toMatch(
+			/is-inline \.position-restore-nav-preview\s*\{[^}]*border: 1px solid var\(--background-modifier-border\)[^}]*border-radius: var\(--radius-s\)/,
+		);
+		// …and the WHOLE NOTE gets a scroller of its own back: a file is not a row's
+		// detail, and finding the recorded line thousands of lines into it has to be
+		// able to move something other than the list (see PreviewContent.reveal)
+		expect(browser).toMatch(
+			/is-inline \.nav-preview-scroll\.is-note\s*\{[^}]*max-height: 60vh[^}]*overflow-y: auto/,
+		);
+		expect(browser).toMatch(/is-touch \.nav-preview-modes \.nav-preview-mode\s*\{[^}]*font-size: var\(--font-ui-small\)/);
 	});
 
 	// A pinned-height dialog must be FILLED by the columns inside it. Both
@@ -315,17 +391,12 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-preview-title\s*\{[^}]*font-size: var\(--font-ui-medium\)[^}]*font-weight: 600/);
 		expect(browser).toMatch(/\.nav-preview-folder\s*\{[^}]*flex: 0 100 auto[^}]*text-overflow: ellipsis/);
 		expect(browser).toMatch(/\.nav-preview-meta\s*\{[^}]*flex: 1 0 100%/);
-		// the panel's one action is a QUIET accent button: an accent wash under the
-		// accent's own text — the app's filled primary button was too loud beside a
-		// list the reader is scanning, and a plain outline read as disabled in dark
-		// themes. Its height is shared with the switch beside it (24px; the app
-		// sizes a button at --input-height, 30px, a line too tall for this bar), and
-		// on touch it is a band a finger can hit.
-		expect(browser).toMatch(
-			/\.nav-preview-go\s*\{[^}]*height: 24px[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\)[^}]*color: var\(--text-accent\)/,
-		);
+		// The switch the caption line carries is a control the height of the small
+		// print beside it (22px + its own two borders; the app sizes a button at
+		// --input-height, 30px, a line too tall for this row), and on touch it grows
+		// into a band a finger can hit.
 		expect(browser).toMatch(/\.nav-preview-modes \.nav-preview-mode\s*\{[^}]*height: 22px/);
-		expect(browser).toMatch(/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*height: auto/);
+		expect(browser).toMatch(/is-touch \.nav-preview-modes \.nav-preview-mode\s*\{[^}]*height: auto/);
 		// Every line of the pinned block keeps its room whether or not the entry
 		// has anything for it: the pointer walks the list, and a block that is one
 		// line shorter for the entries with no section (or a deleted note, which
@@ -334,12 +405,11 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-preview-meta\s*\{[^}]*flex-wrap: nowrap[^}]*min-height: 1lh/);
 		// …a token too long for the column is ellipsized rather than given a line
 		expect(browser).toMatch(/\.nav-preview-meta > span\s*\{[^}]*text-overflow: ellipsis/);
-		expect(browser).toMatch(/\.nav-preview-bar\s*\{[^}]*min-height: 24px/);
 		// …and the reserved-but-empty lines are a DRAWER answer only: inline a tap
 		// opens one panel under its row, so there is no shape to hold still and
 		// the empty lines are dropped instead
 		expect(browser).toMatch(
-			/is-inline \.nav-preview-meta:empty,\s*\.position-restore-nav-panel\.is-inline \.nav-preview-trail:empty,[^}]*display: none/,
+			/is-inline \.nav-preview-meta:empty,\s*\.position-restore-nav-panel\.is-inline \.nav-preview-trail:empty\s*\{\s*display: none/,
 		);
 		// the two view buttons are ONE control: one box, a hairline between the
 		// halves, and the selected half on the app's own active tint
@@ -365,16 +435,22 @@ describe('history browser quiet tiers', () => {
 	// the button keeps a finger's height but not a band's width, so that the switch
 	// fits on the SAME line: two lines of a phone's height spent on controls is
 	// height taken from the content the panel is open for.
-	it('puts the travel button above the content, beside the view switch', () => {
-		expect(browser).toMatch(/\.nav-preview-bar\s*\{[^}]*display: flex[^}]*flex-wrap: wrap/);
-		expect(browser).toMatch(/\.nav-preview-bar \.nav-preview-go\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
-		expect(browser).toMatch(
-			/is-touch \.nav-preview-bar \.nav-preview-go\s*\{[^}]*width: auto[^}]*height: auto/,
-		);
-		// the switch rides at the far end of that one line, away from the button it must
-		// not be mistaken for
-		expect(browser).toMatch(/\.nav-preview-modes\s*\{[^}]*margin-left: auto/);
-		// nothing is left hanging under the content
+	it('puts the view switch ON the caption line, in the pinned half', () => {
+		// The sentence that says which content is on screen and the control that
+		// changes it are one thing said twice, so they share a line — and both are
+		// pinned with the head, because a reader who has scrolled into a whole note
+		// still has to be able to tell which of the two they are reading, and to say
+		// "the other one" without scrolling back (see LandingPanel.caption).
+		expect(browser).toMatch(/\.nav-preview-caption-row\s*\{[^}]*display: flex[^}]*align-items: center/);
+		// the caption gives way, the switch does not: a squeezed switch is a control
+		// nobody can hit, while the caption repeats the coordinate the head already
+		// carries
+		expect(browser).toMatch(/\.nav-preview-caption\s*\{[^}]*flex: 1 1 auto[^}]*text-overflow: ellipsis/);
+		expect(browser).toMatch(/\.nav-preview-modes\s*\{[^}]*margin-left: auto[^}]*flex: 0 0 auto/);
+		// …and the panel carries no action of its own any more: the row's own arrow
+		// travels (see NavHistoryList.go)
+		expect(browser).not.toContain('.nav-preview-go');
+		expect(browser).not.toContain('.nav-preview-bar');
 		expect(browser).not.toContain('.nav-preview-actions');
 	});
 

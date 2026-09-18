@@ -7,7 +7,7 @@ import { NavHistory } from '@/nav-history/history';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { DRAWER_MIN_WIDTH, FIXED_HEIGHT_MIN_ENTRIES } from './constants';
-import { NavHistoryBrowser } from './body';
+import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 
 // Whether the window has room for the list and the landing panel side by side (see
 // DRAWER_MIN_WIDTH). Asked as a media query so that rotating the device — or dragging
@@ -30,7 +30,7 @@ function drawerFits(): boolean {
 //    on a touch device, where there is no hover, one tap says it all: a note's row
 //    opens or closes its landings and points at nothing, a landing (or a note with
 //    one, which is a leaf) is pointed at and put away again by the same tap, and
-//    the row's arrow or the panel's button goes there;
+//    the row's arrow goes there;
 //  - the CURRENT note is pinned first and its landing carries the "you are
 //    here" marker, so the current position is a place in the same tree — the
 //    first row, marked — and not a line of chrome above it;
@@ -87,7 +87,10 @@ export class NavHistoryModal extends Modal {
 	constructor(
 		app: App,
 		private nav: NavHistory,
-		private savedPosition?: (path: string) => EphemeralState | undefined,
+		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
+		// The browser's own two preferences (see NavBrowserPrefs): the plugin owns
+		// and persists them, this shell only hands them down.
+		private prefs: NavBrowserPrefs,
 	) {
 		super(app);
 	}
@@ -130,8 +133,10 @@ export class NavHistoryModal extends Modal {
 			// The dialog has answered its question the moment a row is travelled
 			// to, so it gets out of the way first and the open it triggers runs
 			// on its own. (The sidebar shell passes nothing here: staying up is
-			// the whole point of it.)
+			// the whole point of it.) A link inside the rendered content is the
+			// same kind of journey and takes the same way out (see follow).
 			onJump: () => this.close(),
+			prefs: this.prefs,
 		});
 		this.browser.mount();
 	}
