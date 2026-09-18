@@ -32,10 +32,38 @@ export class Modal {
 	onClose(): void {}
 }
 
-// database.ts fires notices on failure paths (switchDbFile validation etc.).
-export class Notice {}
+// database.ts fires notices on failure paths (switchDbFile validation, an
+// unreadable db file). Messages and durations are recorded so tests can assert
+// what the user was told and whether it needed dismissing; tests that look at
+// them reset the list per case.
+export class Notice {
+	static instances: Notice[] = [];
+	readonly message: string;
+	readonly duration: number | undefined;
+	constructor(message: string, duration?: number) {
+		this.message = message;
+		this.duration = duration;
+		Notice.instances.push(this);
+	}
+	static reset(): void {
+		Notice.instances = [];
+	}
+}
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
+
+// The history browser draws the row's arrow, and the one it names in the toolbar
+// hint, with Obsidian's icon helper (see NavHistoryList.go and NavHistoryBrowser.hint).
+// jsdom has no icons, so it is stood in for: the icon builds the element a test can
+// find and records WHICH icon it was asked for — the drawing is the app's, and a test
+// asserts on the name, not on the paths.
+export function setIcon(el: HTMLElement, icon: string): void {
+	el.empty();
+	el.addClass('svg-icon', `svg-icon-${icon}`);
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('data-icon', icon);
+	el.appendChild(svg);
+}
 
 // i18n.ts picks its locale at import time via getLanguage().
 export function getLanguage(): string {
@@ -46,6 +74,137 @@ export function getLanguage(): string {
 // for synchronous single-event tests an identity passthrough is equivalent.
 export function debounce(fn: unknown): unknown {
 	return fn;
+}
+
+// The history browser hangs its rendered preview on a Component and unloads it
+// when the dialog closes (see PreviewContent). Enough of the real lifecycle for
+// a test to see which of the two happened.
+export class Component {
+	loaded = false;
+	load(): void {
+		this.loaded = true;
+		this.onload();
+	}
+	unload(): void {
+		this.loaded = false;
+		this.onunload();
+	}
+	onload(): void {}
+	onunload(): void {}
+}
+
+// The resident history panel is an ItemView (see browser/view.ts): the plugin
+// registers it with the workspace, a leaf builds it, and the workspace opens and
+// closes it. Enough of that shape for a test to mount one by hand — the view
+// builds its DOM in contentEl, which is the one element of the real class the
+// panel touches — and to see whether it was opened or closed.
+export class WorkspaceLeaf {
+	view: unknown = null;
+	async setViewState(state: unknown): Promise<void> {
+		this.state = state;
+	}
+	state: unknown = null;
+	async loadIfDeferred(): Promise<void> {}
+}
+
+export class View extends Component {
+	leaf: WorkspaceLeaf;
+	app: unknown;
+	containerEl: HTMLElement;
+	constructor(leaf: WorkspaceLeaf) {
+		super();
+		this.leaf = leaf;
+		this.app = (leaf as unknown as { app?: unknown }).app;
+		this.containerEl = document.createElement('div');
+		this.containerEl.className = 'workspace-leaf-content';
+	}
+	getViewType(): string {
+		return '';
+	}
+	onResize(): void {}
+}
+
+export class ItemView extends View {
+	contentEl: HTMLElement;
+	constructor(leaf: WorkspaceLeaf) {
+		super(leaf);
+		this.contentEl = this.containerEl.createDiv({ cls: 'view-content' });
+	}
+}
+
+// The drawer draws its content with Obsidian's OWN renderer, which lives in the
+// app and not in this typings package. The stand-in is deliberately minimal:
+// one block element per blank-line-separated block, `==…==` as <mark>, headings
+// by level, single newlines as <br> (Obsidian renders them as breaks). Tests
+// assert on the recorded SOURCE and on the mark a reader would see, never on
+// Obsidian's own typography — that is the app's, not this plugin's.
+export class MarkdownRenderer {
+	static async render(
+		_app: unknown,
+		markdown: string,
+		el: HTMLElement,
+		_sourcePath: string,
+		_component: unknown,
+	): Promise<void> {
+		for (const block of markdown.split(/\n{2,}/)) {
+			const lines = block.split('\n');
+			const heading = /^(#{1,6})\s+(.*)$/.exec(lines[0]);
+			if (heading)
+				lines[0] = heading[2];
+			const node = document.createElement(heading ? `h${heading[1].length}` : 'p');
+			lines.forEach((line, i) => {
+				if (i)
+					node.appendChild(document.createElement('br'));
+				// `==words==` split with a capture: the odd slots are the marked
+				// runs, the even ones the text around them.
+				line.split(/==([^=]+)==/).forEach((part, slot) => {
+					if (part === '')
+						return;
+					if (slot % 2 === 1) {
+						const mark = document.createElement('mark');
+						// Marked runs carry links like any other text (a landing line
+						// with a wikilink in it is the ordinary case).
+						links(mark, part);
+						node.appendChild(mark);
+					} else {
+						links(node, part);
+					}
+				});
+			});
+			el.appendChild(node);
+		}
+	}
+}
+
+// The two link forms the content can carry, as the anchors Obsidian draws for them:
+// `[[Target|alias]]` is an internal link (`data-href` is what the app's own click
+// handler reads, the href is what it must never let navigate) and `[text](url)` an
+// external one. The renderer here used to print both as plain text, which meant the
+// browser's link handling — the crash a tablet reported — had nothing to be tested
+// against.
+function links(node: Node, text: string): void {
+	const pattern = /\[\[([^\][|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\(([^)\s]+)\)/g;
+	let at = 0;
+	for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+		if (m.index > at)
+			node.appendChild(document.createTextNode(text.slice(at, m.index)));
+		const a = document.createElement('a');
+		if (m[1] !== undefined) {
+			const target = m[1].trim();
+			a.setAttribute('data-href', target);
+			a.setAttribute('href', target);
+			a.setAttribute('class', 'internal-link');
+			a.textContent = (m[2] ?? target).trim();
+		} else {
+			a.setAttribute('href', m[4]);
+			a.setAttribute('class', 'external-link');
+			a.textContent = m[3];
+		}
+		node.appendChild(a);
+		at = m.index + m[0].length;
+	}
+	if (at < text.length)
+		node.appendChild(document.createTextNode(text.slice(at)));
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +277,11 @@ function installDomHelpers(): void {
 	proto.setText = function (this: HTMLElement, text: string) {
 		this.textContent = text;
 	};
+	// What the browser's toolbar hint composes its sentence with: an icon between two
+	// runs of text is one appendText on either side of it (see NavHistoryBrowser.hint).
+	proto.appendText = function (this: HTMLElement, text: string) {
+		this.appendChild(document.createTextNode(text));
+	};
 	proto.addClass = function (this: HTMLElement, ...classes: string[]) {
 		this.classList.add(...classes);
 	};
@@ -133,6 +297,17 @@ function installDomHelpers(): void {
 			this.removeAttribute(name);
 		else
 			this.setAttribute(name, String(value));
+	};
+	// The app's own way to style an element from script, which the browser uses where a
+	// value has to be measured rather than declared (and where a stylesheet rule cannot
+	// be trusted to win: see NavHistoryList.go). A test asserting what a reader would see
+	// needs the element's own style to carry them.
+	proto.setCssStyles = function (this: HTMLElement, styles: Record<string, string>) {
+		Object.assign(this.style, styles);
+	};
+	proto.setCssProps = function (this: HTMLElement, props: Record<string, string>) {
+		for (const key of Object.keys(props))
+			this.style.setProperty(key.startsWith('--') ? key : `--${key}`, props[key]);
 	};
 }
 

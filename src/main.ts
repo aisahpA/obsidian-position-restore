@@ -3,11 +3,11 @@ import { SettingTab } from './ui/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
-import { HOVER_LINK_SOURCE_ID } from './nav-history/browser/constants';
+import { NAV_HISTORY_VIEW_TYPE } from './nav-history/browser/view';
 import { t } from './i18n';
 
 
-export default class RememberCursorPosition extends Plugin {
+export default class PositionRestorePlugin extends Plugin {
 	settings!: PluginSettings;
 	database!: CursorPositionDatabase;
 	manager!: PositionManager;
@@ -15,17 +15,24 @@ export default class RememberCursorPosition extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.database = new CursorPositionDatabase(this, this.settings);
-		this.manager = new PositionManager(this.app, this.database, this.settings);
+		this.manager = new PositionManager(this.app, this.database, this.settings, () => void this.saveSettings());
 
 		await this.database.readDb();
-		this.database.pruneDb();
+		this.manager.prunePositions();
+		this.manager.sweepMissingHistory();
 
 		this.addSettingTab(new SettingTab(this.app, this));
+
+		// The history browser's resident form: registered BEFORE the layout is
+		// restored, which is what lets a saved sidebar panel come back as itself
+		// on the next start. Nothing detaches it on unload, deliberately — the
+		// workspace closes a disabled plugin's views, and detaching the leaf here
+		// would throw away where the reader had dragged it to.
+		this.registerView(NAV_HISTORY_VIEW_TYPE, this.manager.navHistoryViewCreator());
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
 		this.registerCommands();
-		this.registerHoverPreview();
 
 		this.registerWorkspaceEvents();
 		this.registerPolling();
@@ -80,13 +87,26 @@ export default class RememberCursorPosition extends Plugin {
 				return true;
 			}
 		});
-		// History browser: the stack newest-first, click a row to jump there
+		// History browser: the stack newest-first, one row per note — a click points
+		// the panel at the spot that row stands for, and the row's own arrow travels
 		// (time travel — the forward part is kept). No availability gate.
 		this.addCommand({
 			id: 'browse-nav-history',
 			name: t('navHistory.commands.browseHistory'),
 			icon: 'history',
 			callback: () => this.manager.openNavHistoryModal(),
+		});
+		// …and the same browser as a RESIDENT sidebar panel: a place in the
+		// workspace rather than a question asked and dismissed. A separate
+		// command, deliberately — the two answer the same question in two
+		// different moods (a picker, and a panel to work beside), and which one
+		// is wanted is the reader's call at the moment they ask, not a setting
+		// they have to get right beforehand.
+		this.addCommand({
+			id: 'open-nav-history-sidebar',
+			name: t('navHistory.commands.browseHistorySidebar'),
+			icon: 'panel-right',
+			callback: () => this.manager.openNavHistorySidebar(),
 		});
 		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
 		// and the toolbar only exists while editing, so one tap (the mobile
@@ -95,25 +115,6 @@ export default class RememberCursorPosition extends Plugin {
 		// it, and the settings tab shows whether they are bound.
 		if (Platform.isMobile)
 			this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
-	}
-
-	/**
-	 * The history browser's rows are links to files, so it hands its hovered row
-	 * to Obsidian's own "Page preview" instead of growing a preview of its own:
-	 * registering as a hover-link source is what lets the core plugin accept the
-	 * events the browser emits, and it puts this panel in the Page preview
-	 * settings, where the Mod-key requirement can be switched per source — the
-	 * same list the file explorer, outline and search appear in. The built-ins
-	 * require ⌘/Ctrl, but a row here has already been pointed at deliberately
-	 * (there is no accidental hover in a list of destinations), so this source
-	 * defaults to no modifier; turn it back on under Page preview if it turns
-	 * out to be too eager. Unregistered automatically when the plugin unloads.
-	 */
-	private registerHoverPreview() {
-		this.registerHoverLinkSource(HOVER_LINK_SOURCE_ID, {
-			display: this.manifest.name,
-			defaultMod: false,
-		});
 	}
 
 	/**

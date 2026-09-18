@@ -13,7 +13,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileView, MarkdownView, type WorkspaceLeaf } from 'obsidian';
 
 import { Restorer } from '@/position/restore/restorer';
-import { TabStore } from '@/position/storage/tab-store';
+import { RestoreModes } from '@/position/restore/modes';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 
@@ -122,11 +123,12 @@ function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMa
 			iterateAllLeaves: () => undefined,
 		},
 	};
-	const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+	const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 	const restorer = new Restorer(
 		app as never,
 		glideSource ? { ...DEFAULT_SETTINGS, sourceRestoreMethod: 'glide' } : DEFAULT_SETTINGS,
-		tabStore,
+		store,
+		state,
 	);
 	if (marker) {
 		state.injectedOpenLeafIds.add('leaf-1');
@@ -143,6 +145,9 @@ afterEach(() => {
 	coveredLeaves.forEach((leaf) => harnessCovers?.cover.uncover(leaf));
 	coveredLeaves = [];
 	harnessCovers = undefined;
+	// Drop prototype spies (RestoreModes) — a surviving one would silently
+	// stub out the restore every later test in this file expects to run.
+	vi.restoreAllMocks();
 });
 
 describe('Restorer.completeInjectedRestore', () => {
@@ -186,6 +191,36 @@ describe('Restorer.completeInjectedRestore', () => {
 
 		expect(state.injectedOpenLeafIds.size).toBe(0);
 		expect(state.cover.isCovered(leaf)).toBe(false);
+	});
+
+	it('an injected open settles to the landing the patch handed it, not the store record', async () => {
+		// A cross-file history jump: the patch injects the TARGET ENTRY's own
+		// position (what the browser row shows) and hands it over here. The
+		// store record deliberately differs — it holds the spot the user had
+		// drifted to when they left the file — so settling to it would yank
+		// the view off the line core was told to land on.
+		const { state, leaf, restorer } = makeHarness();
+		state.injectedLeafStates.set('leaf-1', { scroll: 77 });
+		const settle = vi.spyOn(RestoreModes.prototype, 'restoreInjectedSource')
+			.mockResolvedValue(undefined);
+
+		await restorer.completeInjectedRestore(leaf);
+
+		expect(settle).toHaveBeenCalledTimes(1);
+		expect(settle.mock.calls[0][1]).toMatchObject({ scroll: 77 });
+		// consumed with the marker: a later open must not reuse it
+		expect(state.injectedLeafStates.size).toBe(0);
+	});
+
+	it('an injected open with no handed landing falls back to the store record', async () => {
+		const { state, leaf, restorer } = makeHarness();
+		const settle = vi.spyOn(RestoreModes.prototype, 'restoreInjectedSource')
+			.mockResolvedValue(undefined);
+
+		await restorer.completeInjectedRestore(leaf);
+
+		expect(settle.mock.calls[0][1]).toMatchObject({ scroll: RECORD.scroll });
+		expect(state.injectedLeafStates.size).toBe(0);
 	});
 
 	it('skips the landing cue while a navigation traversal suppresses it', async () => {
@@ -277,11 +312,12 @@ describe('Restorer.completeInjectedRestore', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(
 			app as never,
 			DEFAULT_SETTINGS,
-			tabStore,
+			store,
+			state,
 		);
 
 		await restorer.completeInjectedRestore(leaf);
@@ -306,11 +342,12 @@ describe('Restorer.completeInjectedRestore', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(
 			app as never,
 			DEFAULT_SETTINGS,
-			tabStore,
+			store,
+			state,
 		);
 
 		await restorer.completeInjectedRestore(leaf);
@@ -333,11 +370,12 @@ describe('Restorer.completeInjectedRestore', () => {
 				iterateAllLeaves: () => undefined,
 			},
 		};
-		const tabStore = new TabStore(app as never, { db: { 'a.md': RECORD } } as never, state);
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(
 			app as never,
 			DEFAULT_SETTINGS,
-			tabStore,
+			store,
+			state,
 		);
 
 		await restorer.completeInjectedRestore(leaf);

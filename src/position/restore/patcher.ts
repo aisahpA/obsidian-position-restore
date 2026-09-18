@@ -1,6 +1,6 @@
 import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
 import type { NavHistory } from '@/nav-history/history';
@@ -43,17 +43,17 @@ export class OpenPatcher {
 	private app: App;
 	private settings: PluginSettings;
 	private state: PositionState;
-	private tabStore: TabStore;
+	private store: PositionStore;
 	private nav: NavHistory;
 	private sampler: Sampler;
 
-	constructor(app: App, settings: PluginSettings, tabStore: TabStore, nav: NavHistory, sampler: Sampler) {
+	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState, nav: NavHistory, sampler: Sampler) {
 		this.app = app;
 		this.settings = settings;
-		this.tabStore = tabStore;
+		this.store = store;
 		this.nav = nav;
 		this.sampler = sampler;
-		this.state = tabStore.state;
+		this.state = state;
 	}
 
 	// Installs the patches the restore relies on. registerCleanup must undo
@@ -107,9 +107,22 @@ export class OpenPatcher {
 			// setViewState can't contaminate this one.
 			state.pendingLinkKind = undefined;
 			state.pendingLinkText = undefined;
+			state.pendingViaPath = undefined;
+			state.pendingViaText = undefined;
 			const linktext: unknown = args[0];
+			const sourcePath: unknown = args[1];
 			const hasTarget = typeof linktext === 'string'
 				&& (linktext.includes('#') || linktext.includes('^'));
+			// The link's origin, for the nav history's search and badge: which
+			// note it was clicked in and what it said. Recorded for EVERY link
+			// open — including a plain [[note]] with no target, which is exactly
+			// the case pendingLinkText ignores (and which stays a keyless visit:
+			// this slot never feeds the key/dedup regime below).
+			if (typeof linktext === 'string') {
+				state.pendingViaText = linktext;
+				if (typeof sourcePath === 'string')
+					state.pendingViaPath = sourcePath;
+			}
 			if (hasTarget) {
 				state.pendingLinkKind = 'anchorLink';
 				state.pendingLinkText = linktext;
@@ -123,6 +136,8 @@ export class OpenPatcher {
 				state.pendingLinkKindTimeout = window.setTimeout(() => {
 					state.pendingLinkKind = undefined;
 					state.pendingLinkText = undefined;
+					state.pendingViaPath = undefined;
+					state.pendingViaText = undefined;
 				}, 500);
 			}
 		};
@@ -191,6 +206,17 @@ export class OpenPatcher {
 			}
 		}
 		const sameFileTarget = !!eState?.match || !!eState?.['is-flashing'];
+		// The link origin of this open, if it came from a click (see the
+		// openLinkText patch). Consumed here — first setViewState in the click's
+		// own call stack — so a stale slot cannot label a later, unrelated open.
+		const viaPath = this.state.pendingViaPath;
+		const viaText = this.state.pendingViaText;
+		this.state.pendingViaPath = undefined;
+		this.state.pendingViaText = undefined;
+		// …and only a KEYLESS open keeps it: a #/^ link is recorded as a keyed
+		// jump, whose key already names the target, and the caller targets below
+		// are not link clicks at all.
+		const fromLink = !this.state.pendingLinkText && !!viaText;
 		// Main-area leaves only — a sidebar panel's state re-assertion
 		// (outline/backlinks carrying the tracked file) is not a jump.
 		if (isMainAreaLeaf(this.app, leaf))
@@ -201,6 +227,9 @@ export class OpenPatcher {
 				// the landing, and later leaves never overwrite it.
 				key: this.state.pendingLinkText ?? (sameFileTarget ? `caller:${Date.now()}` : undefined),
 				force: sameFileTarget,
+				via: fromLink ? 'link' : undefined,
+				viaPath: fromLink ? viaPath : undefined,
+				viaText: fromLink ? viaText : undefined,
 			});
 
 		// A history traversal (NavHistory armed pendingHistoryNav, consumed
@@ -211,15 +240,30 @@ export class OpenPatcher {
 		// per-file record, not the native cursor. No saved record → native
 		// target stands (callerTarget absorbs the landing below). Non-markdown
 		// traversals fall through untouched — their positions are native.
+		//
+		// The landing is the TRAVERSAL TARGET's own position when the entry
+		// carries one (pendingHistoryNavState — a keyed jump's precise
+		// landing, the spot the browser row shows) and the file record only
+		// as the fallback. Both are handed to the restorer through
+		// injectedLeafStates: the injected settle must verify the line core
+		// was actually given. The landing is file-guarded: the flag is global,
+		// so an unrelated open that stole it must not be handed another
+		// file's position.
 		if (this.state.pendingHistoryNav) {
+			const navLanding = this.state.pendingHistoryNavPath === filePath
+				? this.state.pendingHistoryNavState
+				: undefined;
 			this.state.pendingHistoryNav = false;
+			this.state.pendingHistoryNavState = undefined;
+			this.state.pendingHistoryNavPath = undefined;
 			window.clearTimeout(this.state.pendingHistoryNavTimeout);
 			if (!isReplay && viewState.type === 'markdown') {
-				const st = this.tabStore.getRestoreSt(leaf, filePath);
+				const st = navLanding ?? this.store.read(leafId, filePath);
 				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
 					const merged = this.buildMergedState(st, this.isSourceModeOpen(leaf, viewState));
 					this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
 					this.state.injectedOpenLeafIds.add(leafId);
+					this.state.injectedLeafStates.set(leafId, st);
 					this.state.handledLeafIdMap.set(leafId, filePath);
 					return { ...eState, ...merged };
 				}
@@ -260,7 +304,7 @@ export class OpenPatcher {
 
 		// the same file open in two tabs must restore each tab's own spot after
 		// a restart.
-		const st = this.tabStore.getRestoreSt(leaf, filePath);
+		const st = this.store.read(leafId, filePath);
 		if (this.shouldGlideSource(st))
 			return eState;
 

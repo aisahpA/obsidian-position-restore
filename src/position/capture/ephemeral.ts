@@ -1,5 +1,5 @@
 import { MarkdownView } from 'obsidian';
-import { EphemeralState, NavEntryState } from '@/types';
+import { EphemeralState, NavContextLine, NavEntryState } from '@/types';
 
 // Hot read: the 100ms poll (Sampler), the scroll capture, and the restore
 // verification / reland loops run this every tick and every frame. Position
@@ -97,24 +97,82 @@ function cursorOnScreen(view: MarkdownView, line: number): boolean {
 	return coords.top >= rect.top - lineHeight && coords.top < rect.bottom;
 }
 
+// The recorded context block's radius, in NON-BLANK lines either side of the
+// landing (the landing line itself is always recorded, blank or not). One
+// number for one window: the history browser renders exactly this block, so
+// what the search box matches is what the panel can show. Non-blank counting
+// is the point — a note written one sentence per line with blank separators
+// spends a raw ±5 on two or three lines of actual text, and the remembered
+// words are worth more than the blank lines around them.
+export const NAV_CONTEXT_RADIUS = 5;
+
+// Per-line cap of a recorded context line. Longer than the anchor's 80 on
+// purpose: they do different jobs. The anchor (below) is matched EXACTLY to
+// re-find a line after edits, where a longer string is a brittler key; a
+// context line is only displayed and searched, and a note written one
+// paragraph per line carries the whole paragraph here.
+const CONTEXT_LINE_CAP = 200;
+
+// How many RAW lines a side the block looks through to find its radius worth
+// of non-blank ones. Without a bound, a landing at the foot of a note with a
+// long blank stretch would walk to line 0 — and this read runs on every file
+// switch. Four lines of look-through per recorded line covers the blank
+// separators between ordinary paragraphs; a wider blank gap simply records
+// fewer lines than the radius.
+const CONTEXT_SCAN_LIMIT = NAV_CONTEXT_RADIUS * 4;
+
+// One line as the block stores it: trimmed (the panel prints the text, and
+// leading indentation is noise in a one-line-per-record box) and capped.
+function contextText(raw: string | undefined): string {
+	return (raw ?? '').trim().slice(0, CONTEXT_LINE_CAP);
+}
+
+// The landing line plus NAV_CONTEXT_RADIUS non-blank lines either side, in
+// document order. The landing is included even when it is blank: "started a
+// paragraph, then left" is an ordinary step, and that blank line is where the
+// entry points. Blank lines elsewhere are skipped rather than stored (an
+// empty string matches every query and displays as a placeholder).
+function contextBlock(
+	editor: { getLine(line: number): string; lastLine(): number },
+	landing: number,
+): NavContextLine[] | undefined {
+	if (landing < 0 || landing > editor.lastLine())
+		return undefined;
+	const before: NavContextLine[] = [];
+	for (let i = landing - 1; i >= 0 && before.length < NAV_CONTEXT_RADIUS && landing - i <= CONTEXT_SCAN_LIMIT; i--) {
+		const text = contextText(editor.getLine(i));
+		if (text)
+			before.unshift({ line: i, text });
+	}
+	const after: NavContextLine[] = [];
+	for (let i = landing + 1; i <= editor.lastLine() && after.length < NAV_CONTEXT_RADIUS && i - landing <= CONTEXT_SCAN_LIMIT; i++) {
+		const text = contextText(editor.getLine(i));
+		if (text)
+			after.push({ line: i, text });
+	}
+	return [...before, { line: landing, text: contextText(editor.getLine(landing)) }, ...after];
+}
+
 // The nav-display fields around a position: the viewport-top anchor
 // (functional — remapAnchoredState re-finds the line after later edits), the
-// cursor line's own text and the mode stamp (history-browser display), and
-// the offscreen flag. Cheap doc reads EXCEPT cursorOnScreen — this is the
-// only layout-forcing part of the nav read, and it never runs on the hot
-// path.
+// landing's recorded context block (display + search), the line count and
+// mtime. Cheap doc reads EXCEPT cursorOnScreen — this is the only
+// layout-forcing part of the nav read, and it never runs on the hot path. A
+// doc read is the whole price of the context block: the lines come from the
+// editor's buffer, no vault IO, and the nav read is low-frequency by
+// construction.
 function navDisplayFields(
 	view: MarkdownView,
 	topLine: number,
 	cursor: EphemeralState['cursor'],
-): Pick<NavEntryState, 'anchor' | 'cursorAnchor' | 'mode' | 'cursorOffscreen'> {
-	const display: Pick<NavEntryState, 'anchor' | 'cursorAnchor' | 'mode' | 'cursorOffscreen'> = {};
-	// getMode is optional-called: the mode stamp is display-only and must
-	// never be able to crash the recording path on a view-like object that
-	// lacks it (missing mode reads as the cursor-first heuristic).
+): Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'lineCount' | 'mtime'> {
+	const display: Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'lineCount' | 'mtime'> = {};
+	// The view mode is read here and nowhere else now: it decides which line
+	// the landing is (below), and that decision is RECORDED (contextAt) instead
+	// of being stamped for a reader to re-derive. Optional-called: the display
+	// fields must never crash the recording path on a view-like object that
+	// lacks getMode.
 	const mode = view.getMode?.();
-	if (mode)
-		display.mode = mode;
 	const editor = view.editor;
 	if (!editor || typeof editor.getLine !== 'function')
 		return display;
@@ -128,17 +186,31 @@ function navDisplayFields(
 		if (text)
 			display.anchor = text;
 	}
-	// cursorAnchor: the cursor line's own text — the line the jump lands on.
-	// Reading captures are excluded: their cursor is the stale pre-preview
-	// one (the viewport anchor covers them). Off-screen cursor: the history
-	// browser must describe the viewport instead of the invisible line.
-	if (cursor && mode !== 'preview') {
-		const landing = editor.getLine(cursor.from.line)?.trim().slice(0, 80);
-		if (landing)
-			display.cursorAnchor = landing;
-		if (!cursorOnScreen(view, cursor.from.line))
-			display.cursorOffscreen = true;
+	// Which line the row's landing IS: the cursor line for a source capture
+	// whose cursor is on screen, the viewport top otherwise (a reading
+	// capture's cursor is the stale pre-preview one; a source capture's cursor
+	// may have been scrolled out of sight). cursorOnScreen is the only
+	// layout-forcing read in the nav path, and this is what it is for — the
+	// browser used to repeat the whole derivation from mode/cursorOffscreen on
+	// every render, which is exactly what recording the answer retires.
+	const cursorVisible = !!cursor && mode !== 'preview' && cursorOnScreen(view, cursor.from.line);
+	const landingLine = cursorVisible && cursor ? cursor.from.line : topLine;
+	const block = contextBlock(editor, landingLine);
+	if (block) {
+		display.context = block;
+		display.contextAt = block.findIndex(l => l.line === landingLine);
 	}
+	// The file's size at capture time (a denominator for "L412"). Optional-called
+	// like getMode above: a view-like object in a test may carry a minimal editor.
+	const lineCount = typeof editor.lineCount === 'function' ? editor.lineCount() : undefined;
+	if (typeof lineCount === 'number' && lineCount > 0)
+		display.lineCount = lineCount;
+	// The file's mtime at capture time: the browser says "written since" when
+	// the live one differs (see NavEntryState.mtime — it deliberately does NOT
+	// drive the restore, which works against a live editor buffer).
+	const mtime = view.file && typeof view.file.stat?.mtime === 'number' ? view.file.stat.mtime : undefined;
+	if (mtime !== undefined)
+		display.mtime = mtime;
 	return display;
 }
 
@@ -236,6 +308,34 @@ export function remapAnchoredState(
 	return st;
 }
 
+// Shift a recorded position by `delta` lines — the structural anchor's drift:
+// its CURRENT line minus its RECORD-TIME line, both resolved by the caller
+// through metadataCache. Same mechanics as the remap above (immutable copy,
+// scroll clamps at 0, cursor lines clamp too), but driven by an authoritative
+// structural line instead of a ±REMAP_WINDOW text scan, so a shift beyond any
+// window still lands. The text anchor is dropped: it belongs to the
+// record-time line, and the caller has already re-located the position
+// structurally.
+//
+// Shared on purpose by the two consumers that must agree on the shift: an
+// in-file history jump (RestoreModes.historyJumpApply) and the landing a
+// cross-file traversal hands to the open pipeline (NavHistory.landingFor,
+// which cannot run the text remap — the target editor does not exist yet).
+export function shiftNavState(st: NavEntryState, delta: number): NavEntryState {
+	if (delta === 0)
+		return st;
+	const mapped: NavEntryState = { ...st, anchor: undefined };
+	if (mapped.scroll !== undefined)
+		mapped.scroll = Math.max(0, mapped.scroll + delta);
+	if (mapped.cursor) {
+		mapped.cursor = {
+			from: { ...mapped.cursor.from, line: Math.max(0, mapped.cursor.from.line + delta) },
+			to: { ...mapped.cursor.to, line: Math.max(0, mapped.cursor.to.line + delta) },
+		};
+	}
+	return mapped;
+}
+
 export function applyEphemeralState(view: MarkdownView, state: EphemeralState) {
 	const stateToApply: Record<string, unknown> = {};
 	if (state.cursor)
@@ -245,26 +345,6 @@ export function applyEphemeralState(view: MarkdownView, state: EphemeralState) {
 	
 	if (Object.keys(stateToApply).length > 0)
 		view.setEphemeralState(stateToApply);
-}
-
-// Cursor-only equality for callers that track cursor movement independently
-// of scroll (e.g. the 100ms poll, whose baseline may carry a scroll field
-// that must not participate in the comparison).
-export function isCursorStatesEqual(
-	state1?: EphemeralState['cursor'],
-	state2?: EphemeralState['cursor']
-): boolean {
-	if (!!state1 !== !!state2) return false;
-	if (!state1 || !state2) return true;
-	return state1.from.ch === state2.from.ch && state1.from.line === state2.from.line &&
-		state1.to.ch === state2.to.ch && state1.to.line === state2.to.line;
-}
-
-export function isEphemeralStatesEquals(state1: EphemeralState, state2: EphemeralState): boolean {
-	const c1 = state1.cursor, c2 = state2.cursor;
-	if (!isCursorStatesEqual(c1, c2)) return false;
-
-	return state1.scroll === state2.scroll;
 }
 
 export function setCursorToEnd(view: MarkdownView) {

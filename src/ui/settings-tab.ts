@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
-import type RememberCursorPosition from '@/main';
+import type PositionRestorePlugin from '@/main';
 import { ESCAPE_HATCH_PROPERTY } from '@/position/policy/frontmatter';
 import { t } from '@/i18n';
 
@@ -10,10 +10,26 @@ declare module 'obsidian' {
 	}
 }
 
-export class SettingTab extends PluginSettingTab {
-	plugin: RememberCursorPosition;
+// WHERE a database path sits — which is all the settings item may state: inside
+// the configuration folder (the plugin's own folder, or anywhere else under it),
+// inside a hidden folder, or out in the vault as an ordinary file. Whether any
+// of those travels between devices is the reader's sync client's business:
+// Obsidian Sync carries a plugin folder only as data.json / main.js /
+// manifest.json / styles.css and skips "."-folders outright, while a client that
+// mirrors the whole configuration folder carries them as they stand. So the page
+// says where the file is, and the modal states the Obsidian Sync rules. The
+// database itself accepts all three.
+function dbSyncState(app: App, path: string): 'config' | 'hidden' | 'vault' {
+	if (path === app.vault.configDir || path.startsWith(`${app.vault.configDir}/`))
+		return 'config';
+	const firstSegment = path.split('/')[0];
+	return firstSegment.startsWith('.') ? 'hidden' : 'vault';
+}
 
-	constructor(app: App, plugin: RememberCursorPosition) {
+export class SettingTab extends PluginSettingTab {
+	plugin: PositionRestorePlugin;
+
+	constructor(app: App, plugin: PositionRestorePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -26,8 +42,13 @@ export class SettingTab extends PluginSettingTab {
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
 		if (key === 'excludedFolders' || key === 'frontmatterExcludeProperties') {
 			this.plugin.manager.clearExclusionCache();
-			this.plugin.database.pruneDb();
+			this.plugin.manager.prunePositions();
 		}
+		// The ceiling is otherwise only applied on the next navigation: the
+		// stack (and the browser) would keep its old size until then, and then
+		// drop a large chunk at once.
+		if (key === 'navStackCap')
+			this.plugin.manager.applyNavStackCap();
 		await this.plugin.saveSettings();
 	}
 
@@ -237,9 +258,23 @@ export class SettingTab extends PluginSettingTab {
 						name: t('dataStorage.dbFileName.name'),
 						desc: (() => {
 							const current = this.plugin.settings.dbFileName || this.plugin.database.defaultDbFileName;
+							const state = dbSyncState(this.app, current);
 							const frag = createFragment();
 							frag.createDiv({ text: t('dataStorage.dbFileName.desc') });
 							frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.dbFileName.current', current) });
+							// Where the file is, in one muted line. The default sits
+							// inside the plugin folder, which most sync setups do not
+							// carry whole — the fact a reader needs before the records
+							// silently fail to follow them to another device. It names
+							// no sync client: that rule belongs to the dialog.
+							frag.createDiv({
+								cls: 'mod-muted',
+								text: state === 'config'
+									? t('dataStorage.dbFileName.syncLocal')
+									: state === 'hidden'
+										? t('dataStorage.dbFileName.syncHidden')
+										: t('dataStorage.dbFileName.syncVault'),
+							});
 							return frag;
 						})(),
 						render: (setting) => {
@@ -263,7 +298,10 @@ export class SettingTab extends PluginSettingTab {
 				heading: t('navHistory.heading'),
 				items: [
 					{
-						name: t('navHistory.overview.name'),
+						// NOT navHistory.overview.name: the group heading right above
+						// already says "Navigation history", and the item repeated it
+						// verbatim. What the item holds is the hotkey list.
+						name: t('navHistory.hotkeys.name'),
 						render: (setting) => {
 							const frag = createFragment();
 							frag.createDiv({ text: t('navHistory.overview.desc') });
@@ -271,6 +309,9 @@ export class SettingTab extends PluginSettingTab {
 							list.createEl('li', { text: `${t('navHistory.commands.navigateBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
 							list.createEl('li', { text: `${t('navHistory.commands.navigateForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
 							list.createEl('li', { text: `${t('navHistory.commands.browseHistory')}: ${currentHotkeyText(this.plugin, 'browse-nav-history')}` });
+							// The resident panel is a command like the other three, so it
+							// is bound (or not) in the same place — see view.ts.
+							list.createEl('li', { text: `${t('navHistory.commands.browseHistorySidebar')}: ${currentHotkeyText(this.plugin, 'open-nav-history-sidebar')}` });
 							setting.setDesc(frag);
 							setting.addExtraButton((btn) => {
 								btn.setIcon('keyboard').setTooltip(t('navHistory.overview.openHotkeySettings'))
@@ -305,6 +346,13 @@ export class SettingTab extends PluginSettingTab {
 							key: 'navRecordTeleport',
 						},
 					},
+					// The history browser's own two preferences are NOT here: both are
+					// chosen in the panel itself — which content a landing opens on by
+					// the switch above the landing's lines, how much of a note the list
+					// prints by the toolbar's setting button (see
+					// NavHistoryBrowser.settings) — because that is where the reader is
+					// looking at what they change. A row here would be a second copy of
+					// each, reachable only while the thing it describes is off screen.
 				],
 			},
 		];
@@ -319,7 +367,7 @@ export class SettingTab extends PluginSettingTab {
 class DbPathModal extends Modal {
 	constructor(
 		app: App,
-		private plugin: RememberCursorPosition,
+		private plugin: PositionRestorePlugin,
 		private onApply: () => void
 	) {
 		super(app);
@@ -330,8 +378,25 @@ class DbPathModal extends Modal {
 		contentEl.createEl('h3', { text: t('dataStorage.dbFileName.modal.title') });
 		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.desc') });
 		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.mergeHint') });
+		// The modal is where a path is chosen by hand, so it is where the
+		// Obsidian Sync rule has to be stated — out of a plugin folder Sync
+		// carries only data.json, main.js, manifest.json and styles.css, and it
+		// skips "."-folders. Folded away by default: it matters to the reader who
+		// came here to make positions follow them, and would be four lines of
+		// noise to everyone else.
+		const syncHint = contentEl.createEl('details', { cls: 'position-restore-db-path-hint' });
+		syncHint.createEl('summary', { text: t('dataStorage.dbFileName.syncSummary') });
+		syncHint.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.syncHint') });
 
-		const input = contentEl.createEl('input', { type: 'text', cls: 'position-restore-db-path-input' });
+		const input = contentEl.createEl('input', {
+			type: 'text',
+			cls: 'position-restore-db-path-input',
+			// A vault path is a case-sensitive sequence of folder names, so the
+			// mobile keyboard has to be told not to capitalize the first letter,
+			// not to autocorrect a segment into a word it knows, and not to
+			// underline the whole thing as a misspelling.
+			attr: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false' },
+		});
 		input.placeholder = this.plugin.database.defaultDbFileName;
 		input.value = this.plugin.settings.dbFileName || '';
 
@@ -351,7 +416,10 @@ class DbPathModal extends Modal {
 				void submit();
 		});
 
-		const pickers = contentEl.createDiv({ cls: 'position-restore-db-path-row' });
+		// `is-pickers` is what lets the phone layout give each of these three
+		// labels a row of its own (see styles.css); the action row below shares
+		// the base class and must stay an inline pair.
+		const pickers = contentEl.createDiv({ cls: 'position-restore-db-path-row is-pickers' });
 		pickers.createEl('button', { text: t('dataStorage.dbFileName.pickFolder') })
 			.addEventListener('click', () => {
 				const current = input.value.trim() || this.plugin.database.defaultDbFileName;
@@ -546,7 +614,7 @@ function formatHotkey(hk: Hotkey): string {
 // Reads the user-configured hotkeys for one of this plugin's commands.
 // (hotkeyManager is runtime API absent from the public typings — same cast
 // family as MetadataCache.getAllPropertyInfos above.)
-function currentHotkeyText(plugin: RememberCursorPosition, commandId: string): string {
+function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): string {
 	const manager = (plugin.app as unknown as {
 		hotkeyManager?: { getHotkeys(id: string): Hotkey[] | null };
 	}).hotkeyManager;
@@ -565,7 +633,7 @@ function currentHotkeyText(plugin: RememberCursorPosition, commandId: string): s
 // returns), so the query prefill retries until the hotkeys tab is live.
 // All runtime APIs here are untyped — a missing member or exhausted
 // retries degrade silently to an unfiltered list.
-function openHotkeySettings(plugin: RememberCursorPosition): void {
+function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
 			openTabById(id: string): void;

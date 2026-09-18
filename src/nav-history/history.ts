@@ -1,8 +1,8 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState, PluginSettings } from '@/types';
+import { NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
-import { readNavEntryState, normAnchor } from '@/position/capture/ephemeral';
+import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
 import { resolveAnchorLine, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
@@ -27,9 +27,12 @@ import { installOutlineCapture as installOutlineCaptureHook } from './outline-ca
 // landing settles (outline/anchor) — and are never overwritten afterwards
 // (back/forward must return to the jump target itself); keyless open/
 // activation entries carry no position of their own — their st slot is
-// refreshed on every leave ("where the user actually was"). st only feeds
-// the same-file direct apply in execute(); cross-file traversal restores
-// from the per-file records (database + tab-store).
+// refreshed on every leave ("where the user actually was"). st feeds BOTH
+// the same-file direct apply (execute) and the cross-file open: a traversal
+// hands the target's own landing to the open pipeline (landingFor), so the
+// line a row shows is the line the open lands on. Only an entry with no
+// recorded position of its own falls back to the per-file records
+// (database + the per-leaf overlay) — "where the user actually was".
 //
 // Same-tab file switches EXECUTE through Obsidian's native per-tab history
 // (leaf.history + app:go-back/go-forward): that covers PDF/canvas and every
@@ -89,6 +92,13 @@ export class NavHistory {
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
 
+	// Who wants to hear that the stack as a BROWSER sees it changed (see
+	// subscribe). Nothing in the recording or the traversal reads this: it exists
+	// for the one consumer that outlives a single render — the resident sidebar
+	// panel, which draws the stack as it stands and has no other way to learn
+	// that it moved.
+	private listeners = new Set<() => void>();
+
 	// True while a back/forward traversal is executing: the opens it triggers
 	// (openFile, native go-back) are the traversal itself, not new jumps.
 	private executing = false;
@@ -100,7 +110,90 @@ export class NavHistory {
 		const restored = loadNavHistory(app);
 		this.entries = restored.entries;
 		this.index = restored.index;
+		// A stored blob can exceed the ceiling in force now (the cap is lowered
+		// in the settings, which persist, while the stack is only written at
+		// the flush points): trim it here so the cap is authoritative from the
+		// first render rather than after the next navigation.
+		this.applyStackCap();
 		this.modes = new RestoreModes(settings, state);
+	}
+
+	// The stack ceiling in force: the setting, clamped, with a fallback for a
+	// value that is not a number at all (a hand-edited data.json would
+	// otherwise make every `length > cap` comparison false and disable the
+	// ceiling entirely).
+	stackCap(): number {
+		const cap = Math.floor(this.settings.navStackCap);
+		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.navStackCap;
+	}
+
+	// Trim the stack to the ceiling NOW. Called by push (the ordinary path),
+	// by the settings panel when the cap changes (otherwise the trim waits for
+	// the next navigation and then drops a large chunk at once), and once on
+	// load (above).
+	// The discards are SILENT: the stack sits at the cap whenever a session has
+	// been long enough, so anything that reported them would either be permanent
+	// on screen or permanently out of sight — the browser's old stack-cap
+	// footnote was dropped for exactly that reason.
+	// @returns how many entries were discarded.
+	applyStackCap(): number {
+		const cap = this.stackCap();
+		if (this.entries.length <= cap)
+			return 0;
+		const removed = this.entries.length - cap;
+		// The oldest entries drop (see push).
+		this.entries.splice(0, removed);
+		// The pointer follows the entries that survived. One that sat on a
+		// dropped entry (the cap fell below the current depth) has nothing left
+		// to describe "now": it stops on the oldest survivor rather than going
+		// negative, so forward still walks what remains instead of traversal
+		// being disabled outright.
+		this.index = this.entries.length === 0 ? -1 : Math.max(0, this.index - removed);
+		// A resident panel draws the dropped entries until it is told (see
+		// subscribe). The constructor's own call reaches nobody.
+		if (removed > 0)
+			this.changed();
+		return removed;
+	}
+
+	// ===== Change notification =====
+
+	// Hear about every change a BROWSER would have to redraw for: a push, a step,
+	// a leave-refresh, a prune, a rename, a jump. @returns how to stop hearing
+	// about them.
+	//
+	// It exists for a panel that is on screen for hours (the sidebar view): the
+	// modal is opened, read and closed inside one render, but a resident panel has
+	// to catch a history that moves under it. The signal is deliberately coarse —
+	// "something changed", never what — because the only honest consumer redraws
+	// the whole body anyway, and a finer vocabulary would be a second model for the
+	// one thing the browser already derives from the stack itself.
+	//
+	// Every caller is a user-scale event (a navigation, a leave, a settings change),
+	// never a per-tick one: the 100ms poll records cursor movement in the position
+	// store and only reaches the stack through refreshTop on a settle or a mobile
+	// teleport (see sampler), so a listener may redraw synchronously.
+	subscribe(fn: () => void): () => void {
+		this.listeners.add(fn);
+		return () => {
+			this.listeners.delete(fn);
+		};
+	}
+
+	private changed(): void {
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	// Every distinct file path the stack still names (view entries name none).
+	// The caller pairs this with a vault check — the startup sweep for files
+	// deleted while Obsidian was closed (see PathBookkeeper.sweepMissingHistory).
+	knownPaths(): string[] {
+		const seen = new Set<string>();
+		for (const entry of this.entries)
+			if (entry.kind !== 'view')
+				seen.add(entry.path);
+		return Array.from(seen);
 	}
 
 	// ===== Recording =====
@@ -118,7 +211,7 @@ export class NavHistory {
 	recordOpen(
 		path: string | undefined,
 		leafId: string,
-		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' } = {},
+		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' | 'link'; viaPath?: string; viaText?: string } = {},
 	) {
 		if (!this.canRecord())
 			return;
@@ -134,7 +227,7 @@ export class NavHistory {
 		this.pushIfNew(
 			opts.key
 				? { kind: 'jump', path, leafId, key: opts.key }
-				: { kind: 'visit', path, leafId, via: opts.via },
+				: { kind: 'visit', path, leafId, via: opts.via, viaPath: opts.viaPath, viaText: opts.viaText },
 			opts.force,
 		);
 	}
@@ -230,16 +323,19 @@ export class NavHistory {
 			if (!top.st) {
 				top.st = st;		
 				this.upgradeKeyLine(top, st);
+				this.changed();
 			}
 			return;
 		}
 		if (top.kind === 'teleport') {
 			if (!top.st) {
 				top.st = st;
+				this.changed();
 			}
 			return;
 		}
 		top.st = st;
+		this.changed();
 	}
 
 	// Upgrade a keyed jump with the anchor's RECORD-TIME line from
@@ -291,7 +387,7 @@ export class NavHistory {
 	private pushIfNew(entry: NewNavEntry, force?: boolean) {
 		const top = this.entries[this.index];
 		// Same location = same file in the SAME tab (+ same jump key). Two
-		// tabs of one file hold independent positions (tab-store is per-leaf),
+		// tabs of one file hold independent positions (the leaf records are per-leaf),
 		// so a leaf switch between them is a real entry (VSCode records editor
 		// identity, group included).
 		if (!force && top && this.sameLocation(top, entry))
@@ -334,12 +430,12 @@ export class NavHistory {
 		// A fresh jump discards the forward part (VSCode semantics).
 		this.entries.length = this.index + 1;
 		this.entries.push({ ...entry, t: Date.now() });
-		// Stack ceiling (settings.navStackCap); on overflow the OLDEST
-		// entries drop. Clamp guards hand-edited data.json values.
-		const cap = Math.max(1, Math.floor(this.settings.navStackCap));
-		if (this.entries.length > cap)
-			this.entries.splice(0, this.entries.length - cap);
+		// The pushed entry is the current location BEFORE the ceiling is
+		// applied, so the trim moves the pointer relative to the TOP that was
+		// just established, not to the entry the push replaced.
 		this.index = this.entries.length - 1;
+		this.applyStackCap();
+		this.changed();
 	}
 
 	// ===== Traversal =====
@@ -372,6 +468,9 @@ export class NavHistory {
 		if (!this.canStep(dir))
 			return;
 		await this.runBracketed(() => this.traverse(dir));
+		// The pointer moved even where no step was pushed (a traversal that only
+		// reactivates a tab), and "you are here" moved with it.
+		this.changed();
 	}
 
 	// Time travel to an arbitrary entry (the history browser). Same bracket
@@ -404,6 +503,10 @@ export class NavHistory {
 				this.push({ ...this.entries[index] });
 			await this.execute(this.entries[this.index], dir);
 		});
+		// The stack moved under whoever is drawing it (see subscribe). The push
+		// above already announced the new top; this catches the jump onto the
+		// entry the reader is already standing on, which pushes nothing.
+		this.changed();
 	}
 
 	// The bracket shared by navigate/jumpTo: one position change, not new
@@ -572,49 +675,104 @@ export class NavHistory {
 			// Only markdown has positions (the entry's st is refreshed at
 			// leave time); a same-file non-markdown entry is a no-op — the
 			// view is already there. (leaf is the active leaf here — the
-			// cross-tab case returned above.)
-			if (activeView instanceof MarkdownView && target.st) {
-				const isCurrent = () => activeView.file?.path === target.path;
-				this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-				await this.modes.historyJumpApply(activeView, target.st, isCurrent, this.resolveAnchorShift(target));
-			}
+			// cross-tab case returned above — so this is the active view.)
+			if (activeView instanceof MarkdownView)
+				await this.applyLanding(activeView, target);
 			return;
 		}
 
 		// Same-tab file switch: ride the native per-tab history when its next
-		// entry matches (keeps PDF/canvas native), else open directly.
-		if (await this.delegateNative(dir, leaf, target.path))
+		// entry matches (keeps PDF/canvas native), else open directly. Both
+		// routes are handed this target's own landing when it has one.
+		if (await this.delegateNative(dir, leaf, target.path, undefined, this.landingFor(target)))
 			return;
 		await this.openInLeaf(leaf, target);
 	}
 
+	// Apply a target's recorded landing to a view that ALREADY shows the file
+	// — the in-file jump both execute() (same file on the active leaf) and
+	// openInLeaf() (a tab that still shows the target file) end in. Re-anchor
+	// structurally first (the entry's lines predate any later edits), then run
+	// the shared apply. Nothing to do without a recorded landing: a keyless
+	// entry that never got its leave-refresh, a legacy entry, or a view entry
+	// (non-markdown views have no position of ours to apply).
+	private async applyLanding(view: MarkdownView, target: NavJump | NavVisit | NavTeleport) {
+		if (!target.st)
+			return;
+		const isCurrent = () => view.file?.path === target.path;
+		this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
+		await this.modes.historyJumpApply(view, target.st, isCurrent, this.resolveAnchorShift(target));
+	}
+
+	// The landing a cross-file traversal hands to the open pipeline: the
+	// entry's OWN recorded position — the spot the browser row shows, and
+	// (per this module's contract) the spot back/forward must return to. The
+	// structural re-anchor is applied when the entry is a keyed jump whose
+	// heading has moved since: the injected open path has no target editor to
+	// run the text-snippet remap against, so the structural shift is the only
+	// edit correction available there. undefined — a keyless entry before its
+	// leave-refresh, a legacy persisted entry, a ^block key (never upgraded) —
+	// leaves the open to the file record: where the user actually was.
+	private landingFor(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		if (!target.st)
+			return undefined;
+		const shift = this.resolveAnchorShift(target);
+		return shift ? shiftNavState(target.st, shift) : target.st;
+	}
+
+	// Arms the one-shot flag the setViewState patch consumes (see
+	// PositionState.pendingHistoryNav): the traversal's own open must inject
+	// this plugin's position over the native entry's cursor-only eState.
+	// `landing` is the target entry's own position when it has one — the patch
+	// injects it in place of the file record, and the restorer settles to the
+	// same value; `path` is the file it belongs to, so a flag stolen by an
+	// unrelated open in the arming window can never inject another file's
+	// landing. The timeout is the safety net for a command that never reached
+	// setViewState, and it must drop the landing WITH the flag: one left
+	// behind would be injected into an unrelated later open.
+	private armHistoryNav(landing: NavEntryState | undefined, path: string) {
+		this.state.pendingHistoryNav = true;
+		this.state.pendingHistoryNavState = landing;
+		this.state.pendingHistoryNavPath = path;
+		this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
+		window.clearTimeout(this.state.pendingHistoryNavTimeout);
+		this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
+			this.state.pendingHistoryNav = false;
+			this.state.pendingHistoryNavState = undefined;
+			this.state.pendingHistoryNavPath = undefined;
+		}, HISTORY_NAV_TIMEOUT_MS);
+	}
+
 	// Opens the target file in `leaf` (activating it first when it is a
-	// different tab). The markdown open restores through the standard
-	// injection pipeline from the per-file records; non-markdown opens rely
-	// on each view's own position handling. (View entries never route here
-	// — execute reactivates them; the parameter type enforces it.)
+	// different tab). A live tab that ALREADY shows the file needs no open —
+	// but the entry's landing still applies: that case is an in-file jump, and
+	// the entry (and the browser row) promises that spot, not wherever the tab
+	// happened to be left when the user switched away from it. The markdown
+	// open restores through the standard injection pipeline, handed this
+	// target's own landing when it has one; non-markdown opens rely on each
+	// view's own position handling. (View entries never route here — execute
+	// reactivates them; the parameter type enforces it.)
 	private async openInLeaf(leaf: WorkspaceLeaf, target: NavJump | NavVisit | NavTeleport) {
 		if (this.app.workspace.getActiveViewOfType(FileView)?.leaf !== leaf)
 			this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		if (leaf.isDeferred)
 			await leaf.loadIfDeferred();
-		const curFile = (leaf.view as FileView | undefined)?.file;
-		if (curFile?.path === target.path)
+		const view = leaf.view;
+		const curFile = (view as FileView | undefined)?.file;
+		if (curFile?.path === target.path) {
+			if (view instanceof MarkdownView)
+				await this.applyLanding(view, target);
 			return;
+		}
 		const file = this.app.vault.getAbstractFileByPath(target.path);
 		if (file instanceof TFile) {
 			// A traversal that opens directly (cross-tab, or the native
 			// stack's next entry didn't match) must land instantly like the
 			// delegated one: arm the same flag delegateNative uses, so the
-			// setViewState patch injects the per-file record over the plain
+			// setViewState patch injects this target's landing over the plain
 			// open and bypasses the glide choice. The timeout clears it when
 			// this open never reaches setViewState.
-			this.state.pendingHistoryNav = true;
-			this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-			window.clearTimeout(this.state.pendingHistoryNavTimeout);
-			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
-				this.state.pendingHistoryNav = false;
-			}, HISTORY_NAV_TIMEOUT_MS);
+			this.armHistoryNav(this.landingFor(target), target.path);
 			await leaf.openFile(file);
 		}
 	}
@@ -630,6 +788,7 @@ export class NavHistory {
 		leaf: WorkspaceLeaf,
 		targetPath: string | undefined,
 		targetViewType?: string,
+		targetLanding?: NavEntryState,
 	): Promise<boolean> {
 		const history = (leaf as unknown as { history?: NativeLeafHistory }).history;
 		const stack = dir < 0 ? history?.backHistory : history?.forwardHistory;
@@ -640,19 +799,14 @@ export class NavHistory {
 		if (!matches)
 			return false;
 
-		// pendingHistoryNav arms the setViewState patch to inject this
-		// plugin's saved position over the native entry's cursor-only
-		// eState — markdown file entries only. A view entry's setViewState
-		// (graph) early-returns in the patch before the flag is read, so
-		// arming it here would just leak 1s onto an unrelated later open.
-		if (targetPath !== undefined) {
-			this.state.pendingHistoryNav = true;
-			this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-			window.clearTimeout(this.state.pendingHistoryNavTimeout);
-			this.state.pendingHistoryNavTimeout = window.setTimeout(() => {
-				this.state.pendingHistoryNav = false;
-			}, HISTORY_NAV_TIMEOUT_MS);
-		}
+		// Arm the injection: the setViewState patch then lays this plugin's
+		// position over the native entry's cursor-only eState — markdown file
+		// entries only, carrying the target's own landing when it has one. A
+		// view entry (graph) is left unarmed: its setViewState early-returns
+		// in the patch before the flag is read, so arming it here would only
+		// leak onto an unrelated later open.
+		if (targetPath !== undefined)
+			this.armHistoryNav(targetLanding, targetPath);
 		// (app.commands is part of the runtime API but absent from the
 		// public typings — same cast family as position-state.leafId.)
 		(this.app as unknown as {
@@ -699,11 +853,23 @@ export class NavHistory {
 	// ===== Bookkeeping =====
 
 	renameFile(oldPath: string, newPath: string) {
+		let renamed = false;
 		for (const entry of this.entries)
-			if (entry.kind !== 'view' && entry.path === oldPath)
+			if (entry.kind !== 'view' && entry.path === oldPath) {
 				entry.path = newPath;
+				renamed = true;
+			}
+		// The rows name the OLD path until the browser redraws (see subscribe).
+		if (renamed)
+			this.changed();
 	}
 
+	// A real vault delete drops the file's steps (the browser shows the gap as
+	// a missing row until then). NOT called straight off the vault 'delete'
+	// event: PathBookkeeper schedules the prune and re-checks the vault before
+	// it commits, because a sync plugin replaces a changed file by removing it
+	// and renaming the download over it — a delete that is undone a moment
+	// later (see position/path-bookkeeping.ts).
 	deleteFile(path: string) {
 		const kept: NavHistoryEntry[] = [];
 		let removedBefore = 0;
@@ -716,17 +882,32 @@ export class NavHistory {
 			}
 			kept.push(entry);
 		}
+		// A path no step names (the bookkeeper re-checks the vault, and a sync
+		// plugin's replace-and-rename is one path that comes straight back): the
+		// stack is not rewritten and no browser is told anything.
+		if (kept.length === this.entries.length)
+			return;
 		this.entries = kept;
 		this.index = kept.length === 0
 			? -1
 			: Math.min(this.index - removedBefore, kept.length - 1);
+		// The rows for the pruned steps stay on screen until the browser redraws
+		// (see subscribe).
+		this.changed();
 	}
 
-	// ===== Persistence (device-local, per vault — mirrors tab-store) =====
+	// ===== Persistence (device-local, per vault — mirrors the overlay) =====
 	// The storage format, startup read, and per-entry shape check live in
 	// store.ts.
 
+	// The last blob THIS instance wrote (the flush dedup — see
+	// persistNavHistory). An instance field, not module state: the history is
+	// per vault, and a dedup shared between instances would let one skip a
+	// write it owes.
+	private lastPersisted = '';
+
 	persist() {
-		persistNavHistory(this.app, this.entries, this.index);
+		this.lastPersisted = persistNavHistory(
+			this.app, this.entries, this.index, this.lastPersisted);
 	}
 }

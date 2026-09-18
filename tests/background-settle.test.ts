@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, type WorkspaceLeaf } from 'obsidian';
 
 import { BackgroundSettler } from '@/position/restore/background-settle';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 
@@ -142,8 +142,8 @@ function makeHarness(opts: HarnessOpts): Harness {
 			},
 		},
 	};
-	const tabStore = new TabStore(app as never, { db } as never, state);
-	const settler = new BackgroundSettler(app as never, DEFAULT_SETTINGS, tabStore);
+	const store = new PositionStore(app as never, { db } as never);
+	const settler = new BackgroundSettler(app as never, DEFAULT_SETTINGS, store, state);
 	return { state, settler, leafObjs };
 }
 

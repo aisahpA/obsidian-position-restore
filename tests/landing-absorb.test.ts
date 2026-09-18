@@ -21,7 +21,7 @@ import { MarkdownView, WorkspaceLeaf } from 'obsidian';
 import { OpenPatcher } from '@/position/restore/patcher';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState, LANDING_ABSORB_MS } from '@/position/state';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
 type DatabaseStub = {
@@ -89,7 +89,8 @@ function makePollHarness() {
 	const settings = DEFAULT_SETTINGS as PluginSettings;
 	const state = new PositionState(settings);
 	const nav = { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() };
-	const sampler = new Sampler(app as never, database as never, settings, state, nav as never);
+	const store = new PositionStore(app as never, database as never);
+	const sampler = new Sampler(app as never, store, settings, state, nav as never);
 	state.lastLoadedFilePath = 'a.md';
 	return { sampler, state, database, view, refreshTop: nav.refreshTop };
 }
@@ -104,8 +105,8 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
-		const tabStore = new TabStore(app, { db: {} } as never, state);
-		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
+		const store = new PositionStore(app, { db: {} } as never);
+		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
 		// Search-result clicks pass eState.match (verified against core's
@@ -126,8 +127,8 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
-		const tabStore = new TabStore(app, { db: { 'a.md': { scroll: 5 } } } as never, state);
-		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
+		const store = new PositionStore(app, { db: { 'a.md': { scroll: 5 } } } as never);
+		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
 		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
@@ -200,7 +201,8 @@ describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', (
 	function makeAnchorHarness() {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
-		const sampler = new Sampler({} as never, database as never, DEFAULT_SETTINGS, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		const store = new PositionStore({} as never, database as never);
+		const sampler = new Sampler({} as never, store, DEFAULT_SETTINGS, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 		sampler.installSearchAnchor((fn) => cleanups.push(fn));
 		return { sampler, state };
 	}

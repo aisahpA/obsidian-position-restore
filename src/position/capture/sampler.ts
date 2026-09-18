@@ -1,14 +1,15 @@
 import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce, type Editor, type EditorPosition, type EventRef } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
-import { CursorPositionDatabase } from '@/position/storage/database';
-import { readEphemeralState, readNavEntryState, withNavDisplay, isEphemeralStatesEquals, isCursorStatesEqual } from './ephemeral';
+import { PositionStore } from '@/position/storage/position-store';
+import { readEphemeralState, readNavEntryState, withNavDisplay } from './ephemeral';
+import { isEphemeralStatesEquals, isCursorStatesEqual } from '@/shared/ephemeral-equals';
 import { ExclusionChecker } from '@/position/policy/exclusion';
 import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
 import { PositionState } from '@/position/state';
 import type { NavHistory } from '@/nav-history/history';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
-// and the database. Two inputs feed the database:
+// and the position store. Two inputs feed the store:
 //  - sampleActiveView: the 100ms polling loop, active view only.
 //    Desktop records cursor movement only (scroll deltas belong to the
 //    capture listener); mobile records full-state changes, with scroll-only
@@ -25,7 +26,7 @@ import type { NavHistory } from '@/nav-history/history';
 // plugin polls it via PositionManager, which stays the single entry point.
 export class Sampler {
 	private app: App;
-	private database: CursorPositionDatabase;
+	private store: PositionStore;
 	private exclusions: ExclusionChecker;
 	private state: PositionState;
 	private settings: PluginSettings;
@@ -108,9 +109,9 @@ export class Sampler {
 	private teleportFromPath: string | undefined;
 	private teleportAnchorAt = 0;
 
-	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings, state: PositionState, nav: NavHistory) {
+	constructor(app: App, store: PositionStore, settings: PluginSettings, state: PositionState, nav: NavHistory) {
 		this.app = app;
-		this.database = database;
+		this.store = store;
 		this.settings = settings;
 		this.exclusions = new ExclusionChecker(app, settings);
 		this.state = state;
@@ -150,11 +151,11 @@ export class Sampler {
 
 		// Recording rules gate POSITION recording only — navigation history is
 		// rule-independent (back/forward must work in excluded files too):
-		// the db record is dropped, but the tick keeps running so the teleport
-		// detection below still pushes nav entries.
+		// the stored record is dropped, but the tick keeps running so the
+		// teleport detection below still pushes nav entries.
 		const skipRecording = this.exclusions.shouldSkipRecording(view);
 		if (skipRecording)
-			this.database.deleteFile(filePath);
+			this.store.deleteFile(filePath);
 
 		const st = readEphemeralState(view);
 		if (!st)
@@ -247,15 +248,15 @@ export class Sampler {
 					}
 				}
 				if (!skipRecording) {
-					// Record through the shared per-leaf baseline (saveLeafState),
-					// not just the per-file db: on mobile there is no scroll-capture
-					// listener (desktop-only), so this poll is the ONLY writer of
-					// lastStateByLeaf there — without it, the same file open in two
-					// tabs would restore both to the same per-file record after a
-					// restart instead of each tab's own spot. On desktop the poll
-					// only moves the cursor baseline; saveLeafState dedups against
-					// the per-leaf record either way.
-					this.saveLeafState(this.state.leafId(view.leaf), filePath, write);
+					// Record through the store, which updates the leaf layer and
+					// the file layer together (and dedups both). On mobile there
+					// is no scroll-capture listener (desktop-only), so this poll
+					// is the ONLY writer of the leaf layer there — without it,
+					// the same file open in two tabs would restore both to the
+					// same per-file record after a restart instead of each tab's
+					// own spot. On desktop the poll only moves the cursor
+					// baseline.
+					this.store.write(this.state.leafId(view.leaf), filePath, write);
 					// The user moved away from the restored spot: dismiss the cue
 					// (grace-guarded in RestoreCue so mobile's post-restore jitter
 					// can't flash it away).
@@ -309,15 +310,14 @@ export class Sampler {
 			return;
 
 		// ...then record. Common exclusion gate first: excluded paths (and,
-		// for text views, files below minLinesToRecord) never record; the db
-		// entry is dropped and the per-leaf baseline cleared so later valid
-		// states aren't deduped against a dropped one.
+		// for text views, files below minLinesToRecord) never record; every
+		// record for the path is dropped — both layers — so later valid states
+		// aren't deduped against a dropped one.
 		const filePath = view.file.path;
 		const leafId = this.state.leafId(leaf);
 
 		if (this.exclusions.shouldSkipRecording(view)) {
-			this.database.deleteFile(filePath);
-			this.state.lastStateByLeaf.delete(leafId);
+			this.store.deleteFile(filePath);
 			return;
 		}
 
@@ -326,7 +326,7 @@ export class Sampler {
 			const st = readEphemeralState(view);
 			if (!st) return;
 
-			this.saveLeafState(leafId, filePath, st);
+			this.store.write(leafId, filePath, st);
 			return;
 		}
 
@@ -343,10 +343,10 @@ export class Sampler {
 		// same-device positions); other FileViews (image...) have no useful
 		// scroll. Either way, just clear the baseline.
 		if (view.getViewType() !== 'bases' || !this.settings.recordBaseScroll) {
-			this.state.lastStateByLeaf.delete(leafId);
+			this.store.forgetLeaf(leafId);
 			return;
 		}
-		this.saveLeafState(leafId, filePath, { scroll: Math.round(target.scrollTop) });
+		this.store.write(leafId, filePath, { scroll: Math.round(target.scrollTop) });
 	};
 
 	// Finds which pane actually scrolled: the recordable leaf whose view
@@ -372,41 +372,17 @@ export class Sampler {
 		return owner;
 	}
 
-	// Baseline-deduped record write for the scroll capture. The baseline is
-	// scoped to (leaf, file): a leaf that switched files starts a
-	// fresh first-sighting for the new file. First sighting seeds the baseline
-	// without writing when it already matches the saved record, so opening + a
-	// no-op scroll doesn't trigger a needless db write; afterwards save only
-	// on change.
-	private saveLeafState(leafId: string, filePath: string, st: EphemeralState): void {
-		const prev = this.state.lastStateByLeaf.get(leafId);
-		const sameFile = prev !== undefined && prev.filePath === filePath;
-		if (sameFile && isEphemeralStatesEquals(prev.st, st))
-			return;
-
-		if (!sameFile) {
-			const existing = this.database.db[filePath];
-			if (existing && isEphemeralStatesEquals(existing, st)) {
-				this.state.lastStateByLeaf.set(leafId, { filePath, st });
-				return;
-			}
-		}
-
-		this.state.lastStateByLeaf.set(leafId, { filePath, st });
-		this.database.setState(filePath, st);
-	}
-
 	// Leave-time flush for the setViewState patch: the record's regular
 	// writers lag (100ms poll tick, 97ms debounced scroll capture), so a
 	// move + quick jump-away inside that window loses the final position —
 	// the pending debounce fires after the swap, finds its scroller detached
 	// from every view, and drops the write. Called synchronously with the
 	// exact state of the view being swapped out, before the swap.
-	// saveLeafState dedups: a no-op when nothing moved since the last write.
+	// The store's write dedups: a no-op when nothing moved since the last one.
 	flushOnLeave(view: MarkdownView, filePath: string, st: EphemeralState): void {
 		if (this.exclusions.shouldSkipRecording(view))
 			return;
-		this.saveLeafState(this.state.leafId(view.leaf), filePath, st);
+		this.store.write(this.state.leafId(view.leaf), filePath, st);
 	}
 
 	// Capture scroll on every pane (active and background), which the 100ms
@@ -673,7 +649,7 @@ export class Sampler {
 	//    cache 'changed' fires after a file's metadata — incl. frontmatter —
 	//    lands or changes), otherwise an edited marker would keep its stale
 	//    value for the life of the memo;
-	//  - the moment a file becomes frontmatter-excluded, drop its db record
+	//  - the moment a file becomes frontmatter-excluded, drop its records
 	//    right away instead of waiting for the next poll tick (active view
 	//    only) or a scroll (background tabs): editing a file to
 	//    `position-restore: false` must not leave a record that restores once
@@ -684,7 +660,7 @@ export class Sampler {
 			this.exclusions.invalidateFrontmatter(file.path);
 			const decision = frontmatterDecisionFor(this.app, file, this.settings);
 			if (decision?.skip)
-				this.database.deleteFile(file.path);
+				this.store.deleteFile(file.path);
 		};
 		const ref = this.app.metadataCache.on('changed', onCacheChanged);
 		registerCleanup(() => {

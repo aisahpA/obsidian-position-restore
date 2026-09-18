@@ -1,30 +1,36 @@
 // Tests for the history browser's pure pieces (src/nav-history/browser/):
-// row description, merging, filtering, the file-scope picker's contents, time
-// labels, direction segments, pane numbering and the preview window. The
-// modal's own DOM stays untested here; everything whose correctness a reader
-// would doubt is pure.
+// row description, tree grouping/merging, filtering, time labels and pane
+// numbering, plus the landing the panel prints (read from the entry's own
+// recorded block). The modal's DOM stays untested here; everything whose
+// correctness a reader would doubt is pure.
 
 import { describe, it, expect } from 'vitest';
 
-import { describeNavEntry, headingTrailAtLine, rowTrail, baseName } from '@/nav-history/browser/model';
 import {
-	mergeByLanding, matchesNavFilter, inFileScope, historyFileOptions, formatRelativeTime,
-	splitHistorySegments,
+	describeNavEntry, headingTrailAtLine, rowTrail, baseName, duplicateNames, folderOf,
+} from '@/nav-history/browser/model';
+import {
+	groupByFile, matchesNavFilter, formatRelativeTime,
 } from '@/nav-history/browser/listing';
 import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '@/nav-history/browser/panes';
-import { previewWindow } from '@/nav-history/browser/preview-lines';
+import { revealDelta } from '@/nav-history/browser/list';
 import { t } from '@/i18n';
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { NavEntryState } from '@/types';
 
 const hasFile = () => true;
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
+// A recorded landing block, as capture writes it: surrounding lines with the
+// landing at `at`.
+const block = (lines: string[], at: number): NavEntryState => ({
+	context: lines.map((text, i) => ({ line: i, text })),
+	contextAt: at,
+});
 
 describe('describeNavEntry', () => {
 	it('a file entry shows its basename and the key-derived jump type', () => {
 		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
-		expect(d.file).toBe('a.md');
-		expect(d.title).toBe('notes/project/a.md');
+		expect(d.name).toBe('a.md');
 		expect(d.type).toBe(t('navHistory.type.open'));
 		expect(d.line).toBeUndefined();
 		expect(d.missing).toBe(false);
@@ -36,27 +42,28 @@ describe('describeNavEntry', () => {
 	});
 
 
-	it('an edit capture shows the cursor line and the cursor line text', () => {
+	it('reads the landing line and its text from the recorded block', () => {
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top', cursorAnchor: 'cursor line' },
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'cursor line', 'z'], 2) },
 		} as NavHistoryEntry, hasFile);
 		expect(edit.type).toBe(t('navHistory.type.teleport'));
-		expect(edit.line).toBe('L100');
-		// the same landing as a 0-based index, for the preview window
-		expect(edit.lineIndex).toBe(99);
+		expect(edit.line).toBe('L3');
+		// the same landing as a 0-based index, for the panel's landing mark
+		expect(edit.lineIndex).toBe(2);
+		// the text is the landing line's own, never the viewport-top anchor's
 		expect(edit.anchor).toBe('cursor line');
 		expect(edit.soft).toBe(true);
 	});
 
-	it('an edit capture without cursorAnchor (legacy entry, blank line) shows no text', () => {
-		// The viewport-top anchor belongs to another line — showing it next
-		// to the cursor line number would misdescribe the landing.
+	it('a blank landing line in the block shows no text', () => {
+		// The viewport-top anchor belongs to another line — showing it next to
+		// the landing line number would misdescribe the landing.
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, mode: 'source', cursor: line(99), anchor: 'viewport top' },
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['prev', '', 'next'], 1) },
 		} as NavHistoryEntry, hasFile);
-		expect(edit.line).toBe('L100');
+		expect(edit.line).toBe('L2');
 		expect(edit.anchor).toBeUndefined();
 	});
 
@@ -68,45 +75,45 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L42');
 	});
 
-	it('a reading capture shows the viewport top line and its anchor', () => {
-		// the stale pre-preview cursor is ignored
-		const read = describeNavEntry({
-			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
-			st: { scroll: 41, mode: 'preview', cursor: line(3), anchor: 'viewport top' },
-		} as NavHistoryEntry, hasFile);
-		expect(read.type).toBe(t('navHistory.type.open'));
-		expect(read.line).toBe('L42');
-		expect(read.anchor).toBe('viewport top');
-	});
-
-	it('a cursorless edit capture shows the viewport line and its anchor', () => {
+	it('a state with no block falls back to the viewport top line and the anchor', () => {
+		// Not reachable for an entry this plugin recorded (see
+		// NavEntryState.context), but a position record fed into the row has no
+		// block, and the viewport top is the honest guess then.
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
-			st: { scroll: 41, mode: 'source', anchor: 'viewport top' },
+			st: { scroll: 41, cursor: line(3), anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
 		expect(d.line).toBe('L42');
-		expect(d.anchor).toBe('viewport top');
-	});
-
-	it('a pre-upgrade entry (no mode) falls back to cursor-first', () => {
-		const d = describeNavEntry({
-			kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题',
-			st: { scroll: 42, cursor: line(99) },
-		} as NavHistoryEntry, hasFile);
-		expect(d.line).toBe('L100');
 		expect(d.anchor).toBeUndefined();
 	});
 
-	it('an off-screen cursor capture falls back to the viewport line and anchor', () => {
-		// Source-mode scrolling left the cursor behind (cursorOffscreen): the
-		// restore lands on the viewport, so the row describes the viewport,
-		// never the invisible cursor line.
+	it('a cursorless state with no block still shows the viewport line', () => {
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
-			st: { scroll: 499, mode: 'source', cursor: line(100), anchor: 'viewport top', cursorAnchor: 'cursor line', cursorOffscreen: true },
+			st: { scroll: 41, anchor: 'viewport top' },
 		} as NavHistoryEntry, hasFile);
-		expect(d.line).toBe('L500');
-		expect(d.anchor).toBe('viewport top');
+		expect(d.line).toBe('L42');
+	});
+
+	it('shows the recorded file size beside the coordinate, and the written-since marker', () => {
+		const st: NavEntryState = { scroll: 41, lineCount: 1200, mtime: 1000 };
+		const at = (mtime?: number) => describeNavEntry(
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', st } as NavHistoryEntry,
+			hasFile, undefined, () => mtime,
+		);
+		expect(at(1000).lineCount).toBe(1200);
+		expect(at(1000).stale).toBe(false);
+		expect(at(2000).stale).toBe(true);
+		// A file the plugin cannot stat reads as unchanged, never as touched.
+		expect(at(undefined).stale).toBe(false);
+	});
+
+	it('an entry with no recorded mtime is never called stale', () => {
+		const d = describeNavEntry(
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', st: { scroll: 1 } } as NavHistoryEntry,
+			hasFile, undefined, () => 999,
+		);
+		expect(d.stale).toBe(false);
 	});
 
 	it('outline and anchor keys label their types; a pathless entry is the graph', () => {
@@ -116,7 +123,7 @@ describe('describeNavEntry', () => {
 		expect(link.type).toBe(t('navHistory.type.link'));
 		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
 		expect(graph.type).toBe(t('navHistory.type.graph'));
-		expect(graph.file).toBe(t('navHistory.graphView'));
+		expect(graph.name).toBe(t('navHistory.graphView'));
 		expect(graph.line).toBeUndefined();
 	});
 
@@ -147,28 +154,170 @@ describe('describeNavEntry', () => {
 	});
 });
 
-// The list's compaction: repeat landings collapse to one row.
-describe('mergeByLanding', () => {
-	it('merges indices with the same landing, preserving newest-first order', () => {
-		const keys: Record<number, string> = { 5: 'L10', 4: 'L20', 3: 'L10', 2: 'L20', 1: 'L30' };
-		const rows = mergeByLanding([5, 4, 3, 2, 1], (i) => keys[i]);
-		expect(rows.map((r) => r.indices)).toEqual([[5, 3], [4, 2], [1]]);
+// The list's tree: every note once, its landings under it.
+describe('groupByFile', () => {
+	const visit = (path: string, i: number, line: number): NavHistoryEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', t: 1000 + i * 100, st: { scroll: line } });
+	// The line each step landed on, resolved the way the browser resolves it (see
+	// NavHistoryList.render). The pure function groups by what it is TOLD: a caller
+	// that says nothing about lines is saying every step of a note is the same
+	// place, which is what a file with no coordinates has (see landingKey).
+	const lines = (entries: NavHistoryEntry[]) => (i: number) =>
+		entries[i].kind === 'view' ? undefined : entries[i].st?.scroll;
+
+	it('groups one note\'s steps together, newest first, and keeps the notes in recency order', () => {
+		const entries = [
+			visit('a.md', 0, 10),
+			visit('b.md', 1, 20),
+			visit('a.md', 2, 30),
+			visit('c.md', 3, 40),
+		];
+		const groups = groupByFile(entries, 3, undefined, undefined, lines(entries));
+
+		expect(groups.map(g => g.path)).toEqual(['c.md', 'a.md', 'b.md']);
+		// …and inside a note the rows come out DOWN the note: L10 before L30, not in
+		// the order they were visited in (see groupByFile).
+		expect(groups.map(g => g.indices)).toEqual([[3], [0, 2], [1]]);
+		expect(groups[0].current).toBe(true);
 	});
 
-	it('never merges entries with no landing', () => {
-		const rows = mergeByLanding([3, 2, 1], () => undefined);
-		expect(rows.map((r) => r.indices)).toEqual([[3], [2], [1]]);
+	it('pins the current note first, whatever the recency order says', () => {
+		const entries = [visit('a.md', 0, 10), visit('b.md', 1, 20)];
+		const groups = groupByFile(entries, 0);
+
+		expect(groups.map(g => g.path)).toEqual(['a.md', 'b.md']);
+		expect(groups[0].current).toBe(true);
+		expect(groups[1].current).toBe(false);
 	});
 
-	it('a landing with no duplicate stays its own row', () => {
-		const keys: Record<number, string> = { 2: 'L1', 1: 'L2' };
-		const rows = mergeByLanding([2, 1], (i) => keys[i]);
-		expect(rows.map((r) => r.indices)).toEqual([[2], [1]]);
+	it('drops the current note when nothing about it survives the filter', () => {
+		// `keep` is the query. A note with no surviving step is not this list's
+		// business, current or not; the empty-group case is the one where the note
+		// is there but has nothing left to open.
+		const entries = [visit('a.md', 0, 10), visit('b.md', 1, 20)];
+		const groups = groupByFile(entries, 1, i => i === 0);
+
+		expect(groups.map(g => g.path)).toEqual(['a.md']);
+	});
+
+	it('sorts the pathless view step (the graph) last, whatever its recency', () => {
+		const entries = [
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavHistoryEntry,
+			visit('a.md', 0, 10),
+		];
+		const groups = groupByFile(entries, 0);
+
+		expect(groups.map(g => g.path)).toEqual(['a.md', '']);
+	});
+
+	it('marks reachable apart from listed: the current step is listed but not a destination', () => {
+		// The current entry is a row like any other (see NavHistoryList), but it
+		// is where the reader already is: only the OTHER landings are travels.
+		const entries = [visit('a.md', 0, 10), visit('a.md', 1, 20)];
+		const groups = groupByFile(entries, 1, undefined, i => i !== 1, lines(entries));
+
+		expect(groups[0]).toMatchObject({ path: 'a.md', indices: [0, 1], reachable: [0] });
+	});
+
+	// The landings under a note are PLACES, not steps (see landingKey): the line
+	// a step landed on is what tells two of them apart, and it comes in as a
+	// resolver because the line a row prints is not always the entry's own (a
+	// step with no recorded block falls back to the file's saved position).
+	describe('one landing, however many steps reached it', () => {
+		const at = (path: string, i: number, line: number): NavHistoryEntry =>
+			({ kind: 'visit', path, leafId: 'leaf-1', t: 1000 + i * 100, st: { scroll: line } });
+		const lineOf = (entries: NavHistoryEntry[]) => (i: number) => {
+			const entry = entries[i];
+			return entry.kind === 'view' ? undefined : entry.st?.scroll;
+		};
+
+		it('keeps one row per line, in line order, and one slot in the group', () => {
+			const entries = [
+				at('a.md', 0, 10),
+				at('a.md', 1, 400),
+				at('a.md', 2, 400),
+				at('a.md', 3, 400),
+			];
+			const groups = groupByFile(entries, 3, undefined, undefined, lineOf(entries));
+
+			// L400 was reached three times, by three steps: one destination. The two
+			// landings come out down the note — L10 before L400, whatever order they
+			// were visited in (see groupByFile).
+			expect(groups[0].indices).toEqual([0, 3]);
+			expect(groups[0].reachable).toEqual([0, 3]);
+		});
+
+		it('lets the CURRENT step stand for the landing it shares', () => {
+			// The current entry has to be drawn as "here", and it can be an OLDER
+			// step than the one it shares its landing with: the slot keeps the
+			// reader's own step rather than a newer one that goes to the same place.
+			const entries = [at('a.md', 0, 10), at('a.md', 1, 400), at('a.md', 2, 400)];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			expect(groups[0].indices).toEqual([0, 2]);
+			expect(groups[0].current).toBe(true);
+		});
+
+		it('puts the steps whose line nothing can resolve last, where their row says "—"', () => {
+			// A step with no line cannot be placed in the note's own order, so its
+			// landing stands after the ones that can — it is not a guess about WHERE,
+			// it is the one landing a file without coordinates has (see landingKey).
+			const entries = [
+				at('a.md', 0, 10),
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
+				at('a.md', 2, 400),
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1200 } as NavHistoryEntry,
+			];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			expect(groups[0].indices).toEqual([0, 2, 3]);
+		});
+
+		it('merges the steps whose line nothing can resolve into ONE landing', () => {
+			// Two steps of one file with no coordinate between them: a `.base` view, a
+			// PDF, an image — a file with nowhere in it to be. They are the same place,
+			// and the newest step is the one that stands for it (see landingKey: this
+			// used to keep every such step as its own row, which printed one identical
+			// "—" line per visit).
+			const entries = [
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1100 } as NavHistoryEntry,
+			];
+			const groups = groupByFile(entries, 1, undefined, undefined, () => undefined);
+
+			// ONE landing, and it is the step the reader is ON: the current entry's own
+			// (the newer of the two here).
+			expect(groups[0].indices).toEqual([1]);
+		});
+
+		it('collapses graph steps to the one tab they are', () => {
+			// A pathless view step is not a place in a note: the group is the graph
+			// tab, and however often it was switched to it is one destination.
+			const entries = [
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 900 } as NavHistoryEntry,
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
+			];
+			const groups = groupByFile(entries, 1, undefined, undefined, () => undefined);
+
+			expect(groups[0].indices).toEqual([1]);
+		});
+
+		it('never merges two notes, however alike their lines are', () => {
+			// The collapse is per note, so two notes captured at one line stay two
+			// destinations — the resolver is never asked across a group boundary.
+			const entries = [at('a.md', 0, 400), at('b.md', 1, 400)];
+			const groups = groupByFile(entries, 1, undefined, undefined, lineOf(entries));
+
+			expect(groups.map(g => g.indices)).toEqual([[1], [0]]);
+		});
 	});
 });
 
-// The browser's filter box: tokens AND-match across file name, path, and the
-// anchor text, read straight from the entry (no DOM, no describeNavEntry).
+// The browser's filter box: tokens AND-match across everything the entry
+// recorded (name, path, the landing context block, the legacy anchors, a
+// jump's key, a link's origin) plus the text the ROW prints (the section
+// chain and the line label), handed in by the caller. No DOM, and no
+// describeNavEntry: the predicate is testable on its own.
 describe('matchesNavFilter', () => {
 	const visit = (path: string, st?: NavEntryState): NavHistoryEntry =>
 		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavHistoryEntry);
@@ -198,89 +347,71 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, t('navHistory.graphView'))).toBe(true);
 		expect(matchesNavFilter(e, 'canvas')).toBe(false);
 	});
+
+	it('matches the recorded context block, not only the landing line', () => {
+		// The block is what the user was looking at when they left (see
+		// NavEntryState.context) — the whole point of recording it is that a
+		// search may hit any line of it.
+		const e = visit('notes/a.md', {
+			context: [
+				{ line: 10, text: '前一段：换行与量化' },
+				{ line: 11, text: '落点这一行' },
+				{ line: 12, text: '后一段：读取死区' },
+			],
+			contextAt: 1,
+		});
+		expect(matchesNavFilter(e, '读取死区')).toBe(true);
+		expect(matchesNavFilter(e, '换行 落点')).toBe(true);
+		expect(matchesNavFilter(e, '没写过的词')).toBe(false);
+	});
+
+	it('matches what the row prints: the section chain and the line label', () => {
+		// Derived from the vault's heading cache rather than the entry, so the
+		// caller passes it (see NavHistoryList.render).
+		const e = visit('notes/a.md');
+		expect(matchesNavFilter(e, '架构设计', 'L412 总览 › 架构设计')).toBe(true);
+		expect(matchesNavFilter(e, 'L412', 'L412 总览')).toBe(true);
+		expect(matchesNavFilter(e, 'L999', 'L412 总览')).toBe(false);
+	});
+
+	it("matches a jump's own key: the heading, or the anchor the user picked", () => {
+		const outline = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## 架构设计' } as NavHistoryEntry;
+		expect(matchesNavFilter(outline, '架构设计')).toBe(true);
+		const link = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'b.md#安装步骤' } as NavHistoryEntry;
+		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
+	});
+
+	it('ignores a caller target key: a timestamp, not words', () => {
+		// Caller-target jumps (a search-result click) are keyed `caller:<ms>`
+		// purely to take the keyed landing regime — there is nothing in there
+		// a user wrote.
+		const e = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'caller:1730000000000' } as NavHistoryEntry;
+		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
+	});
+
+	it('matches where a plain link came from, and what it said', () => {
+		const e = {
+			kind: 'visit', path: 'b.md', leafId: 'l', t: 0,
+			via: 'link', viaPath: 'notes/来源笔记.md', viaText: 'b|另见',
+		} as NavHistoryEntry;
+		expect(matchesNavFilter(e, '来源笔记')).toBe(true);
+		expect(matchesNavFilter(e, '另见')).toBe(true);
+		expect(matchesNavFilter(e, '别的笔记')).toBe(false);
+	});
 });
 
-// The file scope ("only in this note"): the predicate behind the toolbar chip.
-describe('inFileScope', () => {
-	const at = (path: string): NavHistoryEntry => ({ kind: 'visit', path, leafId: 'leaf-1', t: 0 });
-
-	it('keeps only the entries of the scoped file', () => {
-		expect(inFileScope(at('a.md'), 'a.md')).toBe(true);
-		expect(inFileScope(at('b.md'), 'a.md')).toBe(false);
+describe('folderOf / duplicateNames', () => {
+	it('names the folder a path sits in, with the vault root as "/"', () => {
+		expect(folderOf('a/b/c.md')).toBe('a/b');
+		expect(folderOf('root.md')).toBe('');
+		// a pathless group (the graph) has no folder to print
+		expect(folderOf('')).toBeUndefined();
 	});
 
-	it('compares the whole path, not the basename', () => {
-		// two notes named the same in different folders are different files
-		expect(inFileScope(at('archive/a.md'), 'notes/a.md')).toBe(false);
-	});
-
-	it('is inert without a file to scope to', () => {
-		// an empty history or a pathless view step leaves a stale toggle harmless
-		expect(inFileScope(at('a.md'), undefined)).toBe(true);
-		expect(inFileScope({ kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry, undefined)).toBe(true);
-	});
-
-	it('never matches a view step, which is not a place in a note', () => {
-		const graph = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry;
-		expect(inFileScope(graph, 'a.md')).toBe(false);
-	});
-});
-
-describe('historyFileOptions', () => {
-	const NOW = Date.parse('2025-09-12T12:00:00');
-	const MINUTE = 60_000;
-	const at = (path: string, agoMin: number): NavHistoryEntry =>
-		({ kind: 'visit', path, leafId: 'leaf-1', t: NOW - agoMin * MINUTE });
-
-	it('lists each file once, by name, with the steps that landed there', () => {
-		// By NAME, not by recency. The panel answers "recently" three times over:
-		// the pinned card, the direct switch and the chronological list. What is
-		// left for a picker is a lookup — and a lookup wants a position it can be
-		// found at twice, not a rank that moves with every visit.
-		const opts = historyFileOptions([
-			at('zeta.md', 60), at('alpha.md', 2), at('zeta.md', 30), at('alpha.md', 1),
-		]);
-		expect(opts.map(o => o.path)).toEqual(['alpha.md', 'zeta.md']);
-		expect(opts.map(o => o.count)).toEqual([2, 2]);
-		expect(opts[0].name).toBe('alpha.md');
-	});
-
-	it('sorts names the way a reader would, not by code point', () => {
-		// "draft 2" belongs before "draft 10" and "Beta" beside "beta": a raw
-		// string compare puts the ten first and splits the two cases apart, which
-		// is the classic "this list looks unsorted" complaint.
-		const opts = historyFileOptions([at('draft 10.md', 3), at('draft 2.md', 2), at('beta.md', 1)]);
-		expect(opts.map(o => o.name)).toEqual(['beta.md', 'draft 2.md', 'draft 10.md']);
-	});
-
-	it('skips view steps, which have no path to narrow to', () => {
-		// A graph-only stack has nothing to scope to: no chip at all, rather
-		// than a chip whose menu is empty.
-		const opts = historyFileOptions([
-			at('a.md', 5),
-			{ kind: 'view', leafId: 'leaf-1', viewType: 'graph', t: NOW } as NavHistoryEntry,
-		]);
-		expect(opts.map(o => o.path)).toEqual(['a.md']);
-		expect(historyFileOptions([{ kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry]))
-			.toEqual([]);
-	});
-
-	it('names the folder only where two files share a name', () => {
-		// Two notes called "index" are otherwise one item and the choice
-		// between them could not be made; the folder is long and faint, so it
-		// is spent on the ambiguity alone.
-		const opts = historyFileOptions([
-			at('notes/index.md', 5), at('b.md', 4), at('archive/index.md', 3),
-		]);
-		const byPath = new Map(opts.map(o => [o.path, o]));
-		expect(byPath.get('notes/index.md')?.folder).toBe('notes');
-		expect(byPath.get('archive/index.md')?.folder).toBe('archive');
-		expect(byPath.get('b.md')?.folder).toBeUndefined();
-	});
-
-	it('gives a same-named note at the vault root a folder to show', () => {
-		const opts = historyFileOptions([at('index.md', 5), at('archive/index.md', 3)]);
-		expect(opts.find(o => o.path === 'index.md')?.folder).toBe('/');
+	it('reports exactly the names two paths share', () => {
+		const doubles = duplicateNames(['a/index.md', 'b/index.md', 'notes.md']);
+		expect([...doubles]).toEqual(['index.md']);
+		expect(duplicateNames(['a.md', 'b.md']).size).toBe(0);
 	});
 });
 
@@ -313,32 +444,6 @@ describe('formatRelativeTime', () => {
 
 	it('never renders a future stamp as a negative age', () => {
 		expect(formatRelativeTime(NOW + 60_000, NOW)).toBe(t('navHistory.time.now'));
-	});
-});
-
-// The current entry is rendered as a pinned card, so the list is exactly the
-// two directions around it.
-describe('splitHistorySegments', () => {
-	const visit = (path: string): NavHistoryEntry =>
-		({ kind: 'visit', path, leafId: 'leaf-1', t: 1 } as NavHistoryEntry);
-	const entries = [visit('a.md'), visit('b.md'), visit('c.md'), visit('d.md'), visit('e.md')];
-
-	it('splits around the current entry, newest first, and never includes it', () => {
-		const { forward, back } = splitHistorySegments(entries, 2);
-		expect(forward).toEqual([4, 3]);
-		expect(back).toEqual([1, 0]);
-	});
-
-	it('has no forward half at the top of the stack', () => {
-		const { forward, back } = splitHistorySegments(entries, 4);
-		expect(forward).toEqual([]);
-		expect(back).toEqual([3, 2, 1, 0]);
-	});
-
-	it('applies the filter to both halves', () => {
-		const { forward, back } = splitHistorySegments(entries, 2, (i) => i !== 3);
-		expect(forward).toEqual([4]);
-		expect(back).toEqual([1, 0]);
 	});
 });
 
@@ -393,31 +498,9 @@ describe('paneInfo / paneLabel', () => {
 	});
 });
 
-// The preview strip: the landing line plus a neighbour either side, clamped
-// to the document, so a spot is recognized instead of guessed.
-describe('previewWindow', () => {
-	const lines = ['a', 'b', 'c', 'd', 'e'];
-
-	it('returns the landing line with one neighbour either side, marked', () => {
-		expect(previewWindow(lines, 2)).toEqual([
-			{ num: 2, text: 'b', mark: false },
-			{ num: 3, text: 'c', mark: true },
-			{ num: 4, text: 'd', mark: false },
-		]);
-	});
-
-	it('clamps at the document edges', () => {
-		expect(previewWindow(lines, 0).map(l => l.num)).toEqual([1, 2]);
-		expect(previewWindow(lines, 4).map(l => l.num)).toEqual([4, 5]);
-	});
-
-	it('an empty document has nothing to preview', () => {
-		expect(previewWindow([], 0)).toEqual([]);
-	});
-});
-
 // The section a landing sits in: the coarse index a reader scans by, and the
-// reason the strip and the rows can name it without reading the file.
+// reason a row can name it without reading the file it is in — the parsed
+// headings are enough.
 describe('headingTrailAtLine', () => {
 	const h = (heading: string, level: number, line: number) => ({ heading, level, line });
 
@@ -437,16 +520,44 @@ describe('headingTrailAtLine', () => {
 
 describe('rowTrail', () => {
 	it('keeps the deepest two levels', () => {
-		expect(rowTrail(['A', 'B', 'C'], undefined)).toEqual(['B', 'C']);
-		expect(rowTrail(['A'], undefined)).toEqual(['A']);
+		expect(rowTrail(['A', 'B', 'C'])).toEqual(['B', 'C']);
+		expect(rowTrail(['A'])).toEqual(['A']);
 	});
 
-	it('drops the heading the landing line itself carries', () => {
-		// an outline jump lands ON its heading: the row quotes that text, so
-		// repeating it as a section would say the same thing twice
-		expect(rowTrail(['A', 'B', '决策'], '## 决策')).toEqual(['A', 'B']);
-		expect(rowTrail(['A', 'B', '决策'], '决策')).toEqual(['A', 'B']);
-		// prose that merely mentions the section is not a duplicate
-		expect(rowTrail(['A', 'B'], 'B 的另一半')).toEqual(['A', 'B']);
+	it('keeps the heading the landing line itself carries', () => {
+		// an outline jump lands ON its heading: that heading IS the deepest
+		// level, and the row prints no landing text to repeat it with (only the
+		// preview panel does) — dropping it left the row naming the PARENT
+		// section, which is the one level a reader cannot place the spot by.
+		expect(rowTrail(['A', 'B', '决策'])).toEqual(['B', '决策']);
+	});
+});
+
+describe('revealDelta', () => {
+	// A row of 28px in a list 200px tall, from y=100 to y=300: the middle a row is
+	// brought to when it is not on the list is 100 + (200 - 28) / 2 = 186.
+	const box = { top: 100, height: 200 };
+
+	it('asks for no scroll while any part of the row is on the list', () => {
+		// Hovering a row must never move the view the reader is reading from, and a
+		// step inside the list must not move it either — including the row flush
+		// against the foot of the list.
+		expect(revealDelta(150, 28, box.top, box.height)).toBeUndefined();
+		expect(revealDelta(100, 28, box.top, box.height)).toBeUndefined();
+		expect(revealDelta(272, 28, box.top, box.height)).toBeUndefined();
+	});
+
+	it('brings a row that left the list to the MIDDLE of it, whichever way it left', () => {
+		// Not the smallest scroll that returns the row to sight: that would park it
+		// flush against the edge, and the walk would then scroll the list under a mark
+		// that never moves again.
+		expect(revealDelta(320, 28, box.top, box.height)).toBe(134); // 320 → the middle
+		expect(revealDelta(60, 28, box.top, box.height)).toBe(-126); // …and from above
+	});
+
+	it('centres a row taller than the list rather than trying to fit it', () => {
+		// The rule is about the row's middle, and a row the list cannot hold has no
+		// scroll that fits it: the middle is the one place that shows the most of it.
+		expect(revealDelta(0, 200, 0, 100)).toBe(50);
 	});
 });

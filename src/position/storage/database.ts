@@ -1,7 +1,8 @@
 import { App, Notice, TFile } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
 import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
-import type RememberCursorPosition from '@/main';
+import { stickyNotice } from '@/shared/notice';
+import type PositionRestorePlugin from '@/main';
 import { t } from '@/i18n';
 
 export type CursorDatabase = { [file_path: string]: EphemeralState };
@@ -94,18 +95,29 @@ export class CursorPositionDatabase {
 	// write clobber a newer foreign file.
 	private mergeChain: Promise<void> = Promise.resolve();
 
+	// Content of the last unreadable db file we kept a copy of, and whether the
+	// user has been told. Unreadable content (torn write, sync conflict markers,
+	// a foreign file) is never dropped silently: it is copied to a side file and
+	// reported. Deduping on the content keeps the retry loop from spawning one
+	// copy per merge pass while the file stays unreadable; distinct content is a
+	// distinct corruption and gets its own copy. corruptCopySeq keeps two copies
+	// made within the same millisecond from landing on the same path.
+	private preservedCorrupt: string | null = null;
+	private corruptNotified = false;
+	private corruptCopySeq = 0;
+
 	// Tracks the last key in insertion order. Used so setState() can skip the
 	// delete+insert (which moves a key to the end to mark it fresh) when the key
 	// is already the most recently touched one — i.e. while editing one file.
 	private lastKey: string | null = null;
 
 	private app: App;
-	private plugin: RememberCursorPosition;
+	private plugin: PositionRestorePlugin;
 	private manifestDir: string;
 	private settings: PluginSettings;
 
 	constructor(
-		plugin: RememberCursorPosition,
+		plugin: PositionRestorePlugin,
 		settings: PluginSettings
 	) {
 		this.app = plugin.app;
@@ -120,6 +132,16 @@ export class CursorPositionDatabase {
 
 	private getDbPath(): string {
 		return this.settings.dbFileName || this.defaultDbFileName;
+	}
+
+	// Where the bytes of an unreadable db file are kept: next to the plugin, not
+	// next to the db itself (which usually sits in a synced folder inside the
+	// vault, where a leftover copy would be picked up as content). The sequence
+	// number, not the timestamp, is what makes the name unique.
+	private corruptCopyPath(): string {
+		const base = this.getDbPath().split('/').pop() ?? 'positions.json';
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+		return `${this.manifestDir}/${base.replace(/\.json$/i, '')}.corrupt-${stamp}-${++this.corruptCopySeq}.json`;
 	}
 
 	// Ensures the parent folder of the configured db path exists. If it can't
@@ -336,23 +358,41 @@ export class CursorPositionDatabase {
 			return;
 		}
 
+		let data: string;
 		try {
-			const data = await this.app.vault.adapter.read(this.getDbPath());
+			data = await this.app.vault.adapter.read(this.getDbPath());
+		} catch (e) {
+			// Unreadable (permissions, a folder in the way): there is no content
+			// to preserve, and no copy could be written either.
+			console.error("Can't read database:", e);
+			this.db = {};
+			return;
+		}
+
+		try {
 			this.db = this.parseDb(data);
 			await this.cacheDiskMtime();
 		} catch (e) {
+			// The file exists but holds something else than a db. Clearing the
+			// in-memory db is unavoidable (the records are unreachable), but it
+			// must not happen silently: keep the bytes aside so they stay
+			// recoverable, then start empty — the next flush writes a valid file,
+			// which also repairs what the sync client merged.
 			console.error("Can't read database:", e);
 			this.db = {};
+			await this.preserveUnreadableDb(data, e);
 		}
 	}
 
 	// Parses raw db file content into the in-memory map. Shared by the startup
-	// read and the external-change merge. A malformed file (not an object)
-	// degrades to an empty db.
+	// read and the external-change merge. Throws on anything that is not a JSON
+	// object (torn write, conflict markers, a foreign file): the callers decide
+	// what an unreadable file means, it never quietly becomes an empty db.
 	private parseDb(data: string): CursorDatabase {
 		const parsed: unknown = JSON.parse(data);
-		const raw: Record<string, unknown> =
-			parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+			throw new Error('database content is not a JSON object');
+		const raw = parsed as Record<string, unknown>;
 		const db: CursorDatabase = {};
 		for (const key of Object.keys(raw)) {
 			const value = raw[key];
@@ -360,6 +400,41 @@ export class CursorPositionDatabase {
 				db[key] = decodeValue(value as number[]);
 		}
 		return db;
+	}
+
+	// Keeps the bytes of a db file we cannot parse and tells the user about it.
+	// A parse failure makes the records in that file unreachable for this
+	// session, and the next flush overwrites the file with what we do have — so
+	// this copy (plus the sync client's version history) is what keeps the loss
+	// recoverable. Called from the two read paths; the copy is written before
+	// the notice, so the notice can point at a file that exists. A failed copy
+	// is reported as well: that is the one case where the records really are
+	// gone, so it must not be the quiet one. Both notices are sticky — this can
+	// happen while the user is elsewhere in the app, and the outcome (records
+	// lost, or a file to go look at) outlives any toast.
+	private async preserveUnreadableDb(data: string, reason: unknown): Promise<void> {
+		if (data === this.preservedCorrupt)
+			return;
+		this.preservedCorrupt = data;
+
+		const path = this.corruptCopyPath();
+		let kept = true;
+		try {
+			await this.app.vault.adapter.write(path, data);
+		} catch (e) {
+			kept = false;
+			console.error("Can't keep a copy of the unreadable database:", e);
+		}
+		console.error(kept
+			? `Position Restore: unreadable database file, kept a copy at ${path}`
+			: 'Position Restore: unreadable database file, and no copy could be written', reason);
+
+		if (this.corruptNotified)
+			return;
+		this.corruptNotified = true;
+		stickyNotice(kept
+			? t('dataStorage.corruptDb.notice', path)
+			: t('dataStorage.corruptDb.noticeNoCopy'));
 	}
 
 	// Strict shape check for adopting an existing target file: accepts only a
@@ -451,12 +526,24 @@ export class CursorPositionDatabase {
 		if (mtime === this.lastDiskMtime)
 			return;
 
+		let data: string;
 		try {
-			const data = await this.app.vault.adapter.read(this.getDbPath());
+			data = await this.app.vault.adapter.read(this.getDbPath());
+		} catch (e) {
+			console.error("Can't merge external db changes:", e);
+			return;
+		}
+
+		try {
 			this.mergeDiskDb(this.parseDb(data));
 			this.lastDiskMtime = mtime;
 		} catch (e) {
+			// Someone replaced the file with content we cannot parse (a torn
+			// download, conflict markers, a half-written push). Keep our records
+			// and keep a copy of theirs: the flush that follows replaces the file
+			// with ours, so the copy would otherwise be the only thing lost.
 			console.error("Can't merge external db changes:", e);
+			await this.preserveUnreadableDb(data, e);
 		}
 	}
 

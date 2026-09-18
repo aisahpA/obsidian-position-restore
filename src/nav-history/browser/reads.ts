@@ -1,23 +1,21 @@
-import { App, Editor, MarkdownView, TFile } from 'obsidian';
+import { App, TFile } from 'obsidian';
 import { NavHistory } from '@/nav-history/history';
 import { EphemeralState } from '@/types';
-import { PREVIEW_CACHE_MAX, PREVIEW_READ_DELAY_MS } from './constants';
 import { HeadingRef, NavEntryDescription, describeNavEntry } from './model';
 
 // Everything the browser reads out of the vault, cached: an entry's display
-// pieces (one render's worth), a file's parsed headings (per path), and a file's
-// lines (per path, bounded). The deferred read is the only asynchronous thing
-// the panel does — see scheduleRead — and it reports back through `onLinesRead`
-// so whatever was showing "loading" can redraw itself.
+// pieces (one render's worth), a file's parsed headings (per path), the last
+// line of a file's frontmatter (per path), and — for the drawer's views that
+// show today's file rather than the recorded lines — a file's text. The first
+// three are metadata-cache lookups; the landing lines the panel prints come from
+// the entries themselves (see NavEntryState.context), which is what let this
+// module drop its deferred-read timer and its line cache entirely, and left
+// exactly one read behind: a file a reader has asked to see whole.
 
 export interface NavHistoryReadsOptions {
 	// The file's saved record, for an entry carrying no position of its own (see
 	// describeNavEntry).
 	savedPosition?: (path: string) => EphemeralState | undefined;
-	// A deferred read has landed: redraw what was waiting for it.
-	onLinesRead: () => void;
-	// The browser is gone: a read that lands afterwards must not touch it.
-	isClosed: () => boolean;
 }
 
 export class NavHistoryReads {
@@ -27,13 +25,13 @@ export class NavHistoryReads {
 	// path → the file's parsed headings. Cheap to hold (tens of small records)
 	// and otherwise re-mapped on every row render.
 	private headings = new Map<string, HeadingRef[] | undefined>();
-	// Preview line cache: path → lines, or null when unreadable. undefined
-	// (absent) means "not read yet". Bounded by PREVIEW_CACHE_MAX, oldest
-	// first, so a long session cannot pin note after note in memory.
-	private lines = new Map<string, string[] | null>();
-	private reading = new Set<string>();
-	private readTimer: number | undefined;
-	private readPath = '';
+	// path → the last line of the file's frontmatter. What the drawer needs to
+	// keep a recorded block that starts INSIDE the properties from rendering as a
+	// heading rule and a paragraph of YAML (see contextMarkdown).
+	private fronts = new Map<string, number | undefined>();
+	// path → the file's text. The promise is cached, not the string, so two draws
+	// asking for the same note while the first read is in flight share ONE read.
+	private texts = new Map<string, Promise<string | undefined>>();
 
 	constructor(
 		private app: App,
@@ -41,13 +39,26 @@ export class NavHistoryReads {
 		private opts: NavHistoryReadsOptions,
 	) {}
 
-	private hasFile = (path: string): boolean =>
+	// Whether the note still exists. An arrow field rather than a method: it is
+	// handed to describeNavEntry as a plain predicate, and a method separated
+	// from its object would lose the `app` it reads. Public because the list asks
+	// it of a note ROW — whose own landing descriptions are not the note's
+	// existence — while describeNavEntry asks it per entry.
+	hasFile = (path: string): boolean =>
 		this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+
+	// The file's mtime NOW, against the one the entry recorded at capture time
+	// (see NavEntryState.mtime): unequal is shown as "written since". A
+	// metadata lookup, no read.
+	private mtimeOf = (path: string): number | undefined => {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		return file instanceof TFile ? file.stat?.mtime : undefined;
+	};
 
 	describe(i: number): NavEntryDescription {
 		let d = this.descCache.get(i);
 		if (!d) {
-			d = describeNavEntry(this.nav.entries[i], this.hasFile, this.opts.savedPosition);
+			d = describeNavEntry(this.nav.entries[i], this.hasFile, this.opts.savedPosition, this.mtimeOf);
 			this.descCache.set(i, d);
 		}
 		return d;
@@ -58,8 +69,7 @@ export class NavHistoryReads {
 	}
 
 	// The file's parsed headings, mapped once per path. A file Obsidian has
-	// not parsed yet simply has no section chain (the preview's own read still
-	// shows its lines).
+	// not parsed yet simply has no section chain.
 	headingsFor(path: string): HeadingRef[] | undefined {
 		if (this.headings.has(path))
 			return this.headings.get(path);
@@ -74,84 +84,38 @@ export class NavHistoryReads {
 		return refs;
 	}
 
-	// The lines of `path`, or undefined while they are still coming.
-	// An OPEN note is read straight from its editor: no IO at all, so the
-	// common case (looking at where you just were, in a note you still have
-	// open) is instant even for a huge file. Everything else falls back to one
-	// cached vault read, kept in a bounded cache.
-	linesFor(path: string): string[] | null | undefined {
-		const cached = this.lines.get(path);
-		if (cached !== undefined)
-			return cached;
-		const editor = this.liveEditor(path);
-		if (!editor)
-			return undefined;
-		// Synchronous and IO-free; the split is paid once, every later hover
-		// hits the cache. Unsaved edits are visible here, which is what the
-		// user is looking at anyway.
-		const lines = editor.getValue().split('\n');
-		this.remember(path, lines);
-		return lines;
+	// The last line of the file's frontmatter, or undefined when it has none, the
+	// file is gone, or Obsidian has not parsed it. A metadata-cache lookup, like
+	// the headings: the browser never reads a file to find out where its
+	// properties end.
+	frontmatterEnd(path: string): number | undefined {
+		if (this.fronts.has(path))
+			return this.fronts.get(path);
+		const file = this.app.vault.getAbstractFileByPath(path);
+		const cache = file instanceof TFile ? this.app.metadataCache?.getFileCache?.(file) : null;
+		const end = cache?.frontmatterPosition?.end.line;
+		this.fronts.set(path, end);
+		return end;
 	}
 
-	private liveEditor(path: string): Editor | undefined {
-		let found: Editor | undefined;
-		this.app.workspace?.iterateAllLeaves?.((leaf) => {
-			const view = leaf.view;
-			if (!found && view instanceof MarkdownView && view.editor && view.file?.path === path)
-				found = view.editor;
-		});
-		return found;
-	}
-
-	private remember(path: string, lines: string[] | null): void {
-		this.lines.delete(path);
-		this.lines.set(path, lines);
-		while (this.lines.size > PREVIEW_CACHE_MAX) {
-			const oldest = this.lines.keys().next().value;
-			if (oldest === undefined)
-				break;
-			this.lines.delete(oldest);
-		}
-	}
-
-	// A vault read only for a row the pointer rests on — see
-	// PREVIEW_READ_DELAY_MS.
-	scheduleRead(path: string): void {
-		if (this.opts.isClosed() || this.lines.has(path) || this.reading.has(path))
-			return;
-		if (this.readPath === path && this.readTimer !== undefined)
-			return;
-		this.cancelRead();
-		this.readPath = path;
-		this.readTimer = window.setTimeout(() => {
-			this.readTimer = undefined;
-			void this.readLines(this.readPath);
-		}, PREVIEW_READ_DELAY_MS);
-	}
-
-	cancelRead(): void {
-		if (this.readTimer === undefined)
-			return;
-		window.clearTimeout(this.readTimer);
-		this.readTimer = undefined;
-	}
-
-	private async readLines(path: string): Promise<void> {
-		if (this.opts.isClosed() || this.lines.has(path) || this.reading.has(path))
-			return;
-		this.reading.add(path);
-		try {
+	// The file's text as it stands, or undefined when it cannot be read — deleted
+	// since the history recorded it, or unreadable. This is the browser's ONLY
+	// read of a file, and it serves both views that show today's file rather than
+	// the recorded lines: the drawer's whole-note view of a note, and the one
+	// source view of a file that is not a note (see PreviewContent). Cached for
+	// the dialog's lifetime, because the reader walks a note's landings one click
+	// at a time; a note written while the dialog is open keeps the text it had
+	// when it was first asked for, which is a few seconds of a reader's attention
+	// rather than a live view.
+	textFor(path: string): Promise<string | undefined> {
+		let text = this.texts.get(path);
+		if (!text) {
 			const file = this.app.vault.getAbstractFileByPath(path);
-			const text = file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
-			this.remember(path, text === null ? null : text.split('\n'));
-		} catch (e) {
-			console.error('Position Restore: can not read history preview:', e);
-			this.remember(path, null);
-		} finally {
-			this.reading.delete(path);
+			text = file instanceof TFile
+				? this.app.vault.cachedRead(file).catch(() => undefined)
+				: Promise.resolve(undefined);
+			this.texts.set(path, text);
 		}
-		if (!this.opts.isClosed())
-			this.opts.onLinesRead();
+		return text;
 	}
 }

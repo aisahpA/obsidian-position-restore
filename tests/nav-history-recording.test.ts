@@ -25,7 +25,7 @@ import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '@/nav-h
 import { OpenPatcher } from '@/position/restore/patcher';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
@@ -65,6 +65,13 @@ function makeNav(
 
 function entry(path: string, leafId = 'leaf-1'): NavHistoryEntry {
 	return { kind: 'visit', path, leafId, t: 1 };
+}
+
+// The settings panel mutates the settings object the history was handed (they
+// share one instance, see NavHistory.settings) — this is that mutation, without
+// going through the whole settings tab.
+function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
+	(nav as unknown as { settings: PluginSettings }).settings.navStackCap = cap;
 }
 
 // These tests build file-only stacks (a graph entry appears in exactly one
@@ -203,8 +210,6 @@ describe('NavHistory stack logic', () => {
 		const settle: NavEntryState = {
 			scroll: 14,
 			cursor: { from: { line: 20, ch: 0 }, to: { line: 20, ch: 3 } },
-			mode: 'source',
-			cursorAnchor: '## **Bold** Title',
 		};
 		nav.refreshTop('a.md', 'leaf-1', settle);
 		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
@@ -216,7 +221,7 @@ describe('NavHistory stack logic', () => {
 			{ heading: 'Heading', level: 3, position: { start: { line: 5 } } },
 		]));
 		nav2.recordOpen('a.md', 'leaf-1', { key: 'outline:Heading', force: true });
-		nav2.refreshTop('a.md', 'leaf-1', { scroll: 5, mode: 'preview', anchor: '### Heading' });
+		nav2.refreshTop('a.md', 'leaf-1', { scroll: 5, anchor: '### Heading' });
 		expect(keyOf(nav2.entries[0])).toBe('outline:### Heading');
 		expect((nav2.entries[0] as NavJump).keyLine).toBe(5);
 	});
@@ -226,7 +231,7 @@ describe('NavHistory stack logic', () => {
 			{ heading: 'My Heading', level: 2, position: { start: { line: 12 } } },
 		]));
 		nav.recordOpen('a.md', 'leaf-1', { key: 'a.md#my-heading', force: true });
-		nav.refreshTop('a.md', 'leaf-1', { scroll: 12, mode: 'preview', anchor: '## My Heading' });
+		nav.refreshTop('a.md', 'leaf-1', { scroll: 12, anchor: '## My Heading' });
 		expect(keyOf(nav.entries[0])).toBe('a.md#my-heading');
 		expect((nav.entries[0] as NavJump).keyLine).toBe(12);
 	});
@@ -237,9 +242,8 @@ describe('NavHistory stack logic', () => {
 		]));
 		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Real', force: true });
 		nav.refreshTop('a.md', 'leaf-1', {
-			scroll: 1, mode: 'source',
+			scroll: 1,
 			cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
-			cursorAnchor: '## Other',
 		});
 		expect(keyOf(nav.entries[0])).toBe('outline:Real');
 		expect((nav.entries[0] as NavJump).keyLine).toBeUndefined();
@@ -250,7 +254,7 @@ describe('NavHistory stack logic', () => {
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
 		]));
 		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
-		nav.refreshTop('a.md', 'leaf-1', { scroll: 20, mode: 'preview', anchor: '## **Bold** Title' });
+		nav.refreshTop('a.md', 'leaf-1', { scroll: 20, anchor: '## **Bold** Title' });
 		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
 		// The user clicks the same outline item again: the new record carries
 		// the rendered text, which normalizes equal to the upgraded source
@@ -379,6 +383,73 @@ describe('NavHistory recording settings', () => {
 		expect(nav.entries.map(pathOf)).toEqual(['b.md']);
 	});
 
+	it('a cap that is not a number at all falls back to the default', () => {
+		// "abc" would make every `length > cap` comparison false and disable the
+		// ceiling entirely; null would collapse it to 1.
+		const nav = makeNav(makeApp(), { navStackCap: 'abc' as unknown as number });
+		expect(nav.stackCap()).toBe(DEFAULT_SETTINGS.navStackCap);
+	});
+
+	it('lowering the cap trims the stack at once, keeping the pointer on the top', () => {
+		const nav = makeNav();
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
+			nav.recordOpen(p, 'leaf-1');
+		expect(nav.entries.length).toBe(5);
+
+		// The settings panel mutates the settings object the history holds.
+		setCap(nav, 2);
+		expect(nav.applyStackCap()).toBe(3);
+
+		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
+		expect(nav.index).toBe(1);
+		// ...and nothing more is dropped on a second call.
+		expect(nav.applyStackCap()).toBe(0);
+	});
+
+	it('a cap that falls below the current depth stops the pointer on the oldest survivor', () => {
+		// An active file view, so canNavigate reports the STACK's reachability
+		// rather than "nothing is focused".
+		const app = makeApp();
+		const leaf = leafWithFile('leaf-1', 'd.md');
+		const ws = app.workspace as unknown as {
+			getActiveViewOfType: () => unknown;
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		};
+		ws.getActiveViewOfType = () => leaf.view;
+		ws.iterateAllLeaves = (cb) => cb(leaf);
+
+		const nav = makeNav(app);
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
+			nav.recordOpen(p, 'leaf-1');
+		(nav as unknown as { index: number }).index = 1; // two steps back
+		setCap(nav, 2);
+
+		nav.applyStackCap();
+
+		// The entry "now" was on is gone. The pointer has to land somewhere
+		// valid: the oldest survivor, so forward still walks what is left
+		// instead of traversal being disabled outright.
+		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
+		expect(nav.index).toBe(0);
+		expect(nav.canNavigate(-1)).toBe(false);
+		expect(nav.canNavigate(1)).toBe(true);
+	});
+
+	it('a stored stack over the ceiling is trimmed on load', () => {
+		// The cap is lowered (and persisted) while the stack blob still holds
+		// the old, longer history: the ceiling must win from the first render.
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: NAV_HISTORY_VERSION,
+			entries: [entry('a.md'), entry('b.md'), entry('c.md'), entry('d.md')],
+			index: 3,
+		}));
+
+		const nav = makeNav(makeApp(), { navStackCap: 2 });
+
+		expect(nav.entries.map(pathOf)).toEqual(['c.md', 'd.md']);
+		expect(nav.index).toBe(1);
+	});
+
 	it('navRecordActivation off: tab (and graph) activation records nothing', () => {
 		const nav = makeNav(makeApp(), { navRecordActivation: false });
 		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
@@ -449,7 +520,53 @@ describe('NavHistory persistence', () => {
 		expect(nav.entries.length).toBe(2);
 		expect(nav.index).toBe(1);
 	});
+
+	it('the write dedup belongs to the instance, not to the module', () => {
+		// The dedup must not be shared state: a second history (another vault in
+		// the same page, or the next test) would otherwise assume the blob on
+		// disk is its own and skip a write it owes.
+		const setItem = vi.spyOn(Storage.prototype, 'setItem');
+		try {
+			const first = makeNav();
+			first.recordOpen('a.md', 'leaf-1');
+			first.persist();
+			expect(setItem).toHaveBeenCalledTimes(1);
+			first.persist(); // unchanged: deduped
+			expect(setItem).toHaveBeenCalledTimes(1);
+
+			const second = makeNav();
+			second.persist();
+			expect(setItem).toHaveBeenCalledTimes(2);
+		} finally {
+			setItem.mockRestore();
+		}
+	});
 });
+
+// A cross-tab traversal fixture: leaf-2 is the entry's own (target) tab,
+// leaf-1 holds the active file view. `targetLeafView` is what that tab shows
+// now — { file: undefined } forces the open path, a MarkdownView showing the
+// target file exercises the "tab already there" path.
+function makeCrossTabHarness(app = makeApp(), targetLeafView: unknown = { file: undefined }) {
+	const targetLeaf = {
+		id: 'leaf-2',
+		isDeferred: false,
+		view: targetLeafView,
+		openFile: vi.fn().mockResolvedValue(undefined),
+	};
+	const activeLeaf = { id: 'leaf-1', isDeferred: false };
+	const view = Object.assign(Object.create(FileView.prototype), {
+		file: { path: 'c.md' },
+		leaf: activeLeaf,
+	});
+	const ws = app.workspace as unknown as {
+		getActiveViewOfType: () => unknown;
+		iterateAllLeaves: (cb: (l: unknown) => void) => void;
+	};
+	ws.getActiveViewOfType = () => view;
+	ws.iterateAllLeaves = (cb) => { cb(activeLeaf); cb(targetLeaf); };
+	return { app, targetLeaf, view };
+}
 
 describe('NavHistory.navigate', () => {
 	it('never leaves the stack bounds', async () => {
@@ -718,6 +835,87 @@ describe('NavHistory.navigate', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it('a cross-tab back arms the target entry its own landing, not the file record', async () => {
+		vi.useFakeTimers();
+		try {
+			const { app } = makeCrossTabHarness();
+			const nav = makeNav(app);
+			const state = (nav as unknown as { state: PositionState }).state;
+			nav.recordOpen('a.md', 'leaf-2');
+			(nav.entries[0] as NavVisit).st = {
+				scroll: 42,
+				cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } },
+			};
+			nav.recordOpen('c.md', 'leaf-1');
+
+			await nav.navigate(-1);
+
+			// The entry's OWN position rides along to the open pipeline (the
+			// file record is only the fallback), so the line the browser row
+			// shows is the line the open is told to land on.
+			expect(state.pendingHistoryNav).toBe(true);
+			expect(state.pendingHistoryNavState).toMatchObject({ scroll: 42 });
+
+			// ...and the safety timeout drops the landing WITH the flag: a
+			// command that never reached setViewState must not leak it onto a
+			// later unrelated open.
+			vi.advanceTimersByTime(1000);
+			expect(state.pendingHistoryNav).toBe(false);
+			expect(state.pendingHistoryNavState).toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a cross-file landing is structurally re-anchored through its heading', async () => {
+		// The heading moved 40 -> 100 (+60) after the entry was recorded. The
+		// injected open has no target editor to run the text-snippet remap
+		// against, so the structural shift is the only edit correction it can
+		// get — and it must be applied BEFORE the landing is handed over.
+		const app = makeApp([{ heading: 'T', level: 2, position: { start: { line: 100 } } }]);
+		makeCrossTabHarness(app);
+		const nav = makeNav(app);
+		const state = (nav as unknown as { state: PositionState }).state;
+		nav.recordOpen('a.md', 'leaf-2', { key: 'outline:## T' });
+		const jump = nav.entries[0] as NavJump;
+		jump.keyLine = 40;
+		jump.st = { scroll: 45, anchor: 'T' };
+		nav.recordOpen('c.md', 'leaf-1');
+
+		await nav.navigate(-1);
+
+		expect(state.pendingHistoryNavState).toMatchObject({ scroll: 105 });
+	});
+
+	it('a cross-tab back to a tab that still shows the file applies the entry landing', async () => {
+		// The tab was left at L7 when the user switched away, but the entry
+		// (and the browser row) promise L42 — so the traversal re-positions
+		// the live tab instead of only activating it where it happens to be.
+		const applied: unknown[] = [];
+		const targetLeaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-2', isDeferred: false };
+		targetLeaf.view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf: targetLeaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 7.2 },
+			editor: { getCursor: () => ({ line: 7, ch: 0 }), lineCount: () => 200 },
+			setEphemeralState: (st: unknown) => { applied.push(st); },
+		});
+		const { app } = makeCrossTabHarness(makeApp(), targetLeaf.view);
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-2');
+		(nav.entries[0] as NavVisit).st = {
+			scroll: 42,
+			cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } },
+		};
+		nav.recordOpen('c.md', 'leaf-1');
+
+		await nav.navigate(-1);
+
+		expect(applied[0]).toMatchObject({ scroll: 42 });
 	});
 
 	it('a same-tab file switch delegates to the native history when its next entry matches', async () => {
@@ -1087,7 +1285,8 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 	const state = new PositionState(fullSettings);
 	const refreshTop = vi.fn();
 	const recordTeleport = vi.fn();
-	const sampler = new Sampler(app as never, database as never, fullSettings, state, {
+	const store = new PositionStore(app as never, database as never);
+	const sampler = new Sampler(app as never, store, fullSettings, state, {
 		entries: [] as NavHistoryEntry[],
 		index: -1,
 		recordOpen: vi.fn(),
@@ -1201,9 +1400,9 @@ function makePatcherHarness(db: Record<string, unknown> = {}) {
 			rootSplit: { containerEl: { contains: (el: unknown) => el === leaf.containerEl } },
 		},
 	} as never;
-	const tabStore = new TabStore(app, { db } as never, state);
+	const store = new PositionStore(app, { db } as never);
 	const nav = { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() };
-	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, tabStore, nav as never, { flushOnLeave: vi.fn() } as never);
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, nav as never, { flushOnLeave: vi.fn() } as never);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
 	return { state, leaf, inject, nav };
@@ -1242,6 +1441,47 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 		expect(state.cover.isCovered(leaf)).toBe(true);
+		// ...and the landing is handed to the restorer, so its injected settle
+		// verifies the same line core was given.
+		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 10 });
+	});
+
+	it('a traversal carrying the target entry landing injects THAT over the file record', () => {
+		// A cross-file history jump: the entry's own landing (what the row
+		// shows) must win over the file record, which after reading on holds
+		// the spot the user had drifted to.
+		const { state, leaf, inject } = makePatcherHarness({ 'a.md': RECORD });
+		state.pendingHistoryNav = true;
+		state.pendingHistoryNavPath = 'a.md';
+		state.pendingHistoryNavState = {
+			scroll: 99,
+			cursor: { from: { line: 99, ch: 0 }, to: { line: 99, ch: 0 } },
+		};
+
+		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: 99 });
+		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 99 });
+		// the landing is consumed with the flag — one shot, no leak
+		expect(state.pendingHistoryNav).toBe(false);
+		expect(state.pendingHistoryNavState).toBeUndefined();
+	});
+
+	it('a landing armed for another file never lands on the open that stole the flag', () => {
+		// The flag is global: an unrelated open inside the arming window takes
+		// it. The landing is file-specific, so it must be dropped and the
+		// record of the file actually being opened must stand.
+		const { state, leaf, inject } = makePatcherHarness({ 'b.md': RECORD });
+		state.pendingHistoryNav = true;
+		state.pendingHistoryNavState = { scroll: 99 };
+		state.pendingHistoryNavPath = 'a.md';
+
+		const result = inject(leaf, SOURCE_OPEN_A('b.md'), undefined) as Record<string, unknown>;
+
+		expect(result).toMatchObject({ scroll: RECORD.scroll });
+		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: RECORD.scroll });
+		expect(state.pendingHistoryNavState).toBeUndefined();
+		expect(state.pendingHistoryNavPath).toBeUndefined();
 	});
 
 	it('a traversal without a saved record keeps the native target and consumes the flag', () => {
@@ -1275,5 +1515,77 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(result).toBe(eState);
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
+	});
+});
+
+// The signal a RESIDENT browser lives on (see NavHistory.subscribe): the modal
+// is opened, read and closed inside one render and needs none of this, but a
+// sidebar panel is on screen for hours and has no other way to learn that the
+// stack moved under it.
+describe('NavHistory change notification', () => {
+	const ST: NavEntryState = {
+		scroll: 12,
+		cursor: { from: { line: 12, ch: 0 }, to: { line: 12, ch: 0 } },
+	};
+
+	it('tells a subscriber about a pushed step, and stops when it unsubscribes', () => {
+		const nav = makeNav();
+		const seen = vi.fn();
+		const off = nav.subscribe(seen);
+
+		nav.recordOpen('a.md', 'leaf-1');
+		expect(seen).toHaveBeenCalledTimes(1);
+
+		// The panel was closed: a step recorded afterwards must not be drawn into
+		// a body that has already been torn down.
+		off();
+		nav.recordOpen('b.md', 'leaf-1');
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('tells a subscriber about a leave-refresh, a rename and a prune — and about nothing that changed nothing', () => {
+		const nav = makeNav();
+		nav.recordOpen('a.md', 'leaf-1');
+		const seen = vi.fn();
+		nav.subscribe(seen);
+
+		// Where the reader actually was when they left: the row's line and the
+		// panel's preview are this (see refreshTop).
+		nav.refreshTop('a.md', 'leaf-1', ST);
+		expect(seen).toHaveBeenCalledTimes(1);
+
+		// The entry refuses a refresh that names another file or another leaf, so
+		// nothing on screen moved and nothing is announced.
+		nav.refreshTop('other.md', 'leaf-1', ST);
+		expect(seen).toHaveBeenCalledTimes(1);
+
+		// A rename is the same stack naming a different path: every row that
+		// names it is stale until the browser redraws.
+		nav.renameFile('a.md', 'z.md');
+		expect(seen).toHaveBeenCalledTimes(2);
+		nav.renameFile('nothing.md', 'else.md');
+		expect(seen).toHaveBeenCalledTimes(2);
+
+		// …and the prune of a deleted file's steps is the same claim the other way
+		// round.
+		nav.deleteFile('z.md');
+		expect(seen).toHaveBeenCalledTimes(3);
+		nav.deleteFile('z.md');
+		expect(seen).toHaveBeenCalledTimes(3);
+	});
+
+	it('tells a subscriber when the ceiling drops the oldest entries', () => {
+		const nav = makeNav(undefined, { navStackCap: 2 });
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordOpen('b.md', 'leaf-1');
+		const seen = vi.fn();
+		nav.subscribe(seen);
+
+		nav.recordOpen('c.md', 'leaf-1');
+
+		// The push and the trim it caused are one redraw's worth of news; either
+		// notice is enough for a panel that redraws the whole list.
+		expect(seen.mock.calls.length).toBeGreaterThan(0);
+		expect(nav.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
 	});
 });

@@ -19,38 +19,55 @@ interface EphemeralState {
 	},
 }
 
+// One recorded line of a landing's context block: 0-based line number, as
+// every other line number in a record, and the line's trimmed text.
+interface NavContextLine {
+	line: number,
+	text: string,
+}
+
 // What a NavHistory entry carries beyond the position: the nav-display
 // fields, produced ONLY by the low-frequency nav reads (readNavEntryState /
 // withNavDisplay) at the moment a navigation entry is saved — never by the
 // hot read. EphemeralState is structurally assignable, so baseline-fed
 // states and legacy persisted entries type-check against consumers typed
 // NavEntryState (their display fields are simply absent).
+//
+// The rule for what belongs here: only what a later reader can no longer
+// derive — the text that sat at the landing, how big the file was, what the
+// link the user clicked said. Anything the vault or the metadata cache can
+// still answer at browse time (the heading chain, a file's line count now,
+// aliases, tags) is looked up there instead, so it is always current and
+// costs no storage.
 interface NavEntryState extends EphemeralState {
-	// Trimmed text of the primary line (scroll line, else cursor line) at
-	// capture time. Lets a stale line number (the file was edited after the
-	// position was recorded) be re-mapped to the line that now carries this
-	// text before the position is applied (remapAnchoredState).
+	// The landing's CONTEXT BLOCK: the lines the landing sat among at capture
+	// time, in document order, with the landing itself at `contextAt`. The
+	// history browser renders this block instead of re-reading the file (no
+	// IO, works for a file that has since been deleted, and shows what the
+	// user actually saw when they left) and the search box matches its text.
+	// DISPLAY + SEARCH ONLY: re-anchoring stays `anchor`'s job, one line with
+	// exact-match semantics (remapAnchoredState) — a multi-line block is a
+	// different algorithm and must never feed it.
+	context?: NavContextLine[],
+	// Index of the landing line within `context`.
+	contextAt?: number,
+	// The file's line count at capture time — the denominator for the row's
+	// "L412" (see the landing panel's head).
+	lineCount?: number,
+	// The file's mtime at capture time. Display-only: a live mtime that
+	// differs means the file was written after this step was recorded, so the
+	// text above may already be gone. (It is deliberately NOT used to skip the
+	// text remap: that runs against a live editor buffer, which can differ
+	// from the file on disk — an unsaved edit changes the lines without
+	// touching the mtime.)
+	mtime?: number,
+	// Trimmed text of the primary (viewport top) line at capture time. The one
+	// FUNCTIONAL field of the block above: lets a stale line number (the file
+	// was edited after the position was recorded) be re-mapped to the line that
+	// now carries this text before the position is applied
+	// (remapAnchoredState) — a single line with exact-match semantics, which is
+	// why it stays separate from the context block.
 	anchor?: string,
-	// Trimmed text of the CURSOR line at capture time (source mode only —
-	// a reading capture's cursor is the stale pre-preview one). Display-only:
-	// the history browser shows the landing line's own text, while the remap
-	// anchor above always belongs to the viewport top line.
-	cursorAnchor?: string,
-	// The view mode at capture time ('source' | 'preview'), stamped by the
-	// nav reads. Display-only (the history browser shows the cursor line for
-	// edit captures, the viewport top line for reading ones): a reading-mode
-	// capture carries the editor's stale pre-preview cursor, so the mode
-	// cannot be inferred from the state's shape. Consumers that read only
-	// cursor/scroll ignore it; pre-upgrade persisted nav entries lack it and
-	// fall back to the cursor-first heuristic.
-	mode?: 'source' | 'preview',
-	// Display-only: the cursor line was OUTSIDE the viewport at capture time
-	// (source-mode scrolling does not move the cursor) — the history browser
-	// falls back to the viewport top line + anchor instead of showing an
-	// invisible cursor line. Set only when decidable; undecidable geometry
-	// (no editor view, coords not yet measured, line beyond EOF) reads as
-	// visible.
-	cursorOffscreen?: true,
 }
 
 // Device-local per-tab position records.
@@ -58,6 +75,16 @@ interface TabStateRecord {
 	filePath: string;
 	st: EphemeralState;
 }
+
+// How much of one note the history list prints: 'last' keeps the list to one row
+// per note — the note's own row stands for the last spot the reader was at in it
+// (see NavHistoryList.activeRep), and a click points the panel at that spot —
+// while 'all' prints every distinct spot the note was left at under its name.
+//
+// Named here, beside the setting that holds it, because three places speak it: the
+// settings record, the list's own options and the toolbar's setting (see
+// NavBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
+type LandingsMode = 'last' | 'all';
 
 interface PluginSettings {
 	dbFileName: string;
@@ -83,6 +110,16 @@ interface PluginSettings {
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
 	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
 	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
+	// The history browser's own two preferences. They are persisted rather than held
+	// in the panel because both outlive the panel they are chosen in: a reader who
+	// wants the note as it stands now wants it tomorrow too, and a reader who wants
+	// one row per note wants that of every note. Both are chosen IN the panel —
+	// the content by the switch above the landing's lines (see LandingPanel), the
+	// list's shape by the toolbar's own setting button — because that is where the
+	// reader is looking at what they change, and the settings tab keeps no second
+	// copy of either.
+	navPreviewMode: 'spot' | 'note'; // which content a landing opens on: the spot the step recorded, or the note as it stands now
+	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -101,12 +138,16 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navStackCap: 50,
 	navRecordActivation: true,
 	navRecordTeleport: true,
+	navPreviewMode: 'spot',
+	navLandings: 'last',
 };
 
 export {
 	CursorPos,
 	EphemeralState,
+	NavContextLine,
 	NavEntryState,
 	TabStateRecord,
 	PluginSettings,
+	LandingsMode,
 };

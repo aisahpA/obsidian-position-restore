@@ -1,7 +1,7 @@
 import { App, TAbstractFile, Platform, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
-import { TabStore } from './storage/tab-store';
+import { PositionStore } from './storage/position-store';
 import { PositionState } from './state';
 import { BackgroundSettler } from './restore/background-settle';
 import { Restorer } from './restore/restorer';
@@ -9,6 +9,9 @@ import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryModal } from '@/nav-history/browser/modal';
+import type { NavBrowserPrefs } from '@/nav-history/browser/body';
+import { NavHistoryView, activateNavHistoryView, createNavHistoryView } from '@/nav-history/browser/view';
+import { PathBookkeeper } from './path-bookkeeping';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
@@ -18,30 +21,47 @@ import { NavHistoryModal } from '@/nav-history/browser/modal';
 //  - Restorer: restores a saved position after an open.
 //  - NavHistory: the VSCode-style back/forward stack (records via the patch
 //    and the poll, executes through the native per-tab history).
-//  - File rename/delete bookkeeping.
+//  - PathBookkeeper: the path-keyed bookkeeping for the vault's rename/delete
+//    events — which records move, which are dropped, and why a delete has to be
+//    deferred before it can be dropped (see path-bookkeeping.ts).
 // All cross-phase coordination flags live in the shared PositionState, so the
-// collaborators never desync. main.ts only talks to this class.
+// collaborators never desync. main.ts only talks to this class. Nothing here
+// owns state of its own beyond the collaborators: a method dispatches to the
+// piece that owns the concern.
 export class PositionManager {
 	private app: App;
 	private database: CursorPositionDatabase;
 	private state: PositionState;
-	private tabStore: TabStore;
+	private store: PositionStore;
 	private restorer: Restorer;
 	private patcher: OpenPatcher;
 	private sampler: Sampler;
 	private backgroundSettler: BackgroundSettler;
 	private nav: NavHistory;
+	private bookkeeper: PathBookkeeper;
 
-	constructor(app: App, database: CursorPositionDatabase, settings: PluginSettings) {
+	constructor(
+		app: App,
+		database: CursorPositionDatabase,
+		// The one shared settings object (main.ts assigns it once, the settings tab
+		// mutates it in place). Kept as a field because the history browser reads its
+		// own two preferences live off it (see browserPrefs).
+		private settings: PluginSettings,
+		// Write the settings object out, for the preferences the browser changes from
+		// the panel rather than from the settings tab. The plugin owns the file; this
+		// facade is only allowed to ask.
+		private save: () => void = () => {},
+	) {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
 		this.nav = new NavHistory(app, settings, this.state);
-		this.tabStore = new TabStore(app, database, this.state);
-		this.restorer = new Restorer(app, settings, this.tabStore);
-		this.sampler = new Sampler(app, database, settings, this.state, this.nav);
-		this.patcher = new OpenPatcher(app, settings, this.tabStore, this.nav, this.sampler);
-		this.backgroundSettler = new BackgroundSettler(app, settings, this.tabStore);
+		this.store = new PositionStore(app, database);
+		this.restorer = new Restorer(app, settings, this.store, this.state);
+		this.sampler = new Sampler(app, this.store, settings, this.state, this.nav);
+		this.patcher = new OpenPatcher(app, settings, this.store, this.state, this.nav, this.sampler);
+		this.backgroundSettler = new BackgroundSettler(app, settings, this.store, this.state);
+		this.bookkeeper = new PathBookkeeper(app, this.store, this.nav, this.state);
 	}
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
@@ -102,14 +122,18 @@ export class PositionManager {
 	}
 
 	storePositionData() {
-		// Closing a leaf can't update lastStateByLeaf (no dedicated close
-		// event), so dead records survive until the next fresh open's prune.
-		// Prune at every persist point instead — quit, suspend flush, and the
-		// periodic db flush all funnel here.
-		const droppedLastState = this.restorer.pruneStaleLeafIds();
-		if(this.database.dbDirty || droppedLastState) {
-			this.tabStore.persistLastStateByLeaf(this.state.lastStateByLeaf);
-		}
+		// Closing a leaf can't update the stored leaf records (no dedicated
+		// close event), so dead records survive until the next fresh open's
+		// prune. Prune at every persist point instead — quit, suspend flush,
+		// and the periodic flush all funnel here.
+		this.restorer.pruneStaleLeafIds();
+
+		// The per-leaf overlay rides the same persist points, and it persists
+		// at the same cadence as the database rather than only at quit: it is
+		// the only place a same-file-in-two-tabs split survives a restart, so
+		// holding it in memory until quit lost it to a crash. It dedups its own
+		// writes against the last blob, so an unchanged round is one stringify.
+		this.store.persist();
 
 		// Navigation history rides the same persist points (dirty-checked
 		// against the last written snapshot, so unchanged rounds cost one
@@ -143,7 +167,46 @@ export class PositionManager {
 		// The file you are sitting in has had no leave-refresh yet — fill its
 		// position before the browser renders so it is not a bare type badge.
 		this.nav.syncCurrentPosition();
-		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path]).open();
+		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path], this.browserPrefs()).open();
+	}
+
+	// The resident form of the same browser (main.ts command) — see
+	// NavHistoryView. Same history, same rows, standing in a sidebar instead of
+	// asked and dismissed.
+	openNavHistorySidebar() {
+		// Same reason as the modal's: the panel draws the stack as it stands, and
+		// the note being sat in has had no leave-refresh yet.
+		this.nav.syncCurrentPosition();
+		void activateNavHistoryView(this.app, this.nav, (path) => this.database.db[path], this.browserPrefs());
+	}
+
+	// The factory main.ts hands to Plugin.registerView: the view needs the
+	// history, the saved positions and the browser's own two preferences, all of
+	// which this facade owns, so the wiring is handed out here rather than reached
+	// for through it.
+	navHistoryViewCreator(): (leaf: WorkspaceLeaf) => NavHistoryView {
+		return createNavHistoryView(this.nav, (path) => this.database.db[path], this.browserPrefs());
+	}
+
+	// The two preferences the history browser owns (see types.ts): read LIVE off the
+	// shared settings object, so the dialog and the resident panel cannot hold
+	// different opinions about them — and written back through the plugin's own save,
+	// so a choice made in the panel outlives the panel, the dialog and the app run.
+	// One new object per shell: the object is a set of readers over settings that stay
+	// live, not a snapshot of them.
+	private browserPrefs(): NavBrowserPrefs {
+		return {
+			previewMode: () => this.settings.navPreviewMode,
+			setPreviewMode: (mode) => {
+				this.settings.navPreviewMode = mode;
+				this.save();
+			},
+			landings: () => this.settings.navLandings,
+			setLandings: (how) => {
+				this.settings.navLandings = how;
+				this.save();
+			},
+		};
 	}
 
 	// Tab/pane activation records a nav entry (VSCode semantics) — see
@@ -159,16 +222,40 @@ export class PositionManager {
 		return this.state.isSearchAnchored();
 	}
 
+	// Vault 'rename' — every path-keyed record moves with the file (see
+	// PathBookkeeper).
 	renameFile(file: TAbstractFile, oldPath: string) {
-		this.database.renameFile(file.path, oldPath);
-		this.nav.renameFile(oldPath, file.path);
-		if (this.state.lastLoadedFilePath == oldPath)
-			this.state.lastLoadedFilePath = file.path;
+		this.bookkeeper.renameFile(file, oldPath);
 	}
 
+	// Vault 'delete' — a scheduled prune, never an immediate one: the vault
+	// reports the same event for a sync plugin's remove-then-rename
+	// replacement, whose undo arrives a moment later (see PathBookkeeper).
 	deleteFile(file: TAbstractFile) {
-		this.database.deleteFile(file.path);
-		this.nav.deleteFile(file.path);
+		this.bookkeeper.deleteFile(file);
+	}
+
+	// Startup sweep for navigation history: files deleted while Obsidian was
+	// closed fire no 'delete' event, so their entries would sit in the browser
+	// as dead rows (holding slots in the capped stack) for good. History only —
+	// the position records are deliberately left alone (see PathBookkeeper).
+	sweepMissingHistory() {
+		this.bookkeeper.sweepMissingHistory();
+	}
+
+	// The history stack's ceiling changed in the settings: apply it to the
+	// stack already in memory instead of waiting for the next navigation to
+	// drop a large chunk at once (see NavHistory.applyStackCap).
+	applyNavStackCap(): void {
+		this.nav.applyStackCap();
+	}
+
+	// Prune the records the current settings exclude (and, incidentally, the
+	// ones over the entry cap). Routed through the store so the file layer and
+	// the leaf layer are pruned together — main.ts's startup sweep and the
+	// settings panel both come here.
+	prunePositions(): number {
+		return this.store.pruneDatabase();
 	}
 
 	clearExclusionCache() {

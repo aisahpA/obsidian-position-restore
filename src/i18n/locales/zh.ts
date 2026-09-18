@@ -89,12 +89,31 @@ export const zh: En = {
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
 	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
+	// 文件放在哪里是设置项可以陈述的“位置”事实；它是否因此被同步则不是——那取决
+	// 于用户使用的同步工具，而坚果云 / Remotely Save / iCloud / git 等工具恰恰会
+	// 同步 Obsidian Sync 跳过的插件目录。所以页面只说位置，Obsidian Sync 的规则
+	// 与它的名字留到弹窗的折叠说明里，因为那里问的正是这个问题。
+	'dataStorage.dbFileName.syncLocal': '位于插件目录内（默认）——它是否随 vault 同步，取决于你使用的同步工具。',
+	'dataStorage.dbFileName.syncVault': '位于仓库内——普通仓库文件，任何同步工具都能同步它。',
+	'dataStorage.dbFileName.syncHidden': '位于隐藏文件夹内——部分同步工具会跳过以“.”开头的文件夹。',
+	'dataStorage.dbFileName.syncSummary': '这个文件会被 Obsidian Sync 同步吗？',
+	'dataStorage.dbFileName.syncHint':
+		'Obsidian Sync 只会从社区插件目录中同步 data.json、main.js、manifest.json 和 styles.css，因此数据文件留在默认位置时不会离开写入它的那台设备。想让位置在设备之间跟着你走，请把数据文件指向仓库内的路径（用下方的按钮选择或新建文件夹），并在每台设备的 Obsidian Sync 中开启“同步其他所有类型文件”。以“.”开头的文件夹永远不会被 Obsidian Sync 同步，请选择普通的仓库文件夹。',
+
+	'dataStorage.corruptDb.notice':
+		'数据文件无法解析（可能正被同步工具改写），已保留一份副本：{0}。本次从空数据继续，重新打开笔记会重新记录位置。',
+	'dataStorage.corruptDb.noticeNoCopy':
+		'数据文件无法解析（可能正被同步工具改写），且未能写出副本，其中的位置记录无法找回。本次从空数据继续，重新打开笔记会重新记录位置（详情见控制台）。',
 
 	'dataStorage.entries.name': '记录数',
 	'dataStorage.entries.desc':
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',
 
 	'navHistory.heading': '导航历史',
+	// 设置项本身就是分组标题下的内容，不能再重复一遍标题（见 settings-tab）：
+	// 它装的是快捷键清单。
+	'navHistory.hotkeys.name': '快捷键',
+	// 弹窗自己的标题：它上面没有标题可以重复。
 	'navHistory.overview.name': '导航历史',
 	'navHistory.overview.desc':
 		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈大小可在下方调整，按设备保存在 localStorage，重启保留。',
@@ -107,10 +126,24 @@ export const zh: En = {
 	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
+	// 一个文件在历史列表里打印几个落点。这个设置本身也在页面上——工具栏最右端那个小按钮
+	// （见 NavHistoryBrowser.settings），因为读者是在看着列表做这个决定的：默认跟着读者自己
+	// 的走法——读历史基本是按文件走的，最后那一个才是「返回」会回到的地方，而它已经由笔记
+	// 那一行代表（点一下看它、箭头跳过去），所以列表里不再需要任何子级。
+	'navHistory.landings.name': '列表里的落点',
+	'navHistory.listSettings': '列表设置',
+	// 说明写成两行，一行一档（见 .nav-settings-desc：pre-line 保留这个换行）：一段话堆在
+	// 两个短选项下面是一堵小字墙，读者得自己从里面挑出哪句属于哪一档。
+	'navHistory.landings.desc': '「每篇一行」：一篇笔记只占一行，点一下看它最后那个落点。\n「全部落点」：每个落点都列在笔记下面；更早的落点也能用上面的搜索框直接找到。',
+	'navHistory.landings.options.last': '每篇一行',
+	'navHistory.landings.options.all': '全部落点',
 
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
 	'navHistory.commands.browseHistory': '浏览导航历史',
+	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
+	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
+	'navHistory.commands.browseHistorySidebar': '在侧边栏打开导航历史',
 
 	'navHistory.type.open': '打开',
 	'navHistory.type.switch': '切换',
@@ -119,42 +152,62 @@ export const zh: En = {
 	'navHistory.type.link': '链接',
 	'navHistory.type.graph': '图形',
 	'navHistory.graphView': '关系图谱',
-	'navHistory.searchPlaceholder': '按文件或文本过滤…',
+	'navHistory.searchPlaceholder': '按笔记名或文本过滤…',
 	'navHistory.noMatch': '没有匹配的历史。',
-	// 文件范围由两个控件表达同一个状态：直接的「只看本笔记」开关（常用路径，一次点击）
-	// 和旁边的选择器 chip——它显示当前生效的文件（未收窄时显示「全部文件」），点开是
-	// 历史里出现过的所有笔记。完整路径放在两者的 tooltip 里。
-	'navHistory.scope.all': '全部文件',
-	'navHistory.scope.pick': '把列表收窄到某个文件',
-	'navHistory.scope.count': '{0} 处',
-	'navHistory.onlyThisFile': '只看本笔记',
-	'navHistory.onlyThisFileTip': '只显示 {0} 里的位置',
-	'navHistory.scopeEmpty': '{0} 里没有其他位置。',
-	'navHistory.current': '当前位置',
-	'navHistory.empty': '暂无导航历史。',
+	// 以前这里还有「文件筛选」：一个「只看本笔记」开关加上一个选择器 chip（点开是历史
+	// 里出现过的所有笔记）。两个控件都是搜索框已经能回答的问题——笔记名本身就是它匹配
+	// 的文本——却各自占着工具栏的一格和一份状态，所以一起去掉了（见 modal.ts）。
+	'navHistory.empty': '暂无可跳转的其他位置。',
 
-	// 面板自身：钉顶的「当前位置」卡片、前进/后退分段、键盘提示。
-	'navHistory.keyboardHint': '↑↓ 选择 · Enter 跳转 · Esc 关闭',
-	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryModal.mobile）。
-	'navHistory.touchHint': '轻点一行看落点，再点「跳到这里」前往',
-	// 仅触屏：点击行只是"选中"（没有 hover），所以预览面板要自带一个真正前往的入口。
+	// 面板自身：点击提示。原来的前进/后退分段随步骤计数索引一起去掉了，钉顶的「当前
+	// 位置」卡片也去掉了（见 modal.ts）：列表是笔记本身，正在站的那篇是它的第一行。
+	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryBrowserOptions.touch）：行首的
+	// 箭头负责前往，轻点一行则是在旁边的面板里看它代表的那一处。`{arrow}` 是行上那个箭头
+	// 图标在句子里落笔的位置（见 NavHistoryBrowser.hint）——提示让人去找箭头，就得画出
+	// 列表上真正的那一个，而不是打一个形状不同的字符。
+	// 「展开」不在这两句话里：列表不再有任何可以展开的东西（见 list.ts），而提示是建一次
+	// 就不重绘的——一句跟着设置变的话会留在旧档位上，所以它只说两种档位下都成立的手势。
+	'navHistory.touchHint': '轻点 {arrow} 跳转，轻点一行看那一处',
+	// ……鼠标下的同一套手势，两种外壳都一样：列表只认点击（见 NavHistoryList），前往由
+	// 行首的箭头承担，鼠标划过什么也不做——只是路过一行的指针既不动位置，也不打开任何
+	// 东西。原来在这里的双击已经去掉：它会把每一次单击都押后一个双击窗口，于是列表响应
+	// 发钝，而且跳转前还会把笔记或面板闪开一下。（键盘仍然可用——↑↓ 走、Enter 跳转——
+	// 只是这行提示要教的不是它。）
+	'navHistory.clickHint': '{arrow} 直接跳转 · 单击看那一处',
+	// 行首的箭头和在行上右键做的是同一件事，这里是它们共用的说法：箭头拿它当提示
+	// 文字，面板在「没有可预览文本」时也引用它。
 	'navHistory.jumpHere': '跳到这里',
-	'navHistory.seg.forward': '前进',
-	'navHistory.seg.back': '后退',
-	'navHistory.seg.count': '{0} 条',
 	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
 	// 只写“第几个/共几个”：不用词，因为那个词是行内“安静区”里最宽的东西。
 	'navHistory.pane': '{0}/{1}',
 	'navHistory.disabledTip': '文件已删除，这一步无法恢复',
-	// 相对时间是面板的主要索引（见 NavEntryBase.t）。
+	// 相对时间不再是列表里的一列（见 listing.ts）：只剩下落点预览面板的头部在用。
 	'navHistory.time.now': '刚刚',
 	'navHistory.time.minutes': '{0} 分钟前',
 	'navHistory.time.hours': '{0} 小时前',
 	'navHistory.time.days': '{0} 天前',
-	// 落点预览条（该行上下共三行）。这条只在触屏上显示：电脑端同一处悬停
-	// 交给 Obsidian 自带的页面预览，它开在被点的那一行下面，所以不需要空状态。
-	'navHistory.preview.loading': '读取中…',
-	'navHistory.preview.blank': '（空行）',
+	// 落点抽屉：渲染的是条目自己记录的上下文块（用户离开时正在看的那几行），背后没有
+	// 任何读取；也可以切到这篇笔记现在的样子（一次库读取，见 PreviewContent）。两者都
+	// 交给 Obsidian 自己的 markdown 渲染器，所以既没有「读取中」这个状态，屏幕上也不
+	// 会出现原始 markdown 源码。
 	'navHistory.preview.none': '（不是一个可预览的 markdown 落点）',
 	'navHistory.preview.gone': '（文件已删除）',
+	// 抽屉能显示的两种内容，也就是切换按钮上的两个字——说的是它们各自的「时候」：
+	// 当时记录的落点，还是现在的全文。各两个字，剩下的交给同一行的说明文字。
+	'navHistory.preview.spot': '当时落点',
+	'navHistory.preview.note': '现在全文',
+	// 记录的上下文块覆盖的行号范围：渲染出来的正文没有自己的行号栏来说这件事。
+	'navHistory.preview.recorded': '当时看到 · L{0}–L{1}',
+	// 「全文」是什么，得说明白：那几行是笔记现在的样子，不是当时记录的。
+	'navHistory.preview.aside': '这篇笔记现在的样子',
+	// 不是笔记的文件只有一种视图——它自己的源码——也没有可命名的记录范围。
+	'navHistory.preview.source': '文件源码',
+	// 完全没有文本的文件（PDF、图片）。打开它靠的正是「跳到这里」，所以直接点名，
+	// 不让读者自己去猜。
+	'navHistory.preview.binary': '这类文件没有可预览的文本（PDF、图片等）：「跳到这里」会打开它',
+	// 点击链接进入时，链接所在的那篇笔记；以及「记录之后文件已被写过」的标记。
+	'navHistory.preview.via': '来自「{0}」',
+	'navHistory.preview.modified': '记录后已修改',
+	// 右栏的空状态：没有指向任何行时，说明这一栏是干什么的，而不是空着。
+	'navHistory.preview.pick': '指向左侧的笔记或某个落点，看当时停在哪几行',
 };

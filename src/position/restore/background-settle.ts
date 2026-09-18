@@ -1,6 +1,6 @@
 import { App, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
-import { TabStore } from '@/position/storage/tab-store';
+import { PositionStore } from '@/position/storage/position-store';
 import { nextPaint } from '@/shared/wait';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from './modes';
@@ -26,7 +26,7 @@ export class BackgroundSettler {
 	private app: App;
 	private settings: PluginSettings;
 	private state: PositionState;
-	private tabStore: TabStore;
+	private store: PositionStore;
 	private modes: RestoreModes;
 	// Reentrancy guard: a pass routinely outlasts the 200ms poll (settleAndHold
 	// holds a quiet window per leaf; maskedRestore waits on the renderer), and
@@ -34,11 +34,11 @@ export class BackgroundSettler {
 	// whose markers are only consumed at the end of each pass.
 	private settleInProgress = false;
 
-	constructor(app: App, settings: PluginSettings, tabStore: TabStore) {
+	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState) {
 		this.app = app;
 		this.settings = settings;
-		this.tabStore = tabStore;
-		this.state = tabStore.state;
+		this.store = store;
+		this.state = state;
 		this.modes = new RestoreModes(settings, this.state);
 	}
 
@@ -119,7 +119,7 @@ export class BackgroundSettler {
 			} else if (this.state.handledLeafIdMap.get(leafId) !== filePath) {
 				// Unhandled and un-injected: a reading or source-glide tab
 				// whose saved position was never applied. Restore it now.
-				const st = this.tabStore.getRestoreSt(leaf, filePath);
+				const st = this.store.read(leafId, filePath);
 				if (!st)
 					continue;
 				await this.restoreBackground(view, leafId, filePath, st);
@@ -133,7 +133,7 @@ export class BackgroundSettler {
 	// a scroll-0 (cursor-only) injection never moved the viewport, so it only
 	// reveals.
 	private async settleBackground(view: MarkdownView, leafId: string, filePath: string) {
-		const st = this.tabStore.getRestoreSt(view.leaf, filePath);
+		const st = this.store.read(leafId, filePath);
 		const isCurrent = () => view.file?.path === filePath;
 		const hasScroll = !!st && (st.scroll ?? 0) > 0;
 		if (hasScroll) {
