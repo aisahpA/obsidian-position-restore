@@ -10,6 +10,22 @@ declare module 'obsidian' {
 	}
 }
 
+// WHERE a database path sits — which is all the settings item may state: inside
+// the configuration folder (the plugin's own folder, or anywhere else under it),
+// inside a hidden folder, or out in the vault as an ordinary file. Whether any
+// of those travels between devices is the reader's sync client's business:
+// Obsidian Sync carries a plugin folder only as data.json / main.js /
+// manifest.json / styles.css and skips "."-folders outright, while a client that
+// mirrors the whole configuration folder carries them as they stand. So the page
+// says where the file is, and the modal states the Obsidian Sync rules. The
+// database itself accepts all three.
+function dbSyncState(app: App, path: string): 'config' | 'hidden' | 'vault' {
+	if (path === app.vault.configDir || path.startsWith(`${app.vault.configDir}/`))
+		return 'config';
+	const firstSegment = path.split('/')[0];
+	return firstSegment.startsWith('.') ? 'hidden' : 'vault';
+}
+
 export class SettingTab extends PluginSettingTab {
 	plugin: PositionRestorePlugin;
 
@@ -242,9 +258,23 @@ export class SettingTab extends PluginSettingTab {
 						name: t('dataStorage.dbFileName.name'),
 						desc: (() => {
 							const current = this.plugin.settings.dbFileName || this.plugin.database.defaultDbFileName;
+							const state = dbSyncState(this.app, current);
 							const frag = createFragment();
 							frag.createDiv({ text: t('dataStorage.dbFileName.desc') });
 							frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.dbFileName.current', current) });
+							// Where the file is, in one muted line. The default sits
+							// inside the plugin folder, which most sync setups do not
+							// carry whole — the fact a reader needs before the records
+							// silently fail to follow them to another device. It names
+							// no sync client: that rule belongs to the dialog.
+							frag.createDiv({
+								cls: 'mod-muted',
+								text: state === 'config'
+									? t('dataStorage.dbFileName.syncLocal')
+									: state === 'hidden'
+										? t('dataStorage.dbFileName.syncHidden')
+										: t('dataStorage.dbFileName.syncVault'),
+							});
 							return frag;
 						})(),
 						render: (setting) => {
@@ -348,8 +378,25 @@ class DbPathModal extends Modal {
 		contentEl.createEl('h3', { text: t('dataStorage.dbFileName.modal.title') });
 		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.desc') });
 		contentEl.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.mergeHint') });
+		// The modal is where a path is chosen by hand, so it is where the
+		// Obsidian Sync rule has to be stated — out of a plugin folder Sync
+		// carries only data.json, main.js, manifest.json and styles.css, and it
+		// skips "."-folders. Folded away by default: it matters to the reader who
+		// came here to make positions follow them, and would be four lines of
+		// noise to everyone else.
+		const syncHint = contentEl.createEl('details', { cls: 'position-restore-db-path-hint' });
+		syncHint.createEl('summary', { text: t('dataStorage.dbFileName.syncSummary') });
+		syncHint.createEl('p', { cls: 'mod-muted', text: t('dataStorage.dbFileName.syncHint') });
 
-		const input = contentEl.createEl('input', { type: 'text', cls: 'position-restore-db-path-input' });
+		const input = contentEl.createEl('input', {
+			type: 'text',
+			cls: 'position-restore-db-path-input',
+			// A vault path is a case-sensitive sequence of folder names, so the
+			// mobile keyboard has to be told not to capitalize the first letter,
+			// not to autocorrect a segment into a word it knows, and not to
+			// underline the whole thing as a misspelling.
+			attr: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'off', spellcheck: 'false' },
+		});
 		input.placeholder = this.plugin.database.defaultDbFileName;
 		input.value = this.plugin.settings.dbFileName || '';
 
@@ -369,7 +416,10 @@ class DbPathModal extends Modal {
 				void submit();
 		});
 
-		const pickers = contentEl.createDiv({ cls: 'position-restore-db-path-row' });
+		// `is-pickers` is what lets the phone layout give each of these three
+		// labels a row of its own (see styles.css); the action row below shares
+		// the base class and must stay an inline pair.
+		const pickers = contentEl.createDiv({ cls: 'position-restore-db-path-row is-pickers' });
 		pickers.createEl('button', { text: t('dataStorage.dbFileName.pickFolder') })
 			.addEventListener('click', () => {
 				const current = input.value.trim() || this.plugin.database.defaultDbFileName;

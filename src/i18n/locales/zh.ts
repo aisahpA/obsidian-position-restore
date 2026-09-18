@@ -89,6 +89,16 @@ export const zh: En = {
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
 	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
+	// 文件放在哪里是设置项可以陈述的“位置”事实；它是否因此被同步则不是——那取决
+	// 于用户使用的同步工具，而坚果云 / Remotely Save / iCloud / git 等工具恰恰会
+	// 同步 Obsidian Sync 跳过的插件目录。所以页面只说位置，Obsidian Sync 的规则
+	// 与它的名字留到弹窗的折叠说明里，因为那里问的正是这个问题。
+	'dataStorage.dbFileName.syncLocal': '位于插件目录内（默认）——它是否随 vault 同步，取决于你使用的同步工具。',
+	'dataStorage.dbFileName.syncVault': '位于仓库内——普通仓库文件，任何同步工具都能同步它。',
+	'dataStorage.dbFileName.syncHidden': '位于隐藏文件夹内——部分同步工具会跳过以“.”开头的文件夹。',
+	'dataStorage.dbFileName.syncSummary': '这个文件会被 Obsidian Sync 同步吗？',
+	'dataStorage.dbFileName.syncHint':
+		'Obsidian Sync 只会从社区插件目录中同步 data.json、main.js、manifest.json 和 styles.css，因此数据文件留在默认位置时不会离开写入它的那台设备。想让位置在设备之间跟着你走，请把数据文件指向仓库内的路径（用下方的按钮选择或新建文件夹），并在每台设备的 Obsidian Sync 中开启“同步其他所有类型文件”。以“.”开头的文件夹永远不会被 Obsidian Sync 同步，请选择普通的仓库文件夹。',
 
 	'dataStorage.corruptDb.notice':
 		'数据文件无法解析（可能正被同步工具改写），已保留一份副本：{0}。本次从空数据继续，重新打开笔记会重新记录位置。',

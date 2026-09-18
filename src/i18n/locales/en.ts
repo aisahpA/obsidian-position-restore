@@ -87,6 +87,18 @@ export const en = {
 	'dataStorage.dbFileName.messages.merged': 'Adopted the existing database file and merged {0} record(s) from it.',
 	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',
+	// Where the file sits is a FACT the settings item may state; whether it
+	// therefore syncs is not — that depends on the client the reader uses, and
+	// several of them (Nutstore Sync, Remotely Save, iCloud, git) do carry a
+	// plugin folder that Obsidian Sync skips. So the page says where the file
+	// is and no more, and the modal's folded note names Obsidian Sync and its
+	// rules, because that is the question it is asked there.
+	'dataStorage.dbFileName.syncLocal': 'Inside the plugin folder (the default) — whether it travels with your vault depends on the sync client.',
+	'dataStorage.dbFileName.syncVault': 'Inside the vault — an ordinary vault file, which any sync client can carry.',
+	'dataStorage.dbFileName.syncHidden': 'Inside a hidden folder — some sync clients skip folders whose name starts with ".".',
+	'dataStorage.dbFileName.syncSummary': 'Will Obsidian Sync carry this file?',
+	'dataStorage.dbFileName.syncHint':
+		'Obsidian Sync takes only data.json, main.js, manifest.json and styles.css out of a community plugin folder, so the database never leaves the device it was written on while it sits in the default location. To make positions follow you between devices, point this setting at a path inside the vault — the buttons below pick or create the folder for you — and enable "Sync all other types" in Obsidian Sync on every device. Folders whose name starts with "." are never synced by Obsidian Sync, so choose an ordinary vault folder.',
 
 	'dataStorage.corruptDb.notice':
 		'The database file could not be parsed (a sync client may have been rewriting it). A copy was kept at {0}. Starting from empty — positions are re-recorded as you open notes.',

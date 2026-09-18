@@ -16,6 +16,37 @@
 	justify-content: flex-end;
 }
 
+/* The picker row on a phone: three labels nothing like the same length, so the
+   wrap lands them ragged — the long one ("pick an existing JSON file in the
+   vault") takes a row to itself while the two short ones pair up above it. One
+   button per row gives each the full width to be hit, which is what a control
+   in a modal wants under a thumb. Scoped to `is-pickers`: the action row below
+   shares the base class and keeps its inline pair (`.is-actions`). */
+body.is-phone .position-restore-db-path-row.is-pickers > button {
+	flex: 1 1 100%;
+}
+
+/* The database-path dialog's sync note (DbPathModal), folded away by default:
+   it answers a question only the reader who came here to make positions follow
+   them to another device is asking, and would be four lines of noise above the
+   input for everyone else. Plain type size, not fine print — it is meant to be
+   read once it is opened, and shrinking it would only shrink a touch device's
+   tap target with it — and it keeps its distance from the field and buttons
+   below, which are a different thing to act on. */
+.position-restore-db-path-hint {
+	margin: 12px 0 20px;
+}
+
+.position-restore-db-path-hint > summary {
+	cursor: pointer;
+	color: var(--text-muted);
+	padding: 4px 0;
+}
+
+.position-restore-db-path-hint > p {
+	margin: 4px 0 0 1.4em;
+}
+
 /* Restore cue (RestoreCue): a transient chip naming the landing section,
    centered in the note so it clears the editor's chrome and the mobile bars,
    and allowed to wrap to two lines for deep heading chains. Long unbreakable

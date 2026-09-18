@@ -9,7 +9,7 @@ English | [简体中文](README-zh.md)
 ## Why this plugin
 
 - **Jump-free restore** — the note reopens exactly where you left off: no top flash, no corrective jump
-- **Cursor and scroll, both restored** — exact line and column; records persist with the vault across restarts and devices
+- **Cursor and scroll, both restored** — exact line and column; records persist across restarts, and follow you to other devices once the database sits in the vault (see [Syncing across devices](#syncing-across-devices))
 - **Per-tab positions** — the same note open in several tabs keeps a separate position per tab
 - **Navigation history** — VSCode-style back/forward across files, tabs and in-file jumps, with a browsable history list
 - **Resident history sidebar** — the same list as a permanent sidebar panel that follows the history while you work, instead of a dialog you open and dismiss
@@ -26,6 +26,15 @@ English | [简体中文](README-zh.md)
 - **Open behavior** — files without a saved position: Obsidian default or end of file; `[[link]]` opens: restore or always start
 - **Bases scroll recording** — optionally record scroll position in Obsidian Bases views
 - **Local database** — compact storage with automatic pruning; path customizable; fully offline
+
+## Syncing across devices
+
+Position records live in the plugin's own database file, and whether they follow you to another device depends on where that file sits:
+
+- **Inside the plugin folder (the default)** — Obsidian Sync never reads it: out of a community plugin's folder it carries only `data.json`, `main.js`, `manifest.json` and `styles.css`, so as far as Obsidian Sync is concerned the records stay on the device that wrote them. Clients that mirror the whole configuration folder (Nutstore Sync, Remotely Save, iCloud, git) carry it as it stands.
+- **Inside the vault** — an ordinary vault file, so every client can carry it. Point **Settings → Position Restore → Data storage → Database file** at a vault path (the dialog picks a folder for you, or an existing JSON file to adopt); records already stored at the old path are merged in on the way, and the settings item states where the file now is. For Obsidian Sync, also enable **Sync → Selective sync → Sync all other types** on *every* device, and avoid a folder whose name starts with `.` — it excludes those (the configuration folder is the single exception).
+
+Per-tab positions (the same note open in two tabs) are deliberately device-local and are never synced.
 
 ## Installation
 
