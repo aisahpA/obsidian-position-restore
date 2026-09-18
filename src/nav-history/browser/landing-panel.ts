@@ -129,16 +129,16 @@ export class LandingPanel {
 	}
 
 	// (Re)draw the panel for the row the list's position is on. Callers: every move
-	// of that position — mouse or keyboard, they are one thing (see
+	// of that position — a click or the keyboard, they are one thing (see
 	// NavHistoryList.choose) — which is why the panel itself is a handful of nodes
 	// around content the browser draws for it.
 	render(): void {
 		const box = this.opts.panel;
 		const position = this.opts.position();
 		// Which row the panel is about, in the order the reader's attention moves:
-		//  - the POSITION, when there is one: the single row the mouse moves by
-		//    hovering and the keyboard by walking, so both hands describe the same
-		//    spot (see NavHistoryList);
+		//  - the POSITION, when there is one: the single row a click puts the panel
+		//    on and the keyboard walks, so both hands describe the same spot (see
+		//    NavHistoryList);
 		//  - the LAST landing it described, while the list still has a row for it: a
 		//    reader who tapped a landing away, or whose row a query dropped, is still
 		//    working with that note — and the current entry is not where their
@@ -226,8 +226,8 @@ export class LandingPanel {
 	// The row the panel hangs under is PINNED to the top of the list while the panel is
 	// still under it.
 	//
-	// That row is the whole of the touch gesture — a tap on a note's row opens it and a
-	// second tap closes it again (see NavHistoryList.onTap) — and inline the panel is a
+	// That row is the whole of the gesture — a click on a note's row opens it and a
+	// second click closes it again (see NavHistoryList.onClick) — and inline the panel is a
 	// block in the list's OWN scroll: reading a long note scrolls the row off the top, and
 	// the reader is left with a panel they cannot put away without scrolling back for the
 	// handle. Pinned, the row (the file's name, its arrow, its count) stays where the finger

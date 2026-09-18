@@ -86,21 +86,11 @@ export interface NavHistoryBrowserOptions {
 	host: HTMLElement;
 	// The file's saved record, for an entry carrying no position of its own.
 	savedPosition?: (path: string) => EphemeralState | undefined;
-	// Whether the panel is driven by discrete clicks rather than by hover: a finger,
-	// and the resident sidebar panel, where the reader asked for a list that does not
-	// change under a passing mouse. It picks the list's whole interaction mode (see
-	// NavHistoryListOptions.tap) — with no hover, one click says everything a click
-	// can say (a note opens its landings, a landing is pointed at, a second click puts
-	// the panel away), and travel is the row's own arrow — the panel describes and
-	// never acts (see onClick).
-	// Read once by the shell, because it is a decision about the SHELL, not about the
-	// pane's width. The arrow is the same in both modes, so no shell loses its way to
-	// go somewhere.
-	tap: boolean;
-	// Whether this device is a touch device. A different question from `tap`: it is
-	// about the device's own ergonomics — an on-screen keyboard that covers half a
-	// phone when a field takes focus, and the wording of the hint ("tap" for a
-	// finger, "click" for a pointer driving the same tap-mode list).
+	// Whether this device is a touch device. It is about the device's own
+	// ergonomics and nothing else — an on-screen keyboard that covers half a phone
+	// when a field takes focus, and the wording of the hint ("tap" for a finger,
+	// "click" for a mouse). The list's own interaction is the same either way: it is
+	// click-only on every device (see NavHistoryList).
 	touch: boolean;
 	// Whether a travel COLLAPSES the reader's place in the tree first: every note
 	// closed, nothing pointed at, before the history is asked to move.
@@ -210,7 +200,6 @@ export class NavHistoryBrowser {
 		this.listOpts = {
 			list: listEl,
 			listId: this.listId,
-			tap: this.opts.tap,
 			// …and the device's own ergonomics again, for the one thing the list decides
 			// itself rather than styling: how big the arrow's glyph is under a finger
 			// (see NavHistoryList.go).
@@ -315,8 +304,8 @@ export class NavHistoryBrowser {
 			if (this.list.handleKey(ev))
 				ev.preventDefault();
 		} else if (ev.key === 'Enter') {
-			// Enter acts on the POSITION and on nothing else — the one row the mouse
-			// moves by hovering and the arrows by walking (see the list's choose) — and
+			// Enter acts on the POSITION and on nothing else — the one row a click
+			// puts the panel on and the arrows walk (see the list's choose) — and
 			// with no position it does nothing. (It used to fall back to "go back one
 			// step", which made one key mean two things depending on whether the pointer
 			// had crossed a row — and duplicated the app's own back command.)
@@ -371,11 +360,12 @@ export class NavHistoryBrowser {
 		// of every note the history had been in — is gone: a note's name is text
 		// the box already matches, so the two controls were a slower way to type
 		// it, and they cost the list the width and the row they stood on.
-		// What the panel can be driven by is the whole difference between the modes,
-		// so the hint names the gestures the reader actually has: a finger's tap on a
-		// touch device, a click in the resident panel (which uses the same tap-mode
-		// list for a pointer — see `tap`), and the keyboard where the list follows the
-		// mouse as well.
+		// What the panel can be driven by is what the hint names: a finger's tap on a
+		// touch device, and a click everywhere else — the same list, the same one
+		// gesture per row, whether the room around it is a dialog or a sidebar. (The
+		// keyboard's own keys still work in both: the hint names the gesture a reader
+		// has to be TOLD about, and the arrow in front of every row is the one this
+		// panel is built on.)
 		this.hint(bar);
 	}
 
@@ -387,11 +377,9 @@ export class NavHistoryBrowser {
 	// reported exactly that mismatch, reading the sentence and then looking for an
 	// arrow that was not on the list. The locale keeps the icon's PLACE in the
 	// sentence (see HINT_ICON), so each language puts it where its own grammar wants
-	// it; a hint with no placeholder — the keyboard's, which names keys — is plain
-	// text.
+	// it — both of the sentences this panel now has name the arrow, and both draw it.
 	private hint(bar: HTMLElement): void {
-		const key = this.opts.touch ? 'navHistory.touchHint'
-			: this.opts.tap ? 'navHistory.clickHint' : 'navHistory.keyboardHint';
+		const key = this.opts.touch ? 'navHistory.touchHint' : 'navHistory.clickHint';
 		const line = bar.createSpan({ cls: 'position-restore-nav-hint' });
 		const parts = t(key).split(HINT_ICON);
 		for (let i = 0; i < parts.length; i++) {

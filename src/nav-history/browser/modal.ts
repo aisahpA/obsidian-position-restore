@@ -27,22 +27,24 @@ function drawerFits(): boolean {
 //    one line, not ten, and two notes sharing a name print their folders to say
 //    which is which;
 //  - one click opens a note (or closes it again), and the row's own arrow travels —
-//    on a touch device, where there is no hover, one tap says it all: a note's row
-//    opens or closes its landings and points at nothing, a landing (or a note with
-//    one, which is a leaf) is pointed at and put away again by the same tap, and
-//    the row's arrow goes there;
+//    ONE click says it all on every device: a note's row opens or closes its
+//    landings and describes that note while it opens them, a landing (or a note with
+//    one, which is a leaf) is pointed at and put away again by the same click, and
+//    the row's arrow goes there. Nothing answers a pointer that merely passed over a
+//    row (see list.ts): a drawer that followed the mouse described whatever it
+//    happened to cross;
 //  - the CURRENT note is pinned first and its landing carries the "you are
 //    here" marker, so the current position is a place in the same tree — the
 //    first row, marked — and not a line of chrome above it;
 //  - picking a spot is by RECOGNITION, never by retrieval, which is what the
 //    LANDING's recorded lines are for: the few lines the reader was looking at
 //    when they left, drawn as markdown so they look like the note they came from
-//    (see PreviewContent), with the note as it stands now one switch away. On a
-//    pointing device they stand in a column beside the list and follow the row the
-//    reader is on — hover and the arrow keys move the SAME position (see list.ts),
-//    so there is no separate selection for the drawer to disagree with; where there
+//    (see PreviewContent), with the note as it stands now one switch away. They
+//    stand in a column beside the list and follow the row the reader has clicked —
+//    a click and the arrow keys move the SAME position (see list.ts), so there is no
+//    separate selection for the drawer to disagree with; where there
 //    is no room for two columns (a phone held upright) the same content opens under
-//    the tapped row instead, with a button to travel and a pinned bar that stays in
+//    the clicked row instead, with a button to travel and a pinned bar that stays in
 //    reach however long the note is (see LandingPanel);
 //  - the toolbar can narrow the list to matching text — a name, a path, a
 //    section, a line, or a phrase the step recorded. That is the only narrowing
@@ -67,17 +69,18 @@ export class NavHistoryModal extends Modal {
 	// The panel itself: the toolbar, the rows, the landing panel and the
 	// keyboard (see body.ts).
 	private browser!: NavHistoryBrowser;
-	// Touch devices have no hover at all, so there the only way to move the position
-	// is a tap and "point at a row" and "go there" are the same gesture. Read once,
-	// here: this also picks the hint and whether the filter box focuses itself.
+	// The device's own ergonomics, and nothing about how the list is driven: it is
+	// click-only everywhere (see list.ts). Read once, here: the touch flag picks the
+	// hint and decides whether the filter box focuses itself.
 	private mobile = Platform.isMobile;
 	// Which of the panel's two presentations this dialog is using: INLINE (the panel
 	// opens inside the list, under the row it describes) or the drawer (a standing
-	// second column). A pointing device always has the room for the drawer; a touch
-	// device gets it whenever the window is wide enough to hold both — a phone held
-	// sideways, a tablet — because stacked there the list is one row tall and the panel
-	// has nowhere to go. Follows a rotation through watchWidth, and the class and the
-	// rendering decision are both read off this one flag, so they cannot disagree.
+	// second column). A touch device gets the drawer whenever the window is wide
+	// enough to hold both — a phone held sideways, a tablet — because stacked there
+	// the list is one row tall and the panel has nowhere to go; a pointing device
+	// always has the room for it. Follows a rotation through watchWidth, and the class
+	// and the rendering decision are both read off this one flag, so they cannot
+	// disagree.
 	private inline = this.mobile && !drawerFits();
 	// The width query this dialog follows, and the listener on it: kept so that
 	// closing the dialog stops listening to the window (see watchWidth / onClose).
@@ -118,13 +121,10 @@ export class NavHistoryModal extends Modal {
 			nav: this.nav,
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
-			// A finger has no hover at all, so on a touch device the list runs in the
-			// tap mode; a pointer drives it the other way (hover follows the mouse,
-			// one click opens, the row's arrow travels). A SIDEBAR makes the same
-			// choice the other way round — see view.ts. Either way the arrow is how a
-			// row is travelled to: the double click that used to do it held every
-			// single click back for its window (see NavHistoryList.go).
-			tap: this.mobile,
+			// The list is click-only, like every shell's (see list.ts): nothing here
+			// follows a mouse, and the arrow is how a row is travelled to. The device
+			// still answers for its own ergonomics through `touch` (the hint's wording,
+			// the arrow's size under a finger, the on-screen keyboard).
 			touch: this.mobile,
 			// The dialog needs no collapse — the first travel closes it.
 			collapseOnJump: false,

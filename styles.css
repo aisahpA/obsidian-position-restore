@@ -318,9 +318,9 @@ body.is-mobile .position-restore-cue {
 	cursor: pointer;
 }
 
-/* THE POSITION: the row the reader is on, whichever hand put them there — the
-   mouse moves it by hovering and the arrow keys by walking (see NavHistoryList
-   .choose), so ONE look has to say "this row, right now". An accent wash, the same
+/* THE POSITION: the row the reader is on, whichever hand put them there — a click
+   sets it and the arrow keys walk it (see NavHistoryList.choose), so ONE look has to
+   say "this row, right now". An accent wash, the same
    one the drawer's own "here" is painted in: the row and the column are one thing
    seen twice, and without it the note's name was the only line tying them
    together — read once on the left and again on the right to be sure which spot the
@@ -329,8 +329,11 @@ body.is-mobile .position-restore-cue {
    describing, which is the same row except while nothing is positioned at all (a
    dialog just opened describes "where you are" before anything has been moved onto)
    — both are painted the same, because they mean the same thing to a reader.
-   There is no separate hover tint: the pointer IS the position, so a second tint
-   under it would only make the mouse's row look different from the keyboard's. */
+   Nothing is painted from a pointer merely crossing a row: the position is a click
+   the reader made, and a tint that appeared under a passing mouse would say the
+   mouse had chosen a row it only went over. The `:hover` rule below is the reader
+   arriving at the row they are ALREADY on, which is why it deepens the wash instead
+   of adding a second one. */
 .position-restore-nav-row.is-selected,
 .position-restore-nav-row.is-previewed {
 	background-color: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
@@ -866,7 +869,7 @@ body.is-mobile .position-restore-cue {
 
 /* …and the ROW the panel hangs under is pinned by that same scroll for as long as the
    panel is under it (see LandingPanel.sync). Inline the row IS the handle: one tap opens
-   the note and a second closes it again (see NavHistoryList.onTap), and reading a long
+   the note and a second closes it again (see NavHistoryList.onClick), and reading a long
    note used to scroll it — the only way back out — off the top of the list, leaving a
    panel the reader had to scroll back for before they could put it away. The row sticks
    itself to the top while the panel is still on screen and drops back into its slot once

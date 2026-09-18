@@ -70,7 +70,7 @@ export interface PreviewContentOptions {
 
 export class NavPreviewContent {
 	// The rendered DOM, and the component its child renders are hung on. Held
-	// across draws because the reader walks a whole note's landings one hover at
+	// across draws because the reader walks a whole note's landings one click at
 	// a time: re-rendering a long note per row would be work nobody sees.
 	private comp: Component | null = null;
 	private el: HTMLElement | null = null;

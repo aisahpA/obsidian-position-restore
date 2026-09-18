@@ -103,7 +103,7 @@ export class NavHistoryReads {
 	// read of a file, and it serves both views that show today's file rather than
 	// the recorded lines: the drawer's whole-note view of a note, and the one
 	// source view of a file that is not a note (see PreviewContent). Cached for
-	// the dialog's lifetime, because the reader walks a note's landings one hover
+	// the dialog's lifetime, because the reader walks a note's landings one click
 	// at a time; a note written while the dialog is open keeps the text it had
 	// when it was first asked for, which is a few seconds of a reader's attention
 	// rather than a live view.

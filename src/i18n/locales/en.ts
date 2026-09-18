@@ -146,12 +146,11 @@ export const en = {
 	// (see modal.ts).
 	'navHistory.empty': 'Nowhere else to go.',
 
-	// Browser chrome: the keyboard affordances. The two direction segments that
+	// Browser chrome: the click affordances. The two direction segments that
 	// used to label the list are gone with the step-count index, and so is the
 	// pinned "you are here" card (see modal.ts): the list is a tree of notes now,
 	// the note being stood in is its first row, and a note's own landings open
 	// under it.
-	'navHistory.keyboardHint': '↑↓ select · ←→ open/close · Enter jump · Esc close',
 	// A touch device has no keyboard, so its hint may only name things a finger
 	// can do (see NavHistoryBrowserOptions.touch): the arrow in front of a row
 	// travels, a tap on a note opens it, a tap on a landing shows its spot in the
@@ -159,12 +158,13 @@ export const en = {
 	// (see NavHistoryBrowser.hint) — the reader is told to look for an arrow, so the
 	// line shows the arrow that is actually on the list.
 	'navHistory.touchHint': 'Tap {arrow} to jump, a note to open it, a landing to see its spot',
-	// …and the same gestures with a mouse, in the resident sidebar panel, which
-	// runs in the tap mode on purpose: nothing happens on hover, a click opens a
-	// note or points at a landing, and the arrow in front of the row travels (see
-	// NavHistoryBrowserOptions.tap and NavHistoryList.go). The double-click this
-	// used to name is gone: it held every single click back for its window, so the
-	// list answered late, and it flashed the note open on its way out.
+	// …and the same gestures with a mouse, in both shells: the list is click-only
+	// (see NavHistoryList), the arrow in front of a row travels, and nothing at all
+	// happens on hover — a pointer that merely crosses a row moves no position and
+	// opens nothing. The double-click this used to name is gone: it held every
+	// single click back for its window, so the list answered late, and it flashed
+	// the note open on its way out. (The keyboard still works — ↑↓ walk, ←→ open and
+	// close, Enter jumps — it is simply not what this line has to teach.)
 	'navHistory.clickHint': '{arrow} jumps there · click a note to open it',
 	// The row's arrow and a right-click on the row do the same thing, and this is the
 	// word for both: the arrow carries it as its tooltip, and the panel's message for

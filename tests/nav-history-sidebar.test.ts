@@ -148,8 +148,8 @@ describe('NavHistoryView — the resident panel', () => {
 		// restored with the workspace must not take the caret out of the note.
 		expect(document.activeElement).not.toBe(input);
 		// …and it is still one click away, with the hint under it saying what a click
-		// does — the pointer's own wording of the tap mode, since a desktop sidebar is
-		// driven by a mouse that must not change anything by passing over it. The arrow
+		// does — the mouse's own wording, since the panel is click-only and a pointer
+		// must not change anything by passing over it (see NavHistoryList). The arrow
 		// the sentence names is the row's own icon, drawn into the line (see
 		// NavHistoryBrowser.hint).
 		const hint = el.querySelector<HTMLElement>('.position-restore-nav-hint')!;

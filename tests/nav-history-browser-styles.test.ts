@@ -183,8 +183,8 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*flex: 0 0 auto/);
 	});
 
-	// THE POSITION is painted in one colour whichever hand moved it: the row the
-	// mouse hovered and the row the arrows walked are the same row (see
+	// THE POSITION is painted in one colour whichever hand moved it: the row a click
+	// put the panel on and the row the arrows walked are the same row (see
 	// NavHistoryList.choose), so they must not look different — and the wash has to
 	// survive the pointer reaching that very row.
 	it('paints the position the same for the pointer and the keyboard', () => {
@@ -358,7 +358,7 @@ describe('history browser quiet tiers', () => {
 
 	// …and the row the panel hangs under is pinned by that same scroll for as long as the
 	// panel is under it: inline the row IS the handle (one tap opens a note, a second closes
-	// it — see NavHistoryList.onTap), and reading a long note used to scroll it off the top
+	// it — see NavHistoryList.onClick), and reading a long note used to scroll it off the top
 	// and leave the reader with a panel they had to scroll back for. Opaque, because the rows
 	// below slide under it, and the position's wash goes OVER that base: the wash alone is a
 	// tint of nothing. (What pins it, and only while the panel is on screen, is

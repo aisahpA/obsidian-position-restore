@@ -90,16 +90,14 @@ export class NavHistoryView extends ItemView {
 			nav: this.nav,
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
-			// THE PANEL IS CLICK-ONLY, on every device: no hover moves the position
-			// and no hover opens a landing panel under a row nobody chose — the
-			// reader asked for a place that stays put while they work, and a list
-			// that reshuffles what it describes under a passing mouse is the
-			// opposite of that. One click says everything (a note opens its
-			// landings, a landing is pointed at, a second click puts it away) and
-			// the row's own arrow travels — the same mode a finger gets, which is
-			// why a touch device needs no second code path here.
-			tap: true,
-			// …while the DEVICE still answers for its own ergonomics (the on-screen
+			// The panel is click-only, exactly as it is in the dialog (see list.ts):
+			// no pointer moves the position and nothing opens under a row nobody
+			// clicked — the reader asked for a place that stays put while they work,
+			// and a list that reshuffles what it describes under a passing mouse is
+			// the opposite of that. One click says everything (a note opens its
+			// landings and is described, a landing is pointed at, a second click puts
+			// it away) and the row's own arrow travels.
+			// The DEVICE still answers for its own ergonomics (the on-screen
 			// keyboard, and whether the hint says "tap" or "click").
 			touch: Platform.isMobile,
 			// …and a travel starts from a closed tree: the jump pins the note it landed
