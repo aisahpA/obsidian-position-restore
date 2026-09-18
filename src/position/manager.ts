@@ -189,11 +189,11 @@ export class PositionManager {
 	}
 
 	// The two preferences the history browser owns (see types.ts): read LIVE off the
-	// shared settings object, so the dialog, the resident panel and the settings tab
-	// cannot hold three opinions about them — and written back through the plugin's
-	// own save, so a choice made in the panel outlives the panel, the dialog and the
-	// app run. One new object per shell: the object is a set of readers over settings
-	// that stay live, not a snapshot of them.
+	// shared settings object, so the dialog and the resident panel cannot hold
+	// different opinions about them — and written back through the plugin's own save,
+	// so a choice made in the panel outlives the panel, the dialog and the app run.
+	// One new object per shell: the object is a set of readers over settings that stay
+	// live, not a snapshot of them.
 	private browserPrefs(): NavBrowserPrefs {
 		return {
 			previewMode: () => this.settings.navPreviewMode,
@@ -202,6 +202,10 @@ export class PositionManager {
 				this.save();
 			},
 			landings: () => this.settings.navLandings,
+			setLandings: (how) => {
+				this.settings.navLandings = how;
+				this.save();
+			},
 		};
 	}
 

@@ -316,22 +316,13 @@ export class SettingTab extends PluginSettingTab {
 							key: 'navRecordTeleport',
 						},
 					},
-					{
-						// The one row for the history browser's own preferences that
-						// is a SETTING: the other one (which content a landing opens
-						// on) is chosen by the switch in the panel itself, because
-						// that is where the reader is looking at the two contents.
-						name: t('navHistory.landings.name'),
-						desc: t('navHistory.landings.desc'),
-						control: {
-							type: 'dropdown',
-							key: 'navLandings',
-							options: {
-								last: t('navHistory.landings.options.last'),
-								all: t('navHistory.landings.options.all'),
-							},
-						},
-					},
+					// The history browser's own two preferences are NOT here: both are
+					// chosen in the panel itself — which content a landing opens on by
+					// the switch above the landing's lines, how much of a note the list
+					// prints by the toolbar's setting button (see
+					// NavHistoryBrowser.settings) — because that is where the reader is
+					// looking at what they change. A row here would be a second copy of
+					// each, reachable only while the thing it describes is off screen.
 				],
 			},
 		];

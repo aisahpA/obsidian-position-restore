@@ -56,16 +56,18 @@ describe('history browser quiet tiers', () => {
 		expect(browser.match(/var\(--text-(?:faint|muted)\)/g) ?? []).toEqual([]);
 	});
 
-	// The list is a TREE: a note's row is its NAME (the arrow leads it, but out of the
-	// row's flow — see the next test), and a landing indents under it with the
-	// coordinate in front of its section. There is no list-wide measured column any
-	// more — that existed so a single column of sections started on one x down a FLAT
-	// list, and the tree says the same thing with its indent (see the next test).
+	// The list is one row per NOTE by default: a note's row is its NAME (the arrow
+	// leads it, but out of the row's flow — see the next test), and where the setting
+	// prints them a landing indents under it with the coordinate in front of its
+	// section. There is no list-wide measured column any more — that existed so a
+	// single column of sections started on one x down a FLAT list, and the list says
+	// the same thing with its indent (see the next test).
 	it('lays a note out as its name, and a landing as coordinate + section', () => {
-		// The caret is gone outright: the count says the note has landings to open and
-		// the landings drawn under it say that it is open, so a column of every row
-		// repeating that state is a column spent twice (see NavHistoryList.fileRow).
+		// The caret is gone outright, and so is the "+N" that counted what a click would
+		// open: there is no tree to open any more, so a column of every row repeating
+		// that state is a column spent twice (see NavHistoryList.fileRow).
 		expect(browser).not.toContain('nav-file-caret');
+		expect(browser).not.toContain('nav-row-count');
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/);
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
 		// the landing steps in under the note it belongs to
@@ -196,11 +198,54 @@ describe('history browser quiet tiers', () => {
 		);
 	});
 
-	// How many landings open under a note rides with the name, so no column is
-	// reserved for it on the rows that carry no count.
-	it('rides the landing count with the note name', () => {
-		expect(browser).toMatch(/\.nav-row-count\s*\{[^}]*margin-inline-start: 0\.4em/);
-		expect(browser).toMatch(/\.nav-row-count\s*\{[^}]*color: var\(--nav-faint\)/);
+	// The toolbar's own setting (see NavHistoryBrowser.settings): its button rides at
+	// the far end of the strip whatever the box and the hint do with the room, and the
+	// panel it opens hangs off the strip rather than taking part in its line — an
+	// absolutely positioned child of the toolbar, whose own `position: relative` is
+	// what anchors it.
+	it('puts the list setting at the far end, and opens its panel off the strip', () => {
+		expect(browser).toMatch(/\.position-restore-nav-toolbar\s*\{[^}]*position: relative/);
+		expect(browser).toMatch(/\.position-restore-nav-settings\s*\{[^}]*margin-left: auto/);
+		expect(browser).toMatch(/\.position-restore-nav-settings-menu\s*\{[^}]*position: absolute/);
+		// …and the value in force takes the app's own "active" tint — the one the
+		// content switch uses for the view on screen (see .nav-preview-modes .is-active)
+		// — rather than a fill that would change the button's size.
+		expect(browser).toMatch(
+			/\.nav-settings-option\[aria-checked='true'\]\s*\{[^}]*background-color: var\(--background-modifier-active-hover\)/,
+		);
+	});
+
+	// A theme left this button all but invisible — twice (see the rules above): the
+	// app's icon skin paints with --icon-color and dims with --icon-opacity, and any
+	// tier MIXED toward the strip is only as visible as the strip's own background
+	// allows. So the button is pinned to the theme's PRIMARY text colour, both icon
+	// variables are set on it, and the ink travels in a variable only this plugin
+	// writes — declared under a selector deep enough (panel + toolbar + button) that a
+	// theme cannot outrank the `color`/`--icon-color` fight, and read back one element
+	// down for the glyph itself, where no theme rule knows to look.
+	it('paints the list setting in a tier a theme cannot wash out', () => {
+		const painted =
+			browser.match(
+				/\.position-restore-nav-panel \.position-restore-nav-toolbar \.position-restore-nav-settings\s*\{[^}]*\}/,
+			)?.[0] ?? '';
+		expect(painted).toMatch(/--nav-settings-ink: var\(--text-normal\)/);
+		expect(painted).toMatch(/color: var\(--nav-settings-ink\)/);
+		expect(painted).toMatch(/--icon-color: var\(--nav-settings-ink\)/);
+		expect(painted).toMatch(/--icon-opacity: 1/);
+		expect(painted).toMatch(/opacity: 1/);
+		expect(painted).not.toMatch(/--nav-faint|--nav-muted/);
+		expect(browser).toMatch(
+			/\.position-restore-nav-settings svg\s*\{[^}]*color: var\(--nav-settings-ink\)/,
+		);
+		// The mark that says which value is in force stands IN FRONT of its label — at
+		// the far end the panel's own width sat between the two — and it keeps its slot
+		// on the row that is not ticked, so the two labels start on one x.
+		expect(browser).toMatch(/\.nav-settings-option\s*\{[^}]*justify-content: flex-start/);
+		expect(browser).toMatch(/\.nav-settings-tick\s*\{[^}]*color: var\(--interactive-accent\)/);
+		expect(browser).toMatch(/\.nav-settings-tick\s*\{[^}]*width: 1\.1em/);
+		// The explanation is written as two lines, one per value (see the locale): the
+		// stylesheet has to keep those breaks.
+		expect(browser).toMatch(/\.nav-settings-desc\s*\{[^}]*white-space: pre-line/);
 	});
 
 

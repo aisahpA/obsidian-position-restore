@@ -163,7 +163,7 @@ export class LandingPanel {
 
 		// WHERE it hangs — the one thing the two presentations do not share. Inline it
 		// opens under the row it describes and travels with it; with no such row (no
-		// position, a note whose landings are on screen, a filter that took the row away)
+		// position, a note whose landings are printed, a filter that took the row away)
 		// it waits out of the way. The drawer's place is the body's second column, where
 		// the browser built it: a panel that arrives there from the inline presentation
 		// (a rotation across the width the drawer needs) has to come back to it.
@@ -226,12 +226,13 @@ export class LandingPanel {
 	// The row the panel hangs under is PINNED to the top of the list while the panel is
 	// still under it.
 	//
-	// That row is the whole of the gesture — a click on a note's row opens it and a
-	// second click closes it again (see NavHistoryList.onClick) — and inline the panel is a
-	// block in the list's OWN scroll: reading a long note scrolls the row off the top, and
-	// the reader is left with a panel they cannot put away without scrolling back for the
-	// handle. Pinned, the row (the file's name, its arrow, its count) stays where the finger
-	// left it, and the pinned block below it starts at the row's own foot (see styles.css).
+	// That row is the whole of the gesture — it is what opened the panel, and a second
+	// click on it puts the panel away again (see NavHistoryList.onClick) — and inline the
+	// panel is a block in the list's OWN scroll: reading a long note scrolls the row off
+	// the top, and the reader is left with a panel they cannot put away without scrolling
+	// back for the handle. Pinned, the row (the note's name, its arrow) stays where the
+	// finger left it, and the pinned block below it starts at the row's own foot (see
+	// styles.css).
 	//
 	// Only while the panel is still on screen: once the panel has gone by entirely, the row
 	// goes back into its slot rather than hanging over rows that have nothing to do with it.
@@ -459,10 +460,10 @@ export class LandingPanel {
 	// content and the switch that changes it are. The panel as a whole never fits — it
 	// is taller than the list it sits
 	// in — so the list is moved just far enough to leave PANEL_PEEK under the row, and
-	// NO further: the scroll stops when the note's own row — the file name, or for a note
-	// with several landings the row that was chosen — reaches the top of the list. A
-	// phone reported both halves of that: opening a panel scrolled the name out of sight,
-	// and without it there is nothing left to tap to close the note again.
+	// NO further: the scroll stops when the note's own row — the name, or the landing row
+	// that was chosen under 'all' — reaches the top of the list. A phone reported both
+	// halves of that: opening a panel scrolled the name out of sight, and without it
+	// there is nothing left to tap to put the panel away again.
 	//
 	// (The drawer needs none of this: the panel is a column of its own, with its head
 	// pinned and its content scrolling under it — see styles.css.)
@@ -479,8 +480,8 @@ export class LandingPanel {
 		// A list shorter than its own row cannot spare the peek: what is left of it.
 		const peek = Math.min(PANEL_PEEK, Math.max(0, view.height - rect.height));
 		if (rect.bottom > view.bottom - peek) {
-			// …and the list never moves past the NOTE's own row, which is how the note is
-			// closed again: a name that has left the list is a note the reader has to
+			// …and the list never moves past the NOTE's own row, which is the handle that
+			// put the panel there: a name that has left the list is a row the reader has to
 			// scroll back to. The landing that was picked is below it and comes along.
 			const keep = this.opts.noteRowOf(row) ?? row;
 			const room = Math.max(0, keep.getBoundingClientRect().top - view.top);

@@ -2,7 +2,7 @@
 //
 // Two shells stand around it — the "Browse navigation history" modal
 // (modal.ts) and the resident sidebar panel (view.ts) — and everything they
-// have in common lives here: the toolbar, the tree of notes, the landing panel
+// have in common lives here: the toolbar, the list of notes, the landing panel
 // beside it (or under it), the keyboard, and travel. A shell owns its own
 // lifetime and nothing else: when it opens, it mounts one of these into an
 // element it owns and reads the presentation decision back out of its own
@@ -15,7 +15,7 @@
 //   - constants.ts          the tuning numbers
 //   - model.ts / listing.ts / panes.ts   the pure model
 //   - reads.ts              every vault read, cached
-//   - list.ts               the tree of notes, the position, the travel arrow
+//   - list.ts               the list of notes, the position, the travel arrow
 //   - landing-panel.ts      the landing described: head, trail, caption and the
 //                           switch between the two contents — the right-hand
 //                           drawer on a pointing device, the in-flow panel when
@@ -38,7 +38,7 @@ import { App, FileView, setIcon } from 'obsidian';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
 import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
-import { EphemeralState } from '@/types';
+import { EphemeralState, LandingsMode } from '@/types';
 import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
@@ -59,22 +59,22 @@ const HINT_ICON = '{arrow}';
 // The two preferences the browser ITSELF owns, handed to every shell by the plugin
 // that persists them (see PluginSettings and PositionManager.browserPrefs). Both are
 // READERS over the one shared settings object rather than values: a resident panel
-// draws its list from a call made during render, so a settings-tab change is picked
-// up by the next history change instead of being frozen into the panel that happened
-// to be open. The mode is the one the panel can also WRITE — the switch above the
-// landing's content — which is why it comes as a pair.
+// draws its list from a call made during render, so a change made in the panel is
+// picked up by the next history change instead of being frozen into the panel that
+// happened to be open. Both also come as a pair — read plus write — because the
+// panel is where each of them is CHOSEN: the content by the switch above the
+// landing's lines (see LandingPanel), the list's shape by the toolbar's own setting
+// (see NavHistoryBrowser.settings).
 export interface NavBrowserPrefs {
 	// Which content a landing opens on (see PreviewMode).
 	previewMode: () => PreviewMode;
 	// The panel's own switch: remember the reader's choice, for good.
 	setPreviewMode: (mode: PreviewMode) => void;
-	// How many landings one note prints (see NavHistoryListOptions.landings).
+	// How much of one note the list prints (see LandingsMode).
 	landings: () => LandingsMode;
+	// The toolbar's setting: still the plugin's choice to keep (see setPreviewMode).
+	setLandings: (mode: LandingsMode) => void;
 }
-
-// How much of a note's landing tree the list draws: every distinct spot, or — the
-// default — only the newest one, with the rest one click away (see NavHistoryList).
-export type LandingsMode = 'last' | 'all';
 
 export interface NavHistoryBrowserOptions {
 	app: App;
@@ -92,8 +92,8 @@ export interface NavHistoryBrowserOptions {
 	// "click" for a mouse). The list's own interaction is the same either way: it is
 	// click-only on every device (see NavHistoryList).
 	touch: boolean;
-	// Whether a travel COLLAPSES the reader's place in the tree first: every note
-	// closed, nothing pointed at, before the history is asked to move.
+	// Whether a travel CLEARS the reader's place in the list first: nothing pointed
+	// at before the history is asked to move.
 	//
 	// A shell that stays up needs it (see view.ts). The jump rewrites the stack and
 	// pins the note it landed on first, so the note the reader had opened is about to
@@ -117,8 +117,8 @@ export interface NavHistoryBrowserOptions {
 	// sidebar does nothing (staying put is the whole point of it).
 	onJump?: () => void;
 	// The browser's own two preferences, handed down by the shell (see
-	// NavBrowserPrefs): which content a landing opens on, and how much of a note's
-	// landing tree the list draws.
+	// NavBrowserPrefs): which content a landing opens on, and how much of a note the
+	// list prints.
 	prefs: NavBrowserPrefs;
 }
 
@@ -129,7 +129,7 @@ export class NavHistoryBrowser {
 	// stack and are re-pointed before every render (see render): the list reads
 	// its entries through this object, so a resident panel is refreshed by
 	// assigning to it rather than by rebuilding the list (which would drop the
-	// open notes and the aimed-at landings).
+	// aimed-at landings).
 	private listOpts!: NavHistoryListOptions;
 	// The search box's text. The list's own query.
 	private filter = '';
@@ -137,6 +137,13 @@ export class NavHistoryBrowser {
 	// Where the preview panel waits when it has no row to open under (inline).
 	private previewHost!: HTMLElement;
 	private filterInput!: HTMLInputElement;
+	// The toolbar's own setting: the button in the strip's far corner, the small panel
+	// it opens (undefined while it is closed), and the press-outside listener that
+	// dismisses it. Held because only one may be up, and because that listener has to
+	// come off the document when the panel closes or the body goes (see destroy).
+	private settingsBtn!: HTMLElement;
+	private settingsMenu?: HTMLElement;
+	private dismissSettings?: (ev: Event) => void;
 	private panes: PaneInfo = { live: new Map() };
 	// Every vault lookup the panel makes, cached: an entry's display pieces, a
 	// file's parsed headings, the end of a file's frontmatter, and a file's text
@@ -204,8 +211,8 @@ export class NavHistoryBrowser {
 			// itself rather than styling: how big the arrow's glyph is under a finger
 			// (see NavHistoryList.go).
 			touch: this.opts.touch,
-			// How much of a note's tree to draw: read LIVE (see NavBrowserPrefs), so a
-			// settings-tab change reaches the next render of a resident panel.
+			// How much of a note to print: read LIVE (see NavBrowserPrefs), so the
+			// toolbar's setting reaches a panel that is already up.
 			landings: () => this.opts.prefs.landings(),
 			// The live stack, re-pointed per render (see render).
 			entries: this.opts.nav.entries,
@@ -283,26 +290,29 @@ export class NavHistoryBrowser {
 	}
 
 	// Throw away what belongs to this body and nothing else: the rendered
-	// preview and everything hung on it (embeds, math, plugin children). The
-	// shell calls this from its own teardown.
+	// preview and everything hung on it (embeds, math, plugin children), and the
+	// toolbar's setting if it happens to be open — its press-outside listener lives
+	// on the document, which outlives every panel (see the shell's teardown).
 	destroy(): void {
+		this.closeSettings();
 		this.content.destroy();
 	}
 
 	private onKeyDown(ev: KeyboardEvent): void {
+		// The toolbar's setting goes first, and the key STOPS here: a reader pressing
+		// Escape at an open setting is putting THAT away, not closing the dialog it
+		// happens to be standing in.
+		if (ev.key === 'Escape' && this.closeSettings()) {
+			ev.preventDefault();
+			ev.stopPropagation();
+			return;
+		}
 		if (ev.key === 'ArrowDown') {
 			ev.preventDefault();
 			this.list.move(1);
 		} else if (ev.key === 'ArrowUp') {
 			ev.preventDefault();
 			this.list.move(-1);
-		} else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
-			// The tree's own moves: close and open the note under the position,
-			// which is what a row's single click does and the vertical walk
-			// cannot. Only an open/close is consumed — the left and right arrows
-			// keep their ordinary meaning in the filter box otherwise.
-			if (this.list.handleKey(ev))
-				ev.preventDefault();
 		} else if (ev.key === 'Enter') {
 			// Enter acts on the POSITION and on nothing else — the one row a click
 			// puts the panel on and the arrows walk (see the list's choose) — and
@@ -355,9 +365,9 @@ export class NavHistoryBrowser {
 			this.render();
 		});
 		this.filterInput = input;
-		// The hint, and nothing else: the box is the whole toolbar. The file
-		// scope that used to sit beside it — a "only this note" switch and a chip
-		// of every note the history had been in — is gone: a note's name is text
+		// The hint, and then the panel's one setting at the far end of the strip. The
+		// file scope that used to sit between them — a "only this note" switch and a
+		// chip of every note the history had been in — is gone: a note's name is text
 		// the box already matches, so the two controls were a slower way to type
 		// it, and they cost the list the width and the row they stood on.
 		// What the panel can be driven by is what the hint names: a finger's tap on a
@@ -367,6 +377,7 @@ export class NavHistoryBrowser {
 		// has to be TOLD about, and the arrow in front of every row is the one this
 		// panel is built on.)
 		this.hint(bar);
+		this.settings(bar);
 	}
 
 	// The hint, with the row's own arrow DRAWN into it.
@@ -378,6 +389,11 @@ export class NavHistoryBrowser {
 	// arrow that was not on the list. The locale keeps the icon's PLACE in the
 	// sentence (see HINT_ICON), so each language puts it where its own grammar wants
 	// it — both of the sentences this panel now has name the arrow, and both draw it.
+	//
+	// One sentence per DEVICE and none per setting: the list answers a click the same
+	// way whatever it is printing (a note row points the panel at the spot it stands
+	// for; a landing row, where 'all' prints them, points at itself) — so the line
+	// cannot go stale under a setting the toolbar changes without rebuilding it.
 	private hint(bar: HTMLElement): void {
 		const key = this.opts.touch ? 'navHistory.touchHint' : 'navHistory.clickHint';
 		const line = bar.createSpan({ cls: 'position-restore-nav-hint' });
@@ -395,8 +411,121 @@ export class NavHistoryBrowser {
 		}
 	}
 
+	// THE TOOLBAR'S SETTING: the small button at the strip's far end, and the panel it
+	// opens over the list.
+	//
+	// It stands here rather than in the settings tab because this is where the
+	// question is asked — a reader decides how long the list should be while looking at
+	// it — and because the panel is a DIALOG as often as it is a sidebar: a settings
+	// row would be the only way to reach a choice about something that is not on screen
+	// at the time. It is the same move the landing panel makes with its two content
+	// views (see LandingPanel.modes), and it leaves the settings tab with no second
+	// copy of the value that could drift from this one.
+	//
+	// The panel is plain DOM and not the app's own Menu: it is a radio group of two
+	// with the one sentence that says what the two mean, which a menu cannot carry.
+	private settings(bar: HTMLElement): void {
+		const btn = bar.createEl('button', {
+			cls: 'clickable-icon position-restore-nav-settings',
+			type: 'button',
+			attr: {
+				// The button is the only label the panel needs, and a gear is not a word:
+				// the name is for the reader who has to have it said and for the tooltip.
+				'aria-label': t('navHistory.listSettings'),
+				'aria-haspopup': 'true',
+				'aria-expanded': 'false',
+				title: t('navHistory.listSettings'),
+			},
+		});
+		setIcon(btn, 'settings-2');
+		this.settingsBtn = btn;
+		btn.addEventListener('click', () => {
+			if (this.settingsMenu)
+				this.closeSettings();
+			else
+				this.openSettings(bar);
+		});
+	}
+
+	// Open the setting under the button: the name of the choice, its two values, and
+	// the sentence that says what each of them prints.
+	private openSettings(bar: HTMLElement): void {
+		const menu = bar.createDiv({
+			cls: 'position-restore-nav-settings-menu',
+			attr: { role: 'radiogroup', 'aria-label': t('navHistory.landings.name') },
+		});
+		menu.createDiv({ cls: 'nav-settings-title', text: t('navHistory.landings.name') });
+		for (const mode of ['last', 'all'] as LandingsMode[]) {
+			const key = mode === 'last' ? 'navHistory.landings.options.last' : 'navHistory.landings.options.all';
+			const checked = mode === this.opts.prefs.landings();
+			const option = menu.createEl('button', {
+				cls: 'nav-settings-option',
+				type: 'button',
+				attr: {
+					// A radio group rather than a menu of commands: what is being chosen is
+					// one of two answers, and the reader has to be able to hear WHICH one is
+					// in force without opening the list to look at its shape.
+					role: 'radio',
+					'aria-checked': String(checked),
+				},
+			});
+			// The value in force says so a second time, with a mark: the tint alone is a
+			// fact a theme can take away (see styles.css), and this is the one cue left
+			// when two backgrounds come out nearly the same. The mark's SLOT is written
+			// on every row whether or not it holds a glyph — in front of the label, so
+			// the two labels start on one x instead of the unticked one pulling left.
+			const tick = option.createSpan({ cls: 'nav-settings-tick', attr: { 'aria-hidden': 'true' } });
+			if (checked)
+				setIcon(tick, 'check');
+			option.createSpan({ cls: 'nav-settings-label', text: t(key) });
+			option.addEventListener('click', () => this.pickLandings(mode));
+		}
+		menu.createDiv({ cls: 'nav-settings-desc', text: t('navHistory.landings.desc') });
+		this.settingsMenu = menu;
+		this.settingsBtn.setAttr('aria-expanded', 'true');
+		// Anything outside it — the list, the filter box, the rest of the app — puts it
+		// away. On the DOCUMENT and in the CAPTURE phase, so that it is gone before the
+		// press it belongs to reaches whatever it landed on.
+		const dismiss = (ev: Event) => {
+			const target = ev.target as Node | null;
+			if (target && (menu.contains(target) || this.settingsBtn.contains(target)))
+				return;
+			this.closeSettings();
+		};
+		this.dismissSettings = dismiss;
+		document.addEventListener('mousedown', dismiss, true);
+	}
+
+	// One of the two values: the plugin is asked to remember it (see NavBrowserPrefs),
+	// and the list is redrawn on the spot — seeing the list that follows is the whole
+	// reason the choice is offered here, so the panel goes first and the change lands
+	// under it.
+	private pickLandings(mode: LandingsMode): void {
+		this.closeSettings();
+		if (this.opts.prefs.landings() === mode)
+			return;
+		this.opts.prefs.setLandings(mode);
+		this.render();
+	}
+
+	// Put the setting away, and say whether there was one up (@returns whether this
+	// was the key the reader meant, see onKeyDown).
+	private closeSettings(): boolean {
+		const menu = this.settingsMenu;
+		if (!menu)
+			return false;
+		this.settingsMenu = undefined;
+		if (this.dismissSettings) {
+			document.removeEventListener('mousedown', this.dismissSettings, true);
+			this.dismissSettings = undefined;
+		}
+		this.settingsBtn.setAttr('aria-expanded', 'false');
+		menu.remove();
+		return true;
+	}
+
 	// The "you are here" CARD that used to stand between the toolbar and the list
-	// is gone. The current entry is a row in the tree like any other — pinned
+	// is gone. The current entry is a row in the list like any other — pinned
 	// first, marked `●` — and the card said the same thing a second time, in a
 	// second place, in a second layout: one line of chrome bought with the height
 	// the list needed, and a reader had to learn which of the two "current
@@ -458,11 +587,10 @@ export class NavHistoryBrowser {
 	// A link inside the landing's rendered content was clicked (see
 	// NavPreviewContent's `wire`). It is the same journey as a row's travel and it
 	// goes through the same two steps, in the same order:
-	//  - the tree first where the shell is staying up. The open that follows pushes a
-	//    history step, and the rows are rebuilt from the stack the moment it lands —
-	//    a tree that came back from the reader's old open notes would open whatever
-	//    slid into their slots (see the option). Collapsed, the redraw is nothing but
-	//    the new list.
+	//  - the reader's place first, where the shell is staying up. The open that follows
+	//    pushes a history step, and the rows are rebuilt from the stack the moment it
+	//    lands — a position left where it was would name whatever slid into that slot
+	//    (see the option). Cleared, the redraw is nothing but the new list.
 	//  - then the shell's own reaction: a dialog has answered its question the moment
 	//    the reader went somewhere, and gets out of the way before the open it
 	//    triggered runs.
@@ -478,10 +606,10 @@ export class NavHistoryBrowser {
 	}
 
 	private jump(i: number): void {
-		// The tree first where the shell is staying up: the jump is about to rewrite the
-		// stack, and a tree that redraws from the reader's old open notes would open
-		// whatever slid into their slots (see the option). The panel is forgotten before
-		// the list, because clearing the position redraws it.
+		// The reader's place first where the shell is staying up: the jump is about to
+		// rewrite the stack, and a position left where it was would name whatever slid
+		// into that slot (see the option). The panel is forgotten before the list,
+		// because clearing the position redraws it.
 		if (this.opts.collapseOnJump) {
 			this.panel.forget();
 			this.list.collapse();

@@ -114,13 +114,22 @@ export const en = {
 	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
-	// How much of a note's landing tree the history browser prints. The default
-	// follows the reader's own navigation, which is by file: the newest landing is
-	// the one their back button keeps returning to.
-	'navHistory.landings.name': 'Landings per note',
-	'navHistory.landings.desc': 'How many places in one note the history list prints. "Newest only" shows the spot you left the note at, keeping the list short; the rest stay one click away on the note\'s own row. "All" prints every distinct spot.',
-	'navHistory.landings.options.last': 'Newest only',
-	'navHistory.landings.options.all': 'All',
+	// How many spots in one note the history list prints. The setting itself stands on
+	// the page too — the small button at the far end of the toolbar (see
+	// NavHistoryBrowser.settings) — because the reader decides it while looking at the
+	// list: by default the list follows the reader's own navigation, which is by file,
+	// and the newest spot is the one their back button keeps returning to. That spot is
+	// exactly what the note's row stands for (the panel describes it, the arrow travels
+	// to it — or nowhere, when it is where the reader already is), so nothing has to be
+	// printed under the row for it.
+	'navHistory.landings.name': 'Landings in the list',
+	'navHistory.listSettings': 'List settings',
+	// Two lines, one per value (see .nav-settings-desc: pre-line keeps the break): one
+	// paragraph under two short rows is a wall of small print the reader has to pick
+	// apart to find which sentence belongs to which answer.
+	'navHistory.landings.desc': 'One row per note: each note takes a single row — a click shows the last spot you were at in it.\nEvery landing: each spot is listed under its note; an older one can also be found with the search box above.',
+	'navHistory.landings.options.last': 'One row per note',
+	'navHistory.landings.options.all': 'Every landing',
 
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
@@ -148,24 +157,27 @@ export const en = {
 
 	// Browser chrome: the click affordances. The two direction segments that
 	// used to label the list are gone with the step-count index, and so is the
-	// pinned "you are here" card (see modal.ts): the list is a tree of notes now,
-	// the note being stood in is its first row, and a note's own landings open
-	// under it.
+	// pinned "you are here" card (see modal.ts): the list is notes now, the note
+	// being stood in is its first row, and what a note holds beyond that is the list
+	// setting's business rather than a tree to open.
 	// A touch device has no keyboard, so its hint may only name things a finger
 	// can do (see NavHistoryBrowserOptions.touch): the arrow in front of a row
-	// travels, a tap on a note opens it, a tap on a landing shows its spot in the
-	// panel below. `{arrow}` is where the row's OWN icon is drawn into the sentence
+	// travels, and a tap on a row shows the spot that row stands for in the panel
+	// beside it. `{arrow}` is where the row's OWN icon is drawn into the sentence
 	// (see NavHistoryBrowser.hint) — the reader is told to look for an arrow, so the
 	// line shows the arrow that is actually on the list.
-	'navHistory.touchHint': 'Tap {arrow} to jump, a note to open it, a landing to see its spot',
+	// "Open" is not in either sentence: there is nothing left to open (see list.ts),
+	// and the hint is built once and never redrawn — a sentence that followed the
+	// setting would be left behind by it. So it names only what holds either way.
+	'navHistory.touchHint': 'Tap {arrow} to jump, a row to see its spot',
 	// …and the same gestures with a mouse, in both shells: the list is click-only
 	// (see NavHistoryList), the arrow in front of a row travels, and nothing at all
 	// happens on hover — a pointer that merely crosses a row moves no position and
 	// opens nothing. The double-click this used to name is gone: it held every
 	// single click back for its window, so the list answered late, and it flashed
-	// the note open on its way out. (The keyboard still works — ↑↓ walk, ←→ open and
-	// close, Enter jumps — it is simply not what this line has to teach.)
-	'navHistory.clickHint': '{arrow} jumps there · click a note to open it',
+	// the note open on its way out. (The keyboard still works — ↑↓ walk, Enter jumps
+	// — it is simply not what this line has to teach.)
+	'navHistory.clickHint': '{arrow} jumps there · click a row to see its spot',
 	// The row's arrow and a right-click on the row do the same thing, and this is the
 	// word for both: the arrow carries it as its tooltip, and the panel's message for
 	// a file with nothing to show quotes it.

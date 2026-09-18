@@ -76,6 +76,16 @@ interface TabStateRecord {
 	st: EphemeralState;
 }
 
+// How much of one note the history list prints: 'last' keeps the list to one row
+// per note — the note's own row stands for the last spot the reader was at in it
+// (see NavHistoryList.activeRep), and a click points the panel at that spot —
+// while 'all' prints every distinct spot the note was left at under its name.
+//
+// Named here, beside the setting that holds it, because three places speak it: the
+// settings record, the list's own options and the toolbar's setting (see
+// NavBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
+type LandingsMode = 'last' | 'all';
+
 interface PluginSettings {
 	dbFileName: string;
 	minLinesToRecord: number; // 0 = disabled, do not record positions for files with fewer lines
@@ -103,11 +113,13 @@ interface PluginSettings {
 	// The history browser's own two preferences. They are persisted rather than held
 	// in the panel because both outlive the panel they are chosen in: a reader who
 	// wants the note as it stands now wants it tomorrow too, and a reader who wants
-	// one landing per note wants that of every note. The MODE has no row in the
-	// settings tab — the switch above the landing's content is where it is chosen
-	// (see LandingPanel) — while the landings setting is an ordinary settings row.
+	// one row per note wants that of every note. Both are chosen IN the panel —
+	// the content by the switch above the landing's lines (see LandingPanel), the
+	// list's shape by the toolbar's own setting button — because that is where the
+	// reader is looking at what they change, and the settings tab keeps no second
+	// copy of either.
 	navPreviewMode: 'spot' | 'note'; // which content a landing opens on: the spot the step recorded, or the note as it stands now
-	navLandings: 'last' | 'all'; // how many landings one note prints: only the newest, or every distinct spot
+	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -137,4 +149,5 @@ export {
 	NavEntryState,
 	TabStateRecord,
 	PluginSettings,
+	LandingsMode,
 };

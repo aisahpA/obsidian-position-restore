@@ -4,7 +4,7 @@ import { t } from '@/i18n';
 import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
 import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } from './model';
 
-// The tree of notes, and everything that belongs to a row: which steps the query
+// The list of notes, and everything that belongs to a row: which steps the query
 // keeps, how they group into one row per note, what the keyboard walks, and the
 // ONE position a click moves — the same position the keyboard walks, and nothing
 // else about the row (there is no per-cell meaning left in one).
@@ -13,33 +13,44 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // landing collapsed into a ×N and the note's name printed once per run of its own
 // rows — a flat chronology in which a note opened ten times was ten lines, and
 // two notes sharing a name were two indistinguishable lines. The panel now says
-// what a reader asks it: which note, and where in it. A note is one row, its
-// DISTINCT landings open under it — by line, top of the note first (see
-// groupByFile: inside one note the order it was visited in says nothing), and the
-// same line reached twice is one spot, not two rows that read alike — and a name
-// two notes share prints its folder to say which one it is. A note with ONE
-// landing has no tree to open: it is a leaf, and the drawer describes that
-// landing for the row itself (see expandable).
+// what a reader asks it: which note, and where in it. A note is one row, and a
+// name two notes share prints its folder to say which one it is.
 //
-// The row's two halves are a single click and an arrow: a click opens the note
-// (or closes it again; on a landing there is nothing to open, so it only points),
-// and the ARROW in front of the row travels — to a landing itself, or to the
-// first landing of the note it was made on. The arrow is not decoration: it
-// replaced a double click, and a double click cannot be told from a single one
-// until the second has either arrived or not — so the single click had to WAIT
-// out the double-click window (every plain click in the panel answered 300ms
-// late, which a reader feels as a dead list), and a click that did turn out to be
-// a pair had already opened the note the travel was about to close again (the
-// sublist flashing open and shut). One click, one target, one meaning — see `go`.
-// The keyboard does the same walk without a pointer: ↑↓
-// step through the rows on screen (a closed note's landings are not on screen),
-// ←→ close and open the note under the cursor, Enter travels.
+// WHAT IS UNDER THE ROW IS THE SETTING, and only that (see LandingsMode). By
+// default there is NOTHING under it: the list is one row per note — the reader's
+// own navigation is by file, and the spot that matters is the one they left it at
+// — the row STANDS FOR that spot (see activeRep), and a click points the panel at
+// it. Every distinct spot a note was left at is one value away ('all'), which
+// prints them under the name by line, top of the note first (see groupByFile:
+// inside one note the order it was visited in says nothing); the same line
+// reached twice is one spot, not two rows that read alike. A note with ONE
+// landing prints none under it either way: a single spot is not a list, and the
+// row already stands for it.
 //
-// ONE CLICK SAYS IT ALL, on every device and in every shell: clicking a note opens
-// or closes its landings — and while it opens them it is also the NOTE the panel
-// describes (see onClick) — clicking a landing (or a note with one, which is a leaf)
-// points the panel at it, a second time putting it away again, and the arrow in
-// front of a row travels.
+// There is no third state between them, and no expansion: a note's row used to
+// open and close its own landings, which made the row's click mean "open" for a
+// note with several spots and "point at it" for a note with one, added a count
+// (+N) to advertise what was hidden, and gave the arrow keys a second meaning.
+// With the spot a note stands for already on the row (it is what the arrow
+// travels to and what the panel describes), the tree cost a click to reach the
+// same place, and the reader who wants the other spots says so once, in the
+// setting, rather than per note.
+//
+// The row's two halves are a single click and an arrow: a click points the panel
+// at the landing the row stands for — a second click on the same row puts it away
+// again — and the ARROW in front of the row travels there. The arrow is not
+// decoration: it replaced a double click, and a double click cannot be told from a
+// single one until the second has either arrived or not — so the single click had
+// to WAIT out the double-click window (every plain click in the panel answered
+// 300ms late, which a reader feels as a dead list), and a click that did turn out
+// to be a pair had already pointed the panel at a row the travel's own clearing
+// then took away again. One click, one target, one meaning — see `go`.
+// The keyboard does the same walk without a pointer: ↑↓ step through the rows on
+// screen, Enter travels. There is no ←→: nothing opens.
+//
+// ONE CLICK SAYS IT ALL, on every device and in every shell: a note's row and a
+// landing row (where 'all' prints them) take the same gesture — point the panel
+// here, or put it away again — and the arrow in front of a row travels.
 //
 // NOTHING MOVES ON HOVER, which is the whole of the rule this panel is built on: the
 // pointer used to drive the position directly — a mouse crossing the list moved it
@@ -63,8 +74,7 @@ interface RowRef {
 	el: HTMLElement;
 	// The stack index the row acts on. Undefined for a note row whose file is
 	// gone: every recorded landing is unreachable, so the row names the note and
-	// there is nothing to travel to under it (which is exactly what opening it
-	// says).
+	// there is nothing to travel to (the panel still says what stood there).
 	rep?: number;
 	group?: number;
 }
@@ -109,9 +119,10 @@ export interface NavHistoryListOptions {
 	onRevealPanel: () => void;
 	// A row was chosen with a pointing device: travel there.
 	onTravel: (rep: number) => void;
-	// How many of a note's landings the list draws (see shownLandings): only the
-	// newest one — the plugin's default — or every distinct spot. Read per render,
-	// so a change in the settings tab reaches a panel that is already up.
+	// How much of a note the list prints (see shownLandings): one row per note — the
+	// plugin's default, the row standing for the last spot the note was left at — or
+	// every distinct spot under the name. Read per render, so the toolbar's setting
+	// reaches a panel that is already up.
 	landings: () => LandingsMode;
 	// Whether the hand at the panel is a FINGER: it is what decides the arrow's own
 	// size (see TOUCH_ARROW_PX), while the click-only rule above is the same for
@@ -155,9 +166,9 @@ export function revealDelta(rowTop: number, rowHeight: number, boxTop: number, b
 }
 
 export class NavHistoryList {
-	// The rows on screen, top to bottom: a note row followed by its landings
-	// while it is open. The keyboard walks THIS, so a closed note's landings are
-	// skipped without the walk having to know about the tree.
+	// The rows on screen, top to bottom: a note row, and under it its landings when
+	// the setting prints them (see shownLandings). The keyboard walks THIS, so what
+	// is not on screen is not walked.
 	private refs: RowRef[] = [];
 	// The groups of the last render: what a file row's `group` indexes into.
 	private groups: ReturnType<typeof groupByFile> = [];
@@ -165,16 +176,12 @@ export class NavHistoryList {
 	// click sets it (see onClick), the arrow keys walk it (see move). Undefined
 	// before anything has been pointed at: Enter has nothing to act on until then.
 	private selected: RowRef | undefined;
-	// The notes whose landings are on screen, by group index. Kept ACROSS renders:
-	// the query redraws the tree, and a note that came back into the list comes
-	// back where it was — a rebuild must not be a reopen.
-	private expanded = new Set<number>();
 	// The landing of a note the reader last AIMED at, by the note's path (a group
 	// index is a position in a list the filter reorders; a path is the note). It is
-	// what the note's own row stands for while its landings are not on screen (see
-	// activeRep): the rows under a note run in LINE order, so "the first one" is not
-	// the one the reader was reading, and closing a note must not silently move the
-	// subject to a different spot.
+	// what the note's own row stands for (see activeRep) once a landing of that note
+	// has been pointed at: the rows under a note run in LINE order, so "the first
+	// one" is not the one the reader was reading, and the row must not silently mean
+	// a different spot than the one they just chose.
 	private aimed = new Map<string, number>();
 
 	constructor(private opts: NavHistoryListOptions) {
@@ -186,19 +193,19 @@ export class NavHistoryList {
 	// itself, a note is the landing it stands for (see activeRep). Resolved from the
 	// ROW now rather than remembered as a number from when the position arrived: what
 	// a row stands for can move under a position that has not — the position walks the
-	// landings of a note (see aimAt), the query redraws the tree, a note closes and
-	// opens again. It is what the drawer describes and what Enter travels to: one
-	// position, so the two cannot disagree.
+	// landings of a note (see aimAt), the query redraws the list. It is what the
+	// drawer describes and what Enter travels to: one position, so the two cannot
+	// disagree.
 	get position(): number {
 		return this.selected ? this.activeRep(this.selected) : -1;
 	}
 
 	// The row an INLINE landing panel opens under (see LandingPanel.render), or
-	// undefined when the position is on a note whose landings are already on screen:
-	// there the panel is what would push those landings — and the note's own row, the
-	// one the reader has to click again to close the note — off a narrow panel. A note
-	// with ONE landing is a leaf that stands in for it (see expandable), so it keeps the
-	// panel: nothing opens under it to be pushed away.
+	// undefined when the landings of that note are already printed under it: there the
+	// panel is what would push them — and the name they belong to — off a narrow
+	// panel, and the reader who wants one of them has a row of their own to click. A
+	// note the setting keeps to one row has nothing under it to push, so the panel
+	// opens under the row like any other.
 	//
 	// It is the INLINE presentation's question and no other's: with the panel beside
 	// the list (the drawer) the row is only the subject it describes, and nothing
@@ -207,15 +214,15 @@ export class NavHistoryList {
 		const row = this.selected;
 		if (!row)
 			return undefined;
-		if (row.group !== undefined && this.expandable(row.group) && this.expanded.has(row.group))
+		if (row.group !== undefined && this.printsLandings(row.group))
 			return undefined;
 		return row.el;
 	}
 
-	// Whether any row still STANDS FOR a landing: its own row, or — while its note
-	// is closed — the note's row (see activeRep). The drawer asks this before
-	// staying on a subject, so a query that dropped the note takes the column off it
-	// rather than leaving it describing a row nobody can see.
+	// Whether any row still STANDS FOR a landing: its own row, or the note's row
+	// (see activeRep). The drawer asks this before staying on a subject, so a query
+	// that dropped the note takes the column off it rather than leaving it describing
+	// a row nobody can see.
 	standsFor(rep: number): boolean {
 		return rep >= 0 && this.refs.some(r => r.group !== undefined
 			&& this.groups[r.group]?.indices.includes(rep));
@@ -247,17 +254,17 @@ export class NavHistoryList {
 			?.el.addClass('is-previewed');
 	}
 
-	// The row a stack index resolves to, when that row is on screen (a landing of
-	// a closed note is not, and neither is a row the filter dropped).
+	// The row a stack index resolves to, when that row is on screen (a landing the
+	// setting does not print is not, and neither is a row the filter dropped).
 	rowOf(rep: number): HTMLElement | undefined {
 		return rep < 0 ? undefined : this.refs.find(r => r.rep === rep)?.el;
 	}
 
 	// The NOTE row a row belongs to: the file row at or above it (which is the row
-	// itself when it is one). The inline panel asks for it before moving the list: the
-	// note's own name is how the tree is closed again with a click (see onClick), so opening
-	// a panel may never scroll it out of the list — the scroll stops when it reaches the
-	// top instead (see LandingPanel.reveal).
+	// itself when it is one). The inline panel asks for it before moving the list: that
+	// row is the handle the panel is put away with (a second click on it, see onClick),
+	// so opening a panel may never scroll it out of the list — the scroll stops when it
+	// reaches the top instead (see LandingPanel.reveal).
 	noteRowOf(row: HTMLElement): HTMLElement | undefined {
 		const at = this.refs.findIndex(r => r.el === row);
 		if (at < 0)
@@ -269,26 +276,29 @@ export class NavHistoryList {
 		return undefined;
 	}
 
-	// The stack index a row acts on: a landing is itself; a note is the newest of its
-	// landings — WHERE I WAS IN THIS NOTE, which is what a reader pointing at a note
-	// means, and what their back button keeps returning to (see
-	// NavFileGroup.newest). It used to be the FIRST landing under the note, which the
-	// line-ordered rows made look like "the beginning of the document": the row of a
-	// note the reader had left at L800 travelled to L3.
+	// The stack index a row acts on: a landing is itself; a note is the NEWEST of its
+	// landings — THE LAST SPOT THE READER WAS AT IN IT, which is what a reader pointing
+	// at a note means, and what their back button keeps returning to. It used to be the
+	// FIRST landing under the note, which the line-ordered rows made look like "the
+	// beginning of the document": the row of a note the reader had left at L800
+	// travelled to L3.
 	//
-	// Travelling to where the reader already IS is not a step, so the landing they
-	// are standing on is passed over — the note's row is right there, marked ●, and
-	// the row's arrow would otherwise be a journey to itself. A note whose every
-	// landing is "here" answers with the one it has. A deleted note still ANSWERS
-	// with one of its recorded landings, because the panel is where "this file is
-	// gone, here is what stood there" is said; whether it may actually be travelled
-	// to is travel()'s question, not this one.
+	// The newest is the newest, whether or not the reader is standing on it. The row
+	// used to skip "here" and answer with the newest of the OTHER spots, so that its
+	// arrow was never a journey to itself — but that made the row of the note you are
+	// reading stand for a spot you were not sent to, and clicking the note's own row
+	// described some older place in it. Reading a row as "where I am" is right: the row
+	// is marked ●, the panel opens saying the same thing, and a row that stands where
+	// the reader already is simply has nowhere to travel (see targetOf).
+	//
+	// A deleted note still ANSWERS with one of its recorded landings, because the panel
+	// is where "this file is gone, here is what stood there" is said; whether it may
+	// actually be travelled to is travel()'s question, not this one.
 	//
 	// The one exception is the landing the reader last AIMED at in this note (see
-	// `aimed`): that one wins, so closing a note and opening it again leaves the
-	// subject where it was instead of snapping back to the newest step — which is a
-	// different spot whenever the rows are not in the order the reader went through
-	// them.
+	// `aimed`): that one wins, so a row points at the spot the reader chose rather
+	// than at the newest step — which is a different spot whenever the rows are not
+	// in the order the reader went through them.
 	private activeRep(row: RowRef): number {
 		if (row.group === undefined)
 			return row.rep ?? -1;
@@ -299,18 +309,15 @@ export class NavHistoryList {
 		if (remembered !== undefined && group.indices.includes(remembered))
 			return remembered;
 		const order = group.reachable.length ? group.reachable : group.indices;
-		const elsewhere = order.filter(i => i !== this.opts.currentIndex);
-		if (!elsewhere.length)
-			return order[0] ?? -1;
 		// The stack index IS the clock: entries are pushed in order, so the highest
 		// index among a note's distinct landings is its newest step.
-		return elsewhere.reduce((a, b) => (a > b ? a : b));
+		return order.reduce((a, b) => (a > b ? a : b));
 	}
 
 	// Remember the landing the reader aimed at, keyed by its note (see `aimed`). A
-	// FILE row aims at nothing of its own: it stands for whichever landing it is
-	// already describing, and recording that would turn the default into a
-	// permanent choice.
+	// NOTE row aims at nothing of its own: it stands for whichever landing it is
+	// already describing, and recording that would turn that landing into a
+	// permanent choice the reader never made.
 	private aimAt(ref: RowRef): void {
 		if (ref.group !== undefined || ref.rep === undefined)
 			return;
@@ -320,39 +327,22 @@ export class NavHistoryList {
 			this.aimed.set(path, ref.rep);
 	}
 
-	// Whether a note has landings to OPEN: two or more. One landing is not a tree,
-	// it is the note's own row — the drawer already describes that landing for the
-	// note (that is what activeRep above answers with), so opening it would open a
-	// group of one and a count would say "1" to nobody's benefit. This is the one
-	// question behind the count, the expansion and ←→.
-	private expandable(group: number): boolean {
-		return (this.groups[group]?.indices.length ?? 0) > 1;
+	// Whether this note's landings are printed under its own row right now — the
+	// setting's 'all', and a note that HAS more than one spot to print. One landing is
+	// not a list: it is what the note's own row stands for (see activeRep), so a
+	// second row one line under the name, saying the same thing, would be a row of
+	// chrome for nothing. This is the one question behind what is printed AND where an
+	// inline panel may open (see panelAnchor).
+	private printsLandings(group: number): boolean {
+		return this.opts.landings() === 'all' && (this.groups[group]?.indices.length ?? 0) > 1;
 	}
 
-	// WHICH of a note's landings are on screen. A note with ONE landing is a LEAF and
-	// prints NONE: that landing is what the note's own row stands for (see activeRep),
-	// and the drawer describes it for the row — a second row one line under the name,
-	// saying the same thing, is the caret problem again in the form of a row (see
-	// expandable). A note with several prints its NEWEST — the spot the reader left,
-	// which is where their back button keeps returning to (see NavFileGroup.newest) —
-	// plus, always, the landing they are STANDING ON: "you are here" is not something a
-	// preference may hide. Clicking the note's own row shows the rest and hides them
-	// again (see onClick), and the note's row says how many are hidden (see fileRow).
-	//
-	// The whole tree is what "all" asks for, and what the expansion opens. The default
-	// is "last" because the reader's own navigation is by file: a note visited nine
-	// times in one session has nine spots, of which the one that matters is the one
-	// they left — a list that prints all nine pushes every other note off the panel to
-	// say so.
+	// WHICH of a note's landings are on screen: none by default — the list is one row
+	// per note (see LandingsMode) — and under 'all', every distinct spot, in the line
+	// order `indices` already carries (top of the note first, never with the newest
+	// pulled to the top).
 	private shownLandings(group: ReturnType<typeof groupByFile>[number], index: number): number[] {
-		// A LEAF prints none of them: see above.
-		if (!this.expandable(index))
-			return [];
-		if (this.expanded.has(index) || this.opts.landings() === 'all')
-			return group.indices;
-		// The line order `indices` already carries is kept: the newest row is drawn
-		// where its line puts it among the ones shown, not always on top.
-		return group.indices.filter(i => i === group.newest || i === this.opts.currentIndex);
+		return this.printsLandings(index) ? group.indices : [];
 	}
 
 	// (Re)draw the rows; the toolbar and the panel persist around them.
@@ -397,10 +387,10 @@ export class NavHistoryList {
 		const doubles = duplicateNames(this.groups.map(g => g.path));
 
 		// A note row is drawn for every group, but the CURRENT entry is where the
-		// reader already is: a row it alone keeps alive is a row that can only
-		// open onto "here", and the sentence below says that better than the dead
-		// note does. So what decides whether the list is empty is the landings
-		// that are NOT the current one.
+		// reader already is: a row it alone keeps alive is a row with nowhere to go
+		// from, and the sentence below says that better than the dead note does. So
+		// what decides whether the list is empty is the landings that are NOT the
+		// current one.
 		let elsewhere = 0;
 		for (const group of this.groups)
 			elsewhere += group.indices.filter(i => i !== this.opts.currentIndex).length;
@@ -430,8 +420,9 @@ export class NavHistoryList {
 			if (row)
 				this.choose(row);
 			else
-				// The landing is gone (its note closed, or the filter dropped
-				// it): the note it belonged to is what is left to stand on.
+				// The landing is gone (the filter dropped it, or the setting stopped
+				// printing the note's landings): the note it belonged to is what is
+				// left to stand on.
 				this.focusGroupOf(wasRep);
 		}
 	}
@@ -447,7 +438,8 @@ export class NavHistoryList {
 
 	// Stand on the note a landing belonged to, when that landing itself is no
 	// longer on screen.
-	private focusGroupOf(rep: number): void {		for (let g = 0; g < this.groups.length; g++) {
+	private focusGroupOf(rep: number): void {
+		for (let g = 0; g < this.groups.length; g++) {
 			if (this.groups[g].indices.includes(rep)) {
 				const row = this.refs.find(r => r.group === g);
 				if (row)
@@ -457,18 +449,14 @@ export class NavHistoryList {
 		}
 	}
 
-	// One NOTE. The name is its last path segment, the folder is printed only
-	// where another note on screen shares the name, and the count appears only
-	// where there is something to count: a note with ONE landing is a leaf — the
-	// name, and the drawer describing that one landing, with nothing in between (see
-	// expandable). A pathless view row (the graph) prints neither folder nor count
-	// either: it is one view, not a note with spots in it.
+	// One NOTE. The name is its last path segment, and the folder is printed only
+	// where another note on screen shares the name. A pathless view row (the graph)
+	// prints no folder either: it is one view, not a note with spots in it.
 	//
-	// The row is its NAME and nothing else: the caret that used to lead it (and to
-	// rotate when the note was open) is gone. A note that has landings to open says
-	// so with the count, and an open note says so with the landings drawn under it —
-	// while the caret spent a column of every row on the one piece of state the list
-	// already shows twice.
+	// The row is its NAME and nothing else. The caret that used to lead it (and to
+	// rotate when the note was open) and the "+N" that said how many spots a click
+	// would open both went with the expansion (see the class comment): what the row
+	// prints is what it IS, and the spots it stands for are the setting's business.
 	private fileRow(group: ReturnType<typeof groupByFile>[number], index: number, doubles: Set<string>): number {
 		const rep = group.reachable.find(i => i !== this.opts.currentIndex) ?? group.reachable[0];
 		// A note whose file is gone is still the note the reader is standing in:
@@ -479,21 +467,11 @@ export class NavHistoryList {
 		const pathless = group.path === '' && (rep === undefined || view);
 		const missing = !pathless && !this.opts.noteExists(group.path);
 		const name = head?.name ?? baseName(group.path);
-		// How many of the note's spots are NOT on screen: the row's own affordance —
-		// click it to see them, click it again to put them away (see onClick and
-		// shownLandings). It is a "+N" and not the note's total because that is the
-		// fact a reader needs about what they are looking at ("there are more"), and
-		// a total that disagreed with the rows below it read as a miscount. Nothing
-		// hidden, nothing printed: a note with one landing is a leaf, and a note whose
-		// tree is open has already said what it holds.
-		const hidden = pathless || !this.expandable(index)
-			? 0
-			: group.indices.length - this.shownLandings(group, index).length;
 		const row = this.opts.list.createDiv({ cls: 'position-restore-nav-row is-file' });
 		if (missing) {
-			// The note is gone, and its row is still the note: it opens like any
-			// other (the recorded landings say what stood there), it just has
-			// nothing to travel to.
+			// The note is gone, and its row is still the note: it points the panel at
+			// the recorded landings like any other (they say what stood there), it just
+			// has nothing to travel to.
 			row.addClass('is-missing');
 			row.setAttr('title', t('navHistory.disabledTip'));
 		}
@@ -525,17 +503,16 @@ export class NavHistoryList {
 		if (folder !== undefined)
 			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-folder' });
 		file.createSpan({ text: name, cls: 'nav-row-name' });
-		// "You are here", on the note and (below) on the landing itself.
+		// "You are here", on the note and — where 'all' prints them — on the landing
+		// itself.
 		if (group.current)
 			file.createSpan({ text: '●', cls: 'nav-row-here' });
-		// …and how many more of them there are, one click away.
-		if (hidden > 0)
-			file.createSpan({ text: `+${hidden}`, cls: 'nav-row-count' });
 		return 1;
 	}
 
 	// One LANDING of a note: the coordinate, the section it sits in, and the pane
-	// holding it. Only drawn while its note is open.
+	// holding it. Drawn only under 'all' (see shownLandings), where a note's spots are
+	// listed under its name.
 	private placeRow(i: number, current: boolean): number {
 		const entry = this.opts.entries[i];
 		const d = this.opts.describe(i);
@@ -596,16 +573,16 @@ export class NavHistoryList {
 	}
 
 	// The arrow that travels, in the row's own left padding: ONE click, and it goes
-	// where the row stands for — the landing itself, or the top of the note the note's
-	// row stands for (see activeRep).
+	// where the row stands for — the landing itself, or the spot a note's own row
+	// stands for (see activeRep).
 	//
 	// It is the affordance that replaced the double click, and the reason it had to.
 	// A double click is a single click that has not been told yet whether it is one,
 	// so the row's own action can only run after the double-click window has passed:
 	// every plain click in the resident panel answered 300ms late, and a click that
-	// did turn out to be a pair had already opened the note (or the landing panel)
-	// that the travel's own collapse then took away again — a list that flashed open
-	// and a click that felt dead, which is what the report of it said. An arrow is
+	// did turn out to be a pair had already pointed the panel at the row that the
+	// travel's own clearing then took away again — a list that flashed open and a
+	// click that felt dead, which is what the report of it said. An arrow is
 	// unambiguous: it means "go there", it is visible before anything is clicked, it
 	// works with a mouse and a finger alike, and the row's own click keeps meaning
 	// exactly what it always meant.
@@ -735,76 +712,48 @@ export class NavHistoryList {
 		this.travel(ref);
 	}
 
-	// Forget where the reader had things opened and aimed, and put the position away:
-	// the tree back to the shape it opens in — every note closed, nothing pointed at.
+	// Forget the landing the reader had aimed at, and put the position away: the list
+	// back to the shape it opens in — nothing pointed at.
 	//
 	// A shell that STAYS UP across a travel is the only caller (see view.ts): the jump
-	// rewrites the stack and pins the note it landed on first, so the group index the
-	// reader had opened no longer names the note they opened — redrawing from the old
-	// set would re-open whatever slid into that slot, which is a panel describing a
-	// note nobody chose. Starting the jump from a closed tree is what makes the redraw
-	// that follows it nothing but the new list — and the tree comes back closed for
-	// the reader too, which is where a travel leaves them anyway.
+	// rewrites the stack and pins the note it landed on first, so the stack index behind
+	// the aimed-at landing — and the group the position was on — may now name another
+	// note. Starting the jump from a cleared list is what makes the redraw that follows
+	// it nothing but the new list, rather than a panel describing a note nobody chose.
 	collapse(): void {
-		this.expanded.clear();
 		this.aimed.clear();
 		this.clearSelection();
 	}
 
-	// A CLICK on a row, and it goes NOWHERE: it does what the row's own soft action
-	// is — open or close the note's landings, point at a landing, or put the panel
-	// away again when the pointed-at row is clicked a second time. Travel is the
-	// row's own arrow (see go) or, with a landing already positioned, Enter.
+	// A CLICK on a row, and it goes NOWHERE: it points the panel at the landing the row
+	// stands for (see activeRep), and a second click on the same row puts the panel away
+	// again. Travel is the row's own arrow (see go) or, with a row already positioned,
+	// Enter.
 	//
-	// A note's row is the TREE, and its click is the whole of what a click can do to
-	// it: it opens the landings, or closes them again — with no second gesture this is
-	// the only way back. It ALSO points at the note while it opens them, so the panel
-	// describes the landing the note stands for (see activeRep): "show me this note"
-	// is exactly what the click means, and a drawer left on the spot it happened to be
-	// describing — another note's, or "where you are" — answers a question nobody
-	// asked. What it must never do is open the panel UNDER the note's own row: a phone
-	// reported that, with the landings pushed BELOW the content and the note's row,
-	// the only thing left to click, off the top of the list. Nothing hangs there while
-	// the tree is open, though (see panelAnchor), so the position alone is free.
+	// The same gesture on both kinds of row, because there is only one thing a row can
+	// be asked: WHICH SPOT. A note's row answers with the landing it stands for — the
+	// one the reader last aimed at in that note, or the newest — so "show me this note"
+	// describes the spot their back button keeps returning to, rather than a drawer left
+	// on whatever it happened to be describing. A landing row answers with itself. (The
+	// note's row used to OPEN its landings instead, which made one click mean "open" or
+	// "point" depending on how many spots the note happened to have; the setting prints
+	// them, so nothing needs opening — see the class comment.)
 	//
 	// CLOSING points at nothing, and that is not symmetry for its own sake: inline the
-	// panel would open under the very note the reader has just put away (see
-	// panelAnchor). The drawer keeps describing the spot it was on instead (see
+	// panel would otherwise be left open under the very row the reader has just put away
+	// (see panelAnchor). The drawer keeps describing the spot it was on instead (see
 	// LandingPanel.render), which is the note they were working with.
-	//
-	// A note with ONE landing is the exception, because there is nothing to open: the
-	// row stands in for that landing (see fileRow), so it takes the landing row's
-	// gesture — and with it the only way back out of a preview in a panel with no Esc
-	// key under the pointer.
 	//
 	// Either way the row that was clicked is where the reader is standing again, and the
 	// list comes back to it if the panel had scrolled it away (see backTo).
 	private onClick(ref: RowRef): void {
-		if (ref.group !== undefined && this.expandable(ref.group)) {
-			if (this.expanded.has(ref.group)) {
-				// The tree closes: the position goes with it (see above), and the rows
-				// are rebuilt by the close.
-				this.clearSelection();
-				this.toggle(ref.group, false, false);
-			} else {
-				// The tree opens, the note is pointed at, and the landings it just
-				// opened are brought into sight: near the foot of the list they open
-				// under the fold, where the click looks like it did nothing at all
-				// (see showOpened).
-				this.toggle(ref.group, true, true);
-			}
-			// The rows are rebuilt either way, so the row that was clicked is found
-			// again by the identity it keeps across a rebuild: the note's group.
-			this.backTo(this.refs.find(r => r.group === ref.group)?.el);
-			return;
-		}
 		if (this.pointAt(ref))
 			this.backTo(ref.el);
 	}
 
-	// A row that POINTS at a landing rather than opening one: the first click puts the
-	// position on it (the panel opens under it), a second takes the position away
-	// again and the panel goes with it. @returns whether it was that second click.
+	// A row that POINTS the panel at a spot: the first click puts the position on it
+	// (the panel opens under it), a second takes the position away again and the panel
+	// goes with it. @returns whether it was that second click.
 	private pointAt(ref: RowRef): boolean {
 		if (this.selected?.el === ref.el) {
 			this.clearSelection();
@@ -835,16 +784,21 @@ export class NavHistoryList {
 	}
 
 	// The stack index a row would travel to, or -1 when it has none: a landing of a
-	// deleted note has nothing to restore, so neither its row nor its note's row is a
-	// destination. Asked twice of every row — once when it is DRAWN (the arrow is
-	// only drawn where it leads somewhere: see go) and once when it is clicked — so
-	// that the arrow a reader can see is the arrow that works.
+	// deleted note has nothing to restore, and neither has the spot the reader is
+	// ALREADY standing on — a journey to where they are is not a step (see activeRep),
+	// and an arrow on such a row would promise a move the click cannot make, in the
+	// dialog a click that closed the picker for nothing. Asked twice of every row —
+	// once when it is DRAWN (the arrow is only drawn where it leads somewhere: see go)
+	// and once when it is clicked — so that the arrow a reader can see is the arrow
+	// that works.
 	private targetOf(ref?: RowRef): number {
 		const target = ref ?? this.selected;
 		if (!target)
 			return -1;
 		const rep = this.activeRep(target);
-		return rep >= 0 && !this.opts.describe(rep).missing ? rep : -1;
+		if (rep < 0 || rep === this.opts.currentIndex)
+			return -1;
+		return this.opts.describe(rep).missing ? -1 : rep;
 	}
 
 	// Travel to the landing a row stands for. Public because Enter comes in through
@@ -857,11 +811,6 @@ export class NavHistoryList {
 			return false;
 		this.opts.onTravel(rep);
 		return true;
-	}
-
-	// What the keyboard is on.
-	private active(): RowRef | undefined {
-		return this.selected;
 	}
 
 	// Point the list at a row: the ONE position (see `selected`), the highlight, the
@@ -884,8 +833,8 @@ export class NavHistoryList {
 		this.reveal(ref.el, walked);
 		this.opts.onActiveRow(ref.el.id);
 		// Aiming at a landing is a choice about its note too: the note's row stands
-		// for that landing from now on (see aimAt), which is what keeps the drawer on
-		// the same spot when the note is closed and opened again.
+		// for that landing from now on (see aimAt), which is what keeps the row — and
+		// the panel with it — on the spot the reader chose.
 		this.aimAt(ref);
 		// The panel describes the landing this row stands for (see activeRep) — what
 		// Enter and the row's own arrow travel to as well. Settled BEFORE the panel is
@@ -934,75 +883,12 @@ export class NavHistoryList {
 		this.opts.onPointed();
 	}
 
-	// Open or close a note, and say what the gesture asks for besides the tree: `point`
-	// puts the position on the note's own row, and `show` brings the landings it just
-	// opened into sight. ←→ and the walk are one hand and want the first (the row that
-	// toggled is what the reader is looking at); a click wants both (see onClick,
-	// which is where the difference between opening and closing lives too).
-	//
-	// The note's row stands for the landing it stands for (the one most recently aimed
-	// at, see activeRep), so closing a note does not move the drawer to a different
-	// spot, and opening it does not either.
-	//
-	// A note with one landing has nothing to open and this does nothing (see
-	// expandable), which is what keeps it a leaf.
-	private toggle(index: number, point = true, show = false): void {
-		if (!this.expandable(index))
-			return;
-		const file = this.refs.find(r => r.group === index);
-		const opened = !this.expanded.has(index);
-		if (opened)
-			this.expanded.add(index);
-		else
-			this.expanded.delete(index);
-		// The note's own row is what stays on screen either way (a landing row is gone
-		// after a close), and it is also where the keyboard's walk left its attention.
-		if (file && point)
-			this.choose(file);
-		this.render();
-		// What a note that was just OPENED shows is the landings under it. They start
-		// below the note, and a note near the foot of the list opens them under the
-		// fold — where the tap looks like it did nothing at all (see showOpened).
-		if (show && opened) {
-			const note = this.refs.find(r => r.group === index)?.el;
-			const first = this.firstPlaceOf(index);
-			if (note && first)
-				this.showOpened(note, first.el);
-		}
-	}
-
-	// The first landing drawn under a note: the row directly below the note's own, and
-	// the one a reader who has just opened it is looking for.
-	private firstPlaceOf(group: number): RowRef | undefined {
-		const at = this.refs.findIndex(r => r.group === group);
-		return at < 0 ? undefined : this.refs.slice(at + 1).find(r => r.group === undefined);
-	}
-
-	// Bring a landing a click just opened into sight — by the LEAST the list can move, and
-	// never so far that the note's own row leaves the top: that row is the only thing the
-	// reader can click to close the note again, and a phone reported exactly that failure
-	// ("the file got pushed up and hidden, and I had to scroll for a while to get back to
-	// it"). Deliberately not scrollIntoView: that also scrolls any ANCESTOR that happens
-	// to overflow — on a phone with a short history the dialog itself is one — so the
-	// whole panel, list included, went up instead of the list alone.
-	private showOpened(note: HTMLElement, first: HTMLElement): void {
-		const view = this.opts.list.getBoundingClientRect();
-		// No layout to measure (a test): nothing to move the list by.
-		if (view.height <= 0)
-			return;
-		const below = first.getBoundingClientRect().bottom - view.bottom;
-		if (below <= 0)
-			return;
-		// How far the list may move before the note's own row reaches the top.
-		const room = note.getBoundingClientRect().top - view.top;
-		this.opts.list.scrollTop += Math.min(below, Math.max(0, room));
-	}
-
 	// The keyboard's walk: one row on, wrapping at either end. A step is `walked`, so
 	// the list shows the STEP and not merely the row (see reveal): it is the only move
 	// the reader cannot see coming from the pointer, and the only one that would
 	// otherwise leave a mark parked against the edge of the list while every further
-	// step scrolled the notes under it.
+	// step scrolled the notes under it. The rows it walks are the rows on screen,
+	// whichever setting printed them (see refs).
 	move(d: number): void {
 		const n = this.refs.length;
 		if (n === 0)
@@ -1013,34 +899,6 @@ export class NavHistoryList {
 			return;
 		}
 		this.choose(this.refs[(at + d + n) % n], true);
-	}
-
-	// The keyboard's own tree moves: ←→ close and open the note under the
-	// cursor, which is the one thing a row's single click does that the arrows
-	// cannot. On a landing, ← closes the note it is in. A note with one landing
-	// has no tree of its own, so neither arrow is consumed and both keep their
-	// ordinary meaning in the filter box (see NavHistoryModal.onKeyDown).
-	// @returns whether the key was consumed.
-	handleKey(ev: KeyboardEvent): boolean {
-		const row = this.active();
-		if (!row)
-			return false;
-		const group = row.group ?? this.ownerOf(row);
-		if (group === undefined)
-			return false;
-		if (ev.key === 'ArrowRight') {
-			if (this.expanded.has(group) || !this.expandable(group))
-				return false;
-			this.toggle(group);
-			return true;
-		}
-		if (ev.key === 'ArrowLeft') {
-			if (!this.expanded.has(group))
-				return false;
-			this.toggle(group);
-			return true;
-		}
-		return false;
 	}
 
 	// Which note a landing row belongs to: the note row above it in the walk.

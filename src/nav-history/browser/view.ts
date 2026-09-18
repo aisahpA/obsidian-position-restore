@@ -94,15 +94,15 @@ export class NavHistoryView extends ItemView {
 			// no pointer moves the position and nothing opens under a row nobody
 			// clicked — the reader asked for a place that stays put while they work,
 			// and a list that reshuffles what it describes under a passing mouse is
-			// the opposite of that. One click says everything (a note opens its
-			// landings and is described, a landing is pointed at, a second click puts
-			// it away) and the row's own arrow travels.
+			// the opposite of that. One click says everything (the row is pointed at,
+			// a second click puts it away, and what it stands for is described) and the
+			// row's own arrow travels.
 			// The DEVICE still answers for its own ergonomics (the on-screen
 			// keyboard, and whether the hint says "tap" or "click").
 			touch: Platform.isMobile,
-			// …and a travel starts from a closed tree: the jump pins the note it landed
-			// on first, so the note the reader had opened is about to be a different
-			// note in the same slot (see NavHistoryList.collapse).
+			// …and a travel starts from a cleared list: the jump pins the note it landed
+			// on first, so the row the reader had pointed at is about to stand for a
+			// different spot in the same slot (see NavHistoryList.collapse).
 			collapseOnJump: true,
 			inline: () => this.inline,
 			// A resident panel is restored WITH the workspace, so taking the caret

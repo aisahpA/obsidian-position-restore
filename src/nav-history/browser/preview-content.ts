@@ -271,8 +271,9 @@ export class NavPreviewContent {
 				return;
 			}
 			// Everything else is a link into the vault, and the browser follows it the
-			// way it follows a row: same seam, so the tree collapses (a resident panel)
-			// or the dialog closes (a picker) exactly as it does on a travel.
+			// way it follows a row: same seam, so the list's position is cleared (a
+			// resident panel) or the dialog closes (a picker) exactly as it does on a
+			// travel.
 			if (href)
 				this.opts.follow(href, sourcePath);
 		});

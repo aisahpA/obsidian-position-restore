@@ -87,7 +87,8 @@ export default class PositionRestorePlugin extends Plugin {
 				return true;
 			}
 		});
-		// History browser: the stack newest-first, click a row to jump there
+		// History browser: the stack newest-first, one row per note — a click points
+		// the panel at the spot that row stands for, and the row's own arrow travels
 		// (time travel — the forward part is kept). No availability gate.
 		this.addCommand({
 			id: 'browse-nav-history',

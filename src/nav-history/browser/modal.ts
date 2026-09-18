@@ -21,20 +21,23 @@ function drawerFits(): boolean {
 }
 
 // A destination picker, laid out around how a user actually gets lost:
-//  - the list is a TREE OF NOTES, newest note first, one row per note with its
-//    landings open under it — by line, top of the note first, and not at all for
-//    a note with a single landing, which is a leaf: a note opened ten times is
-//    one line, not ten, and two notes sharing a name print their folders to say
-//    which is which;
-//  - one click opens a note (or closes it again), and the row's own arrow travels —
-//    ONE click says it all on every device: a note's row opens or closes its
-//    landings and describes that note while it opens them, a landing (or a note with
-//    one, which is a leaf) is pointed at and put away again by the same click, and
-//    the row's arrow goes there. Nothing answers a pointer that merely passed over a
-//    row (see list.ts): a drawer that followed the mouse described whatever it
-//    happened to cross;
+//  - the list is NOTES, newest note first, one row per note — a note opened ten
+//    times is one line, not ten, and two notes sharing a name print their folders
+//    to say which is which. What the list prints UNDER a note is the toolbar's own
+//    setting (see LandingsMode): by default nothing, and the row stands for the spot
+//    the reader left that note at — the one their back button keeps returning to,
+//    which is what the row's arrow travels to and what the panel beside it describes.
+//    'All' prints the note's other spots under it, by line, top of the note first;
+//    without it the older ones are still reachable through the search box, which
+//    matches the lines that were there (see list.ts);
+//  - one click points the panel at the spot a row stands for — a second click on the
+//    same row puts it away again — and the row's own arrow travels. ONE click says it
+//    all on every device, and a note's row and a landing's row take the same gesture,
+//    because there is only one thing a row can be asked: WHICH SPOT. Nothing answers
+//    a pointer that merely passed over a row (see list.ts): a drawer that followed
+//    the mouse described whatever it happened to cross;
 //  - the CURRENT note is pinned first and its landing carries the "you are
-//    here" marker, so the current position is a place in the same tree — the
+//    here" marker, so the current position is a place in the same list — the
 //    first row, marked — and not a line of chrome above it;
 //  - picking a spot is by RECOGNITION, never by retrieval, which is what the
 //    LANDING's recorded lines are for: the few lines the reader was looking at
@@ -57,8 +60,8 @@ function drawerFits(): boolean {
 //    re-pushed on top, so back always returns to where you were.
 // The forward/back segments and the step counts are gone: this panel answers
 // "which note, and where in it", and a direction of travel is not part of that
-// answer. A deleted note's row is still the note — it opens, and its recorded
-// landings still say what stood there — but nothing under it travels.
+// answer. A deleted note's row is still the note — the panel says what stood there —
+// but nothing on it travels.
 //
 // WHAT MAKES IT A MODAL, and nothing else does: the window's own width decides
 // whether the drawer has room (a dialog is as wide as the window it sits in —

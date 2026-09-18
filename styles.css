@@ -201,17 +201,21 @@ body.is-mobile .position-restore-cue {
 	padding-bottom: 4px;
 }
 
-/* Toolbar above the list: the filter box and the keyboard hint, and nothing
-   else once the file scope went with them. A deliberately QUIET strip — the list
-   below is what the eye should land on — so the box recedes: the filter is a
-   ruled line the caret sits on rather than Obsidian's filled, bordered form
-   field.
+/* Toolbar above the list: the filter box, the keyboard hint, and the panel's own
+   setting at the far end (see NavHistoryBrowser.settings). A deliberately QUIET
+   strip — the list below is what the eye should land on — so the box recedes: the
+   filter is a ruled line the caret sits on rather than Obsidian's filled, bordered
+   form field.
+   `position: relative` is what the setting panel is anchored to: it is a child of
+   this strip and hangs off its foot, so opening it cannot move the line the box
+   sits on.
    The field is quietened by RETUNING the variables the app's input skin reads
    (--background-modifier-form-field, the border widths) rather than by out-
    specifying it: this is the app's own move for quiet fields (see its
    .search-input-container and .bases-search-row), and it keeps working whatever
    the theme sets those variables to. */
 .position-restore-nav-toolbar {
+	position: relative;
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -269,7 +273,9 @@ body.is-mobile .position-restore-cue {
 /* On touch the hint moves to a line of its own and is allowed to wrap: sharing
    the row with the filter box left it cut off at the panel's edge (the box
    shrinks, the hint does not), so the one line that says how the panel works was
-   the one line nobody could read. */
+   the one line nobody could read. The setting button keeps the box's line — the
+   `order` values put it between the box and the hint, which is the only line that
+   has room for it once the hint takes all of its own. */
 .position-restore-nav-panel.is-touch .position-restore-nav-toolbar {
 	flex-wrap: wrap;
 	row-gap: 2px;
@@ -277,8 +283,13 @@ body.is-mobile .position-restore-cue {
 
 .position-restore-nav-panel.is-touch .position-restore-nav-hint {
 	flex: 1 0 100%;
+	order: 3;
 	white-space: normal;
 	line-height: 1.3;
+}
+
+.position-restore-nav-panel.is-touch .position-restore-nav-settings {
+	order: 2;
 }
 
 /* THE ARROW IN THE HINT: the row's own icon, drawn into the sentence that tells the
@@ -294,6 +305,174 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-hint .nav-hint-go svg {
 	width: 1.15em;
 	height: 1.15em;
+}
+
+/* THE TOOLBAR'S SETTING: the one control in the strip that is not the search box
+   (see NavHistoryBrowser.settings). `margin-left: auto` puts it against the panel's
+   right edge whatever the box and the hint do with the room.
+   IT IS PAINTED AT FULL TEXT STRENGTH, through the panel's OWN variable, and the
+   selector names the toolbar — this button has now been invisible twice, and both
+   times the decision that hid it was taken outside the colour written here:
+   1. `.clickable-icon` does not paint with `color`: it reads `--icon-color` and dims
+      itself with `--icon-opacity`, and a theme is free to set either ON the element
+      (a rule naming the leaf and the class outranks anything this file can say from
+      two classes away). So both variables are set here as well as `color`, and
+      `opacity: 1` is kept on top of them.
+   2. A tier MIXED toward the strip (--nav-muted, see the tiers above) can only ever
+      be as visible as the strip's own background allows — which is the question this
+      button kept losing, since the strip is the quietest surface in the panel. The
+      theme's PRIMARY text colour is the strongest ink available that still cannot be
+      wrong: if it is unreadable, every row's own name is unreadable with it.
+   3. The ink travels in `--nav-settings-ink`, a variable only this plugin declares,
+      and the glyph is painted from it one level down (see the svg rule). That is what
+      makes the answer stick: the colour of the icon no longer depends on winning a
+      fight over `color` or `--icon-color` — where a theme that names the leaf can
+      always outrank a plugin — but on a variable nothing else writes. */
+.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings {
+	flex: 0 0 auto;
+	margin-left: auto;
+	--nav-settings-ink: var(--text-normal);
+	color: var(--nav-settings-ink);
+	--icon-color: var(--nav-settings-ink);
+	--icon-opacity: 1;
+	opacity: 1;
+}
+
+/* …and the glyph takes that ink rather than asking the app's icon skin for it a second
+   time. `.svg-icon` paints with `currentColor`; this rule is what decides which colour
+   that is, under a selector one element deeper than the button's own (see 3 above). */
+.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings svg {
+	color: var(--nav-settings-ink);
+	stroke: currentColor;
+}
+
+/* Reaching for it — or having it open — moves the ink to the accent and gives the
+   pointer a box to land on: the button was a glyph floating in the strip, which is
+   half of why it read as decoration rather than as a control. */
+.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings:hover,
+.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings[aria-expanded='true'] {
+	--nav-settings-ink: var(--interactive-accent);
+	background-color: var(--background-modifier-hover);
+}
+
+/* …and what it opens, hanging off the strip's foot: ABSOLUTE, so the line the box
+   and the hint sit on does not move by a pixel when it appears, and anchored to the
+   toolbar (see there) rather than to the viewport. It stands OVER the list, which is
+   what the reader is deciding about, so it carries the app's own menu chrome — a
+   surface, a hairline, a radius and a shadow — instead of the strip's quiet one, and
+   it arrives with a short drop so that a panel appearing over the list reads as
+   something that just opened. */
+.position-restore-nav-settings-menu {
+	position: absolute;
+	top: calc(100% - 2px);
+	right: 0;
+	z-index: 20;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 17em;
+	max-width: min(26em, 100%);
+	padding: 10px;
+	background-color: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	animation: position-restore-nav-settings-in 120ms ease-out;
+}
+
+@keyframes position-restore-nav-settings-in {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* The name of the choice, over the two answers: a quiet heading in the panel's own
+   small tier, weighted enough to be read as a label rather than as another row. */
+.nav-settings-title {
+	margin: 0 2px 8px;
+	color: var(--nav-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+}
+
+/* One of the two values: a BUTTON and not a row of the list — it fills the panel's
+   width and carries the strip's own small tier, and the app's button chrome
+   (--input-height, a border, a fill) is taken off it for the same reason the travel
+   arrow has none: a widget's box inside a quiet panel is louder than the choice.
+   The mark and the label are packed together at the START of the row — the mark was
+   at the far end, where the panel's width sat between it and the word it belonged
+   to, and a reader had to travel the row to find out which line was ticked. */
+.nav-settings-option {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 6px;
+	width: 100%;
+	height: auto;
+	min-height: 0;
+	padding: 6px 8px;
+	border: none;
+	border-radius: var(--radius-s);
+	background-color: transparent;
+	box-shadow: none;
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	text-align: start;
+	cursor: pointer;
+}
+
+.nav-settings-option:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+/* The value in force says so TWICE: the app's own "active" tint — the one the content
+   switch uses for the view on screen (see .nav-preview-modes .is-active) — and a check
+   mark in front of the label. The tint alone is a fact a theme can take away (it is
+   mixed from the accent), and it is the mark a reader reads when the two rows'
+   backgrounds come out nearly the same; neither changes the row's size, or the choice
+   would move under the pointer that made it. */
+.nav-settings-option[aria-checked='true'] {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-active-hover);
+}
+
+/* THE MARK'S SLOT: the span is in the row whether or not it carries a glyph (see
+   NavHistoryBrowser.openSettings), so the two labels start on one x instead of the
+   unchecked one pulling left, and the row it stands on does not resize as the choice
+   moves between them. The mark itself is the accent, which is a colour no theme can
+   mistake for the row's own text. */
+.nav-settings-tick {
+	display: flex;
+	flex: 0 0 auto;
+	justify-content: center;
+	width: 1.1em;
+	color: var(--interactive-accent);
+	--icon-color: var(--interactive-accent);
+}
+
+.nav-settings-tick svg {
+	width: 1.1em;
+	height: 1.1em;
+}
+
+/* What the two values print, under the rule: two lines, one per value, because the
+   sentence written as one paragraph was a wall of small print under two short rows
+   (see the locale). `pre-line` keeps those breaks AND still wraps, for a translation
+   that needs more room than the line it was written for. */
+.nav-settings-desc {
+	margin: 8px 2px 0;
+	padding-top: 8px;
+	border-top: 1px solid var(--background-modifier-border);
+	color: var(--nav-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	white-space: pre-line;
 }
 
 /* A ROW, in one of two kinds — a note, or one of its landings. Both are options of
@@ -358,11 +537,10 @@ body.is-mobile .position-restore-cue {
 }
 
 /* A NOTE: its name, and what the name could not say alone. It is NOT indented — the
-   note is the top level of the tree, and its landings are what step in under it. The
-   row used to lead with a caret that rotated when the note was open; it is gone, and
-   the name follows the arrow directly: the count already says the note has landings
-   to open, and the landings drawn under it already say that it is open — the caret
-   spent a column of every row repeating what the list shows twice. */
+   note is the list's own level, and its landings (under 'all') are what step in
+   under it. The row used to lead with a caret that rotated when the note was open,
+   and to end with a count of what a click would print; both went with the expansion
+   (see NavHistoryList), and the name now follows the arrow directly. */
 .position-restore-nav-row.is-file {
 	display: flex;
 	align-items: baseline;
@@ -487,9 +665,9 @@ body.is-mobile .position-restore-cue {
 }
 
 /* The note cell: what the row names itself with. One flex line — the folder (only
-   where two notes on screen share the name), the name, the "you are here" dot and
-   the landing count. It takes the row's slack, because the name is what a row that
-   is too narrow gives up first (it ellipsizes; the marks beside it do not). */
+   where two notes on screen share the name), the name, and the "you are here" dot.
+   It takes the row's slack, because the name is what a row that is too narrow gives
+   up first (it ellipsizes; the marks beside it do not). */
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
@@ -531,20 +709,6 @@ body.is-mobile .position-restore-cue {
 	margin-inline-start: 0.35em;
 	color: var(--interactive-accent);
 	font-size: var(--font-ui-smaller);
-}
-
-/* How many landings open under this note. It rides with the name it belongs to —
-   as a column of its own it would be reserved on every row and printed on none of
-   them — and it never gives way when the name runs out: the name ellipsizes, the
-   count stays. It is a SUM, not a repeat, and it prints from TWO upward: a note
-   with ONE landing is a leaf with nothing to open (see NavHistoryList.expandable),
-   so a "1" there would spend a cell on a fact the row already shows. */
-.position-restore-nav-row .nav-row-count {
-	flex: 0 0 auto;
-	margin-inline-start: 0.4em;
-	font-family: var(--font-monospace);
-	font-size: var(--font-ui-smaller);
-	color: var(--nav-faint);
 }
 
 /* Which pane holds the landing: the one badge that is still a COLUMN, because it
