@@ -368,8 +368,10 @@ export class NavHistoryBrowser {
 			// step", which made one key mean two things depending on whether the pointer
 			// had crossed a row — and duplicated the app's own back command.)
 			// The travel goes through the list, which is what knows whether the
-			// row the position is on may be travelled to: a note whose file is gone
-			// opens (and is where "file deleted" is explained) but never jumps.
+			// row the position is on may be travelled to: only a deleted note
+			// refuses (it is where "file deleted" is explained, so it opens the
+			// details but never jumps) — the place the reader is already in
+			// travels like any other row (see list.targetOf).
 			if (this.list.travel())
 				ev.preventDefault();
 		}

@@ -210,9 +210,11 @@ describe('groupByFile', () => {
 		expect(groups.map(g => g.path)).toEqual(['a.md', '']);
 	});
 
-	it('marks reachable apart from listed: the current step is listed but not a destination', () => {
-		// The current entry is a row like any other (see NavHistoryList), but it
-		// is where the reader already is: only the OTHER landings are travels.
+	it('marks reachable apart from listed: a landing the caller excludes is still listed', () => {
+		// Reachability is the CALLER's question — the list asks it of "file missing"
+		// (see NavHistoryList.render), which is why the current step is a destination
+		// like any other — and it is kept apart from the landings the note has: a
+		// landing nobody may travel to is still a row.
 		const entries = [visit('a.md', 0, 10), visit('a.md', 1, 400)];
 		const groups = groupByFile(entries, 1, undefined, i => i !== 1, lines(entries));
 

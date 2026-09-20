@@ -63,8 +63,9 @@ export interface NavFileGroup {
 	spans: Map<number, ClusterSpan>;
 	// The representative whose cluster holds the CURRENT entry, when one of them
 	// does. It is what "here" means once several spots are one row: the entry itself
-	// may be a member the cluster does not stand for, and a row that is where the
-	// reader already is must not offer to travel (see NavHistoryList.targetOf).
+	// may be a member the cluster does not stand for. The row is still a destination
+	// — clicking it re-lands that place, closed tab and all (see
+	// NavHistoryList.targetOf).
 	currentRep?: number;
 }
 

@@ -294,8 +294,8 @@ export class NavHistoryList {
 	// of the note you are reading stand for a spot you were not sent to, and the panel
 	// on the note's own row described some older place in it. Reading a row as "where I
 	// am" is right: the row is marked ●, its gutter control opens saying the same
-	// thing, and a row that stands where the reader already is simply has nothing to
-	// open (see targetOf).
+	// thing, and its own click re-opens — or re-lands — that very place, because the
+	// list no longer holds back the spot the reader is standing in (see targetOf).
 	//
 	// A deleted note still ANSWERS with one of its recorded landings, because the panel
 	// is where "this file is gone, here is what stood there" is said; whether it may
@@ -394,26 +394,22 @@ export class NavHistoryList {
 		// a collision the filter dropped costs nobody a folder.
 		const doubles = duplicateNames(this.groups.map(g => g.path));
 
-		// A note row is drawn for every group, but the CURRENT entry is where the
-		// reader already is: a row it alone keeps alive is a row with nowhere to open
-		// from, and the sentence below says that better than the dead note does. So
-		// what decides whether the list is empty is the PLACES that are not the one
-		// the reader is in — the clusters that do not hold the current entry, whether
-		// or not it happens to be the step the cluster stands for (see groupByFile).
-		let elsewhere = 0;
-		for (const group of this.groups)
-			elsewhere += group.indices.filter(i => i !== group.currentRep).length;
+		// A note row is drawn for every group, and there is no row the list holds
+		// back: the CURRENT entry's note is pinned first like any other, and — unlike
+		// before — its own row is a destination too (see targetOf), so a history of
+		// one step is a one-row list rather than a list with no way out.
 		this.groups.forEach((group, index) => {
 			this.fileRow(group, index, doubles);
 			for (const i of this.shownLandings(group, index))
 				this.placeRow(i, group, i === group.currentRep);
 		});
 
-		// Nothing to draw: the query found no step to list. The current entry is
-		// never a row of its own (see groupByFile), so a history of one step — or
-		// one whose every other landing is "here" — lands here by design, and the
-		// message says which of the two nothings it was (see emptyText).
-		if (elsewhere === 0)
+		// Nothing to draw: the query found no step to list, the history has nothing in
+		// it, or every note it names is gone. Asked of the ROWS — is there one the
+		// reader could open? — because that is the same question targetOf answers for
+		// each of them, and the place the reader is already in is no longer an empty
+		// answer (see targetOf).
+		if (!this.refs.some(ref => this.targetOf(ref) >= 0))
 			this.opts.list.createDiv({
 				cls: 'position-restore-nav-empty',
 				text: this.emptyText(query),
@@ -437,10 +433,11 @@ export class NavHistoryList {
 	}
 
 	// What the list says when it has nothing to draw. Two different nothings: the
-	// query found nothing, or there is no step to go to at all — a history with
-	// nothing in it, or one whose only landing is the one being stood on.
+	// query found no step to list, or there is no step to go to at all — a history
+	// with nothing in it, or one whose every note is gone. A single place the reader
+	// is standing in is NOT one of them any more: its row opens it (see targetOf).
 	// One message for both, decided by the query; render's single
-	// `elsewhere === 0` branch is the only caller.
+	// `refs.some(targetOf)` branch is the only caller.
 	private emptyText(query: string): string {
 		return query ? t('navHistory.noMatch') : t('navHistory.empty');
 	}
@@ -679,8 +676,8 @@ export class NavHistoryList {
 	// right-click on a row says "go there" as plainly as a left-click does, and the
 	// menu only put a second click between the reader and the move. So it opens AT
 	// ONCE — the same one-press contract as the row — and the same refusal: a row
-	// with nothing to open (a deleted note, or the place the reader is already in)
-	// does nothing at all, and keeps its tooltip to say why. The browser's own menu is
+	// with nothing to open (a deleted note) does nothing at all, and keeps its
+	// tooltip to say why. The browser's own menu is
 	// suppressed either way: this list has a meaning for the gesture, and none of the
 	// app's (copy a row, inspect it) belongs on a row.
 	//
@@ -712,16 +709,18 @@ export class NavHistoryList {
 		this.clearSelection();
 	}
 
-	// The ROW's own click opens the file at the landing it stands for (see
+	// The row's own click opens the file at the landing it stands for (see
 	// activeRep) — the panel is a navigator, and the note's name is its target. The
 	// same gesture on both kinds of row, because there is only one thing a row can be
 	// asked: WHERE. A note's row answers with the landing it stands for — the one the
 	// reader last aimed at in that note, or the newest — and a landing row answers
 	// with itself.
 	//
-	// A row with nothing to open — the one the reader is already in, or a deleted
-	// note's — does nothing at all: travel() refuses it (see targetOf). Its details
-	// are still one click away, on its own gutter control (see disclose). And nothing
+	// A row with nothing to open — a deleted note's — does nothing at all: travel()
+	// refuses it (see targetOf). The place the reader is already in is NOT that: the
+	// row opens it again (the file back, or the landing re-applied), which is exactly
+	// what a reader whose tab was closed came here for. A deleted note's details are
+	// still one click away, on its own gutter control (see disclose). And nothing
 	// here puts the panel away: the control that opened it is the control that closes
 	// it (see pointAt).
 	private onClick(ref: RowRef): void {
@@ -762,21 +761,21 @@ export class NavHistoryList {
 	}
 
 	// The stack index a row would open, or -1 when it has none: a landing of a
-	// deleted note has nothing to restore, and neither has the PLACE the reader is
-	// already standing in — a journey to where they are is not a step (see
-	// activeRep). "Where they are" is the CLUSTER that holds the current entry, not
-	// the entry itself: the current step may be a member its cluster does not stand
-	// for, and the row is still the place the reader is in (see groupByFile).
+	// deleted note has nothing to restore. What it must NOT refuse is the place the
+	// reader is already standing in. That refusal used to read "a journey to where
+	// they are is not a step", but a row is an OPEN and not a step: a reader clicking
+	// the row they are on is asking for the FILE — the tab they just closed, or the
+	// landing re-applied after a scroll — and jumpTo already answers exactly that
+	// (the entry is not pushed again, it is re-landed; see NavHistory.jumpTo).
+	// Refusing it here made the first row of the list — the current note, pinned
+	// first — the one row that answered nothing, and it is the row a reader whose
+	// every tab is closed reaches for first.
 	private targetOf(ref?: RowRef): number {
 		const target = ref ?? this.selected;
 		if (!target)
 			return -1;
 		const rep = this.activeRep(target);
 		if (rep < 0)
-			return -1;
-		const owner = target.group ?? this.ownerOf(target);
-		const group = owner === undefined ? undefined : this.groups[owner];
-		if (group ? group.currentRep === rep : rep === this.opts.currentIndex)
 			return -1;
 		return this.opts.describe(rep).missing ? -1 : rep;
 	}

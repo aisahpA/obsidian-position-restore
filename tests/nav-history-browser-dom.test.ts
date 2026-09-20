@@ -275,8 +275,8 @@ function harness(
 		rows().find(r => r.querySelector('.nav-row-line')?.textContent === line)!;
 	// ONE click on the ROW: the panel is a navigator, so this OPENS the file the row
 	// stands for — the note's own newest landing (or the one the reader last aimed
-	// at), or the landing itself (see NavHistoryList.onClick). A row with nowhere to
-	// open (the place the reader is already in, a deleted note) goes nowhere.
+	// at), or the landing itself (see NavHistoryList.onClick). The place the reader is
+	// already in is not exempt: the open re-lands it. Only a deleted note goes nowhere.
 	const clickRow = (row: HTMLElement) =>
 		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	// …and ONE click on the gutter control every row carries: the panel describes THAT
@@ -397,9 +397,9 @@ describe('NavHistoryModal — current position', () => {
 		expect(notes[0].querySelector('.nav-row-count')).toBeNull();
 		expect(notes[0].querySelector('.nav-file-caret')).toBeNull();
 		// Every row carries the gutter control, the current one included: its details
-		// are worth seeing even though there is nowhere to OPEN from it (see
-		// NavHistoryList.disclose). What the current row loses is the destination, not
-		// the control — the row's own click does nothing (see targetOf).
+		// are worth seeing, and the destination is not what the row loses — the row's
+		// own click opens it too (see NavHistoryList.targetOf). The control is simply
+		// the other half of the gesture.
 		expect(notes[0].querySelector('.nav-row-disclose')).not.toBeNull();
 		expect(notes[1].querySelector('.nav-row-disclose')?.nextElementSibling?.className).toBe('nav-row-file');
 		expect(notes[1].querySelector('.nav-row-here')).toBeNull();
@@ -426,10 +426,50 @@ describe('NavHistoryModal — current position', () => {
 		h.point(h.note('c.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('c.md');
 		expect(described()).toBe('L91');
-		// Nothing to OPEN from it either: the row's own click does nothing, because the
-		// place it stands for is where the reader already is (see NavHistoryList.targetOf).
-		// The gutter control stays — it is how the panel got here at all.
+		// …and the row is a destination all the same: a click opens c.md at that very
+		// place, because the open re-lands it rather than pushing it again — which is
+		// what a reader whose tab was closed is asking for (see NavHistoryList.targetOf).
+		// The gutter control stays; it is the other half of the row.
+		h.clickRow(h.note('c.md'));
+		expect(h.jumpTo).toHaveBeenCalledWith(2);
 		expect(h.note('c.md').querySelector('.nav-row-disclose')).not.toBeNull();
+	});
+
+	it('keeps a one-step history a one-row list, and opens that row', () => {
+		// The list used to call itself empty when the current entry's note was the only
+		// place left on it, and that row answered nothing: the one list a reader with
+		// every tab closed ever sees was the one list with no way back in. The row is a
+		// destination now (see NavHistoryList.targetOf), so the sentence about having
+		// nowhere to go belongs to a query that matched nothing, or to a history whose
+		// notes are genuinely gone — never to the spot the reader is standing in.
+		const h = harness([visit('only.md', NOW)], 0, { 'only.md': '' });
+
+		expect(h.notes()).toHaveLength(1);
+		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
+
+		h.clickRow(h.note('only.md'));
+		expect(h.jumpTo).toHaveBeenCalledWith(0);
+	});
+
+	it('says "no match" only when the query really emptied the list', () => {
+		// The sentence is the QUERY's answer and not a verdict on the place the reader
+		// is standing in: a filter that matches nothing empties the list, while a filter
+		// that keeps only the current note leaves a row that opens like any other (see
+		// NavHistoryList.render's refs.some(targetOf) branch).
+		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' });
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		const search = (q: string) => {
+			box.value = q;
+			box.dispatchEvent(new Event('input', { bubbles: true }));
+		};
+
+		search('zzz');
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('navHistory.noMatch'));
+
+		search('b.md'); // the current note alone
+		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
+		h.clickRow(h.note('b.md'));
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
@@ -2519,8 +2559,8 @@ describe('NavHistoryModal — the landing drawer', () => {
 
 	it('describes the spot a click points at, on the note row or on a landing row', () => {
 		// A click on a note's row is a click on the NOTE (see NavHistoryList.onClick):
-		// it describes the landing that row STANDS FOR — the newest spot the reader is
-		// not already standing on — so someone hunting for a spot in that note is never
+		// it describes the landing that row STANDS FOR — its newest spot, or the one
+		// the reader last aimed at — so someone hunting for a spot in that note is never
 		// left reading the column's previous subject, another note's lines. A landing's
 		// own row describes itself.
 		const h = harnessAll([
@@ -2652,15 +2692,14 @@ describe('NavHistoryModal — the landing drawer', () => {
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
 		expect(h.note('b.md').classList.contains('is-selected')).toBe(true);
 
-		// …and Enter travels to the very row the pointer left it on — except where that
-		// row stands for the spot the reader is ALREADY standing on, which is the case
-		// here: b.md is the current entry and its one spot is "here". There is no
-		// journey to make, so Enter is not consumed for one (see
-		// NavHistoryList.targetOf).
+		// …and Enter travels to the very row the position is on — the row of the spot
+		// the reader is ALREADY standing in included: b.md is the current entry and its
+		// one spot is "here", and the list opens it all the same (the jump re-lands the
+		// place rather than pushing it again; see NavHistoryList.targetOf).
 		h.key('Enter');
-		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(h.jumpTo).toHaveBeenCalledWith(2);
 
-		// …while a row that leads somewhere else travels from the same position: c.md.
+		// …and a row that leads somewhere else travels from the same position: c.md.
 		h.point(h.note('c.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('c.md');
 		h.key('Enter');

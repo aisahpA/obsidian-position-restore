@@ -131,9 +131,10 @@ export const en = {
 	// NavHistoryBrowser.settings) — because the reader decides it while looking at the
 	// list: by default the list follows the reader's own navigation, which is by file,
 	// and the newest spot is the one their back button keeps returning to. That spot is
-	// exactly what the note's row stands for (the panel describes it, the arrow travels
-	// to it — or nowhere, when it is where the reader already is), so nothing has to be
-	// printed under the row for it.
+	// exactly what the note's row stands for (the panel describes it, the row opens it
+	// — the row of the note the reader is already in included, where the open re-lands
+	// the place rather than pushing it again), so nothing has to be printed under the
+	// row for it.
 	'navHistory.landings.name': 'Landings in the list',
 	'navHistory.listSettings': 'Settings',
 	// The few words an answer carries, written AFTER the answer itself (see
@@ -180,7 +181,7 @@ export const en = {
 	// search box already answers — a note's name IS text it matches on — and each
 	// cost the toolbar a cell and the dialog a piece of state, so both are gone
 	// (see modal.ts).
-	'navHistory.empty': 'Nowhere else to go.',
+	'navHistory.empty': 'Nowhere to go.',
 
 	// Browser chrome: the click affordances. The list is a NAVIGATOR now: a click on a
 	// row opens the file that row stands for, and the control in the row's left gutter

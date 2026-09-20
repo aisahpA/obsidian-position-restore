@@ -34,8 +34,9 @@ function drawerFits(): boolean {
 //    stands for (see NavHistoryList.onClick). The panel is a navigator, so going
 //    somewhere is the first thing it does, and the whole width of a row is that
 //    target. A note's row and a place's row take the same gesture, because there is
-//    only one thing a row can be asked: WHERE. A row with nowhere to open — the place
-//    the reader is already in, a deleted note — simply does nothing;
+//    only one thing a row can be asked: WHERE. A row with nowhere to open — a
+//    deleted note — simply does nothing, while the one the reader is already in
+//    opens the file back (the jump re-lands the place rather than pushing it again);
 //  - the row's OTHER half is the control in its left gutter: one click and the panel
 //    beside it describes THAT row — the recorded spot it stands for, or the note as it
 //    stands now (see LandingPanel) — and a second click puts it away again. So a row
