@@ -43,9 +43,11 @@ function drawerFits(): boolean {
 //    is an OPEN and a LOOK, two hotspots that never reach into each other, and
 //    nothing answers a pointer that merely passed over a row (see list.ts): a drawer
 //    that followed the mouse described whatever it happened to cross;
-//  - the CURRENT note is pinned first and its place carries the "you are
-//    here" marker, so the current position is a place in the same list — the
-//    first row, marked — and not a line of chrome above it;
+//  - the CURRENT note is pinned first, so the current position is a place in the
+//    same list — the first row — and not a line of chrome above it. The ● of "you
+//    are here" rides on the LANDING that holds the current entry, where it tells one
+//    spot from another (see NavHistoryList.placeRow): on the note's own row it could
+//    only ever sit on row one, saying what the position already says;
 //  - picking a place is by RECOGNITION, never by retrieval, which is what the
 //    LANDING's recorded lines are for: the few lines the reader was looking at
 //    when they left, drawn as markdown so they look like the note they came from

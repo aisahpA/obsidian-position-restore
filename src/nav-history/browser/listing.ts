@@ -8,10 +8,12 @@ import { LANDING_MERGE_LINES } from './constants';
 import { baseName } from './model';
 
 // What one row of the list stands for under the 'all' setting: the span of lines a
-// cluster of nearby landings covers, and how many landings went into it. Drawn from
-// the members themselves, so the coordinate a row PRINTS and the set of steps it
-// folds are the same fact — the contract that keeps a collapse and its label from
-// disagreeing (see landingKey).
+// cluster of nearby landings covers, and how many landings went into it. The span is
+// the row's SCOPE, not its coordinate: the row PRINTS the representative's own line —
+// the one the click opens — and keeps this span as its tooltip, so the reader can see
+// what was folded without the label promising a line the row will not land on. Drawn
+// from the members themselves, so the scope and the set of steps it folds are the
+// same fact (see landingKey).
 export interface ClusterSpan {
 	// The lowest and highest line the cluster covers, as the rows' own lines (0-based
 	// as recorded; the row adds one). Both undefined for a cluster with no coordinate
@@ -58,8 +60,8 @@ export interface NavFileGroup {
 	// The current entry's own group: pinned to the top of the list, so "you are
 	// here" is a place in the same list.
 	current: boolean;
-	// What each cluster covers, keyed by its representative. The row that prints a
-	// range reads it from here.
+	// What each cluster covers, keyed by its representative: the row's own scope,
+	// which it carries as its tooltip (see ClusterSpan).
 	spans: Map<number, ClusterSpan>;
 	// The representative whose cluster holds the CURRENT entry, when one of them
 	// does. It is what "here" means once several spots are one row: the entry itself
@@ -165,8 +167,8 @@ export function groupByFile(
 	};
 	// Reverse order: the first time a note is seen is its newest surviving step,
 	// and Map insertion order preserves exactly that as the group order. The
-	// CURRENT entry is included with the rest: the list marks it (its note row
-	// carries the ● of .nav-row-here, its own landing the same dot) instead of
+	// CURRENT entry is included with the rest: the list pins its note first and
+	// marks the landing that holds it (the ● of .nav-row-here) instead of
 	// holding it out of the list, so a note that was only ever opened once still
 	// has a row to name.
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -211,7 +213,8 @@ export function groupByFile(
 	// cluster is never wider than the window. Each cluster becomes one row,
 	// represented by its NEWEST step — "the last spot the reader was at in that
 	// place", the same answer the note's own row gives (see
-	// NavHistoryList.activeRep) — and prints the span it covers.
+	// NavHistoryList.activeRep) — so the line the row prints IS the line it opens,
+	// and the span it covers rides along as its tooltip (see ClusterSpan).
 	const rank = (line: number | undefined) => line === undefined ? Number.MAX_SAFE_INTEGER : line;
 	for (const [key, group] of groups) {
 		const landings = found.get(key)!;

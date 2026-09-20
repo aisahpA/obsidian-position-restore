@@ -818,10 +818,11 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 }
 
-/* The note the panel is standing in, and the landing the current entry recorded:
-   one dot, on whichever row it is true of. It never gives way (unlike the folder
-   and the name, which both ellipsize), and it is one glyph, so a pathless view
-   row (the graph) and a note read the same. */
+/* The landing the current entry recorded, where a note prints its landings: one dot,
+   and only there — the note's own row carries none, because the current note is
+   pinned first and a dot on it would sit on row one saying what the position already
+   says. It never gives way (unlike the folder and the name, which both ellipsize),
+   and it is one glyph, so a pathless view row (the graph) and a note read the same. */
 .position-restore-nav-row .nav-row-here {
 	flex: 0 0 auto;
 	margin-inline-start: 0.35em;

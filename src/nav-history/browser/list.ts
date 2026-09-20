@@ -86,8 +86,9 @@ export interface NavHistoryListOptions {
 	list: HTMLElement;
 	// The history the rows are drawn from, as one snapshot.
 	entries: NavHistoryEntry[];
-	// The stack index of the current entry: its note is pinned first, and its
-	// landing carries the "you are here" marker.
+	// The stack index of the current entry: its note is pinned first, and — where the
+	// setting prints a note's landings — the landing that holds it carries the "you are
+	// here" marker (see placeRow).
 	currentIndex: number;
 	// The id the browser gave the list element. Row option ids are built from
 	// it, so they are unique in the document even with a second browser open
@@ -187,13 +188,6 @@ export class NavHistoryList {
 	// click sets it (see onClick), the arrow keys walk it (see move). Undefined
 	// before anything has been pointed at: Enter has nothing to act on until then.
 	private selected: RowRef | undefined;
-	// The landing of a note the reader last AIMED at, by the note's path (a group
-	// index is a position in a list the filter reorders; a path is the note). It is
-	// what the note's own row stands for (see activeRep) once a landing of that note
-	// has been pointed at: the rows under a note run in LINE order, so "the first
-	// one" is not the one the reader was reading, and the row must not silently mean
-	// a different spot than the one they just chose.
-	private aimed = new Map<string, number>();
 
 	constructor(private opts: NavHistoryListOptions) {
 		// Nothing is listened to here: a pointer moves no position at all (see the
@@ -203,8 +197,8 @@ export class NavHistoryList {
 	// The stack index the position stands for, or -1 (no position): a landing is
 	// itself, a note is the landing it stands for (see activeRep). Resolved from the
 	// ROW now rather than remembered as a number from when the position arrived: what
-	// a row stands for can move under a position that has not — the position walks the
-	// landings of a note (see aimAt), the query redraws the list. It is what the
+	// a row stands for can move under a position that has not — the query redraws the
+	// list, the note's own steps change as the reader navigates. It is what the
 	// drawer describes and what Enter travels to: one position, so the two cannot
 	// disagree.
 	get position(): number {
@@ -293,44 +287,29 @@ export class NavHistoryList {
 	// never offered to open the place the reader was already in — but that made the row
 	// of the note you are reading stand for a spot you were not sent to, and the panel
 	// on the note's own row described some older place in it. Reading a row as "where I
-	// am" is right: the row is marked ●, its gutter control opens saying the same
-	// thing, and its own click re-opens — or re-lands — that very place, because the
-	// list no longer holds back the spot the reader is standing in (see targetOf).
+	// am" is right: the gutter control opens saying the same thing, and its own click
+	// re-opens — or re-lands — that very place, because the list no longer holds back
+	// the spot the reader is standing in (see targetOf).
 	//
 	// A deleted note still ANSWERS with one of its recorded landings, because the panel
 	// is where "this file is gone, here is what stood there" is said; whether it may
 	// actually be travelled to is travel()'s question, not this one.
 	//
-	// The one exception is the landing the reader last AIMED at in this note (see
-	// `aimed`): that one wins, so a row points at the spot the reader chose rather
-	// than at the newest step — which is a different spot whenever the rows are not
-	// in the order the reader went through them.
+	// The note's row has NO other input: what the reader merely LOOKED at (a landing's
+	// own row, the gutter control, the arrow keys) moves the description and nothing
+	// else. It used to remember the landing last aimed at and stand for that one, so
+	// reading a note's old spot silently redefined where its name would take the reader
+	// — the note's row always answers with the note's OWN newest step.
 	private activeRep(row: RowRef): number {
 		if (row.group === undefined)
 			return row.rep ?? -1;
 		const group = this.groups[row.group];
 		if (!group || !group.indices.length)
 			return -1;
-		const remembered = this.aimed.get(group.path);
-		if (remembered !== undefined && group.indices.includes(remembered))
-			return remembered;
 		const order = group.reachable.length ? group.reachable : group.indices;
 		// The stack index IS the clock: entries are pushed in order, so the highest
 		// index among a note's distinct landings is its newest step.
 		return order.reduce((a, b) => (a > b ? a : b));
-	}
-
-	// Remember the landing the reader aimed at, keyed by its note (see `aimed`). A
-	// NOTE row aims at nothing of its own: it stands for whichever landing it is
-	// already describing, and recording that would turn that landing into a
-	// permanent choice the reader never made.
-	private aimAt(ref: RowRef): void {
-		if (ref.group !== undefined || ref.rep === undefined)
-			return;
-		const owner = this.ownerOf(ref);
-		const path = owner === undefined ? undefined : this.groups[owner]?.path;
-		if (path !== undefined)
-			this.aimed.set(path, ref.rep);
 	}
 
 	// Whether this note's landings are printed under its own row right now — the
@@ -513,10 +492,11 @@ export class NavHistoryList {
 		if (folder !== undefined)
 			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-folder' });
 		file.createSpan({ text: name, cls: 'nav-row-name' });
-		// "You are here", on the note and — where 'all' prints them — on the landing
-		// itself.
-		if (group.current)
-			file.createSpan({ text: '●', cls: 'nav-row-here' });
+		// NO "you are here" dot on the note's name: the current note is pinned first
+		// (see groupByFile), so the dot could only ever sit on row one, saying what the
+		// position already says. It survives where it tells something apart — on the
+		// LANDING that holds the current entry, whose note has other rows beside it
+		// (see placeRow).
 		return 1;
 	}
 
@@ -551,19 +531,21 @@ export class NavHistoryList {
 		if (this.opts.disclose())
 			this.disclose(row, ref);
 
-		// The coordinate: the coarse "how far in" a reader matches against
-		// memory, and the one thing every landing has. A row that folds several
-		// nearby landings prints the RANGE those landings cover rather than one of
-		// their numbers: the reader can see the number a query matched, and the
-		// coordinate agrees with the set of steps the row stands for (see
-		// groupByFile). A cluster of one — the ordinary spot — prints its line.
+		// The coordinate: the coarse "how far in" a reader matches against memory,
+		// and — since a row is an OPEN — the line the click will actually land on.
+		// A row that folds several nearby landings therefore prints the
+		// REPRESENTATIVE's own line, never the span it covers: the span is a range,
+		// and the row travels to ONE member of it, so printing "L412–438" over a
+		// click that lands on L420 (the cluster's newest member; see groupByFile)
+		// made the label a promise the row did not keep. The span still matters as
+		// the row's scope, so it stays reachable as the row's own tooltip.
+		// A cluster of one — the ordinary spot — prints its line either way.
 		const pos = row.createSpan({ cls: 'nav-row-pos' });
 		const span = group.spans.get(i);
-		const label = span && span.count > 1 && span.from !== undefined && span.to !== undefined
-			? t('navHistory.lineRange', span.from + 1, span.to + 1)
-			: d.line;
-		if (label)
-			pos.createSpan({ text: label, cls: 'nav-row-line' });
+		if (!d.missing && span && span.count > 1 && span.from !== undefined && span.to !== undefined)
+			row.setAttr('title', t('navHistory.lineRange', span.from + 1, span.to + 1));
+		if (d.line)
+			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
 		else
 			pos.createSpan({ text: '—', cls: 'nav-row-nopos' });
 		if (current)
@@ -696,25 +678,23 @@ export class NavHistoryList {
 		this.travel(ref);
 	}
 
-	// Forget the landing the reader had aimed at, and put the position away: the list
-	// back to the shape it opens in — nothing pointed at.
+	// Put the position away: the list back to the shape it opens in — nothing
+	// pointed at.
 	//
 	// A shell that STAYS UP across a travel is the only caller (see view.ts): the jump
-	// rewrites the stack and pins the note it landed on first, so the stack index behind
-	// the aimed-at landing — and the group the position was on — may now name another
-	// note. Starting the jump from a cleared list is what makes the redraw that follows
-	// it nothing but the new list, rather than a panel describing a note nobody chose.
+	// rewrites the stack and pins the note it landed on first, so the stack index the
+	// position was resolved from — and the group it was on — may now name another note.
+	// Starting the jump from a cleared list is what makes the redraw that follows it
+	// nothing but the new list, rather than a panel describing a note nobody chose.
 	collapse(): void {
-		this.aimed.clear();
 		this.clearSelection();
 	}
 
 	// The row's own click opens the file at the landing it stands for (see
 	// activeRep) — the panel is a navigator, and the note's name is its target. The
 	// same gesture on both kinds of row, because there is only one thing a row can be
-	// asked: WHERE. A note's row answers with the landing it stands for — the one the
-	// reader last aimed at in that note, or the newest — and a landing row answers
-	// with itself.
+	// asked: WHERE. A note's row answers with the note's newest step, and a landing
+	// row answers with itself.
 	//
 	// A row with nothing to open — a deleted note's — does nothing at all: travel()
 	// refuses it (see targetOf). The place the reader is already in is NOT that: the
@@ -811,12 +791,10 @@ export class NavHistoryList {
 		// list, and the reader has to be able to see where they are (see reveal).
 		this.reveal(ref.el, walked);
 		this.opts.onActiveRow(ref.el.id);
-		// Aiming at a landing is a choice about its note too: the note's row stands
-		// for that landing from now on (see aimAt), which is what keeps the row — and
-		// the panel with it — on the spot the reader chose.
-		this.aimAt(ref);
 		// The panel describes the landing this row stands for (see activeRep) — which
 		// is what Enter opens as well. Settled BEFORE the panel is to redraw.
+		// Nothing is remembered here about the row: a note's own row stands for the
+		// note's newest step whatever the reader looks at (see activeRep).
 		this.opts.onPointed();
 		if (!walked) {
 			// The panel hangs BELOW that row, so redrawing it and then bringing it
@@ -877,15 +855,5 @@ export class NavHistoryList {
 			return;
 		}
 		this.choose(this.refs[(at + d + n) % n], true);
-	}
-
-	// Which note a landing row belongs to: the note row above it in the walk.
-	private ownerOf(row: RowRef): number | undefined {
-		const at = this.refs.indexOf(row);
-		for (let i = at - 1; i >= 0; i--) {
-			if (this.refs[i].group !== undefined)
-				return this.refs[i].group;
-		}
-		return undefined;
 	}
 }

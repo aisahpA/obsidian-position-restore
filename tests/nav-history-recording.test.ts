@@ -26,7 +26,7 @@ import { OpenPatcher } from '@/position/restore/patcher';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
-import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
+import { DEFAULT_SETTINGS, EphemeralState, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 
@@ -55,11 +55,13 @@ function makeApp(
 function makeNav(
 	app = makeApp(),
 	settings: Partial<PluginSettings> = {},
+	savedPosition?: (path: string) => EphemeralState | undefined,
 ) {
 	return new NavHistory(
 		app,
 		{ ...DEFAULT_SETTINGS, ...settings } as PluginSettings,
 		new PositionState({ ...DEFAULT_SETTINGS, ...settings } as PluginSettings),
+		savedPosition,
 	);
 }
 
@@ -326,6 +328,41 @@ describe('NavHistory activation recording', () => {
 		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.recordActivation(leafWithFile('outline-leaf', 'a.md', 'sidebar'));
 		expect(nav.entries.map((e) => e.leafId)).toEqual(['leaf-1']);
+	});
+
+	it('a sidebar activation does not notify browsers — it would eat the press', () => {
+		// The leave-refresh used to run for ANY newly focused pane and notified every
+		// browser (refreshTop → changed) — and the resident panel rebuilt its rows
+		// under the reader's press: clicking into the panel lost the click, so the
+		// same row had to be clicked a second time. The refresh is for tab/pane
+		// switches between FILE views (see refreshTopLeafOnActivation).
+		const fileLeaf = leafWithFile('leaf-1', 'a.md');
+		const fileView = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf: fileLeaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 42.3 },
+			editor: { getCursor: () => ({ line: 3, ch: 7 }), lineCount: () => 200 },
+		});
+		(fileLeaf as unknown as { view: unknown }).view = fileView;
+		const sidebarLeaf = leafWithFile('outline-leaf', 'a.md', 'sidebar');
+
+		const app = makeApp();
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: WorkspaceLeaf) => void) => void;
+		}).iterateAllLeaves = (cb) => { cb(fileLeaf); cb(sidebarLeaf); };
+
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-1');
+		const changed = vi.fn();
+		nav.subscribe(changed);
+
+		nav.recordActivation(sidebarLeaf);
+
+		expect(changed).not.toHaveBeenCalled();
+		// …and the entry was not re-stamped from the file view either
+		expect(nav.entries[0].st).toBeUndefined();
 	});
 
 	it('a keyed jump with the same key in another tab records its own step', () => {
@@ -614,7 +651,11 @@ describe('NavHistory.navigate', () => {
 	});
 
 	it('a same-file back applies the entry position to the view', async () => {
-		const leaf = { id: 'leaf-1', isDeferred: false, view: { file: { path: 'a.md' } } };
+		// The leaf's view is the view itself — the shape the app has (a view carries
+		// its own leaf back-reference), and the one execute() applies an in-file jump
+		// to (see the same-file branch): a leaf holding a bare `{ file }` stub is a
+		// shape the app never produces.
+		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
 		const applied: unknown[] = [];
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
 			file: { path: 'a.md' },
@@ -628,6 +669,7 @@ describe('NavHistory.navigate', () => {
 			},
 			setEphemeralState: (st: unknown) => { applied.push(st); },
 		});
+		leaf.view = view;
 		const app = makeApp();
 		(app.workspace as unknown as {
 			getActiveViewOfType: () => unknown;
@@ -653,7 +695,7 @@ describe('NavHistory.navigate', () => {
 	});
 
 	it('jumpTo branches from the current entry; back returns to the origin', async () => {
-		const leaf = { id: 'leaf-1', isDeferred: false, view: { file: { path: 'a.md' } } };
+		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
 		const applied: unknown[] = [];
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
 			file: { path: 'a.md' },
@@ -667,6 +709,7 @@ describe('NavHistory.navigate', () => {
 			},
 			setEphemeralState: (st: unknown) => { applied.push(st); },
 		});
+		leaf.view = view;
 		const app = makeApp();
 		(app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => view;
@@ -756,6 +799,128 @@ describe('NavHistory.navigate', () => {
 		await nav.jumpTo(1);
 		expect(nav.index).toBe(1);
 		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'b.md']);
+	});
+
+	it('lands an unsettled teleport on the line it recorded, not nowhere', async () => {
+		// A teleport whose post-jump read never arrived keeps only the line it aimed
+		// at (`st` missing). The browser prints that line on its row (see
+		// describeNavEntry), so the jump has to take the reader there: the row used to
+		// name a line while applyLanding returned before it applied anything, which is
+		// the one place the browser still lied about where a click went.
+		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
+		const applied: unknown[] = [];
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 0 },
+			editor: { getCursor: () => ({ line: 0, ch: 0 }), lineCount: () => 500 },
+			setEphemeralState: (st: unknown) => { applied.push(st); },
+		});
+		leaf.view = view;
+		const app = makeApp();
+		(app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => view;
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		}).iterateAllLeaves = (cb) => cb(leaf);
+
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordTeleport('a.md', 'leaf-1', 60); // recorded with no landing read
+		nav.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
+		expect(nav.entries[1].st).toBeUndefined();
+
+		await nav.jumpTo(1);
+
+		// the line the entry itself recorded is the landing the jump applies
+		expect(applied[0]).toMatchObject({ scroll: 60 });
+	});
+
+	it('applies the saved record for a step that recorded no landing of its own', async () => {
+		// Such a step draws its line from the file's saved record (see
+		// describeNavEntry), so the same-file jump applies that record: without it the
+		// row named a line and the click applied nothing at all, and a reader who had
+		// scrolled since the record was written saw a dead row.
+		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
+		const applied: unknown[] = [];
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 0 },
+			editor: { getCursor: () => ({ line: 0, ch: 0 }), lineCount: () => 500 },
+			setEphemeralState: (st: unknown) => { applied.push(st); },
+		});
+		leaf.view = view;
+		const app = makeApp();
+		(app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => view;
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		}).iterateAllLeaves = (cb) => cb(leaf);
+
+		const nav = makeNav(app, {}, (path) => (path === 'a.md' ? { scroll: 41 } : undefined));
+		nav.recordOpen('a.md', 'leaf-1'); // no position of its own
+		nav.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
+		expect(nav.entries[0].st).toBeUndefined();
+
+		await nav.jumpTo(0);
+
+		// the record the row borrowed its line from is the landing the jump applies
+		expect(applied[0]).toMatchObject({ scroll: 41 });
+	});
+
+	it('applies a same-file jump while a sidebar holds the focus', async () => {
+		// With the resident history panel focused there is NO active file view — the
+		// workspace's active view is the sidebar, not a FileView — while the file tab
+		// behind it still shows the note. execute() applied a same-file jump to the
+		// workspace's ACTIVE view, so here it applied nothing: a click on a place in
+		// the note already on screen did nothing. That is the sidebar's "sometimes it
+		// jumps, sometimes it does not" — the ADJACENT case goes through traverse(),
+		// which reactivates the file leaf first, so it worked (see execute's in-file
+		// branch).
+		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
+		const applied: unknown[] = [];
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path: 'a.md' },
+			leaf,
+			containerEl: document.createElement('div'),
+			getMode: () => 'source',
+			currentMode: { getScroll: () => 90 },
+			editor: { getCursor: () => ({ line: 90, ch: 0 }), lineCount: () => 500 },
+			setEphemeralState: (st: unknown) => { applied.push(st); },
+		});
+		leaf.view = view;
+		// getActiveViewOfType stays null (makeApp's default): the sidebar is active.
+		const app = makeApp();
+		(app.workspace as unknown as {
+			iterateAllLeaves: (cb: (l: unknown) => void) => void;
+		}).iterateAllLeaves = (cb) => cb(leaf);
+		// The most recent MAIN-AREA leaf is the file tab, which is what getMostRecentLeaf
+		// reports in the app: the same-file branch is the one the jump takes.
+		(app.workspace as unknown as { getMostRecentLeaf: () => unknown }).getMostRecentLeaf = () => leaf;
+
+		const nav = makeNav(app);
+		nav.recordOpen('a.md', 'leaf-1');
+		nav.recordOpen('b.md', 'leaf-1');
+		nav.recordOpen('a.md', 'leaf-1');
+		(nav.entries[0] as NavVisit).st = { scroll: 10 };
+		// The origin's recorded position is stale; the live view sits at 90.
+		(nav.entries[2] as NavVisit).st = { scroll: 5 };
+		expect(nav.index).toBe(2);
+
+		await nav.jumpTo(0); // non-adjacent: 0 is neither 1 nor 3
+
+		// …the older place of the note already on screen is applied
+		expect(applied[0]).toMatchObject({ scroll: 10 });
+		// …and the origin was captured from the entry's OWN leaf before the jump, so
+		// "back" returns to where the reader actually was (see
+		// refreshTopFromActiveView): with a sidebar focused there is no active file
+		// view to read it from.
+		expect(stOf(nav.entries[2])).toMatchObject({ scroll: 90 });
 	});
 
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {
@@ -994,7 +1159,7 @@ describe('NavHistory.navigate', () => {
 // A sidebar (file explorer, search, outline…) holds focus: getActiveViewOfType
 // is null until the traversal's setActiveLeaf reactivates a file tab — the
 // mock switches the "active view" exactly like the real workspace would.
-type HarnessLeaf = { id: string; isDeferred: boolean; openFile: ReturnType<typeof vi.fn>; setViewState: ReturnType<typeof vi.fn>; view?: unknown };
+type HarnessLeaf = { id: string; isDeferred: boolean; containerEl: string; openFile: ReturnType<typeof vi.fn>; setViewState: ReturnType<typeof vi.fn>; view?: unknown };
 
 function makeSidebarHarness(opts: {
 	leaves: { id: string; file?: string; markdown?: boolean }[];
@@ -1012,7 +1177,11 @@ function makeSidebarHarness(opts: {
 	const applied: unknown[] = [];
 	const viewsByLeaf: Record<string, unknown> = {};
 	const leaves: HarnessLeaf[] = opts.leaves.map((spec) => {
-		const leaf: HarnessLeaf = { id: spec.id, isDeferred: false, openFile, setViewState };
+		// The file tabs of the MAIN area: isMainAreaLeaf asks the workspace root
+		// whether it holds the leaf's element, and makeApp's root holds 'main' (see
+		// isMainAreaLeaf) — a leaf without one would read as a sidebar and be skipped
+		// by the activation refresh.
+		const leaf: HarnessLeaf = { id: spec.id, isDeferred: false, containerEl: 'main', openFile, setViewState };
 		if (spec.markdown) {
 			leaf.view = Object.assign(Object.create(MarkdownView.prototype), {
 				file: { path: spec.file },

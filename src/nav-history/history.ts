@@ -1,5 +1,5 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
+import { EphemeralState, NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
 import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
@@ -103,7 +103,17 @@ export class NavHistory {
 	// (openFile, native go-back) are the traversal itself, not new jumps.
 	private executing = false;
 
-	constructor(app: App, settings: PluginSettings, state: PositionState) {
+	constructor(
+		app: App,
+		settings: PluginSettings,
+		state: PositionState,
+		// The file's saved record, for a step that recorded no position of its own:
+		// the browser draws such a row's line from it (see describeNavEntry), and a
+		// same-file jump applies it so the row's line is still the line it opens (see
+		// appliedLanding). A cross-file open needs no such help — the open pipeline
+		// already falls back to the record.
+		private savedPosition?: (path: string) => EphemeralState | undefined,
+	) {
 		this.app = app;
 		this.state = state;
 		this.settings = settings;
@@ -290,6 +300,17 @@ export class NavHistory {
 	// startup. A no-op when no leaf holds the top entry (e.g. it was closed).
 	private refreshTopLeafOnActivation(next: WorkspaceLeaf | null) {
 		if (!next || !this.canRecord())
+			return;
+		// A SIDEBAR (or any other non-main-area pane) taking the focus is not a
+		// tab/pane switch the history records — recordActivation refuses those leaves
+		// itself — so the entry being left is not going anywhere. Refreshing it here
+		// also NOTIFIED every browser on screen (refreshTop → changed), so clicking
+		// into the resident panel rebuilt its rows while the reader's press was still
+		// in flight: the click was lost and the same row had to be clicked a second
+		// time. The entry's position is still captured where it matters — on open
+		// (syncCurrentPosition), on a jump (refreshTopFromActiveView), and on the
+		// sampler's own leave reads.
+		if (!isMainAreaLeaf(this.app, next))
 			return;
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view')
@@ -588,17 +609,23 @@ export class NavHistory {
 	}
 
 	// The leave-refresh of a traversal/jump: the top entry gets the exact
-	// current position so a return lands where the user actually was. Only
-	// when the top entry really describes the active leaf+file (a non-file
-	// view activation — search, graph — records nothing, so the stack can
-	// point at the last file view while something else is active).
+	// current position so a return lands where the user actually was. The entry must
+	// still describe its own leaf+file (a non-file view activation — search, graph —
+	// records nothing, so the stack can point at the last file view while something
+	// else is active). The view is taken from the entry's OWN leaf when the
+	// workspace's active view is not it: a sidebar holding the focus — the resident
+	// history panel included — leaves no active FileView at all, and the entry still
+	// describes the file tab behind it.
 	private refreshTopFromActiveView() {
-		const activeView = this.app.workspace.getActiveViewOfType(FileView);
 		const cur = this.entries[this.index];
-		if (cur && cur.kind !== 'view' && activeView?.file
-			&& cur.leafId === this.state.leafId(activeView.leaf)
-			&& cur.path === activeView.file.path && activeView instanceof MarkdownView) {
-			const st = readNavEntryState(activeView);
+		if (!cur || cur.kind === 'view')
+			return;
+		const activeView = this.app.workspace.getActiveViewOfType(FileView);
+		const view = activeView?.file && cur.leafId === this.state.leafId(activeView.leaf)
+			? activeView
+			: this.findLeafById(cur.leafId)?.view;
+		if (view instanceof MarkdownView && view.file?.path === cur.path) {
+			const st = readNavEntryState(view);
 			if (st) this.refreshTop(cur.path, cur.leafId, st);
 		}
 	}
@@ -671,13 +698,19 @@ export class NavHistory {
 		const curFile = (leaf.view as FileView | undefined)?.file;
 
 		if (curFile?.path === target.path) {
-			// In-file jump: no open, apply the entry's position directly.
-			// Only markdown has positions (the entry's st is refreshed at
-			// leave time); a same-file non-markdown entry is a no-op — the
-			// view is already there. (leaf is the active leaf here — the
-			// cross-tab case returned above — so this is the active view.)
-			if (activeView instanceof MarkdownView)
-				await this.applyLanding(activeView, target);
+			// In-file jump: no open, apply the entry's position directly. The view to
+			// apply it to is THIS leaf's, not the workspace's ACTIVE view: with a
+			// sidebar holding the focus (the resident history panel included) there is
+			// no active file view at all, while the leaf still shows the file — and the
+			// branch then applied nothing, so a jump to a place in the note already on
+			// screen did nothing. That is the sidebar's "sometimes it jumps, sometimes
+			// it does not": the ADJACENT case goes through traverse(), which
+			// reactivates the file leaf first (see traverse), which is why it worked.
+			// Only markdown has positions (the entry's st is refreshed at leave time);
+			// a same-file non-markdown entry is a no-op — the view is already there.
+			const view = leaf.view;
+			if (view instanceof MarkdownView)
+				await this.applyLanding(view, target);
 			return;
 		}
 
@@ -689,24 +722,54 @@ export class NavHistory {
 		await this.openInLeaf(leaf, target);
 	}
 
-	// Apply a target's recorded landing to a view that ALREADY shows the file
-	// — the in-file jump both execute() (same file on the active leaf) and
-	// openInLeaf() (a tab that still shows the target file) end in. Re-anchor
-	// structurally first (the entry's lines predate any later edits), then run
-	// the shared apply. Nothing to do without a recorded landing: a keyless
-	// entry that never got its leave-refresh, a legacy entry, or a view entry
-	// (non-markdown views have no position of ours to apply).
+	// Apply a target's landing to a view that ALREADY shows the file — the in-file
+	// jump both execute() (the target's own leaf, whether or not it is the ACTIVE
+	// one) and openInLeaf() (a tab that still shows the target file) end in.
+	// Re-anchor structurally first (the entry's lines predate any later edits), then
+	// run the shared apply. Nothing to do when there is no landing anywhere for the
+	// entry (see appliedLanding).
 	private async applyLanding(view: MarkdownView, target: NavJump | NavVisit | NavTeleport) {
-		if (!target.st)
+		const st = this.appliedLanding(target);
+		if (!st)
 			return;
 		const isCurrent = () => view.file?.path === target.path;
 		this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-		await this.modes.historyJumpApply(view, target.st, isCurrent, this.resolveAnchorShift(target));
+		await this.modes.historyJumpApply(view, st, isCurrent, this.resolveAnchorShift(target));
+	}
+
+	// The landing a SAME-FILE jump applies. What the entry itself recorded comes
+	// first (see landingOf); a step that recorded none falls back to the file's saved
+	// record — the very source the browser borrowed that row's line from (see
+	// describeNavEntry) — so the line on the row is still the line the click lands on.
+	// Without this, such a row named a line and the jump applied nothing at all in the
+	// same file. It is deliberately NOT part of landingFor: a cross-file open already
+	// falls back to that record, so naming it there would only duplicate what the open
+	// pipeline does by itself.
+	private appliedLanding(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		return this.landingOf(target) ?? this.savedPosition?.(target.path);
+	}
+
+	// The landing an entry can actually restore: its own recorded state, or — for a
+	// teleport whose landing never settled (the post-jump read never arrived, so the
+	// entry kept only the line it aimed at) — that target line as the viewport top.
+	// The browser prints exactly that line on the row (see describeNavEntry), so
+	// honouring it is what keeps the row from promising a place the jump then does
+	// not take the reader to. undefined for an entry that recorded no position of its
+	// own (a legacy entry, a tab activation before its leave-refresh): a same-file
+	// jump falls back to the file's saved record (see appliedLanding), and a
+	// cross-file open falls back to it by itself.
+	private landingOf(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		if (target.st)
+			return target.st;
+		if (target.kind === 'teleport' && Number.isFinite(target.line))
+			return { scroll: Math.max(0, target.line) };
+		return undefined;
 	}
 
 	// The landing a cross-file traversal hands to the open pipeline: the
 	// entry's OWN recorded position — the spot the browser row shows, and
-	// (per this module's contract) the spot back/forward must return to. The
+	// (per this module's contract) the spot back/forward must return to — which for
+	// an unsettled teleport is the target line it recorded (see landingOf). The
 	// structural re-anchor is applied when the entry is a keyed jump whose
 	// heading has moved since: the injected open path has no target editor to
 	// run the text-snippet remap against, so the structural shift is the only
@@ -714,10 +777,11 @@ export class NavHistory {
 	// leave-refresh, a legacy persisted entry, a ^block key (never upgraded) —
 	// leaves the open to the file record: where the user actually was.
 	private landingFor(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
-		if (!target.st)
+		const st = this.landingOf(target);
+		if (!st)
 			return undefined;
 		const shift = this.resolveAnchorShift(target);
-		return shift ? shiftNavState(target.st, shift) : target.st;
+		return shift ? shiftNavState(st, shift) : st;
 	}
 
 	// Arms the one-shot flag the setViewState patch consumes (see

@@ -55,7 +55,7 @@ export class PositionManager {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
-		this.nav = new NavHistory(app, settings, this.state);
+		this.nav = new NavHistory(app, settings, this.state, (path) => this.database.db[path]);
 		this.store = new PositionStore(app, database);
 		this.restorer = new Restorer(app, settings, this.store, this.state);
 		this.sampler = new Sampler(app, this.store, settings, this.state, this.nav);

@@ -139,7 +139,7 @@ export class NavHistoryBrowser {
 	// stack and are re-pointed before every render (see render): the list reads
 	// its entries through this object, so a resident panel is refreshed by
 	// assigning to it rather than by rebuilding the list (which would drop the
-	// aimed-at landings).
+	// position the reader was on).
 	private listOpts!: NavHistoryListOptions;
 	// The search box's text. The list's own query.
 	private filter = '';
@@ -725,10 +725,10 @@ export class NavHistoryBrowser {
 
 	// The "you are here" CARD that used to stand between the toolbar and the list
 	// is gone. The current entry is a row in the list like any other — pinned
-	// first, marked `●` — and the card said the same thing a second time, in a
-	// second place, in a second layout: one line of chrome bought with the height
-	// the list needed, and a reader had to learn which of the two "current
-	// position"s was authoritative. The row is.
+	// first — and the card said the same thing a second time, in a second place,
+	// in a second layout: one line of chrome bought with the height the list
+	// needed, and a reader had to learn which of the two "current position"s was
+	// authoritative. The row is.
 
 	// The heading chain the entry's landing sits in. Empty for a view entry, a
 	// deleted file, or an entry with no recorded line.

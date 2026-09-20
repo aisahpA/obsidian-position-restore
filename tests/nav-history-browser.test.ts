@@ -255,9 +255,10 @@ describe('groupByFile', () => {
 			expect(groups[0].spans.get(2)).toEqual({ from: 30, to: 30, count: 1 });
 		});
 
-		it('prints the span of the whole cluster, so a swallowed number is still on the row', () => {
-			// The point of printing a range rather than the representative: a query that
-			// matched L10 — a step the row folds — still finds a row that says L10.
+		it('records the span a folded row covers, which the row carries as its scope', () => {
+			// The span is NOT the row's coordinate: the row prints the representative's
+			// own line (the line it opens), and this is the scope it keeps as its
+			// tooltip — every step the row folds, including one a query matched.
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 22)];
 			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
 

@@ -72,10 +72,10 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
 		// the landing steps in under the note it belongs to
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
-		// the coordinate keeps its own width — wide enough for a folded cluster's
-		// RANGE, "L412–438": sections start on one x only if every row reserves the
-		// same room, and a row that printed a one-line label while its neighbour
-		// printed a range would not line up with it
+		// the coordinate keeps its own width — every row prints a line number, and
+		// sections start on one x only if each row reserves the same room: a row
+		// that printed a one-line label while its neighbour printed a wider one
+		// would not line up with it
 		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 8ch/);
 		// and the name is capped rather than greedy
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
