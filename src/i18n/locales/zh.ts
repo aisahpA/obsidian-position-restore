@@ -114,13 +114,21 @@ export const zh: En = {
 	// 它装的是快捷键清单。
 	'navHistory.hotkeys.name': '快捷键',
 	// 弹窗自己的标题：它上面没有标题可以重复。
-	'navHistory.overview.name': '导航历史',
+	'navHistory.overview.name': '最近文件',
 	'navHistory.overview.desc':
 		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈大小可在下方调整，按设备保存在 localStorage，重启保留。',
 	'navHistory.overview.hotkeyUnbound': '未绑定——点击右侧按钮设置',
 	'navHistory.overview.openHotkeySettings': '打开快捷键设置',
 
-	'navHistory.stackCap.name': '历史栈大小',
+	'navHistory.recentFolders.name': '不收录的文件夹',
+	'navHistory.recentFolders.desc': '这些文件夹里的文件不会进入最近文件列表。它和上面的记录规则是两回事：一个你不想记住滚动位置的文件夹，可能恰恰是你想回头再打开的。',
+	'navHistory.recentFolders.list.empty': '所有文件夹都会收录。',
+	'navHistory.recentFolders.add': '添加文件夹',
+	'navHistory.recentCap.name': '保留地点数',
+	'navHistory.recentCap.short': '（最近 100 个）',
+	'navHistory.recentCap.medium': '（最近 200 个）',
+	'navHistory.recentCap.long': '（最近 500 个）',
+	'navHistory.stackCap.name': '前进/后退保留步数',
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
 	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
@@ -150,10 +158,10 @@ export const zh: En = {
 
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
-	'navHistory.commands.browseHistory': '浏览导航历史',
+	'navHistory.commands.browseHistory': '打开最近文件',
 	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
 	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
-	'navHistory.commands.browseHistorySidebar': '在侧边栏打开导航历史',
+	'navHistory.commands.browseHistorySidebar': '在侧边栏打开最近文件',
 
 	'navHistory.type.open': '打开',
 	'navHistory.type.switch': '切换',

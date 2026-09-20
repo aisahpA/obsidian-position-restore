@@ -114,13 +114,31 @@ export const en = {
 	// heading (see settings-tab): what it actually holds is the hotkey list.
 	'navHistory.hotkeys.name': 'Hotkeys',
 	// The modal's own title, where there is no heading above it to repeat.
-	'navHistory.overview.name': 'Navigation history',
+	// The PANEL's name. It is a list of places the reader has been — recent
+	// files, plus the headings and anchors they jumped to inside them (see
+	// places.ts) — and NOT the back/forward stack, which is why it is not
+	// called "Navigation history" any more: the two answer different questions
+	// and only one of them is a history of travel.
+	'navHistory.overview.name': 'Recent files',
 	'navHistory.overview.desc':
 		'VSCode-style "Navigate back" / "Navigate forward" across file switches and in-file jumps (links, outline, search results, large cursor moves). Always on — it only needs hotkeys, none are pre-assigned. Same-tab file switches ride Obsidian\'s native per-tab history (PDF, canvas and other views included); the stack (size configurable below) is device-local and survives restarts.',
 	'navHistory.overview.hotkeyUnbound': 'Not bound — click the button to set it up',
 	'navHistory.overview.openHotkeySettings': 'Open hotkey settings',
 
-	'navHistory.stackCap.name': 'History stack size',
+	// The recent-files list's OWN folder rule (see
+	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
+	// Its own list, deliberately not the recording rules' folders above.
+	'navHistory.recentFolders.name': 'Folders not listed',
+	'navHistory.recentFolders.desc': 'Files in these folders are not added to the recent files list. Separate from the recording rules above: a folder you do not want to remember positions in may still be one you want to navigate back to.',
+	'navHistory.recentFolders.list.empty': 'Every folder is listed.',
+	'navHistory.recentFolders.add': 'Add folder',
+	// How far back the list reaches: the panel's own storage knob, chosen in the
+	// panel (see NavBrowserPrefs.placesCap).
+	'navHistory.recentCap.name': 'Places to keep',
+	'navHistory.recentCap.short': '(last 100)',
+	'navHistory.recentCap.medium': '(last 200)',
+	'navHistory.recentCap.long': '(last 500)',
+	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
 	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
@@ -161,11 +179,11 @@ export const en = {
 
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
-	'navHistory.commands.browseHistory': 'Browse navigation history',
+	'navHistory.commands.browseHistory': 'Open recent files',
 	// The resident form of the same browser: a sidebar panel instead of a dialog
 	// (see view.ts). Named as a PLACE rather than as an action, because that is
 	// the difference — the panel stays where it is put.
-	'navHistory.commands.browseHistorySidebar': 'Open navigation history in sidebar',
+	'navHistory.commands.browseHistorySidebar': 'Open recent files in sidebar',
 
 	'navHistory.type.open': 'Open',
 	'navHistory.type.switch': 'Switch',

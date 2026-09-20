@@ -112,3 +112,9 @@ export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 // (see NavEntryState and NavVisit): the browser reads all of them, so a v2
 // blob would render half-empty rows.
 export const NAV_HISTORY_VERSION = 3;
+
+// The recent-files list's own format version (see places.ts / places-store.ts).
+// A separate blob and a separate version from the stack's: the two lists are
+// different things written at different cadences, and one must be droppable
+// without the other.
+export const RECENT_PLACES_VERSION = 1;

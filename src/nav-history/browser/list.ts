@@ -16,16 +16,22 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // what a reader asks it: which note, and where in it. A note is one row, and a
 // name two notes share prints its folder to say which one it is.
 //
+// THE ROW IS THE FILE, AND A FILE ROW IS AN OPEN. The places the panel draws are
+// the recent-files list's (see places.ts), and a note's record there carries no
+// position: its row opens the file the PLAIN way, exactly as Obsidian's file
+// explorer does, and the position database decides where the reader lands. That
+// is what keeps the two entry points to one file from behaving differently — and
+// it is why a file row never prints a line (the line it would print is a jump's
+// business, see placeRow).
+//
 // WHAT IS UNDER THE ROW IS THE SETTING, and only that (see LandingsMode). By
-// default there is NOTHING under it: the list is one row per note — the reader's
-// own navigation is by file, and the spot that matters is the one they left it at
-// — the row STANDS FOR that spot (see activeRep), and a click points the panel at
-// it. Every distinct spot a note was left at is one value away ('all'), which
-// prints them under the name by line, top of the note first (see groupByFile:
-// inside one note the order it was visited in says nothing); the same line
-// reached twice is one spot, not two rows that read alike. A note with ONE
-// landing prints none under it either way: a single spot is not a list, and the
-// row already stands for it.
+// default there is NOTHING under it: the reader's own navigation is by file.
+// Every place the note holds is one value away ('all'), which prints them under
+// the name by line, top of the note first (see groupByFile: inside one note the
+// order it was visited in says nothing); the same line reached twice is one
+// place, not two rows that read alike. A note with ONE place prints none under
+// it either way: a single place is not a list, and the row already stands for the
+// note as a whole.
 //
 // There is no third state between them, and no expansion: a note's row used to
 // open and close its own landings, which made the row's click mean "open" for a
@@ -36,9 +42,9 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // same place, and the reader who wants the other spots says so once, in the
 // setting, rather than per note.
 //
-// The row's two halves are an OPEN and a LOOK: the row itself opens the file at
-// the landing it stands for — that is what a navigator is for, and a note's name
-// is the target — while the control in the row's left gutter expands the row's
+// The row's two halves are an OPEN and a LOOK: the row itself opens what it
+// stands for — a note the plain way, a jump at its recorded spot (see
+// places.travel) — while the control in the row's left gutter expands the row's
 // own details (the recorded spot, or the note as it stands now; see
 // LandingPanel). The gutter control is not decoration and it is not a second way
 // to travel: it replaced a double click, which cannot be told from a single one
@@ -59,8 +65,8 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // and the column beside it followed, describing whatever it happened to pass over.
 // A list that lurches under a passing mouse describes a row nobody chose and loses
 // the spot the reader was actually reading, so every change of what is described is
-// now a click they made. The arrow travels, and so does the RIGHT button of a
-// mouse: one press, one journey, with no menu to confirm it in (see onContextMenu).
+// now a click they made. The arrow travels, and the row's own click travels; no other
+// button does (see onContextMenu).
 //
 // The list owns its rows and the ONE position in them: `selected`, which a click
 // sets and the keyboard walks (see choose). It is what the landing panel
@@ -74,9 +80,9 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // when it has one, is only the landing the row itself stands for (see fileRow).
 interface RowRef {
 	el: HTMLElement;
-	// The stack index the row acts on. Undefined for a note row whose file is
-	// gone: every recorded landing is unreachable, so the row names the note and
-	// there is nothing to travel to (the panel still says what stood there).
+	// The place index the row acts on — a LANDING row's own index. A note row
+	// carries none (its identity is the group; see fileRow), and one whose file is
+	// gone has nothing to travel to (the panel still says what stood there).
 	rep?: number;
 	group?: number;
 }
@@ -194,11 +200,11 @@ export class NavHistoryList {
 		// class comment) — the rows' own clicks are wired as the rows are drawn.
 	}
 
-	// The stack index the position stands for, or -1 (no position): a landing is
-	// itself, a note is the landing it stands for (see activeRep). Resolved from the
+	// The place index the position stands for, or -1 (no position): a landing is
+	// itself, a note is the record it stands for (see activeRep). Resolved from the
 	// ROW now rather than remembered as a number from when the position arrived: what
 	// a row stands for can move under a position that has not — the query redraws the
-	// list, the note's own steps change as the reader navigates. It is what the
+	// list, the note's own places change as the reader navigates. It is what the
 	// drawer describes and what Enter travels to: one position, so the two cannot
 	// disagree.
 	get position(): number {
@@ -223,8 +229,12 @@ export class NavHistoryList {
 	// that dropped the note takes the column off it rather than leaving it describing
 	// a row nobody can see.
 	standsFor(rep: number): boolean {
-		return rep >= 0 && this.refs.some(r => r.group !== undefined
-			&& this.groups[r.group]?.indices.includes(rep));
+		return rep >= 0 && this.refs.some(r => {
+			const group = r.group === undefined ? undefined : this.groups[r.group];
+			// A note's own record (its anchor) stands for the note's row, so the
+			// drawer stays on a file whose only subject is the file itself.
+			return !!group && (group.indices.includes(rep) || group.anchor === rep);
+		});
 	}
 
 	// Mark the row the drawer is describing: the row on the left and the column on
@@ -249,8 +259,10 @@ export class NavHistoryList {
 		}
 		// A closed note (or a landing a query dropped) has no such row: the FILE row
 		// stands in for it, which is what still pairs the two sides up.
-		this.refs.find(r => r.group !== undefined && this.groups[r.group]?.indices.includes(rep))
-			?.el.addClass('is-previewed');
+		this.refs.find(r => {
+			const group = r.group === undefined ? undefined : this.groups[r.group];
+			return !!group && (group.indices.includes(rep) || group.anchor === rep);
+		})?.el.addClass('is-previewed');
 	}
 
 	// The row a stack index resolves to, when that row is on screen (a landing the
@@ -275,41 +287,41 @@ export class NavHistoryList {
 		return undefined;
 	}
 
-	// The stack index a row acts on: a landing is itself; a note is the NEWEST of its
-	// landings — THE LAST SPOT THE READER WAS AT IN IT, which is what a reader pointing
-	// at a note means, and what their back button keeps returning to. It used to be the
-	// FIRST landing under the note, which the line-ordered rows made look like "the
-	// beginning of the document": the row of a note the reader had left at L800
-	// travelled to L3.
+	// The place index a row acts on: a landing is itself; a NOTE is the note's OWN
+	// record — the place that stands for the file rather than for a spot inside it
+	// (see listing.ts's `anchor` and places.ts).
 	//
-	// The newest is the newest, whether or not the reader is standing on it. The row
-	// used to skip "here" and answer with the newest of the OTHER spots, so that it
-	// never offered to open the place the reader was already in — but that made the row
-	// of the note you are reading stand for a spot you were not sent to, and the panel
-	// on the note's own row described some older place in it. Reading a row as "where I
-	// am" is right: the gutter control opens saying the same thing, and its own click
-	// re-opens — or re-lands — that very place, because the list no longer holds back
-	// the spot the reader is standing in (see targetOf).
+	// That is what makes a file row an OPEN and not a jump: its record carries no
+	// position of its own, so travelling to it opens the file the plain way and lets
+	// the position database decide where the reader lands — exactly what clicking the
+	// same file in Obsidian's file explorer does. It used to stand for the note's
+	// NEWEST landing, which was right while every row was a stack step and every step
+	// carried a spot; with places it would make the note's name a jump to wherever the
+	// reader last clicked a heading.
 	//
-	// A deleted note still ANSWERS with one of its recorded landings, because the panel
-	// is where "this file is gone, here is what stood there" is said; whether it may
-	// actually be travelled to is travel()'s question, not this one.
+	// A group with no anchor — a note whose own record has been evicted while the
+	// jumps made inside it survive — falls back to its newest landing, and still has
+	// somewhere to go.
+	//
+	// A deleted note still ANSWERS with its own record, because the panel is where
+	// "this file is gone, here is what stood there" is said; whether it may actually
+	// be travelled to is travel()'s question, not this one.
 	//
 	// The note's row has NO other input: what the reader merely LOOKED at (a landing's
 	// own row, the gutter control, the arrow keys) moves the description and nothing
-	// else. It used to remember the landing last aimed at and stand for that one, so
-	// reading a note's old spot silently redefined where its name would take the reader
-	// — the note's row always answers with the note's OWN newest step.
+	// else.
 	private activeRep(row: RowRef): number {
 		if (row.group === undefined)
 			return row.rep ?? -1;
 		const group = this.groups[row.group];
-		if (!group || !group.indices.length)
+		if (!group)
 			return -1;
+		if (group.anchor !== undefined && group.anchor >= 0)
+			return group.anchor;
 		const order = group.reachable.length ? group.reachable : group.indices;
-		// The stack index IS the clock: entries are pushed in order, so the highest
-		// index among a note's distinct landings is its newest step.
-		return order.reduce((a, b) => (a > b ? a : b));
+		// The place index IS the clock (the list is kept in MRU order, see
+		// places.ts): the highest index among a note's landings is its newest one.
+		return order.length ? order.reduce((a, b) => (a > b ? a : b)) : -1;
 	}
 
 	// Whether this note's landings are printed under its own row right now — the
@@ -444,7 +456,12 @@ export class NavHistoryList {
 	// is the gutter control, and it is not that caret: it opens no sublist and counts
 	// nothing — it expands THIS row's own details (see disclose).
 	private fileRow(group: ReturnType<typeof groupByFile>[number], index: number, doubles: Set<string>): number {
-		const rep = group.reachable.find(i => i !== group.currentRep) ?? group.reachable[0];
+		// The note's own record when it has one (see activeRep), else any landing
+		// that may be travelled to: the row needs ONE record to read the name, the
+		// view kind and the file's existence from.
+		const rep = group.anchor
+			?? group.reachable.find(i => i !== group.currentRep)
+			?? group.reachable[0];
 		// A note whose file is gone is still the note the reader is standing in:
 		// it is drawn from the note itself — its path — rather than from a landing
 		// it no longer has.
@@ -470,12 +487,15 @@ export class NavHistoryList {
 		row.setAttr('aria-selected', 'false');
 		if (missing || rep === undefined)
 			row.setAttr('aria-disabled', 'true');
-		// One ref object, because three things act through it: the row's own click,
-		// the right-click, and the gutter control — and they have to agree about
-		// which landing they are about.
-		const ref: RowRef = { el: row, rep, group: index };
+		// One ref object, because two things act through it: the row's own click and
+		// the gutter control — and they have to agree about which place they are
+		// about. Its identity is the GROUP: `rep` stays
+		// undefined, because a file row stands for the note (see activeRep) and a
+		// number here would let rowOf() hand the drawer a file row where it asked
+		// for the landing that happens to share that index.
+		const ref: RowRef = { el: row, group: index };
 		row.addEventListener('click', () => this.onClick(ref));
-		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
+		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev));
 		this.refs.push(ref);
 		// The gutter control, in the row's own left padding — out of the row's flow,
 		// so it cannot change how tall the row is (see disclose) — and only where there
@@ -493,10 +513,12 @@ export class NavHistoryList {
 			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-folder' });
 		file.createSpan({ text: name, cls: 'nav-row-name' });
 		// NO "you are here" dot on the note's name: the current note is pinned first
-		// (see groupByFile), so the dot could only ever sit on row one, saying what the
-		// position already says. It survives where it tells something apart — on the
-		// LANDING that holds the current entry, whose note has other rows beside it
-		// (see placeRow).
+		// (see groupByFile) and carries `is-current`, so the dot could only ever sit on
+		// row one, saying what the row already says. It survives where it tells
+		// something apart — on the LANDING that holds the current entry (a jump the
+		// reader is standing on), whose note has other rows beside it (see placeRow).
+		// A reader who is in the note but on no jump has no landing to mark, and the
+		// row's own `is-current` is what says where they are.
 		return 1;
 	}
 
@@ -522,11 +544,11 @@ export class NavHistoryList {
 		row.setAttr('aria-selected', 'false');
 		if (d.missing)
 			row.setAttr('aria-disabled', 'true');
-		// The same three-way ref as a note's row (see fileRow): the click, the
-		// right-click and the gutter control are one landing.
+		// The same two-way ref as a note's row (see fileRow): the click and the
+		// gutter control are one landing.
 		const ref: RowRef = { el: row, rep: i };
 		row.addEventListener('click', () => this.onClick(ref));
-		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
+		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev));
 		this.refs.push(ref);
 		if (this.opts.disclose())
 			this.disclose(row, ref);
@@ -650,32 +672,22 @@ export class NavHistoryList {
 		});
 	}
 
-	// A right-click on a row: the same journey as the row's own click, for a hand
-	// already resting on the right button.
+	// A right-click on a row goes NOWHERE, and neither does a finger's lingering
+	// press — the same event to a WebView, carrying the left button's number.
 	//
-	// It used to open a menu holding one item ("jump here") that had to be picked,
-	// which is a confirmation dialog for a gesture that was already a decision: a
-	// right-click on a row says "go there" as plainly as a left-click does, and the
-	// menu only put a second click between the reader and the move. So it opens AT
-	// ONCE — the same one-press contract as the row — and the same refusal: a row
-	// with nothing to open (a deleted note) does nothing at all, and keeps its
-	// tooltip to say why. The browser's own menu is
-	// suppressed either way: this list has a meaning for the gesture, and none of the
-	// app's (copy a row, inspect it) belongs on a row.
+	// The gesture used to travel, as a shortcut for a hand already resting on the
+	// right button. It is gone: a row is opened by clicking it, and a second button
+	// that opens the same thing is a gesture to learn for nothing — while on a tablet,
+	// where a tap is easy to hold a beat too long, the same gesture turned an ordinary
+	// slow tap into a jump ("tapping the file name jumps too").
 	//
-	// ONLY THE RIGHT BUTTON MEANS THAT, which is not a detail about mice: a finger
-	// has no right button at all, yet a WebView still raises this event for it — a
-	// press that lingers for a moment becomes a `contextmenu` carrying the LEFT
-	// button's number, and a journey taken on it turned an ordinary slow tap into a
-	// jump. On a tablet, where a tap is easier to hold a beat too long, that was the
-	// report: "tapping the file name jumps too". The press is still refused (a long
-	// press on a row has no text selection or callout to offer either); it simply
-	// goes nowhere — and the gutter control is the one a finger uses for details.
-	private onContextMenu(ev: MouseEvent, ref: RowRef): void {
+	// It is still REFUSED rather than ignored, which is the one thing that must not
+	// change with the meaning: the app's own menu has nothing to offer on a row (there
+	// is no text to copy and nothing to inspect), and a long press must not raise a
+	// selection callout over the list. The gutter control is the one a finger uses for
+	// a row's details.
+	private onContextMenu(ev: MouseEvent): void {
 		ev.preventDefault();
-		if (ev.button !== 2)
-			return;
-		this.travel(ref);
 	}
 
 	// Put the position away: the list back to the shape it opens in — nothing
@@ -690,11 +702,11 @@ export class NavHistoryList {
 		this.clearSelection();
 	}
 
-	// The row's own click opens the file at the landing it stands for (see
-	// activeRep) — the panel is a navigator, and the note's name is its target. The
-	// same gesture on both kinds of row, because there is only one thing a row can be
-	// asked: WHERE. A note's row answers with the note's newest step, and a landing
-	// row answers with itself.
+	// The row's own click opens what it stands for (see activeRep) — the panel is a
+	// navigator, and the note's name is its target. The same gesture on both kinds of
+	// row, because there is only one thing a row can be asked: WHERE. A note's row
+	// answers with the note's own record (the plain open), and a landing row with
+	// itself (a jump lands on its spot).
 	//
 	// A row with nothing to open — a deleted note's — does nothing at all: travel()
 	// refuses it (see targetOf). The place the reader is already in is NOT that: the

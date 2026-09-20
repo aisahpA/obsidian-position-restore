@@ -110,6 +110,20 @@ interface PluginSettings {
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
 	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
 	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
+	// The recent-files list's own storage. It is a DIFFERENT thing from the
+	// back/forward stack above (and from the position records): what it holds is
+	// which files the reader has been in and which headings/anchors they jumped
+	// to, so a place may be lived in for months where a stack step lives for
+	// minutes. Its ceiling is chosen in the panel's own gear (see
+	// NavBrowserPrefs.placesCap), because that is where the reader is looking at
+	// the list whose length it decides.
+	navRecentCap: number; // max places kept in the recent-files list; oldest drop on overflow
+	// The files the recent-files list must NOT record — its OWN rule, deliberately
+	// not shared with excludedFolders above: that one answers "whose scroll
+	// position is worth remembering" (a diary folder may be excluded from stale
+	// restores and still be exactly what the reader wants to navigate back to),
+	// while this one answers "which visits are worth listing".
+	navRecentExcludeFolders: string[];
 	// The history browser's own preferences. They are persisted rather than held
 	// in the panel because all of them outlive the panel they are chosen in: a reader
 	// who wants the note as it stands now wants it tomorrow too, and a reader who wants
@@ -145,6 +159,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navStackCap: 50,
 	navRecordActivation: true,
 	navRecordTeleport: true,
+	navRecentCap: 200,
+	navRecentExcludeFolders: [],
 	navPreviewMode: 'spot',
 	navLandings: 'last',
 	navShowDetails: false,

@@ -6,7 +6,7 @@
 // nav-history-browser-dom.test.ts, where it is driven through the modal.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TFile, WorkspaceLeaf } from 'obsidian';
+import { Platform, TFile, WorkspaceLeaf } from 'obsidian';
 
 import { NAV_HISTORY_VIEW_TYPE, NavHistoryView, activateNavHistoryView } from '@/nav-history/browser/view';
 import type { NavBrowserPrefs } from '@/nav-history/browser/body';
@@ -33,6 +33,10 @@ function browserPrefs(landings: LandingsMode = 'last'): NavBrowserPrefs {
 		},
 		showDetails: () => true,
 		setShowDetails: () => undefined,
+		// How far back the list reaches: chosen in the panel's gear (see
+		// NavBrowserPrefs.placesCap).
+		placesCap: () => 200,
+		setPlacesCap: () => undefined,
 	};
 }
 
@@ -42,9 +46,16 @@ const NOW = Date.now();
 const visit = (path: string, stamp: number): NavHistoryEntry =>
 	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp });
 
-// The history as the view sees it: entries, the pointer, jumpTo and subscribe.
-// The real class is exercised against the same surface in
-// nav-history-recording.test.ts; here the point is the SHELL, so the stack is a
+// A PLACE of a note: a jump the reader made. A note's own record (`visit`) is the
+// note's ROW and carries no position at all (see places.ts), so a fixture that
+// means "a spot in this note" builds the jump — a positioned visit is a shape the
+// list never holds.
+const place = (path: string, stamp: number, line: number): NavHistoryEntry =>
+	({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:L${line}@${stamp}`, t: stamp, st: { scroll: line } });
+
+// The place list as the view sees it: entries, the pointer, travel and subscribe
+// (see places.ts's PlaceList). The real store is exercised against the same
+// surface in nav-places.test.ts; here the point is the SHELL, so the list is a
 // fixture that can be moved by hand.
 class FakeNav {
 	entries: NavHistoryEntry[] = [];
@@ -52,11 +63,11 @@ class FakeNav {
 	readonly jumped: number[] = [];
 	private listeners = new Set<() => void>();
 
-	// The real jump, in miniature: the target is re-pushed on top, which TRUNCATES
-	// the forward part and makes the note it landed on the current one — so the list
-	// is rewritten under the panel, which is the whole reason the panel has to
-	// collapse first (see NavHistory.jumpTo / NavHistoryList.collapse).
-	jumpTo = async (i: number): Promise<void> => {
+	// The real travel, in miniature: the place visited is re-stamped and becomes the
+	// current one — so the list is rewritten under the panel, which is the whole
+	// reason the panel has to collapse first (see NavPlaces.travel /
+	// NavHistoryList.collapse).
+	travel = async (i: number): Promise<void> => {
 		this.jumped.push(i);
 		const target = this.entries[i];
 		this.entries = [...this.entries.slice(0, i), { ...target, t: Date.now() }];
@@ -217,8 +228,8 @@ describe('NavHistoryView — the resident panel', () => {
 		// panel redraws itself rather than waiting for the history to move.
 		const prefs = browserPrefs('last');
 		const entries: NavHistoryEntry[] = [
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - 2 * MINUTE, st: { scroll: 10 } },
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st: { scroll: 40 } },
+			place('a.md', NOW - 2 * MINUTE, 10),
+			place('a.md', NOW - MINUTE, 40),
 			visit('b.md', NOW),
 		];
 		const { el } = await mount(entries, 2, prefs);
@@ -234,6 +245,76 @@ describe('NavHistoryView — the resident panel', () => {
 		// under the panel is the new one, in the same breath.
 		expect(prefs.landings()).toBe('all');
 		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
+	});
+
+	// The drawer is a SHAPE, not a class: `this.leaf.parent` is whatever the app put
+	// there, and the typings' WorkspaceMobileDrawer is not necessarily something the
+	// app's runtime module exports — an `instanceof` against a missing name throws,
+	// and (before the travel) that made the panel answer no click at all on a phone.
+	const drawer = () => {
+		const d = {
+			collapsed: false,
+			collapse(): void { d.collapsed = true; },
+		};
+		return d;
+	};
+
+	it('collapses the phone\'s drawer on a travel, so the note it opened can be seen', async () => {
+		// On a phone the resident panel IS a drawer over the whole screen: a row that
+		// opens a note behind it looks like a row that did nothing. The panel itself
+		// stays in the layout — collapsing is not closing, and where to put it is the
+		// reader's business.
+		const { el, nav, view } = await mount(
+			[place('a.md', NOW - MINUTE, 10), visit('b.md', NOW)], 1, browserPrefs('all'));
+		const pane = drawer();
+		(view.leaf as unknown as { parent?: unknown }).parent = pane;
+		const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
+
+		// A desktop leaf's parent is a tab group, not a drawer: nothing moves, because
+		// the panel stands beside the note already.
+		click(note());
+		expect(pane.collapsed).toBe(false);
+		expect(nav.jumped).toHaveLength(1);
+
+		const wasMobile = Platform.isMobile;
+		Platform.isMobile = true;
+		try {
+			click(note());
+			expect(pane.collapsed).toBe(true);
+		} finally {
+			Platform.isMobile = wasMobile;
+		}
+		expect(nav.jumped).toHaveLength(2);
+	});
+
+	it('travels even when the shell\'s reaction throws', async () => {
+		// The reader asked to go somewhere; the shell's own reaction (a dialog closing,
+		// a drawer folding) is the shell's business. One that throws must cost them the
+		// reaction, not the journey — the failure mode this test exists for was a
+		// mobile panel where every click did nothing at all.
+		const { el, nav, view } = await mount(
+			[place('a.md', NOW - MINUTE, 10), visit('b.md', NOW)], 1, browserPrefs('all'));
+		(view.leaf as unknown as { parent?: unknown }).parent = {
+			collapsed: false,
+			collapse(): void { throw new Error('no drawer'); },
+		};
+		const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
+
+		const wasMobile = Platform.isMobile;
+		Platform.isMobile = true;
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		try {
+			click(note());
+		} finally {
+			Platform.isMobile = wasMobile;
+			logged.mockRestore();
+		}
+
+		expect(nav.jumped).toHaveLength(1);
 	});
 
 	it('asks the PANE how much room there is, not the window', async () => {
@@ -261,16 +342,14 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 	// FIRST, which is the order a real history is built in (see NavHistory.push): the
 	// newest thing the reader did in a.md is the second step, not the first.
 	const stack = () => [
-		{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - 2 * MINUTE, st: { scroll: 10 } },
-		{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st: { scroll: 40 } },
-		{ kind: 'visit', path: 'b.md', leafId: 'leaf-1', t: NOW, st: { scroll: 0 } },
+		place('a.md', NOW - 2 * MINUTE, 10),
+		place('a.md', NOW - MINUTE, 40),
+		place('b.md', NOW, 0),
 	] as NavHistoryEntry[];
 
 	const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	// The RIGHT button: the same journey as the row's own click, for the hand that is
-	// already on the mouse (see NavHistoryList.onContextMenu). The button number IS the
-	// gesture — a lingering finger's `contextmenu` carries the left one and must not
-	// open anything.
+	// The RIGHT button, and a finger's lingering press (the same event with the left
+	// button's number): neither opens anything (see NavHistoryList.onContextMenu).
 	const rightClick = (el: HTMLElement) => el.dispatchEvent(
 		new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }),
 	);
@@ -368,19 +447,17 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 
-	it('travels on a right-click too, in the same one press', async () => {
+	it('opens nothing on a right-click', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
 
 		rightClick(note());
 
-		// One press, one journey — the same contract as the arrow, for the hand that
-		// is already on the mouse, and the same destination (the note's newest landing,
-		// see activeRep). It used to open a one-item menu that had to be picked, which
-		// is a confirmation for a gesture that was already a decision (see
-		// NavHistoryList.onContextMenu).
-		expect(nav.jumped).toEqual([1]);
+		// The right button no longer travels: a row is opened by clicking it, and a
+		// second button that opens the same thing is a gesture to learn for nothing
+		// (see NavHistoryList.onContextMenu).
+		expect(nav.jumped).toEqual([]);
 	});
 
 	it('leaves a press that was only held down where it was', async () => {
@@ -389,9 +466,8 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
 
 		// The same event a WebView raises for a long touch, with the LEFT button on it:
-		// not the gesture this panel travels on, so the panel does not move (see
-		// NavHistoryList.onContextMenu). It is the one that made a slow tap on a
-		// tablet's file name look like a jump.
+		// the panel does not move (see NavHistoryList.onContextMenu). It is the one that
+		// made a slow tap on a tablet's file name look like a jump.
 		const held = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
 		note.dispatchEvent(held);
 
@@ -437,12 +513,12 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 	// guards.
 	it('starts the next list from a cleared position, not from the note that used to be in that slot', async () => {
 		const entries = [
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - 5 * MINUTE, st: { scroll: 10 } },
-			{ kind: 'visit', path: 'b.md', leafId: 'leaf-1', t: NOW - 4 * MINUTE, st: { scroll: 5 } },
-			{ kind: 'visit', path: 'b.md', leafId: 'leaf-1', t: NOW - 3 * MINUTE, st: { scroll: 50 } },
-			{ kind: 'visit', path: 'c.md', leafId: 'leaf-1', t: NOW - 2 * MINUTE, st: { scroll: 7 } },
-			{ kind: 'visit', path: 'c.md', leafId: 'leaf-1', t: NOW - MINUTE, st: { scroll: 30 } },
-			{ kind: 'visit', path: 'd.md', leafId: 'leaf-1', t: NOW, st: { scroll: 1 } },
+			place('a.md', NOW - 5 * MINUTE, 10),
+			place('b.md', NOW - 4 * MINUTE, 5),
+			place('b.md', NOW - 3 * MINUTE, 50),
+			place('c.md', NOW - 2 * MINUTE, 7),
+			place('c.md', NOW - MINUTE, 30),
+			place('d.md', NOW, 1),
 		] as NavHistoryEntry[];
 		// The list as it stands: d (current) first, then c, b, a. c is the note below
 		// the top one, and its older landing is the index the jump is about to give to b.
@@ -458,12 +534,12 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		// c's older landing — the step recorded at scroll 7, printed "L8": the top of
 		// that note by line order, which is not the one its own row stands for (the
 		// newest, scroll 30) but the one this reader picked.
-		const place = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
+		const row = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
 			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L8')!;
-		click(disclose(place));
-		expect(place.classList.contains('is-selected')).toBe(true);
+		click(disclose(row));
+		expect(row.classList.contains('is-selected')).toBe(true);
 
-		click(place);
+		click(row);
 
 		expect(nav.jumped).toEqual([3]);
 		// The note travelled to is now the current one, pinned first …

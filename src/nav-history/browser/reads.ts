@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian';
-import { NavHistory } from '@/nav-history/history';
+import { NavHistoryEntry } from '@/nav-history/entry';
 import { EphemeralState } from '@/types';
 import { HeadingRef, NavEntryDescription, describeNavEntry } from './model';
 
@@ -13,9 +13,14 @@ import { HeadingRef, NavEntryDescription, describeNavEntry } from './model';
 // exactly one read behind: a file a reader has asked to see whole.
 
 export interface NavHistoryReadsOptions {
-	// The file's saved record, for an entry carrying no position of its own (see
-	// describeNavEntry).
+	// The file's saved record: the position source for a place that carries none
+	// of its own — which, on the recent-files list, is every FILE record (see
+	// places.ts). The line such a row prints is therefore the line a plain open
+	// will land on, which is exactly the promise the row makes.
 	savedPosition?: (path: string) => EphemeralState | undefined;
+	// The places as they stand: a reader, not a snapshot, because the list is
+	// re-pointed on every render of a resident panel (see body.ts's render).
+	entries: () => NavHistoryEntry[];
 }
 
 export class NavHistoryReads {
@@ -35,7 +40,6 @@ export class NavHistoryReads {
 
 	constructor(
 		private app: App,
-		private nav: NavHistory,
 		private opts: NavHistoryReadsOptions,
 	) {}
 
@@ -58,7 +62,7 @@ export class NavHistoryReads {
 	describe(i: number): NavEntryDescription {
 		let d = this.descCache.get(i);
 		if (!d) {
-			d = describeNavEntry(this.nav.entries[i], this.hasFile, this.opts.savedPosition, this.mtimeOf);
+			d = describeNavEntry(this.opts.entries()[i], this.hasFile, this.opts.savedPosition, this.mtimeOf);
 			this.descCache.set(i, d);
 		}
 		return d;

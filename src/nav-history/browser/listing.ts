@@ -57,6 +57,13 @@ export interface NavFileGroup {
 	// deleted is still the note (the panel says what stood there), but nothing
 	// under it is a destination.
 	reachable: number[];
+	// The note's OWN record — the place that stands for the file rather than for
+	// a spot inside it (see places.ts), i.e. the `visit` (or the `view`) the
+	// group was opened by. The file's row IS this record: it opens the file the
+	// plain way, and its line (when the panel prints one) is the line a plain
+	// open will land on. It is deliberately NOT one of `indices`: a note's own
+	// record is not a landing to list under the note, it IS the note.
+	anchor?: number;
 	// The current entry's own group: pinned to the top of the list, so "you are
 	// here" is a place in the same list.
 	current: boolean;
@@ -177,6 +184,21 @@ export function groupByFile(
 		const entry = entries[i];
 		const key = groupKey(entry);
 		const group = open(entry);
+		// The note's own record names the FILE rather than a spot inside it, so it
+		// becomes the group's ANCHOR (see `anchor`) and adds NO landing. What is
+		// listed under a note is the jumps the reader made inside it, and a row
+		// standing for the file's own record would be a row whose click opens the
+		// file the reader is already in — i.e. a row that visibly does nothing
+		// (see list.ts's activeRep, and places.travel: a FILE place opens plainly).
+		// The record still marks the group as the CURRENT one: the reader standing
+		// in this note is standing on the file, whether or not they jumped inside it.
+		if (entry.kind === 'visit' || entry.kind === 'view') {
+			if (group.anchor === undefined)
+				group.anchor = i;
+			if (i === currentIndex)
+				group.current = true;
+			continue;
+		}
 		const line = lineOf(i);
 		const landing = landingKey(entry, line);
 		const at = seen.get(key)?.get(landing);

@@ -47,7 +47,7 @@ function prefs(start: { mode?: PreviewMode; landings?: LandingsMode; details?: b
 	// types.ts): almost everything this file asserts is what that column does, so the
 	// fixture turns it on unless a test says otherwise — and the suites that are about
 	// the default itself pass `details: false` and say so.
-	const state = { mode: 'spot' as PreviewMode, landings: 'last' as LandingsMode, details: true, ...start };
+	const state = { mode: 'spot' as PreviewMode, landings: 'last' as LandingsMode, details: true, cap: 200, ...start };
 	return {
 		state,
 		browser: {
@@ -62,6 +62,12 @@ function prefs(start: { mode?: PreviewMode; landings?: LandingsMode; details?: b
 			showDetails: () => state.details,
 			setShowDetails: (on: boolean) => {
 				state.details = on;
+			},
+			// How far back the list reaches: chosen in the panel's gear (see
+			// NavBrowserPrefs.placesCap).
+			placesCap: () => state.cap,
+			setPlacesCap: (cap: number) => {
+				state.cap = cap;
 			},
 		} satisfies NavBrowserPrefs,
 	};
@@ -94,8 +100,18 @@ function harnessAll(
 		prefs({ mode: 'spot', landings: 'all' }).browser);
 }
 
-const visit = (path: string, stamp: number, st?: NavEntryState): NavHistoryEntry =>
-	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp, st });
+// A PLACE of the recent-files list, in the two shapes the store really produces
+// (see places.ts): a step that carries a position is a JUMP the reader made — the
+// only record that owns a landing — while a step without one is the FILE's own
+// record, which is the note's row rather than a landing under it. A file record
+// with a position is a shape the list never holds (the position database owns
+// "where I left this file"), which is why this helper splits them.
+const visit = (path: string, stamp: number, st?: NavEntryState): NavHistoryEntry => st
+	? {
+		kind: 'jump', path, leafId: 'leaf-1', t: stamp, st,
+		key: `outline:## L${st.scroll ?? st.context?.[st.contextAt ?? 0]?.line ?? 0}`,
+	} as NavHistoryEntry
+	: { kind: 'visit', path, leafId: 'leaf-1', t: stamp };
 
 // A capture as the plugin records one now: the landing's surrounding NON-BLANK
 // lines with `contextAt` marking it (see NavEntryState.context). Mirrors
@@ -193,6 +209,10 @@ function harness(
 	// preference into each other through the settings file.
 	browserPrefs: NavBrowserPrefs = defaultPrefs(),
 ) {
+	// The place list's travel: the panel hands it a place index and the list
+	// decides how to go there (a file opens the plain way, a jump lands — see
+	// places.ts). The spy keeps its old name so every assertion below reads as
+	// what it always asked: "this is the place the row took the reader to".
 	const jumpTo = vi.fn(async () => {});
 	// Following a link inside the rendered preview: the app's own open, which the
 	// browser calls instead of letting the anchor navigate (see
@@ -255,7 +275,7 @@ function harness(
 	let modal: NavHistoryModal;
 	try {
 		modal = new NavHistoryModal(app as never, {
-			entries, index, jumpTo, stackCap: () => 50,
+			entries, index, travel: jumpTo, subscribe: () => () => {},
 		} as never, undefined, browserPrefs);
 	} finally {
 		Platform.isMobile = previous;
@@ -287,13 +307,15 @@ function harness(
 	const point = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-disclose')!
 			.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	// …and the same destination without the row: a right-click on the row opens it at
-	// once, with no menu in between (see NavHistoryList.onContextMenu). The button
-	// number is the whole gesture there — a lingering finger's `contextmenu` carries
-	// the left one (see `longPress`).
-	const rightClick = (row: HTMLElement) => row.dispatchEvent(
-		new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }),
-	);
+	// …and the muted gestures: a right-click, and a finger's lingering press (a
+	// WebView raises the same `contextmenu` for both — see NavHistoryList.onContextMenu).
+	// Neither goes anywhere any more; what matters is that neither OPENS anything, and
+	// that both are still refused.
+	const rightClick = (row: HTMLElement) => {
+		const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+		row.dispatchEvent(ev);
+		return ev;
+	};
 	// …and the same event from a press that was merely held: a WebView raises
 	// `contextmenu` for a long touch too, with the LEFT button's number on it, and an
 	// open taken on that turned an ordinary slow tap into a jump. It answers with
@@ -630,8 +652,8 @@ describe('NavHistoryModal — keyboard', () => {
 		// Two landings in b.md, and the cursor walks onto its row.
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
-			{ kind: 'visit', path: 'b.md', leafId: 'leaf-2', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
-			{ kind: 'visit', path: 'b.md', leafId: 'leaf-2', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavHistoryEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:Two', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavHistoryEntry,
 			visit('c.md', NOW),
 		];
 		const h = harness(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '' });
@@ -658,13 +680,35 @@ describe('NavHistoryModal — keyboard', () => {
 		expect(h.rows()).toHaveLength(0);
 	});
 
+	it('lists the jumps a note holds, never the note\'s own record', () => {
+		// The file's own record is the note's ROW (see listing.ts's `anchor`). A
+		// landing row standing for it would open the file the reader is already in —
+		// a plain open of the note on screen, i.e. a row that visibly does nothing,
+		// on the note pinned FIRST where it is clicked most.
+		const entries = [
+			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
+			visit('a.md', NOW - 2 * MINUTE, { scroll: 40 }),
+			visit('a.md', NOW - MINUTE),
+			visit('b.md', NOW),
+		];
+		const h = harnessAll(entries, 3, { 'a.md': '', 'b.md': '' });
+
+		// The two jumps, and no third row for the record.
+		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L11', 'L41']);
+		// …and a click on one of them travels to THAT JUMP — never to the record,
+		// whose travel is a plain open (see places.travel).
+		h.clickRow(h.rows()[0]);
+		expect(h.jumpTo).toHaveBeenCalledWith(0);
+		expect(h.jumpTo).not.toHaveBeenCalledWith(2);
+	});
+
 	it('walks the landing rows too when the setting prints them', () => {
 		// The same list under 'all': the note's spots are rows of their own, so ↓ steps
 		// into them and Enter travels to the one it is on (see NavHistoryList.move).
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
-			{ kind: 'visit', path: 'b.md', leafId: 'leaf-2', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
-			{ kind: 'visit', path: 'b.md', leafId: 'leaf-2', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavHistoryEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:Two', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavHistoryEntry,
 			visit('c.md', NOW),
 		];
 		const h = harnessAll(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '' });
@@ -770,12 +814,16 @@ describe('NavHistoryModal — the settings menu', () => {
 		// carry. That is why this is the panel's own DOM and not the app's Menu.
 		expect(panel.getAttribute('role')).toBe('group');
 		expect(panel.getAttribute('aria-label')).toBe(t('navHistory.listSettings'));
-		expect(panel.querySelectorAll('.nav-settings-group')).toHaveLength(3);
+		// FOUR choices (see NavHistoryBrowser.openSettings): whether the list describes
+		// a landing at all, how much of a note it prints, which content that
+		// description shows, and how far back the list reaches.
+		expect(panel.querySelectorAll('.nav-settings-group')).toHaveLength(4);
 		expect(Array.from(panel.querySelectorAll('.nav-settings-title')).map(el => el.textContent))
 			.toEqual([
 				t('navHistory.landings.name'),
 				t('navHistory.details.name'),
 				t('navHistory.preview.name'),
+				t('navHistory.recentCap.name'),
 			]);
 		// The few words are read where the answer is, after it, and not out of one
 		// paragraph under the group: no group-level note is left, and every answer
@@ -788,12 +836,15 @@ describe('NavHistoryModal — the settings menu', () => {
 				t('navHistory.details.show.desc'),
 				t('navHistory.preview.spot.desc'),
 				t('navHistory.preview.note.desc'),
+				t('navHistory.recentCap.short'),
+				t('navHistory.recentCap.medium'),
+				t('navHistory.recentCap.long'),
 			]);
 		expect(option(h, t('navHistory.landings.options.all'))
 			.querySelector('.nav-settings-option-desc')?.textContent)
 			.toBe(t('navHistory.landings.options.all.desc'));
 		expect(Array.from(panel.querySelectorAll('[role="radiogroup"]')).map(el => el.getAttribute('aria-label')))
-			.toEqual([t('navHistory.landings.name'), t('navHistory.preview.name')]);
+			.toEqual([t('navHistory.landings.name'), t('navHistory.preview.name'), t('navHistory.recentCap.name')]);
 		// The details column is a CHECK rather than a radio pair: "show it" and "hide it"
 		// are not two answers a reader picks between, so its group carries one row — and
 		// that row is a checkbox, so its one state is read the way the radios' are.
@@ -927,10 +978,11 @@ describe('NavHistoryModal — the settings menu', () => {
 
 		h.clickRow(gear(h));
 		// The switch is off, and the menu asks nothing about a column that is not there:
-		// two groups, the switch and the list's shape.
+		// three groups — the list's shape, the switch itself, and how far back the list
+		// reaches (which has nothing to do with the column).
 		const check = option(h, t('navHistory.details.show'));
 		expect(check.getAttribute('aria-checked')).toBe('false');
-		expect(menu(h)!.querySelectorAll('.nav-settings-group')).toHaveLength(2);
+		expect(menu(h)!.querySelectorAll('.nav-settings-group')).toHaveLength(3);
 
 		h.clickRow(check);
 
@@ -1064,9 +1116,8 @@ describe('NavHistoryModal — deleted entries', () => {
 		// DESTINATION, not the control.
 		expect(row.querySelector('.nav-row-disclose')).not.toBeNull();
 
-		// A right-click on it is refused the same way: the gesture has exactly one
-		// meaning in this list — open it there — so a row with nowhere to open does
-		// nothing at all, and its own tooltip is what says why (see
+		// A right-click on it is refused the same way, like every other row's: the
+		// gesture has no meaning in this list at all (see
 		// NavHistoryList.onContextMenu).
 		h.rightClick(row);
 		expect(h.jumpTo).not.toHaveBeenCalled();
@@ -1326,8 +1377,9 @@ describe('NavHistoryModal — one note, many landings', () => {
 });
 
 describe('NavHistoryModal — panes', () => {
+	// A landing of a note, taken in one tab: a jump the reader made (see places.ts).
 	const pane = (path: string, leafId: string, stamp: number): NavHistoryEntry =>
-		({ kind: 'visit', path, leafId, t: stamp, st: { scroll: stamp } });
+		({ kind: 'jump', path, leafId, key: `outline:${leafId}`, t: stamp, st: { scroll: stamp } });
 
 	it('names the pane on the landing, and only for a note two live tabs hold', () => {
 		// a.md is open in two tabs; b.md in one (and is the current entry).
@@ -1521,12 +1573,17 @@ describe('NavHistoryModal — landing preview', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(0);
 	});
 
-	it('says so when the tapped landing has no landing to show', () => {
+	it('shows the note for a place that recorded no lines of its own', async () => {
+		// A recent-files FILE place records no lines (see places.ts): its position is
+		// the position database's, and that record keeps no text. The column falls back
+		// to the note as it stands — "this is where opening the row puts me" is the
+		// honest answer, and an admission of nothing under a file's name is not.
 		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, read, [], {}, {}, true);
 
 		tapLanding(h);
 
-		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.none'));
+		await vi.waitFor(() => expect(h.source()).toBe(read['a.md']));
+		expect(h.el.querySelector('.nav-preview-note')).toBeNull();
 	});
 
 	it('previews a deleted note without letting it become a travel target', () => {
@@ -1561,7 +1618,10 @@ describe('NavHistoryModal — where the type lives now', () => {
 		// four, which say something they may not know (see NavEntryDescription.plainOpen
 		// and LandingPanel.head).
 		const plain = harness([
-			visit('a.md', NOW - MINUTE, { scroll: 3, context: [{ line: 3, text: '落点' }], contextAt: 0 }),
+			{
+				kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE,
+				st: { scroll: 3, context: [{ line: 3, text: '落点' }], contextAt: 0 },
+			} as NavHistoryEntry,
 			visit('b.md', NOW),
 		], 1, { 'a.md': '', 'b.md': '' }, [], {}, {}, true);
 		expect(plain.notes()[0].querySelector('.nav-row-badge')).toBeNull();
@@ -1607,10 +1667,10 @@ describe('NavHistoryModal — a landing row', () => {
 	it('prefixes the landing with the deepest section levels', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
-		// the deepest two levels, no file read needed
+		// the deepest two levels, straight off the heading cache — the ROWS never read
+		// the vault (the one read on mount is the drawer's own, see the drawer suite)
 		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
 		expect(h.rows()[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
-		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
 	it('shows the coordinate and the section, never the landing text', () => {
@@ -1849,10 +1909,12 @@ describe('NavHistoryModal — the recorded landing block', () => {
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
-	it('reads nothing even for an entry with no block: it says so and stops', () => {
-		// The live-read fallback is gone, so the panel cannot consult the editor
-		// or the vault at all. An entry without a block (a state that never went
-		// through the nav read) gets the same admission, not a file read.
+	it('reads the note for an entry with no block, never the live editor', async () => {
+		// The block is still what a SPOT renders — the lines the reader left on, with
+		// no read behind them. A place with no block at all (every FILE place on the
+		// recent-files list, see places.ts) has no lines to render, so the drawer shows
+		// the note: one VAULT read, never the open editor's buffer, which may hold
+		// unsaved text the file does not.
 		const h = harness(
 			[visit('a.md', NOW - MINUTE, { scroll: 1 }), visit('b.md', NOW)],
 			1, files, [], { 'a.md': 'live ten\nlive eleven\nlive twelve' }, {}, true,
@@ -1860,9 +1922,9 @@ describe('NavHistoryModal — the recorded landing block', () => {
 
 		open(h);
 
-		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.none'));
-		expect(h.el.textContent).not.toContain('live eleven');
-		expect(h.cachedRead).not.toHaveBeenCalled();
+		await vi.waitFor(() => expect(h.source()).toBe(files['a.md']));
+		// the VAULT's text, not the editor's buffer
+		expect(h.cachedRead.mock.calls.filter(c => c[0].path === 'a.md')).toHaveLength(1);
 	});
 
 	it('shows the coordinate against the recorded file size', () => {
@@ -2367,16 +2429,18 @@ describe('NavHistoryModal — touch', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
-	it('travels on a right-click, with no menu to confirm it in', () => {
+	it('opens nothing on a right-click, and refuses the gesture', () => {
 		const h = harness(entries(), 2, files);
 
-		h.rightClick(h.note('b.md'));
+		const ev = h.rightClick(h.note('b.md'));
 
-		// The gesture IS the decision: the menu that used to hold a single "jump
-		// here" item put a second click between the reader and where they had already
-		// said they were going (see NavHistoryList.onContextMenu) — and the row's own
-		// click is the visible way to say the same thing.
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		// A row is opened by clicking it. The right button used to travel as well — a
+		// shortcut for a hand already resting on it — and that is gone: one gesture per
+		// meaning, and the visible one is the click (see NavHistoryList.onContextMenu).
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		// …and it is still refused rather than handed to the app: a row has no text to
+		// copy, nothing to inspect, and a long press must raise no callout over the list.
+		expect(ev.defaultPrevented).toBe(true);
 	});
 
 	it('sizes the gutter control itself, in pixels, for a finger', () => {
@@ -2418,10 +2482,10 @@ describe('NavHistoryModal — touch', () => {
 		// callout and no text selection to offer — it just goes nowhere.
 		expect(held.defaultPrevented).toBe(true);
 
-		// The right button still travels, from the same row: the whole gesture is
-		// the distinction, not the event.
+		// …and neither does the right button, from the same row: the gesture is
+		// refused whichever way it arrives.
 		h.rightClick(row);
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
 	it('opens without raising the on-screen keyboard', () => {
@@ -2570,12 +2634,13 @@ describe('NavHistoryModal — the landing drawer', () => {
 		visit('b.md', NOW),
 	];
 
-	it('opens on "where I am", before anything is pointed at', () => {
-		// The current entry has no block of its own here, so the drawer says so
-		// rather than sitting blank — the column is always answering something.
+	it('opens on "where I am", before anything is pointed at', async () => {
+		// The current place is a FILE record (b.md), which records no lines of its own —
+		// so the column answers with the note itself: the column is always answering
+		// something, and for a file place that something is the file.
 		const h = harness(at(), 2, read);
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
-		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.none'));
+		await vi.waitFor(() => expect(h.source()).toBe(read['b.md']));
 	});
 
 	it('answers for whatever row was clicked, block and all', () => {
@@ -2590,8 +2655,9 @@ describe('NavHistoryModal — the landing drawer', () => {
 		// the reading view uses, not printed as the capture stored it
 		expect(h.source()).toBe(doc.map(line => (line === 'LANDING' ? '==LANDING==' : line)).join('\n'));
 		expect(h.marks()).toEqual(['LANDING']);
-		// nothing was read: the block is what the entry recorded
-		expect(h.cachedRead).not.toHaveBeenCalled();
+		// a.md was never read: its block is what the entry recorded (the one read is the
+		// drawer's own first render, on the current FILE place — see places.ts)
+		expect(h.cachedRead.mock.calls.map(c => c[0].path)).not.toContain('a.md');
 	});
 
 	it('describes the spot a click points at, on the note row or on a landing row', () => {
@@ -2847,7 +2913,7 @@ describe('NavHistoryModal — the drawer under a capture window', () => {
 		expect(h.el.querySelector('.nav-preview-caption')?.textContent).toBe(t('navHistory.preview.source'));
 		// …and no "nothing here" either: this IS the preview of that file
 		expect(h.el.querySelector('.nav-preview-note')).toBeNull();
-		expect(h.cachedRead).toHaveBeenCalledTimes(1);
+		expect(h.cachedRead.mock.calls.filter(c => c[0].path === '数据库/读书.base')).toHaveLength(1);
 	});
 
 	it('says a PDF has nothing to show, without reading it to find that out', () => {
@@ -2866,7 +2932,7 @@ describe('NavHistoryModal — the drawer under a capture window', () => {
 		// LandingPanel.caption) — while the gutter control is what asked about it. The
 		// PDF itself is never read to find out what it is.
 		expect(h.note('attention.pdf').querySelector('.nav-row-disclose')).not.toBeNull();
-		expect(h.cachedRead).not.toHaveBeenCalled();
+		expect(h.cachedRead.mock.calls.map(c => c[0].path)).not.toContain('论文/attention.pdf');
 	});
 });
 
@@ -3112,7 +3178,8 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 		h.point(h.rows()[0]); // the drawer is on a.md's older place (L7)
 		pickNote(h);
 		await vi.waitFor(() => expect(h.source()).toBe(live));
-		expect(h.cachedRead).toHaveBeenCalledTimes(1);
+		const aReads = () => h.cachedRead.mock.calls.filter(c => c[0].path === 'a.md').length;
+		expect(aReads()).toBe(1);
 
 		h.point(h.rows()[1]); // …and now on its other one (L31)
 
@@ -3121,7 +3188,7 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 		// LandingPanel.captionText)
 		expect(h.el.querySelector('.nav-preview-caption-row')).toBeNull();
 		// one note, one read: the rendered DOM is reused and only the mark moves
-		expect(h.cachedRead).toHaveBeenCalledTimes(1);
+		expect(aReads()).toBe(1);
 		expect(h.source()).toBe(live);
 	});
 
@@ -3204,7 +3271,7 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 			.toBe(t('navHistory.preview.recorded', 3, 5));
 		expect(h.el.querySelector('.nav-preview-modes')).toBeNull();
 		// …and nothing was read for it: there is no file left to read
-		expect(h.cachedRead).toHaveBeenCalledTimes(1);
+		expect(h.cachedRead.mock.calls.map(c => c[0].path)).not.toContain('gone.md');
 	});
 
 	it('never offers the whole note for a view step', () => {

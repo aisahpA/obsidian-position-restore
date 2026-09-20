@@ -1,6 +1,6 @@
 // The history browser's BODY: everything about the panel that is not a shell.
 //
-// Two shells stand around it — the "Browse navigation history" modal
+// Two shells stand around it — the "Open recent files" modal
 // (modal.ts) and the resident sidebar panel (view.ts) — and everything they
 // have in common lives here: the toolbar, the list of notes, the landing panel
 // beside it (or under it), the keyboard, and travel. A shell owns its own
@@ -25,9 +25,10 @@
 //   - preview-content.ts    what that panel draws: the recorded lines, or the
 //                           whole note, through Obsidian's markdown renderer
 //   - markdown.ts           the recorded lines dressed as markdown for it
-// The name says BROWSER because the history itself — how a step is recorded,
-// persisted and restored — is the rest of nav-history/ (history.ts, entry.ts,
-// store.ts, outline-capture.ts), which this panel only reads and never writes.
+// The name says BROWSER because the list itself — which places exist, how they
+// are recorded, persisted and travelled to — is the rest of nav-history/
+// (places.ts, places-store.ts, plus the recording funnel in history.ts and the
+// entry vocabulary in entry.ts), which this panel only reads and never writes.
 //
 // READ-ONLY, and that is what makes a RESIDENT panel possible at all: the body
 // draws whatever the stack holds at the moment render() is called. The list's
@@ -37,8 +38,8 @@
 // not asked for anything more.
 
 import { App, FileView, setIcon } from 'obsidian';
-import { NavHistory } from '@/nav-history/history';
 import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
+import { PlaceList } from '@/nav-history/places';
 import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
 import { EphemeralState, LandingsMode } from '@/types';
 import { t } from '@/i18n';
@@ -84,17 +85,26 @@ export interface NavBrowserPrefs {
 	// which is why the browser asks it on every render (see render) and not once.
 	showDetails: () => boolean;
 	setShowDetails: (on: boolean) => void;
+	// How many places the recent-files list keeps. Chosen here rather than in the
+	// settings tab for the same reason the three above are: the reader decides it
+	// while looking at the list whose length it is (see body.ts's settings gear).
+	placesCap: () => number;
+	setPlacesCap: (cap: number) => void;
 }
 
 export interface NavHistoryBrowserOptions {
 	app: App;
-	// The history the rows are drawn from. One snapshot per render (see render),
-	// never a copy held across it.
-	nav: NavHistory;
+	// The PLACES the rows are drawn from — the recent-files list (see
+	// places.ts), never the back/forward stack: the panel answers "which files
+	// have I been in, and which spots did I jump to", and a stack that truncates
+	// on a fresh jump cannot answer it. Its own travel decides per record how to
+	// go there (a file opens the plain way; a jump lands on its spot).
+	places: PlaceList;
 	// The element the body builds itself into. Its size is the shell's business;
 	// the body only fills it.
 	host: HTMLElement;
-	// The file's saved record, for an entry carrying no position of its own.
+	// The file's saved record: the position every FILE row's line is drawn from
+	// (a place carries none), and the spot a plain open restores.
 	savedPosition?: (path: string) => EphemeralState | undefined;
 	// Whether this device is a touch device. It is about the device's own
 	// ergonomics and nothing else — an on-screen keyboard that covers half a phone
@@ -190,8 +200,11 @@ export class NavHistoryBrowser {
 	}
 
 	constructor(private opts: NavHistoryBrowserOptions) {
-		this.reads = new NavHistoryReads(opts.app, opts.nav, {
+		this.reads = new NavHistoryReads(opts.app, {
 			savedPosition: opts.savedPosition,
+			// The live list, re-pointed per render (see render): a resident panel
+			// describes the places as they stand, not as they stood when it opened.
+			entries: () => opts.places.entries,
 		});
 		this.content = new NavPreviewContent({
 			app: opts.app,
@@ -246,9 +259,9 @@ export class NavHistoryBrowser {
 			// list into the other shape rather than leaving controls for a panel that is
 			// no longer drawn (see NavBrowserPrefs.showDetails).
 			disclose: () => this.details,
-			// The live stack, re-pointed per render (see render).
-			entries: this.opts.nav.entries,
-			currentIndex: this.opts.nav.index,
+			// The live places, re-pointed per render (see render).
+			entries: this.opts.places.entries,
+			currentIndex: this.opts.places.index,
 			filter: () => this.filter,
 			describe: rep => this.reads.describe(rep),
 			clearDescribeCache: () => this.reads.clearDescribeCache(),
@@ -279,9 +292,9 @@ export class NavHistoryBrowser {
 			list: listEl,
 			inline: () => this.opts.inline(),
 			position: () => this.list.position,
-			here: () => this.opts.nav.index,
+			here: () => this.opts.places.index,
 			standsFor: rep => this.list.standsFor(rep),
-			entryAt: rep => this.opts.nav.entries[rep],
+			entryAt: rep => this.opts.places.entries[rep],
 			anchorRow: () => this.list.panelAnchor(),
 			noteRowOf: row => this.list.noteRowOf(row),
 			onPreviewed: rep => this.list.markPreviewed(rep),
@@ -305,23 +318,23 @@ export class NavHistoryBrowser {
 		// unfocused (one tap away, when the user actually means to type); on a
 		// pointing device the keyboard costs nothing and typing is the fastest
 		// way through the list, so it keeps the focus.
-		if (this.opts.focusFilter && !this.opts.touch && this.opts.nav.entries.length > 0)
+		if (this.opts.focusFilter && !this.opts.touch && this.opts.places.entries.length > 0)
 			this.filterInput.focus();
 	}
 
-	// (Re)draw everything the stack and the filter decide. Called by the shell
+	// (Re)draw everything the places and the filter decide. Called by the shell
 	// when it mounts, by the modal when the window crosses the width the drawer
-	// needs, and — for a resident panel — every time the history changes (see
-	// NavHistory.subscribe).
+	// needs, and — for a resident panel — every time the places change (see
+	// NavPlaces.subscribe).
 	render(): void {
-		// The stack as it stands NOW, before anything reads it: the list holds
+		// The places as they stand NOW, before anything reads them: the list holds
 		// its options object across renders, and the panel resolves "here" and
-		// the entries by index, so a history that moved under a resident panel
+		// the entries by index, so a list that moved under a resident panel
 		// is picked up by re-pointing these two fields and nothing else. The
 		// describe cache goes with them — it is keyed by index, and an index
-		// means another entry the moment the stack is truncated or pruned.
-		this.listOpts.entries = this.opts.nav.entries;
-		this.listOpts.currentIndex = this.opts.nav.index;
+		// means another place the moment the list is re-ordered or trimmed.
+		this.listOpts.entries = this.opts.places.entries;
+		this.listOpts.currentIndex = this.opts.places.index;
 		this.panes = paneInfo(this.liveLeaves());
 		// Whether the details column exists at all, said on the BODY before anything is
 		// drawn: it is a fact about the layout (the column leaves the flow and the list
@@ -558,6 +571,16 @@ export class NavHistoryBrowser {
 				},
 			], this.opts.prefs.previewMode(), mode => this.pickPreviewMode(mode));
 		}
+		// How far back the list reaches: the one storage knob of the recent-files
+		// list, and a question only the reader looking at the list can answer (see
+		// NavBrowserPrefs.placesCap). Three answers rather than a number field,
+		// because the choice is "how far back do I want to reach", not a figure to
+		// type — and each answer carries its own few words, like every group here.
+		this.settingGroup<string>(menu, t('navHistory.recentCap.name'), [
+			{ value: '100', label: '100', desc: t('navHistory.recentCap.short') },
+			{ value: '200', label: '200', desc: t('navHistory.recentCap.medium') },
+			{ value: '500', label: '500', desc: t('navHistory.recentCap.long') },
+		], String(this.opts.prefs.placesCap()), value => this.pickPlacesCap(Number(value)));
 		this.settingsMenu = menu;
 		this.settingsBtn.setAttr('aria-expanded', 'true');
 		this.watchDismiss(menu);
@@ -707,6 +730,18 @@ export class NavHistoryBrowser {
 		this.render();
 	}
 
+	// …and the same for how far back the list reaches. Lowering it trims the list
+	// on the spot rather than on the next visit (see NavPlaces.applyCap): a
+	// setting that says "keep 100" has to mean it while the reader is looking at
+	// the 300 it is about to drop.
+	private pickPlacesCap(cap: number): void {
+		this.closeSettings();
+		if (!Number.isFinite(cap) || this.opts.prefs.placesCap() === cap)
+			return;
+		this.opts.prefs.setPlacesCap(cap);
+		this.render();
+	}
+
 	// Put the setting away, and say whether there was one up (@returns whether this
 	// was the key the reader meant, see onKeyDown).
 	private closeSettings(): boolean {
@@ -799,15 +834,16 @@ export class NavHistoryBrowser {
 			this.panel.forget();
 			this.list.collapse();
 		}
-		this.opts.onJump?.();
+		this.shellReacts();
 		void Promise.resolve(this.opts.app.workspace.openLinkText(linktext, sourcePath, false))
 			.catch(e => console.error('Position Restore: link follow failed:', e));
 	}
 
 	private jump(i: number): void {
-		// The reader's place first where the shell is staying up: the jump is about to
-		// rewrite the stack, and a position left where it was would name whatever slid
-		// into that slot (see the option). The panel is forgotten before the list,
+		// The reader's place first where the shell is staying up: going to a place
+		// re-orders the list (it is moved to the end) and a jump re-pushes the
+		// stack, so a position left where it was would name whatever slid into
+		// that slot (see the option). The panel is forgotten before the list,
 		// because clearing the position redraws it.
 		if (this.opts.collapseOnJump) {
 			this.panel.forget();
@@ -815,8 +851,23 @@ export class NavHistoryBrowser {
 		}
 		// …then the shell's own reaction, so a dialog is out of the way before
 		// the open it triggers runs (see NavHistoryBrowserOptions.onJump).
-		this.opts.onJump?.();
-		void this.opts.nav.jumpTo(i)
-			.catch(e => console.error('Position Restore: history jump failed:', e));
+		this.shellReacts();
+		void this.opts.places.travel(i)
+			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
+	}
+
+	// Run the shell's own reaction to a travel, and let NOTHING it does stop the
+	// journey behind it. The callback is the shell's business — a dialog closing, a
+	// phone's drawer folding away, a link being followed — and the reader asked to go
+	// somewhere: a shell that throws must cost them the reaction, not the travel.
+	// (That is not hypothetical: the resident panel's mobile dismissal once threw on
+	// a class the app's runtime module does not export, and every click it answered
+	// did nothing.)
+	private shellReacts(): void {
+		try {
+			this.opts.onJump?.();
+		} catch (e) {
+			console.error('Position Restore: the panel shell failed to react to a travel:', e);
+		}
 	}
 }
