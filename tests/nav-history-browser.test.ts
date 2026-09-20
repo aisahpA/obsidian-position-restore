@@ -169,13 +169,13 @@ describe('groupByFile', () => {
 		const entries = [
 			visit('a.md', 0, 10),
 			visit('b.md', 1, 20),
-			visit('a.md', 2, 30),
+			visit('a.md', 2, 400),
 			visit('c.md', 3, 40),
 		];
 		const groups = groupByFile(entries, 3, undefined, undefined, lines(entries));
 
 		expect(groups.map(g => g.path)).toEqual(['c.md', 'a.md', 'b.md']);
-		// …and inside a note the rows come out DOWN the note: L10 before L30, not in
+		// …and inside a note the rows come out DOWN the note: L10 before L400, not in
 		// the order they were visited in (see groupByFile).
 		expect(groups.map(g => g.indices)).toEqual([[3], [0, 2], [1]]);
 		expect(groups[0].current).toBe(true);
@@ -213,10 +213,79 @@ describe('groupByFile', () => {
 	it('marks reachable apart from listed: the current step is listed but not a destination', () => {
 		// The current entry is a row like any other (see NavHistoryList), but it
 		// is where the reader already is: only the OTHER landings are travels.
-		const entries = [visit('a.md', 0, 10), visit('a.md', 1, 20)];
+		const entries = [visit('a.md', 0, 10), visit('a.md', 1, 400)];
 		const groups = groupByFile(entries, 1, undefined, i => i !== 1, lines(entries));
 
 		expect(groups[0]).toMatchObject({ path: 'a.md', indices: [0, 1], reachable: [0] });
+	});
+
+	// NEARBY landings are ONE row (see LANDING_MERGE_LINES). A note the reader
+	// scrolled through leaves a trail of them a few lines apart, and printing each is
+	// a wall of rows whose numbers all look alike; what is printed is the PLACES a
+	// reader can tell apart, and each is represented by the newest step in it.
+	describe('nearby landings fold into one row', () => {
+		const at = (path: string, i: number, line: number): NavHistoryEntry =>
+			({ kind: 'visit', path, leafId: 'leaf-1', t: 1000 + i * 100, st: { scroll: line } });
+		const lineOf = (entries: NavHistoryEntry[]) => (i: number) => {
+			const entry = entries[i];
+			return entry.kind === 'view' ? undefined : entry.st?.scroll;
+		};
+
+		it('folds a trail inside the window into one row, represented by its newest step', () => {
+			const entries = [at('a.md', 0, 10), at('a.md', 1, 18), at('a.md', 2, 26)];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			// One row, and it stands for the LAST spot the reader was at in that
+			// neighbourhood — the same answer a note's own row gives (see activeRep).
+			expect(groups[0].indices).toEqual([2]);
+			expect(groups[0].spans.get(2)).toEqual({ from: 10, to: 26, count: 3 });
+		});
+
+		it('measures from the cluster\'s HEAD, so a dense trail cannot chain a whole section', () => {
+			// Every step is within the window of the one before it, and the run is
+			// wider than the window: measured from the previous line these three would
+			// be one row spanning sixty lines.
+			const entries = [at('a.md', 0, 0), at('a.md', 1, 15), at('a.md', 2, 30)];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			expect(groups[0].indices).toEqual([1, 2]);
+			expect(groups[0].spans.get(1)).toEqual({ from: 0, to: 15, count: 2 });
+			expect(groups[0].spans.get(2)).toEqual({ from: 30, to: 30, count: 1 });
+		});
+
+		it('prints the span of the whole cluster, so a swallowed number is still on the row', () => {
+			// The point of printing a range rather than the representative: a query that
+			// matched L10 — a step the row folds — still finds a row that says L10.
+			const entries = [at('a.md', 0, 10), at('a.md', 1, 22)];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			expect(groups[0].spans.get(1)).toEqual({ from: 10, to: 22, count: 2 });
+		});
+
+		it('remembers WHICH cluster holds the current entry, not just that it is listed', () => {
+			// The current step is a MEMBER of the cluster whose representative is a
+			// newer step: the row is still the place the reader is in, and a row that is
+			// where they are must not offer to open (see NavHistoryList.targetOf).
+			const entries = [at('a.md', 0, 10), at('a.md', 1, 18)];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			expect(groups[0].indices).toEqual([1]);
+			expect(groups[0].currentRep).toBe(1);
+			expect(groups[0].current).toBe(true);
+		});
+
+		it('keeps a cluster with no coordinate of its own apart from the numbered ones', () => {
+			// A `.base`, an image, a step whose position never resolved: one place, and
+			// it cannot be near anything — there is no number to be near.
+			const entries = [
+				at('a.md', 0, 400),
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1400, st: {} } as NavHistoryEntry,
+			];
+			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+
+			expect(groups[0].indices).toEqual([0, 1]);
+			expect(groups[0].spans.get(1)).toEqual({ from: undefined, to: undefined, count: 1 });
+		});
 	});
 
 	// The landings under a note are PLACES, not steps (see landingKey): the line

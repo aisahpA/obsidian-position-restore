@@ -110,16 +110,23 @@ interface PluginSettings {
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
 	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
 	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
-	// The history browser's own two preferences. They are persisted rather than held
-	// in the panel because both outlive the panel they are chosen in: a reader who
-	// wants the note as it stands now wants it tomorrow too, and a reader who wants
-	// one row per note wants that of every note. Both are chosen IN the panel —
-	// the content by the switch above the landing's lines (see LandingPanel), the
-	// list's shape by the toolbar's own setting button — because that is where the
-	// reader is looking at what they change, and the settings tab keeps no second
-	// copy of either.
+	// The history browser's own preferences. They are persisted rather than held
+	// in the panel because all of them outlive the panel they are chosen in: a reader
+	// who wants the note as it stands now wants it tomorrow too, and a reader who wants
+	// one row per note wants that of every note. All are chosen IN the panel — the
+	// content by the switch above the landing's lines (see LandingPanel), the list's
+	// shape and whether the details column exists at all by the toolbar's own setting
+	// button — because that is where the reader is looking at what they change, and the
+	// settings tab keeps no second copy of any of them.
 	navPreviewMode: 'spot' | 'note'; // which content a landing opens on: the spot the step recorded, or the note as it stands now
 	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
+	// Whether the browser describes a landing at all: the gutter control in every row,
+	// the panel it opens (the drawer beside the list or the block under the row), and
+	// the half of the hint that names the control. OFF by default — a history list is
+	// a list, and a reader who wants to see WHAT each step was turns the column on in
+	// the gear. With it off the rows lose their left gutter too: there is nothing to
+	// put there.
+	navShowDetails: boolean;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -140,6 +147,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navRecordTeleport: true,
 	navPreviewMode: 'spot',
 	navLandings: 'last',
+	navShowDetails: false,
 };
 
 export {

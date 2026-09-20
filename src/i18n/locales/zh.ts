@@ -131,12 +131,22 @@ export const zh: En = {
 	// 的走法——读历史基本是按文件走的，最后那一个才是「返回」会回到的地方，而它已经由笔记
 	// 那一行代表（点一下看它、箭头跳过去），所以列表里不再需要任何子级。
 	'navHistory.landings.name': '列表里的落点',
-	'navHistory.listSettings': '列表设置',
-	// 说明写成两行，一行一档（见 .nav-settings-desc：pre-line 保留这个换行）：一段话堆在
-	// 两个短选项下面是一堵小字墙，读者得自己从里面挑出哪句属于哪一档。
-	'navHistory.landings.desc': '「每篇一行」：一篇笔记只占一行，点一下看它最后那个落点。\n「全部落点」：每个落点都列在笔记下面；更早的落点也能用上面的搜索框直接找到。',
+	'navHistory.listSettings': '设置',
+	// 说明简化成几个字，写在答案自己后面（见 NavHistoryBrowser.settingGroup），并用括号
+	// 括起来——读到的是一句关于答案的注，而不是第二个标签。一段话堆在整组下面，得先点名
+	// 两个选项才能开口，读者还得从一堵小字墙里挑出属于自己正看着的那一档；写在答案旁边，
+	// 字就落在答案上。括号跟着字走：一对半角还是全角，是各语言自己的事。
 	'navHistory.landings.options.last': '每篇一行',
+	'navHistory.landings.options.last.desc': '（只留最后落点）',
 	'navHistory.landings.options.all': '全部落点',
+	'navHistory.landings.options.all.desc': '（每个落点都列出）',
+	// 是否让列表讲一行落点是什么（见 PluginSettings.navShowDetails）。默认关闭：历史首先是
+	// 一张「回去哪儿」的清单，「这一步当时是什么样」是读者自己的选择——就在它改变的这张
+	// 列表上选。这一组只有一行，不是上面那种两档：读者不是在「显示」和「不显示」之间挑
+	// 一个，行本身就是开关，勾就是它的状态。
+	'navHistory.details.name': '落点详情',
+	'navHistory.details.show': '显示',
+	'navHistory.details.show.desc': '（行首三角打开的落点详情）',
 
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
@@ -159,55 +169,64 @@ export const zh: En = {
 	// 的文本——却各自占着工具栏的一格和一份状态，所以一起去掉了（见 modal.ts）。
 	'navHistory.empty': '暂无可跳转的其他位置。',
 
-	// 面板自身：点击提示。原来的前进/后退分段随步骤计数索引一起去掉了，钉顶的「当前
-	// 位置」卡片也去掉了（见 modal.ts）：列表是笔记本身，正在站的那篇是它的第一行。
-	// 触屏没有键盘，提示必须说手指能做的事（见 NavHistoryBrowserOptions.touch）：行首的
-	// 箭头负责前往，轻点一行则是在旁边的面板里看它代表的那一处。`{arrow}` 是行上那个箭头
-	// 图标在句子里落笔的位置（见 NavHistoryBrowser.hint）——提示让人去找箭头，就得画出
-	// 列表上真正的那一个，而不是打一个形状不同的字符。
-	// 「展开」不在这两句话里：列表不再有任何可以展开的东西（见 list.ts），而提示是建一次
-	// 就不重绘的——一句跟着设置变的话会留在旧档位上，所以它只说两种档位下都成立的手势。
-	'navHistory.touchHint': '轻点 {arrow} 跳转，轻点一行看那一处',
-	// ……鼠标下的同一套手势，两种外壳都一样：列表只认点击（见 NavHistoryList），前往由
-	// 行首的箭头承担，鼠标划过什么也不做——只是路过一行的指针既不动位置，也不打开任何
-	// 东西。原来在这里的双击已经去掉：它会把每一次单击都押后一个双击窗口，于是列表响应
-	// 发钝，而且跳转前还会把笔记或面板闪开一下。（键盘仍然可用——↑↓ 走、Enter 跳转——
-	// 只是这行提示要教的不是它。）
-	'navHistory.clickHint': '{arrow} 直接跳转 · 单击看那一处',
-	// 行首的箭头和在行上右键做的是同一件事，这里是它们共用的说法：箭头拿它当提示
-	// 文字，面板在「没有可预览文本」时也引用它。
-	'navHistory.jumpHere': '跳到这里',
+	// 面板自身：点击提示。列表现在是个导航器：点一行就是打开那一行代表的文件，行首那个
+	// 三角则是「看这一行自己的详情」（见 NavHistoryList.disclose）。两件事各有一个靶子，
+	// 提示要教的正是这一点。`{arrow}` 是行首那个三角在句子里落笔的位置（见
+	// NavHistoryBrowser.hint）——提示让人去找它，就得画出列表上真正的那一个，而不是打一
+	// 个形状不同的字符。
+	// 「展开」不在这两句话里：详情显示哪一份内容由齿轮里那个按钮决定（见
+	// NavHistoryBrowser.settings），而那与手势无关，所以提示不点名它，也就不会被它留在
+	// 旧档位上。
+	// 但「有没有详情」确实会换掉整句话，那句话在设置改变时会重写（见 fillHint）：下面两句
+	// 是点名那个控件的，再下面两句是关掉详情栏的读者读到的。
+	'navHistory.touchHint': '轻点一行打开，轻点 {arrow} 看这一处',
+	// ……鼠标下的同一套手势，两种外壳都一样：列表只认点击（见 NavHistoryList），打开由行
+	// 本身承担，行首的三角看详情，鼠标划过什么也不做——只是路过一行的指针既不动位置，也
+	// 不打开任何东西。（键盘仍然可用——↑↓ 走、Enter 打开——只是这行提示要教的不是它。）
+	'navHistory.clickHint': '单击一行打开 · {arrow} 看这一处',
+	// 同样的两种设备，没有详情栏可看：只剩一个手势，句子说完就停。两句里都没有 `{arrow}`，
+	// 因为那枚三角不在列表上（见 NavHistoryList.disclose）。
+	'navHistory.touchHintOpen': '轻点一行打开',
+	'navHistory.clickHintOpen': '单击一行打开',
+	// 行首那个三角自己的说法：拿它当提示文字（title）。
+	'navHistory.showDetails': '看详情',
 	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
 	// 只写“第几个/共几个”：不用词，因为那个词是行内“安静区”里最宽的东西。
 	'navHistory.pane': '{0}/{1}',
 	'navHistory.disabledTip': '文件已删除，这一步无法恢复',
+	// 一个折叠了多个相近落点的行打印的坐标范围（见 groupByFile 与 LANDING_MERGE_LINES）：
+	// 第二个 L 省掉——它和第一个在同一列里，而这一列在手机上很窄。
+	'navHistory.lineRange': 'L{0}–{1}',
 	// 相对时间不再是列表里的一列（见 listing.ts）：只剩下落点预览面板的头部在用。
 	'navHistory.time.now': '刚刚',
 	'navHistory.time.minutes': '{0} 分钟前',
 	'navHistory.time.hours': '{0} 小时前',
 	'navHistory.time.days': '{0} 天前',
 	// 落点抽屉：渲染的是条目自己记录的上下文块（用户离开时正在看的那几行），背后没有
-	// 任何读取；也可以切到这篇笔记现在的样子（一次库读取，见 PreviewContent）。两者都
+	// 任何读取；也可以显示这篇笔记现在的样子（一次库读取，见 PreviewContent）。两者都
 	// 交给 Obsidian 自己的 markdown 渲染器，所以既没有「读取中」这个状态，屏幕上也不
 	// 会出现原始 markdown 源码。
 	'navHistory.preview.none': '（不是一个可预览的 markdown 落点）',
 	'navHistory.preview.gone': '（文件已删除）',
-	// 抽屉能显示的两种内容，也就是切换按钮上的两个字——说的是它们各自的「时候」：
-	// 当时记录的落点，还是现在的全文。各两个字，剩下的交给同一行的说明文字。
+	// 抽屉能显示的两种内容。它们不再是面板里的一对按钮：显示哪一份是一项跟着走遍所有面板
+	// 的设置，选在工具栏的齿轮里（见 NavHistoryBrowser.openSettings），所以这两个词现在
+	// 是齿轮菜单里的选项标签。各两个字，剩下的交给写在每个选项后面的那几个字。
+	'navHistory.preview.name': '面板内容',
 	'navHistory.preview.spot': '当时落点',
+	'navHistory.preview.spot.desc': '（离开时看的那几行）',
 	'navHistory.preview.note': '现在全文',
-	// 记录的上下文块覆盖的行号范围：渲染出来的正文没有自己的行号栏来说这件事。
+	'navHistory.preview.note.desc': '（笔记现在的样子）',
+	// 记录的上下文块覆盖的行号范围：渲染出来的正文没有自己的行号栏来说这件事。「现在全文」
+	// 下这句话不印——那几行是笔记现在的样子，说的不是记录。
 	'navHistory.preview.recorded': '当时看到 · L{0}–L{1}',
-	// 「全文」是什么，得说明白：那几行是笔记现在的样子，不是当时记录的。
-	'navHistory.preview.aside': '这篇笔记现在的样子',
 	// 不是笔记的文件只有一种视图——它自己的源码——也没有可命名的记录范围。
 	'navHistory.preview.source': '文件源码',
-	// 完全没有文本的文件（PDF、图片）。打开它靠的正是「跳到这里」，所以直接点名，
+	// 完全没有文本的文件（PDF、图片）。打开它靠的就是点这一行，所以直接点名，
 	// 不让读者自己去猜。
-	'navHistory.preview.binary': '这类文件没有可预览的文本（PDF、图片等）：「跳到这里」会打开它',
+	'navHistory.preview.binary': '这类文件没有可预览的文本（PDF、图片等）：点这一行会打开它',
 	// 点击链接进入时，链接所在的那篇笔记；以及「记录之后文件已被写过」的标记。
 	'navHistory.preview.via': '来自「{0}」',
 	'navHistory.preview.modified': '记录后已修改',
-	// 右栏的空状态：没有指向任何行时，说明这一栏是干什么的，而不是空着。
-	'navHistory.preview.pick': '指向左侧的笔记或某个落点，看当时停在哪几行',
+	// 右栏的空状态：历史里一行都没有时，说明这一栏是干什么的，而不是空着。
+	'navHistory.preview.pick': '这一栏显示的是一行落点的详情：用行首的三角展开它',
 };

@@ -45,7 +45,7 @@ export class PositionManager {
 		database: CursorPositionDatabase,
 		// The one shared settings object (main.ts assigns it once, the settings tab
 		// mutates it in place). Kept as a field because the history browser reads its
-		// own two preferences live off it (see browserPrefs).
+		// own preferences live off it (see browserPrefs).
 		private settings: PluginSettings,
 		// Write the settings object out, for the preferences the browser changes from
 		// the panel rather than from the settings tab. The plugin owns the file; this
@@ -181,14 +181,14 @@ export class PositionManager {
 	}
 
 	// The factory main.ts hands to Plugin.registerView: the view needs the
-	// history, the saved positions and the browser's own two preferences, all of
+	// history, the saved positions and the browser's own preferences, all of
 	// which this facade owns, so the wiring is handed out here rather than reached
 	// for through it.
 	navHistoryViewCreator(): (leaf: WorkspaceLeaf) => NavHistoryView {
 		return createNavHistoryView(this.nav, (path) => this.database.db[path], this.browserPrefs());
 	}
 
-	// The two preferences the history browser owns (see types.ts): read LIVE off the
+	// The preferences the history browser owns (see types.ts): read LIVE off the
 	// shared settings object, so the dialog and the resident panel cannot hold
 	// different opinions about them — and written back through the plugin's own save,
 	// so a choice made in the panel outlives the panel, the dialog and the app run.
@@ -204,6 +204,11 @@ export class PositionManager {
 			landings: () => this.settings.navLandings,
 			setLandings: (how) => {
 				this.settings.navLandings = how;
+				this.save();
+			},
+			showDetails: () => this.settings.navShowDetails,
+			setShowDetails: (on) => {
+				this.settings.navShowDetails = on;
 				this.save();
 			},
 		};

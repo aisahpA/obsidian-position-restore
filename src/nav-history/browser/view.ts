@@ -50,8 +50,8 @@ export class NavHistoryView extends ItemView {
 		leaf: WorkspaceLeaf,
 		private nav: NavHistory,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The browser's own two preferences (see NavBrowserPrefs): the plugin owns
-		// and persists them, this shell only hands them down.
+		// The browser's own preferences (see NavBrowserPrefs): the plugin owns and
+		// persists them, this shell only hands them down.
 		private prefs: NavBrowserPrefs,
 	) {
 		super(leaf);

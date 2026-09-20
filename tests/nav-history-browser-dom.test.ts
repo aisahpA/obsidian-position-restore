@@ -14,6 +14,7 @@ import type { LandingsMode } from '@/nav-history/browser/listing';
 import type { PreviewMode } from '@/nav-history/browser/preview-content';
 import type { NavHistoryEntry } from '@/nav-history/entry';
 import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
+import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
 
@@ -41,8 +42,12 @@ const NOW = Date.now();
 // choice made in one dialog is the choice the next one opens on). The write is
 // recorded, so a test can assert that the panel asked the PLUGIN to remember the
 // switch rather than keeping it to itself.
-function prefs(start = { mode: 'spot' as PreviewMode, landings: 'last' as LandingsMode }) {
-	const state = start;
+function prefs(start: { mode?: PreviewMode; landings?: LandingsMode; details?: boolean } = {}) {
+	// The details column is ON here although the PLUGIN's default is off (see
+	// types.ts): almost everything this file asserts is what that column does, so the
+	// fixture turns it on unless a test says otherwise — and the suites that are about
+	// the default itself pass `details: false` and say so.
+	const state = { mode: 'spot' as PreviewMode, landings: 'last' as LandingsMode, details: true, ...start };
 	return {
 		state,
 		browser: {
@@ -54,12 +59,16 @@ function prefs(start = { mode: 'spot' as PreviewMode, landings: 'last' as Landin
 			setLandings: (how: LandingsMode) => {
 				state.landings = how;
 			},
+			showDetails: () => state.details,
+			setShowDetails: (on: boolean) => {
+				state.details = on;
+			},
 		} satisfies NavBrowserPrefs,
 	};
 }
 
-// The plain set a harness gets when a test says nothing: the plugin's defaults —
-// which print ONE ROW PER NOTE (see LandingsMode).
+// The plain set a harness gets when a test says nothing: one row per note, with the
+// details column on (see prefs).
 function defaultPrefs(): NavBrowserPrefs {
 	return prefs().browser;
 }
@@ -125,6 +134,28 @@ const A_HEADINGS = {
 		{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
 		{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
 		{ heading: '预览', level: 3, position: { start: { line: 4 } } },
+	],
+};
+
+// A note long enough for TWO of its places to be two PLACES. The list folds
+// landings within LANDING_MERGE_LINES of each other into one row (see
+// groupByFile), so a fixture whose sections sit four lines apart holds ONE place
+// however many steps landed in it — which is the behaviour, not a fixture quirk.
+// The filler is what puts the second section more than the window below the
+// first; the two heads below are the two places the landing-row suite draws.
+const SPREAD_LINES = Array.from({ length: 24 }, (_, i) => `正文第 ${i + 1} 行`);
+const SPREAD_DOC = [
+	'# 面板设计', '', '## 呈现方案', '', '### 预览', '',
+	'预览条：悬停显示上下文三行', '',
+	...SPREAD_LINES, '',
+	'## 尾巴', '', '最后一段', '',
+];
+const SPREAD_HEADINGS = {
+	'a.md': [
+		{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
+		{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
+		{ heading: '预览', level: 3, position: { start: { line: 4 } } },
+		{ heading: '尾巴', level: 2, position: { start: { line: 33 } } },
 	],
 };
 
@@ -242,25 +273,21 @@ function harness(
 		notes().find(r => r.querySelector('.nav-row-name')?.textContent === name)!;
 	const place = (line: string) =>
 		rows().find(r => r.querySelector('.nav-row-line')?.textContent === line)!;
-	// ONE click on a row, whichever kind it is: the only gesture this panel answers
-	// (see NavHistoryList.onClick). It points the panel at the landing the row stands
-	// for — the note's own newest one (or the one the reader last aimed at), or the
-	// landing itself — and a second click on the same row puts it away again.
+	// ONE click on the ROW: the panel is a navigator, so this OPENS the file the row
+	// stands for — the note's own newest landing (or the one the reader last aimed
+	// at), or the landing itself (see NavHistoryList.onClick). A row with nowhere to
+	// open (the place the reader is already in, a deleted note) goes nowhere.
 	const clickRow = (row: HTMLElement) =>
 		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	// ONE click on a note by name: point the panel at the spot that note's row stands
-	// for.
-	const open = (name: string) =>
-		clickRow(note(name));
-	// The arrow in front of a row: the panel's own way to travel, and ONE click (see
-	// NavHistoryList.go). It replaced the double click, which could not be told from a
-	// single click until the second had arrived — so the row's own action had to wait
-	// out the double-click window, and a pair of clicks flashed the note open on its
-	// way to a travel. The x is where the press landed: jsdom lays nothing out, so it
-	// only matters to the tests that fake a box for the row's words (see onWords).
-	const go = (row: HTMLElement, x = 0) => row.querySelector<HTMLElement>('.nav-row-go')!
-		.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x }));
-	// …and the same destination without the arrow: a right-click on the row goes at
+	// …and ONE click on the gutter control every row carries: the panel describes THAT
+	// row — the recorded spot it stands for, or the note as it stands now — and a
+	// second click on the same control puts the panel away again (see
+	// NavHistoryList.disclose). It is the second half of a row, and the two hotspots
+	// are separate: this one opens nothing.
+	const point = (row: HTMLElement) =>
+		row.querySelector<HTMLElement>('.nav-row-disclose')!
+			.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// …and the same destination without the row: a right-click on the row opens it at
 	// once, with no menu in between (see NavHistoryList.onContextMenu). The button
 	// number is the whole gesture there — a lingering finger's `contextmenu` carries
 	// the left one (see `longPress`).
@@ -268,8 +295,8 @@ function harness(
 		new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }),
 	);
 	// …and the same event from a press that was merely held: a WebView raises
-	// `contextmenu` for a long touch too, with the LEFT button's number on it, and a
-	// travel taken on that turned an ordinary slow tap into a jump. It answers with
+	// `contextmenu` for a long touch too, with the LEFT button's number on it, and an
+	// open taken on that turned an ordinary slow tap into a jump. It answers with
 	// the event, because whether it was refused is half of what it says.
 	const longPress = (row: HTMLElement) => {
 		const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
@@ -299,13 +326,20 @@ function harness(
 	const marks = () => Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.nav-preview-content mark'))
 		.map(m => m.textContent);
 	const content = () => modal.contentEl.querySelector<HTMLElement>('.nav-preview-content');
-	// The two buttons of the content switch, by the label they carry.
-	const modeButton = (label: string) => Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.nav-preview-mode'))
-		.find(b => b.textContent === label);
+	// Which content the panel shows is the plugin's own SETTING, chosen in the
+	// toolbar's gear (see NavHistoryBrowser.openSettings): open the menu, pick the
+	// answer by its label, and the menu closes on the pick — the same two clicks a
+	// reader makes.
+	const pickSetting = (label: string) => {
+		clickRow(modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-settings')!);
+		const option = Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.nav-settings-option'))
+			.find(b => b.querySelector('.nav-settings-label')?.textContent === label)!;
+		clickRow(option);
+	};
 	return {
 		modal, jumpTo, cachedRead, openLinkText, el: modal.contentEl,
-		rows, notes, note, place, open, clickRow, go, rightClick, longPress, movePointer,
-		key, source, marks, content, modeButton,
+		rows, notes, note, place, clickRow, point, rightClick, longPress, movePointer,
+		key, source, marks, content, pickSetting,
 	};
 }
 
@@ -362,12 +396,12 @@ describe('NavHistoryModal — current position', () => {
 		// caret that used to lead a name was gone even before that.
 		expect(notes[0].querySelector('.nav-row-count')).toBeNull();
 		expect(notes[0].querySelector('.nav-file-caret')).toBeNull();
-		// The current note's own row carries NO arrow: it stands for the spot the reader
-		// is already standing on, so there is nowhere to travel (see
-		// NavHistoryList.targetOf) — while a note they are not in keeps one, and nothing
-		// leads its name but that arrow.
-		expect(notes[0].querySelector('.nav-row-go')).toBeNull();
-		expect(notes[1].querySelector('.nav-row-go')?.nextElementSibling?.className).toBe('nav-row-file');
+		// Every row carries the gutter control, the current one included: its details
+		// are worth seeing even though there is nowhere to OPEN from it (see
+		// NavHistoryList.disclose). What the current row loses is the destination, not
+		// the control — the row's own click does nothing (see targetOf).
+		expect(notes[0].querySelector('.nav-row-disclose')).not.toBeNull();
+		expect(notes[1].querySelector('.nav-row-disclose')?.nextElementSibling?.className).toBe('nav-row-file');
 		expect(notes[1].querySelector('.nav-row-here')).toBeNull();
 	});
 
@@ -389,12 +423,13 @@ describe('NavHistoryModal — current position', () => {
 		// …and that spot is where the reader already is (L91, the newest step), so a
 		// click describes exactly that — one row, one meaning, and no row that quietly
 		// means an older place in the note (see NavHistoryList.activeRep).
-		h.clickRow(h.note('c.md'));
+		h.point(h.note('c.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('c.md');
 		expect(described()).toBe('L91');
-		// Nothing to travel to, either: the arrow is only drawn where it leads somewhere
-		// (see NavHistoryList.targetOf / go).
-		expect(h.note('c.md').querySelector('.nav-row-go')).toBeNull();
+		// Nothing to OPEN from it either: the row's own click does nothing, because the
+		// place it stands for is where the reader already is (see NavHistoryList.targetOf).
+		// The gutter control stays — it is how the panel got here at all.
+		expect(h.note('c.md').querySelector('.nav-row-disclose')).not.toBeNull();
 	});
 
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
@@ -453,7 +488,7 @@ describe('NavHistoryModal — keyboard', () => {
 			.map(r => r.querySelector('.nav-row-name')?.textContent);
 
 		// c.md, b.md, a.md — the current note first, then by recency.
-		h.clickRow(h.notes()[1]);
+		h.point(h.notes()[1]);
 		expect(selected()).toEqual(['b.md']);
 		expect(spy).toHaveBeenCalled();
 		spy.mockClear();
@@ -489,11 +524,11 @@ describe('NavHistoryModal — keyboard', () => {
 		// being legible is all putting the position on a row is owed, and the list is
 		// the reader's own viewport. What it must never get is the walk's jump to the
 		// middle.
-		h.clickRow(h.notes()[3]); // d.md, below the box
+		h.point(h.notes()[3]); // d.md, below the box
 		expect(listEl.scrollTop).toBe(0);
 		expect(spy).toHaveBeenCalledWith({ block: 'nearest' });
 
-		h.clickRow(h.notes()[0]); // c.md, in sight
+		h.point(h.notes()[0]); // c.md, in sight
 		expect(listEl.scrollTop).toBe(0);
 		spy.mockClear(); // …and from here on, the walk alone moves the list
 
@@ -536,7 +571,7 @@ describe('NavHistoryModal — keyboard', () => {
 		expect(selected()).toEqual(['c.md']);
 
 		// The one thing that does move it: a click on the row.
-		h.clickRow(b);
+		h.point(b);
 		expect(selected()).toEqual(['b.md']);
 	});
 
@@ -640,7 +675,7 @@ describe('NavHistoryModal — the file scope is gone', () => {
 	});
 });
 
-describe('NavHistoryModal — the list setting', () => {
+describe('NavHistoryModal — the settings menu', () => {
 	// The setting the panel carries on the PAGE rather than in the settings tab (see
 	// NavHistoryBrowser.settings): the small button at the far end of the strip opens
 	// a radio group of two, and the list under it is what changes. Two spots in a.md
@@ -657,11 +692,11 @@ describe('NavHistoryModal — the list setting', () => {
 		h.el.querySelector<HTMLElement>('.position-restore-nav-settings-menu');
 	const option = (h: ReturnType<typeof harness>, label: string) =>
 		Array.from(h.el.querySelectorAll<HTMLElement>('.nav-settings-option'))
-			.find(b => b.textContent === label)!;
+			.find(b => b.querySelector('.nav-settings-label')?.textContent === label)!;
 
 	it('opens from the strip, and says which of the two values is in force', () => {
-		// The dialogs of this file open on the plugin's own default set (see prefs):
-		// one row per note.
+		// The dialogs of this file open on the fixture's own set (see prefs): one row per
+		// note, with the details column switched on.
 		const h = harness(entries(), 2, files);
 		const btn = gear(h);
 
@@ -676,17 +711,52 @@ describe('NavHistoryModal — the list setting', () => {
 
 		const panel = menu(h)!;
 		expect(btn.getAttribute('aria-expanded')).toBe('true');
-		// The choice and its two answers, one sentence saying what they print: a menu
-		// cannot carry that, which is why this is the panel's own DOM and not the app's
-		// Menu.
-		expect(panel.getAttribute('role')).toBe('radiogroup');
-		expect(panel.getAttribute('aria-label')).toBe(t('navHistory.landings.name'));
-		expect(panel.querySelector('.nav-settings-title')?.textContent).toBe(t('navHistory.landings.name'));
-		expect(panel.querySelector('.nav-settings-desc')?.textContent).toBe(t('navHistory.landings.desc'));
+		// THREE choices (see NavHistoryBrowser.openSettings): whether the list describes
+		// a landing at all, how much of a note it prints, and which content that
+		// description shows. Each is its own group with its own name — what is chosen has
+		// to be audible without opening the list to look at its shape — and every ANSWER
+		// carries the few words saying what it means, on its own row, which a menu cannot
+		// carry. That is why this is the panel's own DOM and not the app's Menu.
+		expect(panel.getAttribute('role')).toBe('group');
+		expect(panel.getAttribute('aria-label')).toBe(t('navHistory.listSettings'));
+		expect(panel.querySelectorAll('.nav-settings-group')).toHaveLength(3);
+		expect(Array.from(panel.querySelectorAll('.nav-settings-title')).map(el => el.textContent))
+			.toEqual([
+				t('navHistory.landings.name'),
+				t('navHistory.details.name'),
+				t('navHistory.preview.name'),
+			]);
+		// The few words are read where the answer is, after it, and not out of one
+		// paragraph under the group: no group-level note is left, and every answer
+		// holds its own.
+		expect(panel.querySelectorAll('.nav-settings-desc')).toHaveLength(0);
+		expect(Array.from(panel.querySelectorAll('.nav-settings-option-desc')).map(el => el.textContent))
+			.toEqual([
+				t('navHistory.landings.options.last.desc'),
+				t('navHistory.landings.options.all.desc'),
+				t('navHistory.details.show.desc'),
+				t('navHistory.preview.spot.desc'),
+				t('navHistory.preview.note.desc'),
+			]);
+		expect(option(h, t('navHistory.landings.options.all'))
+			.querySelector('.nav-settings-option-desc')?.textContent)
+			.toBe(t('navHistory.landings.options.all.desc'));
+		expect(Array.from(panel.querySelectorAll('[role="radiogroup"]')).map(el => el.getAttribute('aria-label')))
+			.toEqual([t('navHistory.landings.name'), t('navHistory.preview.name')]);
+		// The details column is a CHECK rather than a radio pair: "show it" and "hide it"
+		// are not two answers a reader picks between, so its group carries one row — and
+		// that row is a checkbox, so its one state is read the way the radios' are.
+		const details = option(h, t('navHistory.details.show'));
+		expect(details.getAttribute('role')).toBe('checkbox');
+		expect(details.getAttribute('aria-checked')).toBe('true');
+		expect(details.parentElement?.getAttribute('role')).toBe('group');
+		expect(details.parentElement?.getAttribute('aria-label')).toBe(t('navHistory.details.name'));
 		// A radio group, not a menu of commands: which of the two is in force has to be
 		// audible without looking at the list's shape.
 		expect(option(h, t('navHistory.landings.options.last')).getAttribute('aria-checked')).toBe('true');
 		expect(option(h, t('navHistory.landings.options.all')).getAttribute('aria-checked')).toBe('false');
+		expect(option(h, t('navHistory.preview.spot')).getAttribute('aria-checked')).toBe('true');
+		expect(option(h, t('navHistory.preview.note')).getAttribute('aria-checked')).toBe('false');
 		// …and it is marked as well as tinted: the tint is a theme's to take away, so the
 		// check in front of the label is what a reader reads when the two backgrounds
 		// come out nearly the same (see styles.css). The mark's SLOT is on both rows —
@@ -736,6 +806,107 @@ describe('NavHistoryModal — the list setting', () => {
 		h.clickRow(option(h, t('navHistory.landings.options.last')));
 		expect(held.state.landings).toBe('last');
 		expect(h.rows()).toHaveLength(0);
+	});
+
+	it('hands the panel\'s content choice to the plugin too, and redraws the row under it', async () => {
+		// The same contract as the list's shape (see NavBrowserPrefs): which of the two
+		// contents is shown is a SETTING now — chosen here rather than by a pair of
+		// buttons on the panel's own caption line (see LandingPanel) — so choosing it
+		// is one place for every panel, and the choice outlives the dialog it was made
+		// in.
+		const held = prefs({ mode: 'spot', landings: 'last' });
+		const entries = [
+			visit('a.md', NOW - MINUTE, { scroll: 3, context: [{ line: 3, text: '落点' }], contextAt: 0 }),
+			visit('b.md', NOW),
+		];
+		const h = harness(entries, 1, { 'a.md': 'one\ntwo\nthree', 'b.md': '' }, [], {}, {}, false, [], {}, held.browser);
+
+		h.point(h.note('a.md'));
+		expect(h.el.querySelector('.nav-preview-content')?.className).toContain('is-spot');
+
+		h.clickRow(gear(h));
+		h.clickRow(option(h, t('navHistory.preview.note')));
+
+		expect(held.state.mode).toBe('note');
+		expect(menu(h)).toBeNull();
+		// …and the row that was up is redrawn in the other view, on the spot: the read
+		// the whole-note view needs is asynchronous, so the redraw lands a tick later.
+		await vi.waitFor(() => {
+			expect(h.el.querySelector('.nav-preview-content')?.className).toContain('is-note');
+		});
+	});
+
+	// THE DETAILS COLUMN IS OFF AS THE PLUGIN SHIPS (see types.ts): the history is a
+	// list of places to go back to, and what each step WAS is a reader's own choice —
+	// made in the gear, from the list it changes. These two tests are the two directions
+	// of that switch; the suites above them run with it on (see prefs).
+	it('leaves the details column out entirely when the plugin says so', () => {
+		expect(DEFAULT_SETTINGS.navShowDetails).toBe(false);
+		const h = harness(entries(), 2, files, [], {}, {}, false, [], {}, prefs({ details: false }).browser);
+
+		// No row carries the control that asks for a landing's details, and no row claims
+		// to be described by a panel: the column is not there to describe anything.
+		expect(h.el.querySelector('.nav-row-disclose')).toBeNull();
+		expect(h.el.querySelector('.is-previewed')).toBeNull();
+		// The body says so in its own class — the layout rule reads it, so the list takes
+		// the room the column was holding (see styles.css) — and the panel drew nothing:
+		// not even the head it draws for every entry (see LandingPanel.draw).
+		expect(h.el.querySelector('.position-restore-nav-body')?.classList.contains('is-no-details')).toBe(true);
+		expect(h.el.querySelector('.nav-preview-head')).toBeNull();
+		const hint = h.el.querySelector<HTMLElement>('.position-restore-nav-hint')!;
+		expect(hint.textContent).toBe(t('navHistory.clickHintOpen'));
+		// …and it draws no glyph: the arrow it would stand for is not on the list.
+		expect(hint.querySelector('.nav-hint-icon')).toBeNull();
+
+		// What is left is the navigation itself, which the setting does not touch: the
+		// keyboard still walks the list — the position is one row, and it is MARKED as
+		// the position rather than as a row some panel is describing — and a row still
+		// opens the file it stands for.
+		h.key('ArrowDown');
+		expect(h.el.querySelectorAll('.position-restore-nav-row.is-selected')).toHaveLength(1);
+		expect(h.el.querySelector('.position-restore-nav-row.is-previewed')).toBeNull();
+		h.clickRow(h.note('a.md'));
+		expect(h.jumpTo).toHaveBeenCalled();
+	});
+
+	it('switches the column back on from the gear, rows, panel and hint together', () => {
+		const held = prefs({ details: false });
+		const h = harness(entries(), 2, files, [], {}, {}, false, [], {}, held.browser);
+		expect(h.el.querySelector('.nav-row-disclose')).toBeNull();
+
+		h.clickRow(gear(h));
+		// The switch is off, and the menu asks nothing about a column that is not there:
+		// two groups, the switch and the list's shape.
+		const check = option(h, t('navHistory.details.show'));
+		expect(check.getAttribute('aria-checked')).toBe('false');
+		expect(menu(h)!.querySelectorAll('.nav-settings-group')).toHaveLength(2);
+
+		h.clickRow(check);
+
+		// The choice went to the plugin (see NavBrowserPrefs.setShowDetails), the menu is
+		// away, and the browser is the one the reader asked for — in the same breath, on
+		// a panel that may have been standing for hours.
+		expect(held.state.details).toBe(true);
+		expect(menu(h)).toBeNull();
+		expect(h.el.querySelector('.position-restore-nav-body')?.classList.contains('is-no-details')).toBe(false);
+		expect(h.note('b.md').querySelector('.nav-row-disclose')).not.toBeNull();
+		const hint = h.el.querySelector<HTMLElement>('.position-restore-nav-hint')!;
+		expect(hint.textContent).toBe(t('navHistory.clickHint').replace('{arrow}', ''));
+		expect(hint.querySelector('.nav-hint-icon svg')?.getAttribute('data-icon')).toBe('chevron-right');
+		// The column is drawn for the row the list is on, so what was asked for is what
+		// is there — not an empty column waiting for the next click.
+		expect(h.el.querySelector('.nav-preview-head')).not.toBeNull();
+
+		// …and back the other way, from the same switch: the rows lose the control, the
+		// column leaves, and the line stops naming a gesture the list no longer has.
+		h.clickRow(gear(h));
+		h.clickRow(option(h, t('navHistory.details.show')));
+		expect(held.state.details).toBe(false);
+		expect(h.el.querySelector('.nav-row-disclose')).toBeNull();
+		expect(h.el.querySelector('.position-restore-nav-body')?.classList.contains('is-no-details')).toBe(true);
+		expect(h.el.querySelector('.nav-preview-head')).toBeNull();
+		expect(h.el.querySelector<HTMLElement>('.position-restore-nav-hint')!.textContent)
+			.toBe(t('navHistory.clickHintOpen'));
 	});
 
 	it('closes on Escape without closing the dialog, and on a press outside', () => {
@@ -836,24 +1007,24 @@ describe('NavHistoryModal — deleted entries', () => {
 		// the type cell that used to spell this out is gone; the name carries it
 		expect(row.querySelector('.nav-row-file')?.classList.contains('is-missing')).toBe(true);
 
-		// A row with nothing to travel to carries no arrow AT ALL — there is no cell to
-		// keep empty, because the arrow lives in the row's own padding rather than in a
-		// track (see NavHistoryList.go). A dead arrow would promise a step that moves
-		// the stack pointer with nothing to show.
-		expect(row.querySelector('.nav-row-go')).toBeNull();
+		// Every row carries the gutter control, a deleted note's included — the panel is
+		// where "this file is gone, here is what stood there" is said, and the control is
+		// how it is said (see NavHistoryList.disclose). What the row loses is the
+		// DESTINATION, not the control.
+		expect(row.querySelector('.nav-row-disclose')).not.toBeNull();
 
 		// A right-click on it is refused the same way: the gesture has exactly one
-		// meaning in this list — go there — so a row with nowhere to go does nothing
-		// at all, and its own tooltip is what says why (see
+		// meaning in this list — open it there — so a row with nowhere to open does
+		// nothing at all, and its own tooltip is what says why (see
 		// NavHistoryList.onContextMenu).
 		h.rightClick(row);
 		expect(h.jumpTo).not.toHaveBeenCalled();
 
-		// Enter is a different question: it travels to whatever the cursor is on,
-		// and the cursor IS on this note now (a click points at it before it
-		// refuses). Its refusal is what the assertion above pins — a missing
-		// note's row opens (that is how its recorded landings and the "file
-		// deleted" panel are reached), and never travels.
+		// Enter is a different question: it opens whatever the cursor is on, and the
+		// cursor is on nothing here — no row has been pointed at — so it does nothing
+		// at all. The assertion above is what pins the refusal: a missing note's row
+		// opens the file (that is how its recorded landings and the "file deleted"
+		// panel are reached), and never travels.
 		h.key('Enter');
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
@@ -890,14 +1061,16 @@ describe('NavHistoryModal — deleted entries', () => {
 		for (const place of places) {
 			expect(place.classList.contains('is-missing')).toBe(true);
 			expect(place.getAttribute('aria-disabled')).toBe('true');
-			// …and no arrow on any of them: there is nothing to go back to.
-			expect(place.querySelector('.nav-row-go')).toBeNull();
+			// …and the gutter control is on every one of them: the recorded block behind
+			// them is what the panel prints, and that is the only thing left to do with a
+			// row whose file is gone (see NavHistoryList.disclose).
+			expect(place.querySelector('.nav-row-disclose')).not.toBeNull();
 		}
 
 		// The note's own row is still the note, and still points the panel at one of
 		// those recorded spots — "this file is gone, here is what stood there" is what
 		// the panel is for — but neither it nor they can be travelled to.
-		h.clickRow(h.note('gone.md'));
+		h.point(h.note('gone.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('gone.md');
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
@@ -979,31 +1152,32 @@ describe('NavHistoryModal — one note, many landings', () => {
 		expect(row.querySelector('.nav-row-count')).toBeNull();
 		// …and no caret either: the arrow leads, and the name follows it directly.
 		expect(row.querySelector('.nav-file-caret')).toBeNull();
-		expect(row.querySelector('.nav-row-go')?.nextElementSibling?.className).toBe('nav-row-file');
+		expect(row.querySelector('.nav-row-disclose')?.nextElementSibling?.className).toBe('nav-row-file');
 
 		// ONE spot is not a list, so not even 'all' prints a row for it (see
 		// NavHistoryList.printsLandings): the note's own row stands for it.
 		expect(h.rows()).toHaveLength(0);
 
 		// A click points the panel at that spot — the row is the landing.
-		h.clickRow(row);
+		h.point(row);
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('x.md');
 
-		// It is still a destination: the row's own arrow travels to its one spot.
-		h.go(h.note('x.md'));
+		// It is still a destination: a click on the row opens its one place.
+		h.clickRow(h.note('x.md'));
 		expect(h.jumpTo).toHaveBeenCalledWith(0);
 	});
 
 	it('travels from a note\'s arrow without the row\'s own click running too', () => {
-		// x.md holds two landings, so its row's OWN click has something to do: point
-		// the panel at the spot the row stands for. That must not happen on the way to
-		// a travel — one press, one journey (see NavHistoryList.go) — and the dialog
-		// closes itself on the travel, so the row is asked, detached, what it would
-		// have pointed at. (It used to OPEN its landings instead, and a sublist
+		// x.md holds two places, so its row has an answer of its own: the NEWEST of
+		// them. A click on the row opens it — one press, one destination — and the
+		// GUTTER CONTROL, which is what points the panel, did not run on the way (see
+		// NavHistoryList.disclose). The dialog closes itself on the open, so the row is
+		// asked, detached, where it would have gone. (It used to OPEN its landings
+		// instead, and a sublist
 		// flashing open and shut is exactly what the double click cost the reader.)
 		const h = harness([at('x.md', 100, 30), at('x.md', 412, 10), visit('y.md', NOW)], 2, files);
 
-		h.go(h.note('x.md'));
+		h.clickRow(h.note('x.md'));
 
 		// The note's NEWEST landing — where the reader left it (step 1, L413), not the
 		// top of the note (step 0, L101), which is what its row meant while the
@@ -1015,19 +1189,19 @@ describe('NavHistoryModal — one note, many landings', () => {
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('y.md');
 	});
 
-	it('never takes the focus off the filter box — the arrow refuses the press that would', () => {
+	it('never takes the focus off the filter box — the gutter control refuses the press', () => {
 		// A button takes the focus on mousedown, and the panel's keyboard lives in the
 		// filter box: a click that moved the caret would leave the reader typing at
-		// nothing. It is also what lets the arrow stay out of the accessibility tree —
+		// nothing. It is also what lets the control stay out of the accessibility tree —
 		// an element that can take the focus is one the browser refuses to hide, and
 		// warns about ("Blocked aria-hidden on an element because its descendant
 		// retained focus") — so the refusal is a contract, not a detail (see
-		// NavHistoryList.go).
+		// NavHistoryList.disclose).
 		const h = harness([at('x.md', 100, 30), visit('y.md', NOW)], 1, files);
-		const arrow = h.note('x.md').querySelector<HTMLElement>('.nav-row-go')!;
+		const control = h.note('x.md').querySelector<HTMLElement>('.nav-row-disclose')!;
 
 		const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-		arrow.dispatchEvent(press);
+		control.dispatchEvent(press);
 
 		expect(press.defaultPrevented).toBe(true);
 	});
@@ -1057,9 +1231,9 @@ describe('NavHistoryModal — one note, many landings', () => {
 			visit('b.md', NOW),
 		], 3, { 'board.base': '', 'b.md': '' }).rows()).toHaveLength(0);
 
-		// …and it is still a destination: the row's own arrow goes to the step the row
+		// …and it is still a destination: a click on the row goes to the place the row
 		// stands for, which is the newest of them.
-		h.go(row);
+		h.clickRow(row);
 		expect(h.jumpTo).toHaveBeenCalledWith(2);
 	});
 
@@ -1127,10 +1301,10 @@ describe('NavHistoryModal — panes', () => {
 
 		// The panel is driven by taps on touch (a synthesized mousemove is
 		// ignored there — see the touch suite).
-		h.rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.point(h.rows()[0]);
 		expect(h.el.querySelector('.nav-preview-pane')?.textContent).toBe(t('navHistory.pane', 1, 2));
 
-		h.rows()[1].dispatchEvent(new MouseEvent('click', { bubbles: true })); // the other landing
+		h.point(h.rows()[1]); // the other landing
 		expect(h.el.querySelector('.nav-preview-pane')?.textContent).toBe(t('navHistory.pane', 2, 2));
 	});
 
@@ -1143,7 +1317,7 @@ describe('NavHistoryModal — panes', () => {
 		// a.md holds ONE landing, so there is no landing row to carry the marker: the
 		// note's own row stands in for that landing, and the drawer it points at says
 		// nothing about panes either.
-		h.note('a.md').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.point(h.note('a.md'));
 
 		expect(h.el.querySelector('.nav-preview-pane')).toBeNull();
 	});
@@ -1178,13 +1352,15 @@ describe('NavHistoryModal — landing preview', () => {
 		visit('b.md', NOW),
 	];
 	// On a touch device the panel is driven by TAPS: a synthesized mousemove is
-	// deliberately ignored there (see the touch suite), so a row is tapped. a.md
-	// holds ONE landing, so its note row IS that landing's row (see
-	// NavHistoryList.expandable) — there is no note to open first.
-	const tap = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	const tapLanding = (h: ReturnType<typeof harness>, name = 'a.md') => {
-		tap(h.note(name));
+	// deliberately ignored there (see the touch suite), so a row is tapped. What the
+	// tap lands ON is what tells the two halves apart: the row opens the file, and the
+	// control in its gutter asks the panel about it (see NavHistoryList) — so this
+	// helper taps the gutter control of a row it is handed.
+	const tap = (el: HTMLElement) => {
+		const control = el.querySelector<HTMLElement>('.nav-row-disclose');
+		(control ?? el).dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	};
+	const tapLanding = (h: ReturnType<typeof harness>, name = 'a.md') => tap(h.note(name));
 
 	it('stands in its own column on a pointing device, and in the list on touch', () => {
 		// The two presentations of one renderer: on a pointing device the panel
@@ -1211,23 +1387,23 @@ describe('NavHistoryModal — landing preview', () => {
 		const h = harness(withLanding, 1, read);
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
 
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		expect(h.content()?.textContent).toContain('LANDING');
 	});
 
-	it('describes whatever row was clicked, and travels from that row', () => {
+	it('describes whatever row was used, and opens the file from that row', () => {
 		// The drawer is the panel's own reading surface: what it describes follows the
-		// reader's clicks, and the JOURNEY is the row's own arrow — the panel has no
-		// button of its own any more (see LandingPanel.caption).
+		// reader's gutter control, and the JOURNEY is the row's own click — the panel
+		// has no button of its own any more (see LandingPanel.caption).
 		const h = harness(withLanding, 1, read);
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
 
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		expect(h.content()?.textContent).toContain('LANDING');
 
-		h.go(h.note('a.md'));
+		h.clickRow(h.note('a.md'));
 		expect(h.jumpTo).toHaveBeenCalledWith(0);
 	});
 
@@ -1251,10 +1427,10 @@ describe('NavHistoryModal — landing preview', () => {
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
-	it('opens the panel under the NOTE when the note itself is tapped', () => {
-		// A tap on the note row points the panel at the landing it stands for: a
-		// note with one landing has no tree to open (see NavHistoryList.expandable),
-		// so the row a finger hits is both — there is nothing to open first.
+	it('opens the panel under the NOTE when its gutter control is tapped', () => {
+		// A tap on the note row's gutter control points the panel at the place that row
+		// stands for: a note with one place has no sublist to open, so the row a finger
+		// hits is both — there is nothing to open first.
 		const h = harness(withLanding, 1, read, [], {}, {}, true);
 
 		tap(h.note('a.md'));
@@ -1340,7 +1516,7 @@ describe('NavHistoryModal — where the type lives now', () => {
 		expect(plain.notes()[0].querySelector('.nav-row-badge')).toBeNull();
 		// a click, and the only gesture that describes anything (see the landing
 		// preview suite)
-		plain.note('a.md').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		plain.point(plain.note('a.md'));
 		// the panel is describing the spot (it prints its coordinate) and says nothing
 		// about how the step was made
 		expect(plain.el.querySelector('.nav-preview-meta .nav-row-line')?.textContent).toBe('L4');
@@ -1350,7 +1526,7 @@ describe('NavHistoryModal — where the type lives now', () => {
 		const h = harness([switcher, visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' }, [], {}, {}, true);
 
 		expect(h.notes()[0].querySelector('.nav-row-badge')).toBeNull();
-		h.note('a.md').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.point(h.note('a.md'));
 		expect(h.el.querySelector('.nav-preview-type')?.textContent).toBe(t('navHistory.type.switch'));
 	});
 
@@ -1366,34 +1542,35 @@ describe('NavHistoryModal — where the type lives now', () => {
 
 describe('NavHistoryModal — a landing row', () => {
 	// The landings a note holds are rows of their own under 'all', so these tests ask
-	// for them: the note here holds TWO (L3 under "呈现方案", L7 under "预览"), and a
-	// note with ONE prints none either way — a single spot is not a list (see
+	// for them: the note here holds TWO places — L7 under "预览" and L36 under
+	// "尾巴" — far enough apart that they are two rows at all (see SPREAD_DOC), and a
+	// note with ONE prints none either way — a single place is not a list (see
 	// NavHistoryList.printsLandings).
 	const body = () => [
-		visit('a.md', NOW - 2 * MINUTE, captured(A_DOC.split('\n'), 2)),
-		visit('a.md', NOW - MINUTE, captured(A_DOC.split('\n'), 6)),
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
 		visit('b.md', NOW),
 	];
-	const files = { 'a.md': A_DOC, 'b.md': '' };
+	const files = { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' };
 
 	it('prefixes the landing with the deepest section levels', () => {
-		const h = harnessAll(body(), 2, files, [], {}, A_HEADINGS);
+		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		// the deepest two levels, no file read needed
-		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›呈现方案');
-		expect(h.rows()[1].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+		expect(h.rows()[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
 	it('shows the coordinate and the section, never the landing text', () => {
-		const h = harnessAll(body(), 2, files, [], {}, A_HEADINGS);
+		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
-		// Down the note: L3 first, then L7.
-		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L3', 'L7']);
+		// Down the note: L7 first, then L36.
+		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L7', 'L36']);
 		const row = h.rows()[1];
-		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
 		// the words live in the preview (and the filter), not in the list
-		expect(row.textContent).not.toContain('预览条');
+		expect(row.textContent).not.toContain('最后一段');
 	});
 
 	it('keeps the heading the landing line itself carries as the deepest level', () => {
@@ -1401,9 +1578,9 @@ describe('NavHistoryModal — a landing row', () => {
 		// (only the preview panel does), so that heading is the row's LAST level
 		// — the one a reader places the spot by — and it stays in the chain.
 		const jump = { kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:预览', t: NOW - MINUTE,
-			st: captured(A_DOC.split('\n'), 4) } as NavHistoryEntry;
-		const entries = [jump, visit('a.md', NOW - MINUTE, captured(A_DOC.split('\n'), 6)), visit('b.md', NOW)];
-		const h = harnessAll(entries, 2, files, [], {}, A_HEADINGS);
+			st: captured(SPREAD_DOC, 4) } as NavHistoryEntry;
+		const entries = [jump, visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)), visit('b.md', NOW)];
+		const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
 
 		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
 	});
@@ -1411,14 +1588,14 @@ describe('NavHistoryModal — a landing row', () => {
 	it('puts the coordinate before the section, and no time column anywhere', () => {
 		// The row used to be name | section | small print (pane, coordinate, age)
 		// with the age in a measured column of its own. The note is the row now,
-		// so a landing is the travel arrow | coordinate | section, plus the pane cell
-		// only while two live tabs hold that note — and the age has left the list
-		// entirely (it survives in the panel).
-		const h = harnessAll(body(), 2, files, [], {}, A_HEADINGS);
+		// so a landing is the gutter control | coordinate | section, plus the pane
+		// cell only while two live tabs hold that note — and the age has left the
+		// list entirely (it survives in the panel).
+		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		const row = h.rows()[1];
 		expect([...row.children].map(el => el.className))
-			.toEqual(['nav-row-go svg-icon svg-icon-corner-up-right', 'nav-row-pos', 'nav-row-trail']);
+			.toEqual(['nav-row-disclose svg-icon svg-icon-chevron-right', 'nav-row-pos', 'nav-row-trail']);
 		expect(row.querySelector('.nav-row-time')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-list .nav-row-time')).toBeNull();
 	});
@@ -1486,11 +1663,11 @@ describe('NavHistoryModal — same-named notes', () => {
 describe('NavHistoryModal — preview source', () => {
 	const doc = '# 面板设计\n\n## 呈现方案\n\n### 预览\n\n预览条：悬停显示上下文三行\n\n尾巴\n';
 	const entry = visit('a.md', NOW - MINUTE, captured(doc.split('\n'), 6));
-	// touch harnesses: the panel opens on a tap, and a.md holds ONE landing — so
-	// its note row is that landing's row (see NavHistoryList.expandable) and is
-	// what gets tapped; there is no note to open first.
+	// touch harnesses: the panel opens on a tap of the row's gutter control, and a.md
+	// holds ONE place — so its note row IS that place's row, and there is no note to
+	// open first.
 	const open = (h: ReturnType<typeof harness>) => {
-		h.note('a.md').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.point(h.note('a.md'));
 	};
 
 	it('prints the recorded block, reading neither the vault nor the open editor', () => {
@@ -1553,7 +1730,7 @@ describe('NavHistoryModal — the recorded landing block', () => {
 		visit('a.md', NOW - MINUTE, blockState(extra));
 	const files = { 'a.md': 'live ten\nlive eleven\nlive twelve', 'b.md': '' };
 	const open = (h: ReturnType<typeof harness>) => {
-		h.note('a.md').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.point(h.note('a.md'));
 	};
 	// A step made by clicking a plain [[link]]: keyless, so it keeps an origin.
 	const linkVisit = (viaPath: string, viaText: string, st?: NavEntryState): NavHistoryEntry =>
@@ -1653,7 +1830,7 @@ describe('NavHistoryModal — the recorded landing block', () => {
 
 		expect(h.notes()).toHaveLength(1);
 		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('a.md');
-		// one landing: a leaf row, with nothing to count (see expandable)
+		// one place: a row with nothing to count
 		expect(h.notes()[0].querySelector('.nav-row-count')).toBeNull();
 	});
 
@@ -1685,22 +1862,40 @@ describe('NavHistoryModal — the recorded landing block', () => {
 describe('NavHistoryModal — touch', () => {
 	// Three notes, sitting on c.md. Each earlier step carries a landing line, so
 	// the row it stands for has a coordinate of its own to describe — and each
-	// note holds exactly one landing, which is the ordinary shape of a vault's
-	// history and makes every row here a leaf (see NavHistoryList.expandable).
+	// note holds exactly one place, which is the ordinary shape of a vault's history
+	// and keeps every test here about one row per note.
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 	const entries = () => [
 		visit('a.md', NOW - 5 * MINUTE, { scroll: 40 }),
 		visit('b.md', NOW - 2 * MINUTE, { scroll: 80 }),
 		visit('c.md', NOW, { scroll: 120 }),
 	];
-	const tap = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// The panel is driven by TAPS on touch: a synthesized mousemove is deliberately
+	// ignored (see the suite below). What a tap lands ON is what tells a row's two
+	// halves apart — the row opens the file, and the control in its gutter asks the
+	// panel about it (see NavHistoryList) — and what every test below is about is the
+	// second, so this helper taps the GUTTER CONTROL of a row it is handed (and the
+	// element itself for anything that is not a row).
+	const tap = (el: HTMLElement) => {
+		const control = el.querySelector<HTMLElement>('.nav-row-disclose');
+		(control ?? el).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	};
+	// Two PLACES of one note, far enough apart to be two ROWS (see SPREAD_DOC): the
+	// list folds landings within LANDING_MERGE_LINES of one another, so a fixture whose
+	// two steps sit four lines apart holds one place however many steps landed in it.
+	const SPREAD = () => [
+		visit('a.md', NOW - 3 * MINUTE, captured(SPREAD_DOC, 6)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+		visit('b.md', NOW),
+	];
+	const SPREAD_FILES = { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' };
 
 	it('points at the landing a one-landing note stands for, and puts it away again', () => {
-		// Every note here holds exactly one landing, so there is no tree to open:
-		// the note row IS that landing's row (see NavHistoryList.expandable), and a
-		// finger gets the landing row's gesture — tap to point, tap again to put
-		// the panel away, which is the only way back out of a preview without an
-		// Esc key.
+		// Every note here holds exactly one landing, so there is no tree to open: the
+		// note row IS that landing's row, and its GUTTER CONTROL is what points the
+		// panel at it — tap to point, tap again to put the panel away, which is the
+		// only way back out of a preview without an Esc key. The row itself is the
+		// other half of the gesture: a tap there opens the file (see NavHistoryList).
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 
 		tap(h.note('b.md'));
@@ -1724,8 +1919,9 @@ describe('NavHistoryModal — touch', () => {
 
 	it('treats a tap inside any cell of a row as a tap on the row', () => {
 		// A touch WebView sends mousemove before the click. Nothing about the cell
-		// under the finger may change what happens: the note's own name cell and
-		// the row's padding both act on the row.
+		// under the finger may change what happens: the note's own name cell and the
+		// row's padding both act on the row — and what the row does is OPEN the file
+		// it stands for (see NavHistoryList.onClick).
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		h.note('b.md').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
 		const target = h.note('b.md').querySelector<HTMLElement>('.nav-row-file')!;
@@ -1733,37 +1929,36 @@ describe('NavHistoryModal — touch', () => {
 		target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
 		target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-		expect(h.jumpTo).not.toHaveBeenCalled();
-		expect(h.note('b.md').classList.contains('is-selected')).toBe(true);
-		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
 	it('ignores the mousemove a tap synthesises, so the click still opens the note', () => {
 		// A touch WebView sends mouseover/mousemove before the click. The list has no
-		// mousemove handler to take that for a hover any more (see NavHistoryList), but
-		// the contract it broke is worth pinning: if the pointer report had selected the
-		// row, the click that followed would have read as "this row is already open,
-		// close it again" instead of opening it.
+		// mousemove handler to take that for a hover any more (see NavHistoryList), so
+		// the pointer report selects nothing — and the click that follows is the row's
+		// own, which opens the file rather than being read as a second press on an
+		// already-open row.
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		const row = h.note('b.md');
 
 		row.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 		expect(row.classList.contains('is-selected')).toBe(false);
 
-		tap(row);
-		expect(row.classList.contains('is-selected')).toBe(true);
-		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
+		h.clickRow(row);
+		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
-	it('leaves the travelling to the row: a tap only points', () => {
+	it('leaves the looking to the gutter control: a tap on the row opens it', () => {
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 
+		// the gutter control points the panel at the row and goes nowhere
 		tap(h.note('b.md'));
 		expect(h.note('b.md').classList.contains('is-selected')).toBe(true);
+		expect(h.jumpTo).not.toHaveBeenCalled();
 
-		// …and the row's own arrow is the one press that goes there: b.md's own
-		// landing, index 1 of this stack (see NavHistoryList.go).
-		h.go(h.note('b.md'));
+		// …and the ROW is the one press that goes there: b.md's own landing, index 1
+		// of this stack (see NavHistoryList.onClick)
+		h.clickRow(h.note('b.md'));
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
@@ -1779,7 +1974,7 @@ describe('NavHistoryModal — touch', () => {
 		// the recorded block is a row's detail: it shares the list's scroll
 		expect(h.el.querySelector('.nav-preview-scroll')?.classList.contains('is-note')).toBe(false);
 
-		h.modeButton(t('navHistory.preview.note'))!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.pickSetting(t('navHistory.preview.note'));
 
 		expect(h.el.querySelector('.nav-preview-scroll')?.classList.contains('is-note')).toBe(true);
 		// …and it is still the list that holds the rows: the note did not replace them
@@ -1808,25 +2003,19 @@ describe('NavHistoryModal — touch', () => {
 		expect(h.el.querySelectorAll('.position-restore-nav-preview')).toHaveLength(1);
 	});
 
-	it('points the panel at a tapped row, and keeps it off a note that prints its landings', () => {
-		// ONE tap, everywhere: it points the panel at the spot the row stands for — or
-		// puts it away again on the same row. In the default list that spot has no row
-		// of its own, so the panel opens UNDER the note's row, which is where the finger
-		// that tapped can reach it. Where the landings ARE printed ('all') there is
-		// nothing to open under: the panel would push the note's own spots off a phone's
-		// list, so it stays parked and they keep the room (see NavHistoryList.panelAnchor).
-		const doc = ['one', 'two', 'three', 'LANDING', 'five', 'six', 'seven'];
-		const entries = () => [
-			visit('a.md', NOW - 3 * MINUTE, captured(doc, 3)),
-			visit('a.md', NOW - MINUTE, captured(doc, 5)),
-			visit('b.md', NOW),
-		];
-		const files = { 'a.md': doc.join('\n'), 'b.md': '' };
-		const h = harness(entries(), 2, files, [], {}, {}, true);
+	it('opens the panel under the row whose gutter control was used, note or landing', () => {
+		// ONE tap, everywhere: the gutter control points the panel at the place the row
+		// stands for — or puts it away again on the same control. In the default list
+		// that place has no row of its own, so the panel opens UNDER the note's row,
+		// which is where the finger that tapped can reach it. Where the places ARE
+		// printed ('all') a note's own row opens its panel too — the details ARE what
+		// its control promises — and its landings simply move down (see
+		// NavHistoryList.panelAnchor).
+		const h = harness(SPREAD(), 2, SPREAD_FILES, [], {}, {}, true);
 		const panel = h.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
 		const a = () => h.note('a.md');
 
-		// The default list prints nothing under the note, so a tap on its row opens the
+		// The default list prints nothing under the note, so its control opens the
 		// panel under that very row.
 		expect(h.rows()).toHaveLength(0);
 		tap(a());
@@ -1835,22 +2024,24 @@ describe('NavHistoryModal — touch', () => {
 		expect(a().nextElementSibling).toBe(panel);
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 
-		// …and the same tap again puts it away: one gesture, and it undoes itself.
+		// …and the same control again puts it away: one gesture, and it undoes itself.
 		tap(a());
 		expect(h.el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 		expect(panel.classList.contains('is-parked')).toBe(true);
 
-		// Under 'all' the note's landings ARE the rows, so a tap on the note points at
-		// it and leaves the panel parked — the landings are what the panel would push.
-		const all = harnessAll(entries(), 2, files, [], {}, {}, true);
+		// Under 'all' the note's places are rows of their own, and the note's own
+		// control still opens its panel — between the name and the places it stands
+		// for, which is where the reader asked for it.
+		const all = harnessAll(SPREAD(), 2, SPREAD_FILES, [], {}, {}, true);
 		const allPanel = all.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
 		expect(all.rows()).toHaveLength(2);
 		tap(all.note('a.md'));
 		expect(all.note('a.md').classList.contains('is-selected')).toBe(true);
-		expect(allPanel.classList.contains('is-parked')).toBe(true);
+		expect(allPanel.classList.contains('is-parked')).toBe(false);
+		expect(all.note('a.md').nextElementSibling).toBe(allPanel);
 
-		// …and a tap on a LANDING opens the panel under that row, which is where a
-		// finger can reach it and what it describes.
+		// …and a tap on a LANDING's control opens the panel under THAT row, which is
+		// what it describes.
 		const landing = all.rows()[0];
 		tap(landing);
 		expect(landing.classList.contains('is-selected')).toBe(true);
@@ -1858,7 +2049,7 @@ describe('NavHistoryModal — touch', () => {
 		expect(landing.nextElementSibling).toBe(allPanel);
 		expect(all.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 
-		// a second tap on the landing puts it away again
+		// a second tap on the same control puts it away again
 		tap(landing);
 		expect(allPanel.classList.contains('is-parked')).toBe(true);
 	});
@@ -1895,27 +2086,22 @@ describe('NavHistoryModal — touch', () => {
 		// when the note's own row reaches the top of the list, however much of the head is
 		// still below the fold — and the landing that was picked sits under that row, so it
 		// stays in sight with it (see LandingPanel.reveal / NavHistoryList.noteRowOf).
-		const doc = ['one', 'two', 'three', 'LANDING', 'five', 'six', 'seven'];
-		const h = harnessAll([
-			visit('a.md', NOW - 3 * MINUTE, captured(doc, 3)),
-			visit('a.md', NOW - MINUTE, captured(doc, 5)),
-			visit('b.md', NOW),
-		], 2, { 'a.md': doc.join('\n'), 'b.md': '' }, [], {}, {}, true);
+		const h = harnessAll(SPREAD(), 2, SPREAD_FILES, [], {}, {}, true);
 		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
 		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
 		// jsdom has no layout: a 300px list, the note's own row 20px down it, and its
-		// landings — the one that gets tapped at the very foot.
+		// places — the one whose control is used at the very foot.
 		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
 			if (this === listEl)
 				return rect(0, 300);
 			if (this.classList.contains('is-place'))
-				return this.querySelector('.nav-row-line')?.textContent === 'L6' ? rect(260, 30) : rect(250, 30);
+				return this.querySelector('.nav-row-line')?.textContent === 'L36' ? rect(260, 30) : rect(250, 30);
 			if (this.querySelector('.nav-row-name')?.textContent === 'a.md')
 				return rect(20, 30);
 			return rect(0, 0);
 		});
 
-		tap(h.place('L6')); // point at the landing at the foot of the list
+		tap(h.place('L36')); // point at the place at the foot of the list
 
 		// The head wants 90px (290 − (300 − 100)); the note's own row allows 20.
 		expect(listEl.scrollTop).toBe(20);
@@ -1980,7 +2166,7 @@ describe('NavHistoryModal — touch', () => {
 		// The drawer needs none of it: the panel is a column of its own there, and no scroll
 		// of the list beside it can take a row out from under the panel.
 		const drawer = harness(entries(), 2, files);
-		drawer.clickRow(drawer.note('b.md'));
+		drawer.point(drawer.note('b.md'));
 		const beside = drawer.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
 		vi.spyOn(beside, 'getBoundingClientRect').mockReturnValue(rect(0, 300));
 		vi.spyOn(drawer.note('b.md'), 'getBoundingClientRect').mockReturnValue(rect(-90, 30));
@@ -2071,7 +2257,7 @@ describe('NavHistoryModal — touch', () => {
 		// …the drawer, by contrast, centres it inside its own column: there the scroller
 		// the reveal walks up to is the panel's, and the rows are not in it
 		const drawer = harness(entries, 1, files);
-		drawer.clickRow(drawer.note('a.md'));
+		drawer.point(drawer.note('a.md'));
 		await vi.waitFor(() => {
 			expect(centered).toHaveLength(1);
 		});
@@ -2094,12 +2280,13 @@ describe('NavHistoryModal — touch', () => {
 		expect(panel.parentElement?.className).toBe('position-restore-nav-body');
 	});
 
-	it('lets a pointing device travel from the row itself, in one click', () => {
-		// The arrow is not a touch affordance: a mouse gets the same one click, and it
-		// is the whole journey — the row's own click describes it and goes nowhere.
+	it('lets a pointing device open the file from the row itself, in one click', () => {
+		// The row is not a touch affordance: a mouse gets the same one click, and it is
+		// the whole journey — one press, one destination, and the panel has nothing to
+		// do with it (see NavHistoryList.onClick).
 		const h = harness(entries(), 2, files);
 
-		h.go(h.note('b.md'));
+		h.clickRow(h.note('b.md'));
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
@@ -2110,58 +2297,32 @@ describe('NavHistoryModal — touch', () => {
 
 		// The gesture IS the decision: the menu that used to hold a single "jump
 		// here" item put a second click between the reader and where they had already
-		// said they were going (see NavHistoryList.onContextMenu) — and the arrow is
-		// the visible way to say the same thing.
+		// said they were going (see NavHistoryList.onContextMenu) — and the row's own
+		// click is the visible way to say the same thing.
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
 	});
 
-	it('gives a press on the words to the words, whatever box the arrow was drawn in', () => {
-		// The panel's two files do not have to arrive together, and a tablet was caught
-		// running them apart: an older stylesheet, whose arrow's box was as wide as the
-		// whole left padding, put the edge of that box ON the first letters of every
-		// name — so every tap on a file name travelled ("tapping the file name jumps
-		// too"). This is the panel laid out that way: the arrow's box covers the name,
-		// and the name begins 40px in.
-		const h = harness(entries(), 2, files);
-		const row = h.note('b.md');
-		const rect = (left: number, width: number) => ({ left, width, right: left + width }) as DOMRect;
-		const words = row.querySelector<HTMLElement>('.nav-row-file')!;
-		vi.spyOn(words, 'getBoundingClientRect').mockReturnValue(rect(40, 160));
-
-		// A press halfway into the panel is a press on the name — the arrow's box is in
-		// the way, but the words are what the reader hit, so the row's own click is what
-		// it means (here: a pointer's click points the position at the row, see onClick).
-		h.go(row, 60);
-		expect(h.jumpTo).not.toHaveBeenCalled();
-		expect(row.classList.contains('is-selected')).toBe(true);
-
-		// …and one in the gutter in front of them is still the arrow's: the strip's own
-		// box is not what decides it, the text's edge is.
-		h.go(row, 10);
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
-	});
-
-	it('sizes the arrow itself, in pixels, for a finger', () => {
+	it('sizes the gutter control itself, in pixels, for a finger', () => {
 		// An `em` follows the reader's font, and a target must not: on a tablet the same
 		// small UI font left the one control the hint names as "very small, like a dot"
 		// (see TOUCH_ARROW_PX). The size is set on the glyph, so a stylesheet that
 		// arrived a version behind it cannot shrink it back.
 		const touch = harness(entries(), 2, files, [], {}, {}, true);
-		const glyph = touch.note('b.md').querySelector<SVGElement>('.nav-row-go svg')!;
+		const glyph = touch.note('b.md').querySelector<SVGElement>('.nav-row-disclose svg')!;
 		expect(glyph.style.width).toBe('20px');
 		expect(glyph.style.height).toBe('20px');
 
 		// …and the box it lives in has no padding, on every device: the app pads every
 		// button a tablet has (`.is-tablet button:not(.clickable-icon)`, 4px 20px), and
 		// inside this 30px box that padding squeezed the glyph to nothing — an empty
-		// gutter on the tablet, the arrow on the phone and the desktop (see
-		// NavHistoryList.go and styles.css).
-		expect(touch.note('b.md').querySelector<HTMLElement>('.nav-row-go')!.style.padding).toBe('0px');
+		// gutter on the tablet, the control on the phone and the desktop (see
+		// NavHistoryList.disclose and styles.css).
+		expect(touch.note('b.md').querySelector<HTMLElement>('.nav-row-disclose')!.style.padding).toBe('0px');
 
 		// A pointer's arrow keeps the panel's own measure — the stylesheet's, which
 		// follows a desktop reader's font down as well as up.
 		const pointer = harness(entries(), 2, files);
-		const desktop = pointer.note('b.md').querySelector<SVGElement>('.nav-row-go svg')!;
+		const desktop = pointer.note('b.md').querySelector<SVGElement>('.nav-row-disclose svg')!;
 		expect(desktop.style.width).toBe('');
 	});
 
@@ -2208,7 +2369,7 @@ describe('NavHistoryModal — touch', () => {
 		// to show the icon the rows carry, not a text stand-in of another shape (see
 		// NavHistoryBrowser.hint).
 		expect(hint.textContent).toBe(t('navHistory.touchHint').replace('{arrow}', ''));
-		expect(hint.querySelector('.nav-hint-go svg')?.getAttribute('data-icon')).toBe('corner-up-right');
+		expect(hint.querySelector('.nav-hint-icon svg')?.getAttribute('data-icon')).toBe('chevron-right');
 	});
 
 	it('keeps the click wording on a pointing device, with the arrow it names', () => {
@@ -2220,7 +2381,7 @@ describe('NavHistoryModal — touch', () => {
 		// keyboard-only wording left: the keys still work, but what the line has to
 		// teach a hand is the one click.
 		expect(hint.textContent).toBe(t('navHistory.clickHint').replace('{arrow}', ''));
-		expect(hint.querySelector('.nav-hint-go svg')?.getAttribute('data-icon')).toBe('corner-up-right');
+		expect(hint.querySelector('.nav-hint-icon svg')?.getAttribute('data-icon')).toBe('chevron-right');
 		expect(h.el.querySelector('.position-restore-nav-here')).toBeNull();
 	});
 });
@@ -2263,7 +2424,13 @@ describe('NavHistoryModal — a touch screen with room for two columns', () => {
 		visit('b.md', NOW - 2 * MINUTE, { scroll: 80 }),
 		visit('c.md', NOW, { scroll: 120 }),
 	];
-	const tap = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// What a tap lands ON tells a row's two halves apart: the row opens the file, and
+	// the control in its gutter asks the panel about it (see NavHistoryList) — and
+	// what this suite is about is the second.
+	const tap = (el: HTMLElement) => {
+		const control = el.querySelector<HTMLElement>('.nav-row-disclose');
+		(control ?? el).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	};
 
 	it('stands the panel beside the list, and follows the window when it turns upright', () => {
 		const width = widthQuery(true);
@@ -2298,10 +2465,9 @@ describe('NavHistoryModal — a touch screen with room for two columns', () => {
 			expect(panel.classList.contains('is-parked')).toBe(false);
 			expect(h.note('b.md').nextElementSibling).toBe(panel);
 
-			// …and its row's arrow travels wherever the panel stands. LAST, because
-			// travelling closes the dialog — and with it the width listener (see
-			// onClose).
-			h.go(h.note('b.md'));
+			// …and a click on the row opens it wherever the panel stands. LAST, because
+			// opening closes the dialog — and with it the width listener (see onClose).
+			h.clickRow(h.note('b.md'));
 			expect(h.jumpTo).toHaveBeenCalledWith(1);
 		} finally {
 			width.restore();
@@ -2338,9 +2504,9 @@ describe('NavHistoryModal — the landing drawer', () => {
 	it('answers for whatever row was clicked, block and all', () => {
 		const h = harness(at(), 2, read);
 
-		// a.md holds ONE landing, so its note row is that landing's row (see
-		// NavHistoryList.expandable): the click goes on the row itself.
-		h.clickRow(h.note('a.md'));
+		// a.md holds ONE place, so its note row IS that place's row: the tap goes on the
+		// row's gutter control.
+		h.point(h.note('a.md'));
 
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		// the recorded block as markdown, landing marked — drawn by the renderer
@@ -2366,15 +2532,15 @@ describe('NavHistoryModal — the landing drawer', () => {
 		// nothing clicked: the column answers "where I am", which is y.md here
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('y.md');
 
-		h.clickRow(h.note('x.md'));
+		h.point(h.note('x.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('x.md');
 		expect(described()).toBe('L413'); // its NEWEST landing, the one the row stands for
 
 		// …and from there the reader reads the note one landing at a time: the spot a
 		// click lands on is the spot the column describes.
-		h.clickRow(h.rows()[0]); // the older landing, L101
+		h.point(h.rows()[0]); // the older landing, L101
 		expect(described()).toBe('L101');
-		h.clickRow(h.rows()[1]); // …and back to the newer one
+		h.point(h.rows()[1]); // …and back to the newer one
 		expect(described()).toBe('L413');
 	});
 
@@ -2392,7 +2558,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 		expect([...marked()].map(el => el.querySelector('.nav-row-name')?.textContent))
 			.toEqual(['b.md']);
 
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 		expect([...marked()].map(el => el.querySelector('.nav-row-name')?.textContent))
 			.toEqual(['a.md']);
 	});
@@ -2408,7 +2574,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 		];
 		const h = harnessAll(entries(), 2, { 'x.md': '', 'y.md': '' });
 
-		h.clickRow(h.rows()[1]);
+		h.point(h.rows()[1]);
 
 		expect(h.rows()[1].classList.contains('is-previewed')).toBe(true);
 		expect(h.note('x.md').classList.contains('is-previewed')).toBe(false);
@@ -2417,7 +2583,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 		// …and where the list prints no landing rows at all (the default: one row per
 		// note) the NOTE's row is what stands in for the spot the column describes.
 		const one = harness(entries(), 2, { 'x.md': '', 'y.md': '' });
-		one.clickRow(one.note('x.md'));
+		one.point(one.note('x.md'));
 		expect(one.note('x.md').classList.contains('is-previewed')).toBe(true);
 		expect(one.el.querySelectorAll('.is-previewed')).toHaveLength(1);
 	});
@@ -2434,13 +2600,13 @@ describe('NavHistoryModal — the landing drawer', () => {
 		], 2, { 'x.md': '', 'y.md': '' });
 		const drawer = () => h.el.querySelector('.position-restore-nav-preview .nav-row-line')?.textContent;
 
-		h.clickRow(h.note('x.md')); // nothing aimed at yet: the note stands for its NEWEST landing
+		h.point(h.note('x.md')); // nothing aimed at yet: the note stands for its NEWEST landing
 		expect(drawer()).toBe('L413');
 
-		h.clickRow(h.rows()[0]); // the reader reads the OTHER landing (the top of the note)
+		h.point(h.rows()[0]); // the reader reads the OTHER landing (the top of the note)
 		expect(drawer()).toBe('L101');
 
-		h.clickRow(h.note('x.md')); // …and the note's own row stands for that spot from now on
+		h.point(h.note('x.md')); // …and the note's own row stands for that spot from now on
 		expect(drawer()).toBe('L101');
 	});
 
@@ -2455,8 +2621,8 @@ describe('NavHistoryModal — the landing drawer', () => {
 			visit('y.md', NOW),
 		], 2, { 'x.md': '', 'y.md': '' });
 
-		h.clickRow(h.rows()[0]); // the reader is reading L101
-		h.clickRow(h.rows()[0]); // …and puts the position away again
+		h.point(h.rows()[0]); // the reader is reading L101
+		h.point(h.rows()[0]); // …and puts the position away again
 
 		h.el.querySelector<HTMLElement>('.position-restore-nav-list')!
 			.dispatchEvent(new MouseEvent('mousemove', { bubbles: true })); // off every row, and irrelevant
@@ -2471,10 +2637,10 @@ describe('NavHistoryModal — the landing drawer', () => {
 		// drawer describes and Enter travels to (see NavHistoryList.choose) — so the
 		// mouse and the arrow keys can never disagree about where the reader is.
 		const h = harness(at(), 2, read);
-		h.open('a.md'); // one click: the position is a.md's row (a.md holds one spot)
+		h.point(h.note('a.md')); // the gutter control: the position becomes a.md's row (a.md holds one spot)
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 
-		h.clickRow(h.note('b.md'));
+		h.point(h.note('b.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('b.md');
 		expect(h.note('b.md').classList.contains('is-selected')).toBe(true);
 		expect(h.note('a.md').classList.contains('is-selected')).toBe(false);
@@ -2495,7 +2661,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 
 		// …while a row that leads somewhere else travels from the same position: c.md.
-		h.clickRow(h.note('c.md'));
+		h.point(h.note('c.md'));
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('c.md');
 		h.key('Enter');
 		expect(h.jumpTo).toHaveBeenCalledWith(1);
@@ -2516,7 +2682,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 			],
 		};
 		const h = harness(at(), 2, read, [], {}, headings);
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		expect(h.el.querySelector('.nav-preview-trail')?.textContent).toBe('面板设计›呈现方案');
 		expect(h.el.querySelector('.nav-preview-head .nav-row-line')?.textContent).toBe('L4 / 8');
@@ -2524,7 +2690,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 
 	it('says a note is gone while still printing what stood there', () => {
 		const h = harness(at(), 2, read, ['a.md'], {}, {});
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.gone'));
 		expect(h.marks()).toEqual(['LANDING']);
@@ -2538,7 +2704,7 @@ describe('NavHistoryModal — the landing drawer', () => {
 		// its landings, which for a one-landing note is the only one (the row is
 		// what the reader is on) — and never an empty panel.
 		const h = harness(at(), 2, read);
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
 		expect(h.content()?.textContent).toContain('LANDING');
@@ -2567,7 +2733,7 @@ describe('NavHistoryModal — the drawer under a capture window', () => {
 			'a.md': { frontmatterPosition: { start: { line: 0 }, end: { line: 11 } } },
 		});
 
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		// The YAML and the `---` that closed it are gone: neither is a spot the
 		// reader could recognize.
@@ -2591,7 +2757,7 @@ describe('NavHistoryModal — the drawer under a capture window', () => {
 		const base = visit('数据库/读书.base', NOW - MINUTE, { scroll: 1 });
 		const h = harness([base, visit('b.md', NOW)], 1, { '数据库/读书.base': 'filters:\n- file', 'b.md': '' });
 
-		h.clickRow(h.note('读书.base'));
+		h.point(h.note('读书.base'));
 
 		await vi.waitFor(() => expect(h.source()).toBe('```yaml\nfilters:\n- file\n```'));
 		// one view, not a choice: there is no recorded spot to set against the note
@@ -2610,13 +2776,14 @@ describe('NavHistoryModal — the drawer under a capture window', () => {
 		const pdf = visit('论文/attention.pdf', NOW - MINUTE, { scroll: 3 });
 		const h = harness([pdf, visit('b.md', NOW)], 1, { '论文/attention.pdf': '%PDF-1.4', 'b.md': '' });
 
-		h.clickRow(h.note('attention.pdf'));
+		h.point(h.note('attention.pdf'));
 
 		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.binary'));
-		// The message names the way out, and the way out is the row's own arrow — the
-		// panel has no button of its own any more (see NavHistoryList.go /
-		// LandingPanel.caption).
-		expect(h.note('attention.pdf').querySelector('.nav-row-go')).not.toBeNull();
+		// The message names the way out, and the way out is the row's own click — the
+		// panel has no button of its own any more (see NavHistoryList.onClick /
+		// LandingPanel.caption) — while the gutter control is what asked about it. The
+		// PDF itself is never read to find out what it is.
+		expect(h.note('attention.pdf').querySelector('.nav-row-disclose')).not.toBeNull();
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 });
@@ -2628,21 +2795,21 @@ describe('NavHistoryModal — the drawer\'s controls', () => {
 		visit('b.md', NOW),
 	];
 
-	it('puts the switch that names the content ON the caption that describes it', () => {
-		// The two halves of the switch and the sentence above them are one thing said
-		// twice — "this is the recorded spot" / "this is the note now" — so they sit on
-		// one line, in the PINNED half, where a reader who has scrolled into a whole
-		// note can still tell which of the two they are reading and say "the other
-		// one" without scrolling back (see LandingPanel.caption). The panel carries no
-		// travel button: the row's own arrow is the one press that goes there.
+	it('keeps the caption in the pinned half, above the lines', () => {
+		// What the caption carries is the one thing the content cannot say about
+		// itself: which recorded lines these are. WHICH of the two contents is shown
+		// is a setting now, chosen in the toolbar's gear (see
+		// NavHistoryBrowser.openSettings), so there is no switch here to say it a
+		// second time on every row — and the panel carries no travel button either:
+		// the row's own click is what opens the file.
 		const h = harness(entry(), 1, read);
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		const panel = h.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
 		const row = panel.querySelector<HTMLElement>('.nav-preview-caption-row')!;
 		const content = panel.querySelector<HTMLElement>('.nav-preview-content-host')!;
 		expect(row.querySelector('.nav-preview-caption')?.textContent).toContain('L4');
-		expect(row.querySelector('.nav-preview-modes')).not.toBeNull();
+		expect(panel.querySelector('.nav-preview-modes')).toBeNull();
 		expect(panel.querySelector('.nav-preview-go')).toBeNull();
 		// document order, which is what "above" means once the CSS is applied
 		expect(row.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -2653,14 +2820,14 @@ describe('NavHistoryModal — the drawer\'s controls', () => {
 	});
 
 	it('keeps the head its full shape for an entry that has nothing for it', () => {
-		// The pointer walks the list while the reader reads this column: a name, a
+		// The keyboard walks the list while the reader reads this column: a name, a
 		// line of small print, a section line and a caption line are drawn for EVERY
-		// entry — including a deleted note, which has no section, no pane, no type and
-		// no switch at all. A block that is a line shorter for some rows makes every
-		// line under it jump (the heights are pinned in styles.css; what is pinned
-		// here is that the elements are always there to be pinned).
+		// entry — including a deleted note, which has no section, no pane and no type.
+		// A block that is a line shorter for some rows makes every line under it jump
+		// (the heights are pinned in styles.css; what is pinned here is that the
+		// elements are always there to be pinned).
 		const h = harness(entry(), 1, { 'b.md': '' }, ['a.md']);
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		const top = h.el.querySelector<HTMLElement>('.nav-preview-top')!;
 		for (const what of ['.nav-preview-head', '.nav-preview-meta', '.nav-preview-trail'])
@@ -2668,23 +2835,21 @@ describe('NavHistoryModal — the drawer\'s controls', () => {
 		// empty, and that is the point: nothing to say about a file the vault no
 		// longer has, and no line for the content below to move by
 		expect(top.querySelector('.nav-preview-trail')?.textContent).toBe('');
-		// …and the caption line names the recorded lines, while offering nothing to
-		// switch to: there is no file left to show whole.
-		expect(top.querySelector('.nav-preview-caption')).not.toBeNull();
-		expect(top.querySelector('.nav-preview-modes')).toBeNull();
+		// …and the caption line still names the recorded lines the block behind it
+		// covers, which is the only thing left to say about a note that is gone
+		expect(top.querySelector('.nav-preview-caption')?.textContent).toContain('L4');
 	});
 
 	it('keeps the name, the section and the caption OUT of the scroller', () => {
 		// The panel is two blocks (see LandingPanel.draw): what the spot IS — the
-		// note, its section, the small print, the caption and the switch — and the
-		// lines. Only the second one scrolls. A whole note is thousands of lines long,
-		// and the reader who has scrolled into it must still be able to see which note
-		// it is, which section the spot was in, and which of the two contents they are
-		// reading.
+		// note, its section, the small print and the caption — and the lines. Only the
+		// second one scrolls. A whole note is thousands of lines long, and the reader
+		// who has scrolled into it must still be able to see which note it is, which
+		// section the spot was in, and which lines the block covers.
 		const h = harness(entry(), 1, read, [], {}, {
 			'a.md': [{ heading: '章节', level: 1, position: { start: { line: 0 } } }],
 		});
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 
 		const panel = h.el.querySelector<HTMLElement>('.position-restore-nav-preview')!;
 		const scroll = panel.querySelector<HTMLElement>('.nav-preview-scroll')!;
@@ -2696,25 +2861,25 @@ describe('NavHistoryModal — the drawer\'s controls', () => {
 			expect(top.querySelector(what)).not.toBeNull();
 		expect(scroll.querySelector('.nav-preview-head')).toBeNull();
 		expect(scroll.querySelector('.nav-preview-caption')).toBeNull();
-		expect(scroll.querySelector('.nav-preview-modes')).toBeNull();
 	});
 
-	it('offers the switch only where there is something to switch to', () => {
-		// A file that is not a note has one view — its own source — and a step with no
-		// file left has none at all: in both the caption stays (it names what is on
-		// screen) and the switch goes. The graph has no note behind it at all, so it
-		// has no caption either (see LandingPanel.caption).
+	it('says what the content is only where there is something to say', () => {
+		// A file that is not a note has one view — its own source — and says so; a
+		// deleted note keeps the recorded range, because there is nothing left to read
+		// whole and the recorded block is what stood there; the graph has no note
+		// behind it at all, so it has no caption either. The whole-note view says
+		// nothing at all: the content IS the note (see LandingPanel.captionText).
 		const notANote = harness(
 			[visit('a.pdf', NOW - MINUTE, { scroll: 3 }), visit('b.md', NOW)],
 			1, { 'a.pdf': '%PDF-1.4', 'b.md': '' },
 		);
-		notANote.clickRow(notANote.note('a.pdf'));
+		notANote.point(notANote.note('a.pdf'));
 		expect(notANote.el.querySelector('.nav-preview-caption')?.textContent).toBe(t('navHistory.preview.source'));
 		expect(notANote.el.querySelector('.nav-preview-modes')).toBeNull();
 
 		const gone = harness(entry(), 1, { 'b.md': '' }, ['a.md']);
-		gone.clickRow(gone.note('a.md'));
-		expect(gone.el.querySelector('.nav-preview-caption')).not.toBeNull();
+		gone.point(gone.note('a.md'));
+		expect(gone.el.querySelector('.nav-preview-caption')?.textContent).toContain('L4');
 		expect(gone.el.querySelector('.nav-preview-modes')).toBeNull();
 
 		const view = harness(
@@ -2729,7 +2894,14 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 	// Two landings of ONE note, plus the current entry. "全文" is the one thing in
 	// this panel that claims to show today's file, so it is the one thing that
 	// reads one — and it must read it once, not once per clicked row.
-	const liveLines = ['live one', '', 'live two', '', 'live three', '', 'live LANDING', '', 'live five'];
+	// The note is long enough for its two places to be two ROWS (see SPREAD_DOC):
+	// the list folds landings within LANDING_MERGE_LINES of one another, so a
+	// fixture whose two steps sit four lines apart is one row.
+	const liveLines = [
+		'live one', '', 'live two', '', 'live three', '', 'live LANDING', '', 'live five',
+		...Array.from({ length: 20 }, (_, i) => `live filler ${i + 1}`), '',
+		'live tail',
+	];
 	const live = liveLines.join('\n');
 	const read = { 'a.md': live, 'b.md': '' };
 	// The recorded block quotes the note's own words AT its landing: the whole-note
@@ -2746,23 +2918,22 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 			contextAt: 1,
 			mtime: 1000,
 		});
-	// a.md L7 (older), a.md L3 (newer), then the current entry — so the note has
-	// two landings to walk and the drawer has a "here" to open on.
-	const at = () => [recorded(6, 3), recorded(2, 2), visit('b.md', NOW)];
+	// a.md L7 (older), a.md L31 (newer), then the current entry — so the note has
+	// two places to walk and the drawer has a "here" to open on.
+	const at = () => [recorded(6, 3), recorded(30, 2), visit('b.md', NOW)];
 	const spot = () => [recorded(6, 3), visit('b.md', NOW)];
 	const pickNote = (h: ReturnType<typeof harness>) =>
-		h.modeButton(t('navHistory.preview.note'))!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.pickSetting(t('navHistory.preview.note'));
 
-	it('offers the switch, and opens on the recorded spot', () => {
+	it('opens on the recorded spot, which is the plugin\'s own default', () => {
+		// There is no switch on the panel any more: which of the two contents is
+		// shown is a SETTING, chosen in the toolbar's gear (see
+		// NavHistoryBrowser.openSettings). The spot is the default — it is what the
+		// rows promise, and the only view that still works for a note the history has
+		// seen and the vault no longer has.
 		const h = harness(spot(), 0, read);
 
-		const buttons = Array.from(h.el.querySelectorAll<HTMLElement>('.nav-preview-mode'));
-		expect(buttons.map(b => b.textContent))
-			.toEqual([t('navHistory.preview.spot'), t('navHistory.preview.note')]);
-		// the spot is the default: it is what the rows promise, and the only view
-		// that still works for a note the history has seen and the vault no longer
-		// has
-		expect(h.el.querySelector('.nav-preview-mode.is-active')?.textContent).toBe(t('navHistory.preview.spot'));
+		expect(h.el.querySelector('.nav-preview-modes')).toBeNull();
 		expect(h.source()).toBe('recorded above\n==live LANDING==\nrecorded below');
 		expect(h.el.querySelector('.nav-preview-caption')?.textContent)
 			.toBe(t('navHistory.preview.recorded', 6, 8));
@@ -2774,12 +2945,13 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 
 		pickNote(h);
 
-		expect(h.el.querySelector('.nav-preview-mode.is-active')?.textContent).toBe(t('navHistory.preview.note'));
-		// said out loud, because these are TODAY's lines and not the recorded ones
-		expect(h.el.querySelector('.nav-preview-caption')?.textContent).toBe(t('navHistory.preview.aside'));
-		// the note is READ, so it arrives a moment after the click — and what
-		// arrives is the file as it stands, not the recorded snippet
+		// the note is READ, so it arrives a moment after the setting is picked — and
+		// what arrives is the file as it stands, not the recorded snippet
 		await vi.waitFor(() => expect(h.source()).toBe(live));
+		// …and there is no caption line at all: the content IS the note, so "this is
+		// the note as it stands" would be the same sentence on every row (see
+		// LandingPanel.captionText)
+		expect(h.el.querySelector('.nav-preview-caption-row')).toBeNull();
 		// the recorded line is found by its words and marked as the spot
 		await vi.waitFor(() => {
 			expect(h.content()?.querySelector('.nav-preview-landing')?.textContent).toBe('live LANDING');
@@ -2820,16 +2992,16 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 		Object.defineProperty(Element.prototype, 'clientHeight', box(200));
 		try {
 			// aim the drawer at the entry under test, then ask for the whole note
-			h.clickRow(h.note('a.md'));
+			h.point(h.note('a.md'));
 			pickNote(h);
 			await vi.waitFor(() => expect(h.source()).toBe(live));
 			// nothing was matched, so nothing is marked…
 			expect(h.content()?.querySelector('.nav-preview-landing')).toBeNull();
-			// …and the reader is put at L7 of a 9-line file: seven eighths of the way
+			// …and the reader is put at L7 of a 31-line file: six thirtieths of the way
 			// down the 600px the box can travel
 			await vi.waitFor(() => {
 				const scroller = h.el.querySelector<HTMLElement>('.nav-preview-scroll')!;
-				expect(scroller.scrollTop).toBe(450);
+				expect(scroller.scrollTop).toBe(120);
 			});
 		} finally {
 			for (const [name, descriptor] of Object.entries(saved)) {
@@ -2848,22 +3020,24 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 
 		// …and back: the spot view is the entry's own block again, with no line of
 		// today's file in it
-		h.modeButton(t('navHistory.preview.spot'))!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		h.pickSetting(t('navHistory.preview.spot'));
 		expect(h.source()).toBe('recorded above\n==live LANDING==\nrecorded below');
 		expect(h.source()).not.toContain('live five');
 	});
 
 	it('reads one note once, however many of its landings are walked', async () => {
 		const h = harnessAll(at(), 2, read);
-		h.clickRow(h.rows()[0]); // the drawer is on a.md's newest landing
+		h.point(h.rows()[0]); // the drawer is on a.md's older place (L7)
 		pickNote(h);
 		await vi.waitFor(() => expect(h.source()).toBe(live));
 		expect(h.cachedRead).toHaveBeenCalledTimes(1);
 
-		h.clickRow(h.rows()[1]); // …and now on its other one
+		h.point(h.rows()[1]); // …and now on its other one (L31)
 
 		expect(h.el.querySelector('.nav-preview-title')?.textContent).toBe('a.md');
-		expect(h.el.querySelector('.nav-preview-caption')?.textContent).toBe(t('navHistory.preview.aside'));
+		// …and still no caption: the whole-note view never carries one (see
+		// LandingPanel.captionText)
+		expect(h.el.querySelector('.nav-preview-caption-row')).toBeNull();
 		// one note, one read: the rendered DOM is reused and only the mark moves
 		expect(h.cachedRead).toHaveBeenCalledTimes(1);
 		expect(h.source()).toBe(live);
@@ -2871,49 +3045,48 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 
 	it('moves the landing mark with the reader, one mark at a time', async () => {
 		const h = harnessAll(at(), 2, read);
-		h.clickRow(h.rows()[0]);
+		h.point(h.rows()[0]);
 		pickNote(h);
 		await vi.waitFor(() => {
-			expect(h.content()?.querySelector('.nav-preview-landing')?.textContent).toBe('live two');
+			expect(h.content()?.querySelector('.nav-preview-landing')?.textContent).toBe('live LANDING');
 		});
 
-		// the note's other landing, in the same view: the old mark goes with it
-		h.clickRow(h.rows()[1]);
+		// the note's other place, in the same view: the old mark goes with it
+		h.point(h.rows()[1]);
 
 		await vi.waitFor(() => {
 			expect(h.content()?.querySelectorAll('.nav-preview-landing')).toHaveLength(1);
 		});
-		expect(h.content()?.querySelector('.nav-preview-landing')?.textContent).toBe('live LANDING');
+		expect(h.content()?.querySelector('.nav-preview-landing')?.textContent).toBe('live tail');
 	});
 
 	it('falls back to the recorded lines when the note cannot be read', async () => {
 		// A note that exists but does not read: the drawer must not go blank, and
 		// the recorded block is all there is left. (A DELETED note never gets this
-		// far — it has no switch at all.)
+		// far — it is not read at all.)
 		const h = harness(spot(), 0, read);
 		h.cachedRead.mockResolvedValueOnce('');
 		pickNote(h);
 
-		expect(h.el.querySelector('.nav-preview-mode.is-active')?.textContent).toBe(t('navHistory.preview.note'));
 		await vi.waitFor(() => {
 			expect(h.content()?.textContent).toContain('recorded above');
 		});
 	});
 
 	it('says so when the note will not read and nothing was recorded either', async () => {
-		// Two landings of one note, one with a recorded block and one without, and
+		// Two places of one note, one with a recorded block and one without, and
 		// a vault that refuses to read the file: the column has to say something
 		// rather than sit empty under its caption.
-		const bare = visit('a.md', NOW - 2 * MINUTE, { scroll: 1 });
+		const bare = visit('a.md', NOW - 2 * MINUTE, { scroll: 30 });
 		const h = harnessAll([recorded(6, 3), bare, visit('b.md', NOW)], 2, read);
 		h.cachedRead.mockRejectedValue(new Error('unreadable'));
-		h.clickRow(h.rows()[1]); // the landing that carries a block
+		h.point(h.rows()[0]); // the place that carries a block
 		pickNote(h);
 		await vi.waitFor(() => {
 			expect(h.content()?.textContent).toContain('recorded above');
 		});
 
-		h.clickRow(h.rows()[0]); // the other landing, which recorded no block
+		h.point(h.rows()[1]); // the other place, which recorded no block
 
 		await vi.waitFor(() => {
 			expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.none'));
@@ -2921,10 +3094,10 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 		expect(h.content()).toBeNull();
 	});
 
-	it('shows a note that is GONE from its recorded lines, whatever the switch says', async () => {
-		// The switch is a preference that outlives the row it was set on. A note
-		// the vault no longer has cannot be shown whole, so the panel shows what it
-		// recorded and says WHICH lines those are — never "as it stands now".
+	it('shows a note that is GONE from its recorded lines, whatever the setting says', async () => {
+		// The content setting outlives the row it was chosen on. A note the vault no
+		// longer has cannot be shown whole, so the panel shows what it recorded and
+		// says WHICH lines those are — never "as it stands now".
 		const gone = visit('gone.md', NOW - 2 * MINUTE, {
 			scroll: 3,
 			context: [
@@ -2935,14 +3108,16 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 			contextAt: 1,
 		});
 		const h = harness([recorded(6, 3), gone, visit('b.md', NOW)], 2, { ...read, 'gone.md': 'x' }, ['gone.md']);
-		h.clickRow(h.note('a.md'));
+		h.point(h.note('a.md'));
 		pickNote(h);
 		await vi.waitFor(() => expect(h.source()).toBe(live));
 
-		h.clickRow(h.note('gone.md'));
+		h.point(h.note('gone.md'));
 
 		expect(h.el.querySelector('.nav-preview-note')?.textContent).toBe(t('navHistory.preview.gone'));
 		await vi.waitFor(() => expect(h.source()).toBe('上一行\n==这一行==\n下一行'));
+		// …and the caption comes back with it: those ARE recorded lines, so which ones
+		// they are is the one thing there is to say (see LandingPanel.captionText)
 		expect(h.el.querySelector('.nav-preview-caption')?.textContent)
 			.toBe(t('navHistory.preview.recorded', 3, 5));
 		expect(h.el.querySelector('.nav-preview-modes')).toBeNull();
@@ -2952,7 +3127,7 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 
 	it('never offers the whole note for a view step', () => {
 		// The graph is not a note: there is nothing to show whole, and the drawer
-		// says so instead of offering a switch that cannot work.
+		// says so — the content setting simply has nothing to act on.
 		const h = harness(
 			[{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW }] as NavHistoryEntry[],
 			0, read,
@@ -2979,8 +3154,18 @@ describe('NavHistoryModal — the drawer\'s whole-note view', () => {
 		expect(shared.state.mode).toBe('note');
 
 		const second = harness(at(), 2, read, [], {}, {}, false, [], {}, shared.browser);
+		second.point(second.note('a.md'));
 
-		expect(second.el.querySelector('.nav-preview-mode.is-active')?.textContent).toBe(t('navHistory.preview.note'));
+		// the second dialog is on the same choice, and it says so in its gear — the
+		// panel has no switch of its own to read the answer off (see
+		// NavHistoryBrowser.openSettings)
+		await vi.waitFor(() => expect(second.source()).toBe(live));
+		second.clickRow(second.el.querySelector<HTMLElement>('.position-restore-nav-settings')!);
+		// The LAST group is the panel's content: the details switch opens the menu, then
+		// the list's shape, and the content is a question only while the column exists.
+		expect(second.el.querySelectorAll('.nav-settings-group')[2]
+			.querySelector('.nav-settings-option[aria-checked="true"]')?.textContent)
+			.toContain(t('navHistory.preview.note'));
 	});
 });
 
