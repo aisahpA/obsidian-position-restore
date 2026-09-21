@@ -2,6 +2,14 @@ export const en = {
 	// ── Feature 1 · Saved positions: what is recorded, how it comes back,
 	//    and where the records live ─────────────────────────────────────
 	'lastPosition.heading': 'Last position',
+	// WHAT THE PAGE IS ABOUT, once at the top (see settings-tab's intro row):
+	// what is remembered, and for whom. Both halves are things no row below can
+	// say — none of them is about the cursor being remembered, and none of them
+	// knows there is more than one tab — and together they are why those rows
+	// can go straight to their own answer. The three group headings below are
+	// not repeated here: they name themselves when the reader reaches them.
+	'lastPosition.intro':
+		'Every note remembers where the cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top, no jump afterwards. Each tab remembers for itself: one note open in two tabs comes back to its own place in each.',
 
 	'openAndRestore.heading': 'Open & restore',
 	'openAndRestore.defaultPosition.name': 'Default position in edit view',
@@ -91,12 +99,6 @@ export const en = {
 	'dataStorage.dbFileName.messages.merged': 'Adopted the existing database file and merged {0} record(s) from it.',
 	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',
-	// Where the file sits is a FACT the settings item may state; whether it
-	// therefore syncs is not — that depends on the client the reader uses, and
-	// several of them (Nutstore Sync, Remotely Save, iCloud, git) do carry a
-	// plugin folder that Obsidian Sync skips. So the page says where the file
-	// is and no more, and the modal's folded note names Obsidian Sync and its
-	// rules, because that is the question it is asked there.
 	'dataStorage.dbFileName.syncLocal': 'Inside the plugin folder (the default) — whether it travels with your vault depends on the sync client.',
 	'dataStorage.dbFileName.syncVault': 'Inside the vault — an ordinary vault file, which any sync client can carry.',
 	'dataStorage.dbFileName.syncHidden': 'Inside a hidden folder — some sync clients skip folders whose name starts with ".".',
@@ -123,19 +125,24 @@ export const en = {
 	'hotkeys.open': 'Open hotkey settings',
 
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
-	// The page holds the BACK/FORWARD STACK and nothing else — its size, what
-	// counts as a step, and the keys the two commands are bound to. It is not
-	// called "navigation history" any more: that phrase answered two different
-	// questions at once (see recentFiles.name, whose list is the other
-	// one), and a page named after the thing it is not is a page a reader has to
-	// open to find out.
 	'navHistory.heading': 'Back and forward',
-	'navHistory.desc':
-		'VSCode-style "Navigate back" / "Navigate forward" across file switches and in-file jumps (links, outline, search results, large cursor moves). Always on — it only needs hotkeys, none are pre-assigned. Same-tab file switches ride Obsidian\'s native per-tab history (PDF, canvas and other views included); the stack (size configurable below) is device-local and survives restarts.',
+	// WHAT THE PAGE IS ABOUT, said once at the top (see settings-tab's intro
+	// row). What a step is, and where the stack lives — the two things none of
+	// the rows below can say for themselves, and the reason those rows can be
+	// short: a toggle here only has to say whether its own kind of step counts.
+	// "Size configurable below" is NOT repeated here: the row it pointed at is
+	// named for that already.
+	'navHistory.intro':
+		'VSCode-style "navigate back" / "navigate forward": a step is a file switch or an in-file jump — a link, the outline, a search result, a far cursor move — and the two switches below decide which of those count. Switches inside one tab ride Obsidian\'s own per-tab history, so PDF, canvas and other views are travelled too. The stack is kept on this device and survives restarts.',
+	// The two commands that walk it (see settings-tab's hotkeys row). Nothing
+	// here repeats the sentence above: the row is named for the keys it holds,
+	// and what back and forward mean has already been said on this page.
+	'navHistory.hotkeys.desc':
+		'One command per direction, walking the steps above. Neither is bound by default — run either by name from the command palette.',
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
-	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
+	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
 	'navHistory.commands.navigateBack': 'Navigate back',
@@ -149,6 +156,15 @@ export const en = {
 	// called "Navigation history" any more: the two answer different questions
 	// and only one of them is a history of travel.
 	'recentFiles.name': 'Recent files',
+
+	// WHAT THE PAGE IS ABOUT, once at the top (see settings-tab's intro row):
+	// what one ROW stands for, and what this list is not. The second half is
+	// the half worth saying — the reader arrives here from the page named
+	// "Back and forward", and the two stores answer different questions while
+	// looking like two views of one history. Everything else the rows say
+	// about themselves.
+	'recentFiles.intro':
+		'A list of places you have been: notes opened recently, and the headings and blocks you jumped to inside them — a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. This list is kept on this device and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
 	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.

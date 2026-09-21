@@ -3,8 +3,15 @@ import type { En } from './en';
 export const zh: En = {
 	// ── 功能一 · 位置记录：记什么、怎么回来、记录存在哪 ────────────────
 	'lastPosition.heading': '最后位置',
+	// 整页在说什么，开头说一次（见 settings-tab 的 intro 行）：记住的是什么、
+	// 替谁记住。这两件事下面任何一行都说不了——没有一行是关于「记住光标」这件事
+	// 本身的，也没有一行知道同一个文件能开在两个标签页里；说清楚了，下面那些行
+	// 才能直接进入自己的答案。三组标题不在这里重复：它们自己就在下面。
+	'lastPosition.intro':
+		'为每篇笔记记住光标停在哪一行、滚到了哪里，重新打开直接落回那一处——不在文件顶部闪一下再跳过去。每个标签页各记各的：同一篇笔记开在两个标签页里，回来时各回各的位置。',
 
 	'openAndRestore.heading': '打开与恢复',
+
 	'openAndRestore.defaultPosition.name': '编辑视图的默认位置',
 	'openAndRestore.defaultPosition.desc':
 		'当某个文件没有已保存的位置时，将光标和滚动位置定位到此处。注意：此设置仅适用于编辑视图；阅读视图不使用此设置。',
@@ -92,10 +99,6 @@ export const zh: En = {
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
 	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
-	// 文件放在哪里是设置项可以陈述的“位置”事实；它是否因此被同步则不是——那取决
-	// 于用户使用的同步工具，而坚果云 / Remotely Save / iCloud / git 等工具恰恰会
-	// 同步 Obsidian Sync 跳过的插件目录。所以页面只说位置，Obsidian Sync 的规则
-	// 与它的名字留到弹窗的折叠说明里，因为那里问的正是这个问题。
 	'dataStorage.dbFileName.syncLocal': '位于插件目录内（默认）——它是否随 vault 同步，取决于你使用的同步工具。',
 	'dataStorage.dbFileName.syncVault': '位于仓库内——普通仓库文件，任何同步工具都能同步它。',
 	'dataStorage.dbFileName.syncHidden': '位于隐藏文件夹内——部分同步工具会跳过以“.”开头的文件夹。',
@@ -120,24 +123,34 @@ export const zh: En = {
 	'hotkeys.open': '打开快捷键设置',
 
 	// ── 功能二 · 前进与后退：导航栈 ────────────────────────────────────
-	// 这一页只装后退/前进栈：它多大、什么算一步、两个命令各绑了什么键。它不再叫
-	// 「导航历史」——那个词同时回答了两个不同的问题（见 recentFiles.name，
-	// 列表是另一个），而一个以「它不是的东西」命名的页面，读者只能点开才知道。
 	'navHistory.heading': '前进与后退',
-	'navHistory.desc':
-		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈大小可在下方调整，按设备保存在 localStorage，重启保留。',
+	// 整页在说什么，开头说一次（见 settings-tab 的 intro 行）：一步是什么、
+	// 历史存在哪——下面任何一行都没法替自己说出这两件事，也正是下面那些行能
+	// 写得短的原因：开关只需说自己那一种走法要不要记。“大小可在下方调整”不再
+	// 重复：那个开关的名字已经在说它了。
+	'navHistory.intro':
+		'类似 VSCode 的“后退 / 前进”：一步可以是切换文件，也可以是文件内的跳转——链接、大纲、搜索结果、远距离的光标移动，下面两个开关决定哪些算数。同一标签页内的切换交给 Obsidian 自己的标签页历史，所以 PDF、Canvas 这类视图也走得回去。历史存在本机，重启后仍在。',
+	// 走这条历史的两个命令（见 settings-tab 的 hotkeys 行）。这里不重复上面那句：
+	// 这一行按它装的东西命名，而「后退 / 前进」是什么，本页已经说过了。
+	'navHistory.hotkeys.desc': '一个方向一个命令，走的正是上面那些步。默认都不绑快捷键——在命令面板里按名字运行即可。',
 	'navHistory.stackCap.name': '前进/后退保留步数',
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
-	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
+	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
 
 	// ── 功能三 · 最近文件：地点列表，以及它的面板 ──────────────────────
-	// 弹窗自己的标题：它上面没有标题可以重复。
 	'recentFiles.name': '最近文件',
+
+	// 整页在说什么，开头说一次（见 settings-tab 的 intro 行）：一行代表什么，
+	// 以及这份列表不是什么。后半句是值得写的那一半——读者是从「前进与后退」页
+	// 过来的，两个存储答的是不同的问题，看起来却像同一份历史的两种看法。其余
+	// 的都交给下面各行自己说。
+	'recentFiles.intro':
+		'一份去处的清单：最近打开过的笔记，以及你在它们内部跳转过的标题与块——点一行就回到那一处。它不是「前进与后退」页那份历史：那里存的是怎么走到这里，这里存的是去过哪些地方，两者各记各的。清单存在本机，重启后仍在。',
 
 	// 最近文件列表自己的文件夹规则（见 PluginSettings.navRecentExcludeFolders）：
 	// 哪些访问值得列出。它是独立的一份，与位置记录的文件夹规则无关——但两者不在

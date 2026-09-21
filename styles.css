@@ -47,6 +47,16 @@ body.is-phone .position-restore-db-path-row.is-pickers > button {
 	margin: 4px 0 0 1.4em;
 }
 
+/* A page's opening sentence (see SettingTab.intro): help text for the PAGE
+   rather than for one row, so it carries no control and no name. The app still
+   prints the name element above the description — empty here, and left in place
+   rather than removed from the DOM because the row is re-rendered from its
+   definition on every `update()` — so dropping it here is what keeps the row
+   from opening with a blank line above its paragraph. */
+.position-restore-page-intro .setting-item-name {
+	display: none;
+}
+
 /* Restore cue (RestoreCue): a transient chip naming the landing section,
    centered in the note so it clears the editor's chrome and the mobile bars,
    and allowed to wrap to two lines for deep heading chains. Long unbreakable

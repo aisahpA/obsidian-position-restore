@@ -97,6 +97,15 @@ export class SettingTab extends PluginSettingTab {
 	private getPositionDefs(): SettingDefinitionItem[] {
 		return [
 			{
+				// The intro gets a group of its own, and not a first item inside
+				// "Open & restore": it introduces the whole page, and sitting
+				// under one group's heading would make it that group's sentence.
+				// No heading here, for the reason the other two pages have none —
+				// the page is already named "Last position".
+				type: 'group',
+				items: [this.intro(t('lastPosition.intro'))],
+			},
+			{
 				type: 'group',
 				heading: t('openAndRestore.heading'),
 				items: [
@@ -338,6 +347,24 @@ export class SettingTab extends PluginSettingTab {
 		];
 	}
 
+	// A PAGE'S OWN SENTENCE, standing above every row that asks something of
+	// the reader: what this page is about, in the words none of its rows can
+	// say for themselves. It is NOT a row's help text, so it has no control
+	// beside it and no name of its own — the name would be the page's name
+	// said again, which the page's own title already says. `searchable: false`
+	// keeps it out of the settings search, where a nameless hit would be a
+	// line with nothing above it naming where it came from.
+	private intro(desc: string): SettingGroupItem {
+		return {
+			name: '',
+			searchable: false,
+			render: (setting) => {
+				setting.setDesc(desc);
+				setting.settingEl.addClass('position-restore-page-intro');
+			},
+		};
+	}
+
 	// ONE HOTKEY ROW, built for a page: its own sentence, then the commands that
 	// belong to THAT page and the key each of them is bound to, as the app itself
 	// reports them (see currentHotkeyText). A command with nothing bound says so,
@@ -382,7 +409,8 @@ export class SettingTab extends PluginSettingTab {
 				// itself is one line of chrome that names nothing the page has not.
 				type: 'group',
 				items: [
-					this.hotkeys(t('navHistory.desc'), [
+					this.intro(t('navHistory.intro')),
+					this.hotkeys(t('navHistory.hotkeys.desc'), [
 						{ id: 'navigate-back', name: t('navHistory.commands.navigateBack') },
 						{ id: 'navigate-forward', name: t('navHistory.commands.navigateForward') },
 					]),
@@ -424,8 +452,8 @@ export class SettingTab extends PluginSettingTab {
 		return [
 			{
 				type: 'group',
-				heading: t('recentFiles.name'),
 				items: [
+					this.intro(t('recentFiles.intro')),
 					// The two commands that OPEN this list, on the page that is about
 					// it (see `hotkeys`). The back/forward pair is on its own page.
 					this.hotkeys(t('recentFiles.hotkeys.desc'), [
