@@ -1,4 +1,3 @@
-import { setIcon } from 'obsidian';
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { t } from '@/i18n';
 import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
@@ -42,38 +41,30 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // same place, and the reader who wants the other spots says so once, in the
 // setting, rather than per note.
 //
-// The row's two halves are an OPEN and a LOOK: the row itself opens what it
-// stands for — a note the plain way, a jump at its recorded spot (see
-// places.travel) — while the control in the row's left gutter expands the row's
-// own details (the recorded spot, or the note as it stands now; see
-// LandingPanel). The gutter control is not decoration and it is not a second way
-// to travel: it replaced a double click, which cannot be told from a single one
-// until the second has either arrived or not — so the click that OPENED had to
-// wait out the double-click window (every plain click in the panel answered
-// 300ms late, which a reader feels as a dead list). One click, one target, one
-// meaning — see `disclose`.
-// The keyboard does the same two things without a pointer: ↑↓ step through the
-// rows on screen and the details follow, Enter opens.
+// THE ROW IS ONE THING: a click opens what it stands for — a note the plain way, a
+// jump at its recorded spot (see places.travel). There used to be a second hotspot in
+// the row's left gutter: a control that expanded the row's own details in a panel
+// beside (or under) the list. It is gone with the panel. What the panel was for — the
+// small print about a step, and a rendering of the note content — turned out to be
+// dominated by the click: the plugin's promise is that a row lands EXACTLY where the
+// reader left, in the real editor, and a name plus its coordinate plus its section is
+// what a reader picks a row by. So the gutter is gone, the rows are one target wide,
+// and the list is what the panel always was in practice: a list of places to go.
+// The keyboard does the same thing without a pointer: ↑↓ step through the rows on
+// screen, Enter opens.
 //
-// ONE OPEN, ON EVERY DEVICE AND IN EVERY SHELL: a note's row and a landing row
-// (where 'all' prints them) take the same gesture — open the file there — and
-// the gutter control on any of them looks at that row's details. The two are
-// separate hotspots and neither reaches into the other (see disclose).
+// NOTHING MOVES ON HOVER, which is the whole of the rule this list is built on: the
+// pointer used to drive the position directly — a mouse crossing the list moved it and
+// the panel beside it followed. A list that lurches under a passing mouse points at a
+// row nobody chose, so the position moves only for a click or a key. The arrow travels,
+// and the row's own click travels; no other button does (see onContextMenu).
 //
-// NOTHING MOVES ON HOVER, which is the whole of the rule this panel is built on: the
-// pointer used to drive the position directly — a mouse crossing the list moved it
-// and the column beside it followed, describing whatever it happened to pass over.
-// A list that lurches under a passing mouse describes a row nobody chose and loses
-// the spot the reader was actually reading, so every change of what is described is
-// now a click they made. The arrow travels, and the row's own click travels; no other
-// button does (see onContextMenu).
-//
-// The list owns its rows and the ONE position in them: `selected`, which a click
-// sets and the keyboard walks (see choose). It is what the landing panel
-// describes, what Enter travels to, and what is announced to a screen reader —
-// one position, so the two input devices cannot disagree about which row the
-// reader is on. The browser follows it through callbacks — it never reaches into
-// the rows.
+// The list owns its rows and one POSITION among them: `selected`, which the keyboard
+// walks (see move) and a redraw re-finds. It is what Enter travels to and what is
+// announced to a screen reader. A CLICK does not set it: a click opens what the row
+// stands for, and the modal closes on the way — there is nothing left pointing at a row
+// nobody would ever see. The browser follows it through callbacks — it never reaches
+// into the rows.
 
 // One row as the class keeps it: the element, and what it stands for. A FILE
 // row's landings are the steps, so a travel from it reads `group`; its `rep`,
@@ -81,8 +72,8 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 interface RowRef {
 	el: HTMLElement;
 	// The place index the row acts on — a LANDING row's own index. A note row
-	// carries none (its identity is the group; see fileRow), and one whose file is
-	// gone has nothing to travel to (the panel still says what stood there).
+	// carries none: its identity is the group (see fileRow), and its place is
+	// resolved from that group when it is needed (see activeRep).
 	rep?: number;
 	group?: number;
 }
@@ -107,58 +98,31 @@ export interface NavHistoryListOptions {
 	describe: (rep: number) => NavEntryDescription;
 	// Drop the per-render describe cache: the rows it described are gone.
 	clearDescribeCache: () => void;
-	// Whether a note still exists. Asked of the NOTE rather than of one of its
-	// landings: a note row is disabled when the note is gone, whatever its
-	// recorded steps say.
+	// Whether a note still exists on disk. It is how a place is FILTERED, not how a
+	// row is disabled: a name whose file is gone is not listed at all — not even when
+	// it is the place the reader is standing in, and not even as a gap. The list is a
+	// list of places to go to, and a row that opens nothing is the one thing its own
+	// rules elsewhere refuse to draw.
 	noteExists: (path: string) => boolean;
 	// The heading chain an entry's landing sits in.
 	trailFor: (entry: NavHistoryEntry, d: NavEntryDescription) => string[];
 	// Which live tab holds a landing's destination, if it needs saying.
 	paneName: (entry: NavHistoryEntry) => string | undefined;
-	// The position moved: the landing panel redraws for the row it is on.
-	onPointed: () => void;
 	// The position moved to another row, or off the list (undefined), by either
 	// hand. The focus never leaves the filter box — typing narrows the list from the
 	// same keys that move through it — so this is what makes the current option
 	// audible: the browser points the box's aria-activedescendant at the row id.
 	onActiveRow: (id: string | undefined) => void;
-	// A row was pointed at with its own gutter control: bring the panel it just
-	// opened into view (see choose). Not called for the keyboard's walk: there the
-	// list shows the step and the reader's own view is what it is (see reveal).
-	onRevealPanel: () => void;
 	// A row was clicked with a pointing device: open the file at what it stands
-	// for. The row IS the navigation — the panel is a navigator, not a previewer —
-	// so this fires from the row's own click (see onClick).
+	// for. The row IS the navigation, so this fires from the row's own click (see
+	// onClick).
 	onTravel: (rep: number) => void;
 	// How much of a note the list prints (see shownLandings): one row per note — the
 	// plugin's default, the row standing for the last spot the note was left at — or
 	// every distinct spot under the name, nearby ones already folded into one row.
 	// Read per render, so the toolbar's setting reaches a panel that is already up.
 	landings: () => LandingsMode;
-	// Whether the hand at the panel is a FINGER: it is what decides the gutter
-	// control's own size (see TOUCH_DISCLOSE_PX), while the open-on-the-row rule
-	// above is the same for every hand.
-	touch: boolean;
-	// Whether a row carries the gutter control AT ALL — the button that asks the panel
-	// to describe that row (see disclose). Read per row and per render, because it is a
-	// preference the reader switches while looking at the list (see
-	// NavBrowserPrefs.showDetails): with it off the rows keep the click that opens a
-	// file and nothing else, and the gutter their left padding used to be is gone with
-	// the control (see styles.css).
-	disclose: () => boolean;
 }
-
-// HOW BIG THE GUTTER CONTROL'S GLYPH IS UNDER A FINGER, in pixels — and the reason the
-// number is in the script at all rather than only in the stylesheet: an `em` is a
-// TYPOGRAPHIC unit, it follows the reader's font, and a target must not. The panel's
-// rows carry the same small UI font on a phone and on a tablet, and on the tablet — a
-// bigger screen, held further away — the one control a finger has for a row's details
-// came out "very small, like a dot". The stylesheet states the same size for the panels
-// whose stylesheet is the one this build was written for (see styles.css); stating it
-// here as well is what a panel gets whose two files arrived apart — Obsidian Sync copies
-// them one at a time, and a tablet was caught running an older stylesheet in front of a
-// newer script. An inline style is also the one declaration no theme rule can outrank.
-const TOUCH_DISCLOSE_PX = 20;
 
 // How far the list has to scroll to show a step the KEYBOARD took: undefined while
 // the row the walk arrived on is wholly inside the list, and otherwise the distance
@@ -190,101 +154,14 @@ export class NavHistoryList {
 	private refs: RowRef[] = [];
 	// The groups of the last render: what a file row's `group` indexes into.
 	private groups: ReturnType<typeof groupByFile> = [];
-	// THE position: the row the reader is on, whichever hand put them there — a
-	// click sets it (see onClick), the arrow keys walk it (see move). Undefined
-	// before anything has been pointed at: Enter has nothing to act on until then.
+	// THE position: the row the reader is on. The arrow keys walk it (see move), and a
+	// pointer moves nothing (see the class comment). Undefined until the first key: Enter
+	// has nothing to act on until then.
 	private selected: RowRef | undefined;
 
 	constructor(private opts: NavHistoryListOptions) {
 		// Nothing is listened to here: a pointer moves no position at all (see the
 		// class comment) — the rows' own clicks are wired as the rows are drawn.
-	}
-
-	// The place index the position stands for, or -1 (no position): a landing is
-	// itself, a note is the record it stands for (see activeRep). Resolved from the
-	// ROW now rather than remembered as a number from when the position arrived: what
-	// a row stands for can move under a position that has not — the query redraws the
-	// list, the note's own places change as the reader navigates. It is what the
-	// drawer describes and what Enter travels to: one position, so the two cannot
-	// disagree.
-	get position(): number {
-		return this.selected ? this.activeRep(this.selected) : -1;
-	}
-
-	// The row an INLINE landing panel opens under (see LandingPanel.render): the row
-	// whose gutter control was just used, whatever it is. A note's row is a subject
-	// like any other — the details ARE what its gutter control promises — so a note
-	// whose landings are printed still opens its own panel; the landings simply move
-	// down, which is what the reader asked for by using the control.
-	//
-	// It is the INLINE presentation's question and no other's: with the panel beside
-	// the list (the drawer) the row is only the subject it describes, and nothing
-	// hangs under it to be pushed.
-	panelAnchor(): HTMLElement | undefined {
-		return this.selected?.el;
-	}
-
-	// Whether any row still STANDS FOR a landing: its own row, or the note's row
-	// (see activeRep). The drawer asks this before staying on a subject, so a query
-	// that dropped the note takes the column off it rather than leaving it describing
-	// a row nobody can see.
-	standsFor(rep: number): boolean {
-		return rep >= 0 && this.refs.some(r => {
-			const group = r.group === undefined ? undefined : this.groups[r.group];
-			// A note's own record (its anchor) stands for the note's row, so the
-			// drawer stays on a file whose only subject is the file itself.
-			return !!group && (group.indices.includes(rep) || group.anchor === rep);
-		});
-	}
-
-	// Mark the row the drawer is describing: the row on the left and the column on
-	// the right are one thing seen twice, and the name of the note was the only line
-	// tying them together — a reader had to read it in both places to be sure. One row
-	// at a time; -1 (nothing described) clears it. Called by the panel, which is what
-	// resolves the position/"last"/"here" order (see LandingPanel.render), and it
-	// agrees with `is-selected` whenever there is a position — the two classes are
-	// painted the same (see styles.css).
-	markPreviewed(rep: number): void {
-		for (const ref of this.refs)
-			ref.el.removeClass('is-previewed');
-		if (rep < 0)
-			return;
-		// The ROW the drawer is describing, when it has one on screen: a landing's own
-		// row once its note is open, so the tint sits on the spot the column shows and
-		// the note's row goes back to being just the note.
-		const own = this.rowOf(rep);
-		if (own) {
-			own.addClass('is-previewed');
-			return;
-		}
-		// A closed note (or a landing a query dropped) has no such row: the FILE row
-		// stands in for it, which is what still pairs the two sides up.
-		this.refs.find(r => {
-			const group = r.group === undefined ? undefined : this.groups[r.group];
-			return !!group && (group.indices.includes(rep) || group.anchor === rep);
-		})?.el.addClass('is-previewed');
-	}
-
-	// The row a stack index resolves to, when that row is on screen (a landing the
-	// setting does not print is not, and neither is a row the filter dropped).
-	rowOf(rep: number): HTMLElement | undefined {
-		return rep < 0 ? undefined : this.refs.find(r => r.rep === rep)?.el;
-	}
-
-	// The NOTE row a row belongs to: the file row at or above it (which is the row
-	// itself when it is one). The inline panel asks for it before moving the list: that
-	// row is the handle the panel is put away with (the same gutter control, see
-	// onClick), so opening a panel may never scroll it out of the list — the scroll
-	// stops when it reaches the top instead (see LandingPanel.reveal).
-	noteRowOf(row: HTMLElement): HTMLElement | undefined {
-		const at = this.refs.findIndex(r => r.el === row);
-		if (at < 0)
-			return undefined;
-		for (let i = at; i >= 0; i--) {
-			if (this.refs[i].group !== undefined)
-				return this.refs[i].el;
-		}
-		return undefined;
 	}
 
 	// The place index a row acts on: a landing is itself; a NOTE is the note's OWN
@@ -303,9 +180,9 @@ export class NavHistoryList {
 	// jumps made inside it survive — falls back to its newest landing, and still has
 	// somewhere to go.
 	//
-	// A deleted note still ANSWERS with its own record, because the panel is where
-	// "this file is gone, here is what stood there" is said; whether it may actually
-	// be travelled to is travel()'s question, not this one.
+	// Every row this answers for HAS somewhere to go: a place whose file is gone never
+	// becomes a row in the first place (see render's `keep`), so the only way to -1
+	// here is a group the list no longer holds.
 	//
 	// The note's row has NO other input: what the reader merely LOOKED at (a landing's
 	// own row, the gutter control, the arrow keys) moves the description and nothing
@@ -318,7 +195,7 @@ export class NavHistoryList {
 			return -1;
 		if (group.anchor !== undefined && group.anchor >= 0)
 			return group.anchor;
-		const order = group.reachable.length ? group.reachable : group.indices;
+		const order = group.indices;
 		// The place index IS the clock (the list is kept in MRU order, see
 		// places.ts): the highest index among a note's landings is its newest one.
 		return order.length ? order.reduce((a, b) => (a > b ? a : b)) : -1;
@@ -370,12 +247,22 @@ export class NavHistoryList {
 			const d = this.opts.describe(i);
 			return `${d.line ?? ''} ${this.opts.trailFor(this.opts.entries[i], d).join(' ')}`;
 		};
-		const keep = (i: number) => !query || matchesNavFilter(this.opts.entries[i], query, printed(i));
+		// …and WHAT may be listed at all: a place whose file is gone is dropped before
+		// the list is grouped, so no row, no landing and no "you are here" ever stands
+		// for a name that cannot be opened. The store prunes such a place by itself (see
+		// PathBookkeeper); this is the list agreeing with it, and it is also what covers
+		// the moment before that prune lands. A VIEW place is exempt: the graph has no
+		// file to be gone.
+		const listed = (i: number): boolean => {
+			const entry = this.opts.entries[i];
+			return entry.kind === 'view' || this.opts.noteExists(entry.path);
+		};
+		const keep = (i: number) => listed(i)
+			&& (!query || matchesNavFilter(this.opts.entries[i], query, printed(i)));
 		this.groups = groupByFile(
 			this.opts.entries,
 			this.opts.currentIndex,
 			keep,
-			i => !this.opts.describe(i).missing,
 			// The line a row PRINTS is what makes two steps one spot, so the
 			// collapse and the coordinates can never disagree (see groupByFile).
 			i => this.opts.describe(i).lineIndex,
@@ -395,12 +282,11 @@ export class NavHistoryList {
 				this.placeRow(i, group, i === group.currentRep);
 		});
 
-		// Nothing to draw: the query found no step to list, the history has nothing in
-		// it, or every note it names is gone. Asked of the ROWS — is there one the
-		// reader could open? — because that is the same question targetOf answers for
-		// each of them, and the place the reader is already in is no longer an empty
-		// answer (see targetOf).
-		if (!this.refs.some(ref => this.targetOf(ref) >= 0))
+		// Nothing to draw: the query found no step to list, or the history has nothing
+		// left to name. Asked of the ROWS, because that is what the reader sees — and
+		// every row on screen is a destination now that a place without a file is
+		// filtered out before grouping.
+		if (!this.refs.length)
 			this.opts.list.createDiv({
 				cls: 'position-restore-nav-empty',
 				text: this.emptyText(query),
@@ -424,11 +310,11 @@ export class NavHistoryList {
 	}
 
 	// What the list says when it has nothing to draw. Two different nothings: the
-	// query found no step to list, or there is no step to go to at all — a history
-	// with nothing in it, or one whose every note is gone. A single place the reader
-	// is standing in is NOT one of them any more: its row opens it (see targetOf).
-	// One message for both, decided by the query; render's single
-	// `refs.some(targetOf)` branch is the only caller.
+	// query found no step to list, or there is no place left to name at all — a
+	// history with nothing in it, or one whose every file is gone (those places are
+	// dropped before grouping, see render). A single place the reader is standing in
+	// is NOT one of them: its row opens it (see targetOf). One message for both,
+	// decided by the query; render's `!refs.length` branch is the only caller.
 	private emptyText(query: string): string {
 		return query ? t('navHistory.noMatch') : t('navHistory.empty');
 	}
@@ -451,61 +337,34 @@ export class NavHistoryList {
 	// prints no folder either: it is one view, not a note with spots in it.
 	//
 	// The row is its NAME and nothing else. The caret that used to lead it opened a
-	// sublist of the note's landings and carried a "+N" count of what was hidden;
-	// both went with the expansion (see the class comment). What leads the row now
-	// is the gutter control, and it is not that caret: it opens no sublist and counts
-	// nothing — it expands THIS row's own details (see disclose).
+	// sublist of the note's landings and carried a "+N" count of what was hidden; both
+	// went with the expansion, and the gutter control that replaced the caret went with
+	// the details panel it opened (see the class comment). One row, one click, one
+	// destination.
 	private fileRow(group: ReturnType<typeof groupByFile>[number], index: number, doubles: Set<string>): number {
 		// The note's own record when it has one (see activeRep), else any landing
-		// that may be travelled to: the row needs ONE record to read the name, the
-		// view kind and the file's existence from.
+		// it holds: the row needs ONE record to read the name and the view kind from.
 		const rep = group.anchor
-			?? group.reachable.find(i => i !== group.currentRep)
-			?? group.reachable[0];
-		// A note whose file is gone is still the note the reader is standing in:
-		// it is drawn from the note itself — its path — rather than from a landing
-		// it no longer has.
+			?? group.indices.find(i => i !== group.currentRep)
+			?? group.indices[0];
 		const head = rep === undefined ? undefined : this.opts.describe(rep);
-		const view = rep !== undefined && this.opts.entries[rep].kind === 'view';
-		const pathless = group.path === '' && (rep === undefined || view);
-		const missing = !pathless && !this.opts.noteExists(group.path);
 		const name = head?.name ?? baseName(group.path);
 		const row = this.opts.list.createDiv({ cls: 'position-restore-nav-row is-file' });
-		if (missing) {
-			// The note is gone, and its row is still the note: its gutter control
-			// opens the recorded landings like any other row's (they say what stood
-			// there), it just has nothing to open IN — the row's own click does
-			// nothing (see onClick).
-			row.addClass('is-missing');
-			row.setAttr('title', t('navHistory.disabledTip'));
-		}
 		if (group.current)
 			row.addClass('is-current');
 		row.dataset.group = String(index);
 		row.setAttr('id', `${this.opts.listId}-row-g${index}`);
 		row.setAttr('role', 'option');
 		row.setAttr('aria-selected', 'false');
-		if (missing || rep === undefined)
-			row.setAttr('aria-disabled', 'true');
-		// One ref object, because two things act through it: the row's own click and
-		// the gutter control — and they have to agree about which place they are
-		// about. Its identity is the GROUP: `rep` stays
-		// undefined, because a file row stands for the note (see activeRep) and a
-		// number here would let rowOf() hand the drawer a file row where it asked
-		// for the landing that happens to share that index.
+		// The row's own click is the one thing that acts through this. A file row's
+		// identity is the GROUP: `rep` stays undefined, because a file row stands for the
+		// note (see activeRep) rather than for any one landing.
 		const ref: RowRef = { el: row, group: index };
 		row.addEventListener('click', () => this.onClick(ref));
 		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev));
 		this.refs.push(ref);
-		// The gutter control, in the row's own left padding — out of the row's flow,
-		// so it cannot change how tall the row is (see disclose) — and only where there
-		// is a panel for it to open (see the option).
-		if (this.opts.disclose())
-			this.disclose(row, ref);
 
 		const file = row.createDiv({ cls: 'nav-row-file' });
-		if (missing)
-			file.addClass('is-missing');
 		// Which folder this note is in — ONLY where its name is another note's
 		// name too, and BEFORE the name.
 		const folder = doubles.has(name) ? folderOf(group.path) : undefined;
@@ -529,29 +388,18 @@ export class NavHistoryList {
 		const entry = this.opts.entries[i];
 		const d = this.opts.describe(i);
 		const row = this.opts.list.createDiv({ cls: 'position-restore-nav-row is-place' });
-		if (d.missing) {
-			// Rendered (the gap in the history is information) but never a jump
-			// target: jumping moves the stack pointer while nothing can be
-			// restored.
-			row.addClass('is-missing');
-			row.setAttr('title', t('navHistory.disabledTip'));
-		}
 		if (current)
 			row.addClass('is-current');
 		row.dataset.rep = String(i);
 		row.setAttr('id', `${this.opts.listId}-row-${i}`);
 		row.setAttr('role', 'option');
 		row.setAttr('aria-selected', 'false');
-		if (d.missing)
-			row.setAttr('aria-disabled', 'true');
-		// The same two-way ref as a note's row (see fileRow): the click and the
-		// gutter control are one landing.
+		// The row's own click is the one thing that acts through this: a landing row
+		// stands for itself.
 		const ref: RowRef = { el: row, rep: i };
 		row.addEventListener('click', () => this.onClick(ref));
 		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev));
 		this.refs.push(ref);
-		if (this.opts.disclose())
-			this.disclose(row, ref);
 
 		// The coordinate: the coarse "how far in" a reader matches against memory,
 		// and — since a row is an OPEN — the line the click will actually land on.
@@ -564,7 +412,7 @@ export class NavHistoryList {
 		// A cluster of one — the ordinary spot — prints its line either way.
 		const pos = row.createSpan({ cls: 'nav-row-pos' });
 		const span = group.spans.get(i);
-		if (!d.missing && span && span.count > 1 && span.from !== undefined && span.to !== undefined)
+		if (span && span.count > 1 && span.from !== undefined && span.to !== undefined)
 			row.setAttr('title', t('navHistory.lineRange', span.from + 1, span.to + 1));
 		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
@@ -595,83 +443,6 @@ export class NavHistoryList {
 		return 1;
 	}
 
-	// The control that opens a row's own details, in the row's own left padding: ONE
-	// click, and the panel describes THIS row — the recorded spot it stands for, or
-	// the note as it stands now (see LandingPanel). A second click on the same row's
-	// control puts it away again.
-	//
-	// It is the row's second half, and the two halves must not be confused: the ROW
-	// opens the file (a navigator's one job, and the whole width of the row is the
-	// target), while this control looks. So it is drawn on EVERY row, whether or not
-	// the row has anywhere to open — a deleted note has no destination and still has
-	// details worth seeing — and it stops the click from reaching the row, which is
-	// what keeps one press from meaning both things at once.
-	//
-	// It is OUT of the row's flow — the stylesheet pins it to the row's own left
-	// gutter and to the row's full height — because an element in the row is an
-	// element that can make the row taller: a button carries the browser's own font
-	// and line box, which is a size the row knows nothing about (see styles.css).
-	// Out of flow it cannot touch the row's height at all.
-	private disclose(row: HTMLElement, ref: RowRef): void {
-		const btn = row.createEl('button', {
-			cls: 'nav-row-disclose',
-			type: 'button',
-			attr: {
-				// A pointer shortcut, not a second tab stop: the panel's keyboard is the
-				// filter box, and ↑↓ walks the rows with the panel following (see
-				// move). Enter on a row opens it (see body.ts's onKeyDown).
-				tabindex: '-1',
-				// …and it is not announced either, for the same reason. The row IS an
-				// option of the listbox, and an option's name is read off its contents:
-				// a labelled button in every row would put "view details" into every
-				// announcement, while telling a screen-reader user nothing they cannot
-				// already do — walking the rows describes them. (Which is also why the
-				// press below has to be refused: an element that can take the focus is
-				// an element the browser refuses to hide, and says so in the console —
-				// "Blocked aria-hidden on an element because its descendant retained
-				// focus".)
-				'aria-hidden': 'true',
-				// The visible promise of what a click does, for the hand holding the mouse.
-				title: t('navHistory.showDetails'),
-			},
-		});
-		setIcon(btn, 'chevron-right');
-		// …and its size, where the hand is a finger's (see TOUCH_DISCLOSE_PX): set on the
-		// glyph itself, so neither a theme rule nor a stylesheet that arrived a version
-		// behind can shrink it back to a speck.
-		if (this.opts.touch) {
-			const svg = btn.querySelector('svg');
-			if (svg) {
-				svg.style.width = `${TOUCH_DISCLOSE_PX}px`;
-				svg.style.height = `${TOUCH_DISCLOSE_PX}px`;
-			}
-		}
-		// …and NO PADDING OF ITS OWN, said here as well as in the stylesheet, because this
-		// is the one property the app's own button rules keep taking: a TABLET pads every
-		// button it has — `.is-tablet button:not(.clickable-icon)` gives it `4px 20px`, two
-		// classes and a type, so it outranks a two-class rule — and 40px of padding inside
-		// this 30px box (see styles.css for the gutter) is a content box of nothing: the
-		// glyph was squeezed away entirely and a tablet showed an EMPTY gutter, while the
-		// phone and the desktop drew it. The stylesheet answers with a three-class
-		// selector; this is the answer that nothing short of `!important` can outrank, and
-		// the box IS the row's left padding, so there is nothing here for a padding to do.
-		btn.setCssStyles({ padding: '0' });
-		// The press must not move the FOCUS. A button takes it on mousedown, and the
-		// panel's keyboard lives in the filter box: a click that moved the caret would
-		// leave the reader typing at nothing, and the row the control was on would stop
-		// being the row ↑↓ walks. Refusing the press is what keeps the caret where it
-		// was, and the click itself still arrives.
-		btn.addEventListener('mousedown', (ev) => ev.preventDefault());
-		// The row's own click is right behind this one and means something else (open
-		// the file): the control's click is the control's, and it must not double as
-		// the row's.
-		btn.addEventListener('click', (ev) => {
-			ev.stopPropagation();
-			if (this.pointAt(ref))
-				this.backTo(ref.el);
-		});
-	}
-
 	// A right-click on a row goes NOWHERE, and neither does a finger's lingering
 	// press — the same event to a WebView, carrying the left button's number.
 	//
@@ -684,8 +455,7 @@ export class NavHistoryList {
 	// It is still REFUSED rather than ignored, which is the one thing that must not
 	// change with the meaning: the app's own menu has nothing to offer on a row (there
 	// is no text to copy and nothing to inspect), and a long press must not raise a
-	// selection callout over the list. The gutter control is the one a finger uses for
-	// a row's details.
+	// selection callout over the list.
 	private onContextMenu(ev: MouseEvent): void {
 		ev.preventDefault();
 	}
@@ -697,63 +467,26 @@ export class NavHistoryList {
 	// rewrites the stack and pins the note it landed on first, so the stack index the
 	// position was resolved from — and the group it was on — may now name another note.
 	// Starting the jump from a cleared list is what makes the redraw that follows it
-	// nothing but the new list, rather than a panel describing a note nobody chose.
+	// nothing but the new list, rather than a position standing on whatever slid into
+	// that slot.
 	collapse(): void {
 		this.clearSelection();
 	}
 
-	// The row's own click opens what it stands for (see activeRep) — the panel is a
-	// navigator, and the note's name is its target. The same gesture on both kinds of
-	// row, because there is only one thing a row can be asked: WHERE. A note's row
-	// answers with the note's own record (the plain open), and a landing row with
-	// itself (a jump lands on its spot).
+	// The row's own click opens what it stands for (see activeRep) — the note's name is
+	// its target. The same gesture on both kinds of row, because there is only one thing
+	// a row can be asked: WHERE. A note's row answers with the note's own record (the
+	// plain open), and a landing row with itself (a jump lands on its spot).
 	//
-	// A row with nothing to open — a deleted note's — does nothing at all: travel()
-	// refuses it (see targetOf). The place the reader is already in is NOT that: the
-	// row opens it again (the file back, or the landing re-applied), which is exactly
-	// what a reader whose tab was closed came here for. A deleted note's details are
-	// still one click away, on its own gutter control (see disclose). And nothing
-	// here puts the panel away: the control that opened it is the control that closes
-	// it (see pointAt).
+	// The place the reader is already in is NOT exempt: the row opens it again (the file
+	// back, or the landing re-applied), which is exactly what a reader whose tab was
+	// closed came here for.
 	private onClick(ref: RowRef): void {
 		this.travel(ref);
 	}
 
-	// A row that POINTS the panel at a place: the first press puts the position on
-	// it (the panel opens on it, or under it inline), a second takes the position
-	// away again and the panel goes with it. Called by the row's own gutter control
-	// (see disclose). @returns whether it was that second press.
-	private pointAt(ref: RowRef): boolean {
-		if (this.selected?.el === ref.el) {
-			this.clearSelection();
-			return true;
-		}
-		this.choose(ref);
-		return false;
-	}
-
-	// Bring the row whose control just put the panel away back into the list.
-	//
-	// Inline the panel hangs in the list's own scroll, and a row the reader has scrolled
-	// past is pinned to the top of the list so that this very click is possible (see
-	// LandingPanel.sync). The panel going away leaves the list where the panel's content
-	// was — the middle of a note that is no longer on screen — so the handle that was just
-	// used comes back to where it was clicked: nothing moves unless the row is above the
-	// list, and then it moves exactly as far as the row.
-	private backTo(row?: HTMLElement): void {
-		if (!row)
-			return;
-		const view = this.opts.list.getBoundingClientRect();
-		// No layout to measure (a test): nothing has moved.
-		if (view.height <= 0)
-			return;
-		const delta = row.getBoundingClientRect().top - view.top;
-		if (delta < 0)
-			this.opts.list.scrollTop += delta;
-	}
-
-	// The stack index a row would open, or -1 when it has none: a landing of a
-	// deleted note has nothing to restore. What it must NOT refuse is the place the
+	// The stack index a row would open, or -1 when it has none (no row is pointed at,
+	// or the group it belonged to is gone). What it must NOT refuse is the place the
 	// reader is already standing in. That refusal used to read "a journey to where
 	// they are is not a step", but a row is an OPEN and not a step: a reader clicking
 	// the row they are on is asking for the FILE — the tab they just closed, or the
@@ -762,14 +495,15 @@ export class NavHistoryList {
 	// Refusing it here made the first row of the list — the current note, pinned
 	// first — the one row that answered nothing, and it is the row a reader whose
 	// every tab is closed reaches for first.
+	//
+	// Nothing about the FILE is asked here: a row only exists for a place the list
+	// could open (see render's `keep`), so "may this be travelled to" is answered by
+	// the row's existence.
 	private targetOf(ref?: RowRef): number {
 		const target = ref ?? this.selected;
 		if (!target)
 			return -1;
-		const rep = this.activeRep(target);
-		if (rep < 0)
-			return -1;
-		return this.opts.describe(rep).missing ? -1 : rep;
+		return this.activeRep(target);
 	}
 
 	// Travel to the landing a row stands for. Public because Enter comes in through
@@ -784,13 +518,11 @@ export class NavHistoryList {
 		return true;
 	}
 
-	// Point the list at a row: the ONE position (see `selected`), the highlight, the
-	// audible option, the drawer's subject — and the panel that has to follow it into
-	// view. Both hands come through here: a row's own gutter control (see disclose)
-	// and the arrow keys (see move) move the same row, so the two devices cannot end
-	// up describing different places. `walked` is the one thing the two hands do not
-	// share: it says the KEYBOARD made this move, which is what decides whether the
-	// list shows the step or merely the row (see reveal).
+	// Point the list at a row: the ONE position (see `selected`), the highlight, and the
+	// option a screen reader is told about. Its two callers both mean "the keyboard put
+	// the reader here" — the walk (see move) and the re-find after a redraw — and
+	// `walked` says whether the list has to SHOW the row it arrived on (see reveal),
+	// which is the one thing a redraw does not need.
 	private choose(ref: RowRef, walked = false): void {
 		if (this.selected?.el !== ref.el) {
 			this.selected?.el.removeClass('is-selected');
@@ -803,20 +535,6 @@ export class NavHistoryList {
 		// list, and the reader has to be able to see where they are (see reveal).
 		this.reveal(ref.el, walked);
 		this.opts.onActiveRow(ref.el.id);
-		// The panel describes the landing this row stands for (see activeRep) — which
-		// is what Enter opens as well. Settled BEFORE the panel is to redraw.
-		// Nothing is remembered here about the row: a note's own row stands for the
-		// note's newest step whatever the reader looks at (see activeRep).
-		this.opts.onPointed();
-		if (!walked) {
-			// The panel hangs BELOW that row, so redrawing it and then bringing it
-			// into view are one step: the row alone being on screen is not enough when
-			// what the click opened — the panel — is below it.
-			// Only a CLICK asks for this: the keyboard's walk has just shown the step
-			// its own way (see reveal), and following it with the panel's scroll would
-			// undo it.
-			this.opts.onRevealPanel();
-		}
 	}
 
 	// Put the row the position moved to where the reader can see it. Two callers, two
@@ -846,9 +564,6 @@ export class NavHistoryList {
 		this.selected?.el.setAttr('aria-selected', 'false');
 		this.selected = undefined;
 		this.opts.onActiveRow(undefined);
-		// Nothing is described any more either: the drawer follows the position, and
-		// "no position" is what parks the inline panel (see LandingPanel.render).
-		this.opts.onPointed();
 	}
 
 	// The keyboard's walk: one row on, wrapping at either end. A step is `walked`, so

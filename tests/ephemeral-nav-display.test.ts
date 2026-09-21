@@ -53,7 +53,6 @@ function makeView(opts: {
 			getCursor: () => ({ line: opts.cursorLine ?? 0, ch: 0 }),
 			getLine: (n: number) => lines[n] ?? '',
 			lastLine: () => lines.length - 1,
-			lineCount: () => lines.length,
 			cm: opts.cm,
 		},
 	}) as MarkdownView;
@@ -100,7 +99,6 @@ describe('readNavEntryState — which line the landing is', () => {
 				{ line: 3, text: 'cursor line' },
 			],
 			contextAt: 3,
-			lineCount: 4,
 		});
 	});
 
@@ -215,13 +213,14 @@ describe('readNavEntryState — the landing context block', () => {
 		expect(st?.context?.[st.contextAt ?? -1]).toEqual({ line: 2, text: 'r2' });
 	});
 
-	it('stamps the file line count and mtime', () => {
+	it('stamps the file mtime', () => {
+		// The line count is NOT recorded any more: the details panel that showed
+		// "L412 / 1200" is gone, and nothing else ever read it (see navDisplayFields).
 		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['a', 'b'], mtime: 1_730_000_000_000 });
 
-		expect(readNavEntryState(view)).toMatchObject({
-			lineCount: 2,
-			mtime: 1_730_000_000_000,
-		});
+		const st = readNavEntryState(view);
+		expect(st).toMatchObject({ mtime: 1_730_000_000_000 });
+		expect(st).not.toHaveProperty('lineCount');
 	});
 
 	it('caps one recorded line so a paragraph-per-line note cannot bloat the stack', () => {
@@ -277,7 +276,6 @@ describe('withNavDisplay — rebuilds display fields around an existing position
 				{ line: 505, text: 'L505' },
 			],
 			contextAt: 5,
-			lineCount: 1000,
 		});
 		// The input is untouched: the baseline is shared with the poll and the
 		// db, and a later reconstruction must never flip an entry retroactively.

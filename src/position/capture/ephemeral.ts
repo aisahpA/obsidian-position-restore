@@ -155,18 +155,17 @@ function contextBlock(
 
 // The nav-display fields around a position: the viewport-top anchor
 // (functional — remapAnchoredState re-finds the line after later edits), the
-// landing's recorded context block (display + search), the line count and
-// mtime. Cheap doc reads EXCEPT cursorOnScreen — this is the only
-// layout-forcing part of the nav read, and it never runs on the hot path. A
-// doc read is the whole price of the context block: the lines come from the
-// editor's buffer, no vault IO, and the nav read is low-frequency by
-// construction.
+// landing's recorded context block (search), and the file's mtime. Cheap doc
+// reads EXCEPT cursorOnScreen — this is the only layout-forcing part of the nav
+// read, and it never runs on the hot path. A doc read is the whole price of the
+// context block: the lines come from the editor's buffer, no vault IO, and the
+// nav read is low-frequency by construction.
 function navDisplayFields(
 	view: MarkdownView,
 	topLine: number,
 	cursor: EphemeralState['cursor'],
-): Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'lineCount' | 'mtime'> {
-	const display: Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'lineCount' | 'mtime'> = {};
+): Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'mtime'> {
+	const display: Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'mtime'> = {};
 	// The view mode is read here and nowhere else now: it decides which line
 	// the landing is (below), and that decision is RECORDED (contextAt) instead
 	// of being stamped for a reader to re-derive. Optional-called: the display
@@ -200,14 +199,11 @@ function navDisplayFields(
 		display.context = block;
 		display.contextAt = block.findIndex(l => l.line === landingLine);
 	}
-	// The file's size at capture time (a denominator for "L412"). Optional-called
-	// like getMode above: a view-like object in a test may carry a minimal editor.
-	const lineCount = typeof editor.lineCount === 'function' ? editor.lineCount() : undefined;
-	if (typeof lineCount === 'number' && lineCount > 0)
-		display.lineCount = lineCount;
-	// The file's mtime at capture time: the browser says "written since" when
-	// the live one differs (see NavEntryState.mtime — it deliberately does NOT
-	// drive the restore, which works against a live editor buffer).
+	// The file's mtime at capture time. Nothing displays it any more — the details
+	// panel that said "written since" is gone — and it deliberately does NOT drive the
+	// restore (which works against a live editor buffer, whose unsaved text can differ
+	// from the file on disk regardless of its mtime). It is kept as the record's own
+	// stamp: what the file WAS when the step was taken.
 	const mtime = view.file && typeof view.file.stat?.mtime === 'number' ? view.file.stat.mtime : undefined;
 	if (mtime !== undefined)
 		display.mtime = mtime;

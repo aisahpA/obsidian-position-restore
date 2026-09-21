@@ -51,12 +51,10 @@ export interface NavFileGroup {
 	// Stack indices of the note's landings, top of the note first: by line,
 	// ascending (see the sort in groupByFile). Each one is a CLUSTER's
 	// representative — the newest step among the nearby landings it folds — and
-	// stands for every step that landed in that place.
+	// stands for every step that landed in that place. Every one of them is a
+	// DESTINATION: a note whose file is gone is not grouped at all (see the `keep`
+	// filter in NavHistoryList.render), so a row on screen always has somewhere to go.
 	indices: number[];
-	// The subset of `indices` that may be TRAVELLED to: a note whose file is
-	// deleted is still the note (the panel says what stood there), but nothing
-	// under it is a destination.
-	reachable: number[];
 	// The note's OWN record — the place that stands for the file rather than for
 	// a spot inside it (see places.ts), i.e. the `visit` (or the `view`) the
 	// group was opened by. The file's row IS this record: it opens the file the
@@ -126,7 +124,9 @@ function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 // which is pinned first. INSIDE a group the order is the note's own: by line,
 // ascending, with the spots close enough to be one place already CLUSTERED into
 // one row (see LANDING_MERGE_LINES). `keep` applies the filter (a dropped step is
-// not on screen, so its note may disappear with it).
+// not on screen, so its note may disappear with it) — and the caller's filter is
+// where a note whose FILE is gone is dropped too: this module groups and orders,
+// and a group it never hears about is a group it never draws.
 //
 // `lineOf` resolves the line a step landed on, which is what makes two steps the
 // same spot (see landingKey) and what decides whether two of them are NEARBY. It
@@ -142,10 +142,6 @@ export function groupByFile(
 	entries: NavHistoryEntry[],
 	currentIndex: number,
 	keep: (index: number) => boolean = () => true,
-	// Whether a step may be travelled to. A deleted note's row is drawn (the gap
-	// in the history is information) but nothing under it can be restored, so
-	// this — not `indices` — is what a jump may act on.
-	reach: (index: number) => boolean = () => true,
 	lineOf: (index: number) => number | undefined = () => undefined,
 ): NavFileGroup[] {
 	const groups = new Map<string, NavFileGroup>();
@@ -162,7 +158,6 @@ export function groupByFile(
 			group = {
 				path: entry.kind === 'view' ? NO_PATH : entry.path,
 				indices: [],
-				reachable: [],
 				current: false,
 				spans: new Map(),
 			};
@@ -268,15 +263,12 @@ export function groupByFile(
 		}
 		close();
 	}
-	// What may be travelled to, over the CLUSTERS: a note whose file is deleted
-	// keeps its rows but none of them is a destination.
-	for (const group of groups.values())
-		group.reachable = group.indices.filter(reach);
 	// The current note reaches the list by the same scan as every other note: its
-	// own step has to survive `keep` (a note the query dropped is not this list's
-	// business, current or not), and the scan below opens it like any group. The
-	// `!groups.has` guard is only a fallback for a current entry the scan somehow
-	// never opened.
+	// own step has to survive `keep` — a note the query dropped is not this list's
+	// business, current or not, and neither is a note whose file is gone, not even
+	// the one the reader is standing in (the list has no row for a name it cannot
+	// open; the gap is not worth a dead row). The `!groups.has` guard is only a
+	// fallback for a current entry the scan somehow never opened.
 	const current = entries[currentIndex];
 	if (current && keep(currentIndex) && !groups.has(groupKey(current)))
 		open(current).current = true;
@@ -342,29 +334,4 @@ export function navSearchText(entry: NavHistoryEntry): string {
 			parts.push(entry.viaText);
 	}
 	return parts.filter(Boolean).join(' ');
-}
-
-// A row's time label. It is no longer a column of the list — a note's own rows
-// are what the eye scans now, and a repeated age on every step was the widest
-// fixed thing in the panel — so it survives where time IS the subject: the
-// landing panel's head, which describes one step rather than a list of them.
-// Beyond a week an
-// absolute date is more useful than an ever-growing day count. Pure (now comes
-// in) for testing.
-export function formatRelativeTime(stamp: number, now: number = Date.now()): string {
-	const minutes = Math.floor(Math.max(0, now - stamp) / 60000);
-	if (minutes < 1)
-		return t('navHistory.time.now');
-	if (minutes < 60)
-		return t('navHistory.time.minutes', minutes);
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24)
-		return t('navHistory.time.hours', hours);
-	const days = Math.floor(hours / 24);
-	if (days < 7)
-		return t('navHistory.time.days', days);
-	const d = new Date(stamp);
-	const mm = String(d.getMonth() + 1).padStart(2, '0');
-	const dd = String(d.getDate()).padStart(2, '0');
-	return `${d.getFullYear()}-${mm}-${dd}`;
 }

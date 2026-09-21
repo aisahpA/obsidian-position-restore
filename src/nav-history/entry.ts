@@ -5,7 +5,7 @@ import { NavEntryState } from '@/types';
 // presence: a malformed shape fails the type check and the load filter
 // instead of slipping through a property coincidence, and a new variant
 // flags every unexhausted switch. st (NavEntryState): its context block,
-// line count, mtime and anchor come from the low-frequency nav reads only.
+// mtime and anchor come from the low-frequency nav reads only.
 export type NavHistoryEntry = NavJump | NavVisit | NavView | NavTeleport;
 
 // What a recorder constructs: a variant without its timestamp. `t` is added
@@ -108,9 +108,10 @@ export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 
 // Persisted nav-history format version: a mismatched stored blob is
 // dropped whole on load — the history is disposable, no migrations.
-// v3 added the recorded context block / line count / mtime / link origin
-// (see NavEntryState and NavVisit): the browser reads all of them, so a v2
-// blob would render half-empty rows.
+// v3 added the recorded context block / mtime / link origin (see NavEntryState
+// and NavVisit). It also added a line count, dropped again afterwards without a
+// bump: the field was optional, nothing but the details panel ever read it, and a
+// stored v3 blob that still carries one loads fine.
 export const NAV_HISTORY_VERSION = 3;
 
 // The recent-files list's own format version (see places.ts / places-store.ts).

@@ -41,23 +41,18 @@ interface NavContextLine {
 // costs no storage.
 interface NavEntryState extends EphemeralState {
 	// The landing's CONTEXT BLOCK: the lines the landing sat among at capture
-	// time, in document order, with the landing itself at `contextAt`. The
-	// history browser renders this block instead of re-reading the file (no
-	// IO, works for a file that has since been deleted, and shows what the
-	// user actually saw when they left) and the search box matches its text.
-	// DISPLAY + SEARCH ONLY: re-anchoring stays `anchor`'s job, one line with
-	// exact-match semantics (remapAnchoredState) — a multi-line block is a
-	// different algorithm and must never feed it.
+	// time, in document order, with the landing itself at `contextAt`. It is what
+	// the browser's SEARCH BOX matches — "the words I saw when I left" is how a
+	// reader finds an old spot — and was once what the details panel rendered.
+	// SEARCH ONLY: re-anchoring stays `anchor`'s job, one line with exact-match
+	// semantics (remapAnchoredState) — a multi-line block is a different algorithm
+	// and must never feed it.
 	context?: NavContextLine[],
 	// Index of the landing line within `context`.
 	contextAt?: number,
-	// The file's line count at capture time — the denominator for the row's
-	// "L412" (see the landing panel's head).
-	lineCount?: number,
-	// The file's mtime at capture time. Display-only: a live mtime that
-	// differs means the file was written after this step was recorded, so the
-	// text above may already be gone. (It is deliberately NOT used to skip the
-	// text remap: that runs against a live editor buffer, which can differ
+	// The file's mtime at capture time. Nothing displays it (the panel that said
+	// "written since" is gone), and it is deliberately NOT used to skip the text
+	// remap: that runs against a live editor buffer, which can differ
 	// from the file on disk — an unsaved edit changes the lines without
 	// touching the mtime.)
 	mtime?: number,
@@ -125,22 +120,12 @@ interface PluginSettings {
 	// while this one answers "which visits are worth listing".
 	navRecentExcludeFolders: string[];
 	// The history browser's own preferences. They are persisted rather than held
-	// in the panel because all of them outlive the panel they are chosen in: a reader
-	// who wants the note as it stands now wants it tomorrow too, and a reader who wants
-	// one row per note wants that of every note. All are chosen IN the panel — the
-	// content by the switch above the landing's lines (see LandingPanel), the list's
-	// shape and whether the details column exists at all by the toolbar's own setting
-	// button — because that is where the reader is looking at what they change, and the
-	// settings tab keeps no second copy of any of them.
-	navPreviewMode: 'spot' | 'note'; // which content a landing opens on: the spot the step recorded, or the note as it stands now
+	// in the panel because both outlive the panel they are chosen in: a reader who
+	// wants one row per note wants that of every note. Both are chosen IN the
+	// panel — the list's shape and whether the details column exists at all, by the
+	// toolbar's own setting button — because that is where the reader is looking at
+	// what they change, and the settings tab keeps no second copy of either.
 	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
-	// Whether the browser describes a landing at all: the gutter control in every row,
-	// the panel it opens (the drawer beside the list or the block under the row), and
-	// the half of the hint that names the control. OFF by default — a history list is
-	// a list, and a reader who wants to see WHAT each step was turns the column on in
-	// the gear. With it off the rows lose their left gutter too: there is nothing to
-	// put there.
-	navShowDetails: boolean;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -161,9 +146,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navRecordTeleport: true,
 	navRecentCap: 200,
 	navRecentExcludeFolders: [],
-	navPreviewMode: 'spot',
 	navLandings: 'last',
-	navShowDetails: false,
 };
 
 export {

@@ -1,24 +1,20 @@
 // Tests for the history browser's pure pieces (src/nav-history/browser/):
-// row description, tree grouping/merging, filtering, time labels and pane
-// numbering, plus the landing the panel prints (read from the entry's own
-// recorded block). The modal's DOM stays untested here; everything whose
-// correctness a reader would doubt is pure.
+// row description, tree grouping/merging, filtering, section chains and pane
+// numbering. The DOM stays untested here; everything whose correctness a reader
+// would doubt is pure.
 
 import { describe, it, expect } from 'vitest';
 
 import {
 	describeNavEntry, headingTrailAtLine, rowTrail, baseName, duplicateNames, folderOf,
 } from '@/nav-history/browser/model';
-import {
-	groupByFile, matchesNavFilter, formatRelativeTime,
-} from '@/nav-history/browser/listing';
+import { groupByFile, matchesNavFilter } from '@/nav-history/browser/listing';
 import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '@/nav-history/browser/panes';
 import { revealDelta } from '@/nav-history/browser/list';
 import { t } from '@/i18n';
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { NavEntryState } from '@/types';
 
-const hasFile = () => true;
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
 // A recorded landing block, as capture writes it: surrounding lines with the
 // landing at `at`.
@@ -28,126 +24,71 @@ const block = (lines: string[], at: number): NavEntryState => ({
 });
 
 describe('describeNavEntry', () => {
-	it('a file entry shows its basename and the key-derived jump type', () => {
-		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
+	it('a file entry shows its basename', () => {
+		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry);
 		expect(d.name).toBe('a.md');
-		expect(d.type).toBe(t('navHistory.type.open'));
 		expect(d.line).toBeUndefined();
-		expect(d.missing).toBe(false);
+		expect(d.lineIndex).toBeUndefined();
 	});
 
-	it('a tab-switch visit (via: switch) gets its own badge', () => {
-		const d = describeNavEntry({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', via: 'switch' } as NavHistoryEntry, hasFile);
-		expect(d.type).toBe(t('navHistory.type.switch'));
-	});
-
-
-	it('reads the landing line and its text from the recorded block', () => {
+	it('reads the landing line from the recorded block', () => {
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'cursor line', 'z'], 2) },
-		} as NavHistoryEntry, hasFile);
-		expect(edit.type).toBe(t('navHistory.type.teleport'));
+		} as NavHistoryEntry);
+		// the landing line, not the viewport top and not the cursor
 		expect(edit.line).toBe('L3');
-		// the same landing as a 0-based index, for the panel's landing mark
+		// the same landing as a 0-based index: what the list keys a spot by, and what
+		// the section chain is looked up against
 		expect(edit.lineIndex).toBe(2);
-		// the text is the landing line's own, never the viewport-top anchor's
-		expect(edit.anchor).toBe('cursor line');
-		expect(edit.soft).toBe(true);
-	});
-
-	it('a blank landing line in the block shows no text', () => {
-		// The viewport-top anchor belongs to another line — showing it next to
-		// the landing line number would misdescribe the landing.
-		const edit = describeNavEntry({
-			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['prev', '', 'next'], 1) },
-		} as NavHistoryEntry, hasFile);
-		expect(edit.line).toBe('L2');
-		expect(edit.anchor).toBeUndefined();
 	});
 
 	it('a teleport whose landing never settled falls back to the recorded target line', () => {
 		const d = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-		} as NavHistoryEntry, hasFile);
-		expect(d.type).toBe(t('navHistory.type.teleport'));
+		} as NavHistoryEntry);
 		expect(d.line).toBe('L42');
 	});
 
-	it('a state with no block falls back to the viewport top line and the anchor', () => {
+	it('a state with no block falls back to the viewport top line', () => {
 		// Not reachable for an entry this plugin recorded (see
 		// NavEntryState.context), but a position record fed into the row has no
 		// block, and the viewport top is the honest guess then.
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, cursor: line(3), anchor: 'viewport top' },
-		} as NavHistoryEntry, hasFile);
+		} as NavHistoryEntry);
 		expect(d.line).toBe('L42');
-		expect(d.anchor).toBeUndefined();
+		expect(d.lineIndex).toBe(41);
 	});
 
 	it('a cursorless state with no block still shows the viewport line', () => {
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, anchor: 'viewport top' },
-		} as NavHistoryEntry, hasFile);
+		} as NavHistoryEntry);
 		expect(d.line).toBe('L42');
 	});
 
-	it('shows the recorded file size beside the coordinate, and the written-since marker', () => {
-		const st: NavEntryState = { scroll: 41, lineCount: 1200, mtime: 1000 };
-		const at = (mtime?: number) => describeNavEntry(
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', st } as NavHistoryEntry,
-			hasFile, undefined, () => mtime,
-		);
-		expect(at(1000).lineCount).toBe(1200);
-		expect(at(1000).stale).toBe(false);
-		expect(at(2000).stale).toBe(true);
-		// A file the plugin cannot stat reads as unchanged, never as touched.
-		expect(at(undefined).stale).toBe(false);
-	});
-
-	it('an entry with no recorded mtime is never called stale', () => {
-		const d = describeNavEntry(
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', st: { scroll: 1 } } as NavHistoryEntry,
-			hasFile, undefined, () => 999,
-		);
-		expect(d.stale).toBe(false);
-	});
-
-	it('outline and anchor keys label their types; a pathless entry is the graph', () => {
-		const outline = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:第一章' } as NavHistoryEntry, hasFile);
-		expect(outline.type).toBe(t('navHistory.type.outline'));
-		const link = describeNavEntry({ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'b.md#标题' } as NavHistoryEntry, hasFile);
-		expect(link.type).toBe(t('navHistory.type.link'));
-		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry, hasFile);
-		expect(graph.type).toBe(t('navHistory.type.graph'));
+	it('a pathless entry is the graph, and has no coordinate', () => {
+		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry);
 		expect(graph.name).toBe(t('navHistory.graphView'));
 		expect(graph.line).toBeUndefined();
-	});
-
-	it('a path that no longer resolves is marked missing', () => {
-		const d = describeNavEntry({ kind: 'visit', path: 'gone.md', leafId: 'leaf-1' } as NavHistoryEntry, () => false);
-		expect(d.missing).toBe(true);
+		expect(graph.lineIndex).toBeUndefined();
 	});
 
 	it('an entry with no recorded position falls back to the file saved record', () => {
 		const d = describeNavEntry(
 			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry,
-			hasFile,
 			() => ({ scroll: 41, cursor: line(99) }),
 		);
 		// the saved cursor line is the spot a reopen restores
 		expect(d.line).toBe('L100');
-		// the compact record carries no anchor text
-		expect(d.anchor).toBeUndefined();
 	});
 
 	it('falls back to the saved scroll when the record has no cursor', () => {
 		const d = describeNavEntry(
 			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry,
-			hasFile,
 			() => ({ scroll: 7 }),
 		);
 		expect(d.line).toBe('L8');
@@ -176,7 +117,7 @@ describe('groupByFile', () => {
 			spot('a.md', 2, 400),
 			spot('c.md', 3, 40),
 		];
-		const groups = groupByFile(entries, 3, undefined, undefined, lines(entries));
+		const groups = groupByFile(entries, 3, undefined, lines(entries));
 
 		expect(groups.map(g => g.path)).toEqual(['c.md', 'a.md', 'b.md']);
 		// …and inside a note the rows come out DOWN the note: L10 before L400, not in
@@ -214,17 +155,6 @@ describe('groupByFile', () => {
 		expect(groups.map(g => g.path)).toEqual(['a.md', '']);
 	});
 
-	it('marks reachable apart from listed: a landing the caller excludes is still listed', () => {
-		// Reachability is the CALLER's question — the list asks it of "file missing"
-		// (see NavHistoryList.render), which is why the current step is a destination
-		// like any other — and it is kept apart from the landings the note has: a
-		// landing nobody may travel to is still a row.
-		const entries = [spot('a.md', 0, 10), spot('a.md', 1, 400)];
-		const groups = groupByFile(entries, 1, undefined, i => i !== 1, lines(entries));
-
-		expect(groups[0]).toMatchObject({ path: 'a.md', indices: [0, 1], reachable: [0] });
-	});
-
 	// NEARBY landings are ONE row (see LANDING_MERGE_LINES). A note the reader
 	// scrolled through leaves a trail of them a few lines apart, and printing each is
 	// a wall of rows whose numbers all look alike; what is printed is the PLACES a
@@ -239,7 +169,7 @@ describe('groupByFile', () => {
 
 		it('folds a trail inside the window into one row, represented by its newest step', () => {
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 18), at('a.md', 2, 26)];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			// One row, and it stands for the LAST spot the reader was at in that
 			// neighbourhood — the same answer a note's own row gives (see activeRep).
@@ -252,7 +182,7 @@ describe('groupByFile', () => {
 			// wider than the window: measured from the previous line these three would
 			// be one row spanning sixty lines.
 			const entries = [at('a.md', 0, 0), at('a.md', 1, 15), at('a.md', 2, 30)];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].indices).toEqual([1, 2]);
 			expect(groups[0].spans.get(1)).toEqual({ from: 0, to: 15, count: 2 });
@@ -264,7 +194,7 @@ describe('groupByFile', () => {
 			// own line (the line it opens), and this is the scope it keeps as its
 			// tooltip — every step the row folds, including one a query matched.
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 22)];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].spans.get(1)).toEqual({ from: 10, to: 22, count: 2 });
 		});
@@ -274,7 +204,7 @@ describe('groupByFile', () => {
 			// newer step: the row is still the place the reader is in, and a row that is
 			// where they are must not offer to open (see NavHistoryList.targetOf).
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 18)];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].indices).toEqual([1]);
 			expect(groups[0].currentRep).toBe(1);
@@ -288,7 +218,7 @@ describe('groupByFile', () => {
 				at('a.md', 0, 400),
 				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:H1', t: 1400, st: {} } as NavHistoryEntry,
 			];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].indices).toEqual([0, 1]);
 			expect(groups[0].spans.get(1)).toEqual({ from: undefined, to: undefined, count: 1 });
@@ -314,13 +244,12 @@ describe('groupByFile', () => {
 				at('a.md', 2, 400),
 				at('a.md', 3, 400),
 			];
-			const groups = groupByFile(entries, 3, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 3, undefined, lineOf(entries));
 
 			// L400 was reached three times, by three steps: one destination. The two
 			// landings come out down the note — L10 before L400, whatever order they
 			// were visited in (see groupByFile).
 			expect(groups[0].indices).toEqual([0, 3]);
-			expect(groups[0].reachable).toEqual([0, 3]);
 		});
 
 		it('lets the CURRENT step stand for the landing it shares', () => {
@@ -328,7 +257,7 @@ describe('groupByFile', () => {
 			// step than the one it shares its landing with: the slot keeps the
 			// reader's own step rather than a newer one that goes to the same place.
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 400), at('a.md', 2, 400)];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].indices).toEqual([0, 2]);
 			expect(groups[0].current).toBe(true);
@@ -344,7 +273,7 @@ describe('groupByFile', () => {
 				at('a.md', 2, 400),
 				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B3', t: 1200 } as NavHistoryEntry,
 			];
-			const groups = groupByFile(entries, 0, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].indices).toEqual([0, 2, 3]);
 		});
@@ -359,7 +288,7 @@ describe('groupByFile', () => {
 				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B1', t: 1000 } as NavHistoryEntry,
 				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B2', t: 1100 } as NavHistoryEntry,
 			];
-			const groups = groupByFile(entries, 1, undefined, undefined, () => undefined);
+			const groups = groupByFile(entries, 1, undefined, () => undefined);
 
 			// ONE landing, and it is the step the reader is ON: the current entry's own
 			// (the newer of the two here).
@@ -373,7 +302,7 @@ describe('groupByFile', () => {
 				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 900 } as NavHistoryEntry,
 				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
 			];
-			const groups = groupByFile(entries, 1, undefined, undefined, () => undefined);
+			const groups = groupByFile(entries, 1, undefined, () => undefined);
 
 			// …and it is the group's ANCHOR rather than a landing under it: a view has
 			// no spots inside it, and its own row is the one the reader travels to.
@@ -386,7 +315,7 @@ describe('groupByFile', () => {
 			// The collapse is per note, so two notes captured at one line stay two
 			// destinations — the resolver is never asked across a group boundary.
 			const entries = [at('a.md', 0, 400), at('b.md', 1, 400)];
-			const groups = groupByFile(entries, 1, undefined, undefined, lineOf(entries));
+			const groups = groupByFile(entries, 1, undefined, lineOf(entries));
 
 			expect(groups.map(g => g.indices)).toEqual([[1], [0]]);
 		});
@@ -499,31 +428,6 @@ describe('baseName', () => {
 	it('is the last path segment, and the path itself when there is none', () => {
 		expect(baseName('notes/deep/a.md')).toBe('a.md');
 		expect(baseName('a.md')).toBe('a.md');
-	});
-});
-
-// The browser's primary index is TIME, not stack distance: a user remembers
-// "the spot from a few minutes ago", never "three steps back" — which is why
-// the old ±N step counter is gone.
-describe('formatRelativeTime', () => {
-	const NOW = Date.parse('2025-09-12T12:00:00');
-
-	it('collapses the last minute to "just now"', () => {
-		expect(formatRelativeTime(NOW - 5_000, NOW)).toBe(t('navHistory.time.now'));
-	});
-
-	it('counts minutes under an hour, hours under a day, days under a week', () => {
-		expect(formatRelativeTime(NOW - 20 * 60_000, NOW)).toBe(t('navHistory.time.minutes', 20));
-		expect(formatRelativeTime(NOW - 5 * 3_600_000, NOW)).toBe(t('navHistory.time.hours', 5));
-		expect(formatRelativeTime(NOW - 3 * 86_400_000, NOW)).toBe(t('navHistory.time.days', 3));
-	});
-
-	it('falls back to an absolute date beyond a week', () => {
-		expect(formatRelativeTime(Date.parse('2025-08-01T09:30:00'), NOW)).toBe('2025-08-01');
-	});
-
-	it('never renders a future stamp as a negative age', () => {
-		expect(formatRelativeTime(NOW + 60_000, NOW)).toBe(t('navHistory.time.now'));
 	});
 });
 

@@ -197,11 +197,6 @@ export class PositionManager {
 	// live, not a snapshot of them.
 	private browserPrefs(): NavBrowserPrefs {
 		return {
-			previewMode: () => this.settings.navPreviewMode,
-			setPreviewMode: (mode) => {
-				this.settings.navPreviewMode = mode;
-				this.save();
-			},
 			landings: () => this.settings.navLandings,
 			setLandings: (how) => {
 				this.settings.navLandings = how;
@@ -213,11 +208,6 @@ export class PositionManager {
 			setPlacesCap: (cap) => {
 				this.settings.navRecentCap = cap;
 				this.nav.places.applyCap();
-				this.save();
-			},
-			showDetails: () => this.settings.navShowDetails,
-			setShowDetails: (on) => {
-				this.settings.navShowDetails = on;
 				this.save();
 			},
 		};

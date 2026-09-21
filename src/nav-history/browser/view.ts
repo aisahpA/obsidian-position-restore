@@ -12,10 +12,9 @@
 // WHAT THE SHELL OWNS, and nothing else:
 //  - the leaf's own lifetime: mount a body on open, destroy it on close, and
 //    hear about list changes while it is up (see NavPlaces.subscribe);
-//  - the presentation decision, which a SIDEBAR has to ask differently from a
-//    dialog — see drawerFits below;
 //  - the classes the stylesheet reads, which no element of the pane's own
-//    chrome has.
+//    chrome has;
+//  - getting out of the way on a PHONE after a travel (see dismissOnMobile).
 //
 // It is a VIEW and not a floating panel so that Obsidian's own machinery does
 // the rest: the leaf remembers its place in the layout across restarts, it can
@@ -26,7 +25,6 @@ import { App, ItemView, Platform, WorkspaceLeaf } from 'obsidian';
 import { PlaceList } from '@/nav-history/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { DRAWER_MIN_WIDTH } from './constants';
 import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 
 // The view type, which is also what the layout file remembers. Renamed with the
@@ -41,11 +39,6 @@ export class NavHistoryView extends ItemView {
 	// equivalent of either, because nothing outlives a dialog.
 	private browser: NavHistoryBrowser | null = null;
 	private unsubscribe: (() => void) | null = null;
-	// Whether the landing panel opens INSIDE the list (see
-	// NavHistoryBrowserOptions.inline). Read from the pane, never from the
-	// window, and kept so a resize that does not change the answer costs no
-	// render (see measure).
-	private inline = true;
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -78,31 +71,21 @@ export class NavHistoryView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		// The classes the shared presentation rules are written against (see
-		// styles.css). `is-inline` is the safe opening answer — this pane may not
-		// have been laid out yet (see measure) — and `is-touch` is the one
-		// question the shell answers about the device rather than about the room.
+		// styles.css), and the one question the shell answers about the DEVICE: a
+		// touch layout is a fact about the pane, not about the room it is in.
 		this.contentEl.addClass('position-restore-nav-panel', 'position-restore-nav-view');
-		// …and the presentation the pane's own width answers, applied here rather
-		// than left to measure: that method only acts on a CHANGE, and the shell
-		// opens on the inline answer (see `inline`).
-		this.contentEl.toggleClass('is-inline', this.inline);
 		if (Platform.isMobile)
 			this.contentEl.addClass('is-touch');
-		this.measure();
 		this.browser = new NavHistoryBrowser({
 			app: this.app,
 			places: this.places,
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
-			// The panel is click-only, exactly as it is in the dialog (see list.ts):
-			// no pointer moves the position and nothing opens under a row nobody
-			// clicked — the reader asked for a place that stays put while they work,
-			// and a list that reshuffles what it describes under a passing mouse is
-			// the opposite of that. One click says everything (the row is pointed at,
-			// a second click puts it away, and what it stands for is described) and the
-			// row's own arrow travels.
-			// The DEVICE still answers for its own ergonomics (the on-screen
-			// keyboard, and whether the hint says "tap" or "click").
+			// The list is click-only, exactly as it is in the dialog (see list.ts):
+			// nothing follows a pointer that merely passes over it — the reader asked
+			// for a place that stays put while they work. The DEVICE still answers for
+			// its own ergonomics (the on-screen keyboard, and whether the hint says
+			// "tap" or "click").
 			touch: Platform.isMobile,
 			// …and a travel starts from a cleared list: the travel re-orders the list
 			// (the place visited moves to the end) and a jump re-pushes the stack, so
@@ -114,7 +97,6 @@ export class NavHistoryView extends ItemView {
 			// there, so a row that opens a note behind it looks like a row that did
 			// nothing.
 			onJump: () => this.dismissOnMobile(),
-			inline: () => this.inline,
 			// A resident panel is restored WITH the workspace, so taking the caret
 			// out of the editor to put a sidebar panel up is not something the
 			// reader asked for. The box is one click away, and the hint under it
@@ -129,8 +111,7 @@ export class NavHistoryView extends ItemView {
 	async onClose(): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = null;
-		// The rendered preview and everything hung on it (embeds, math, plugin
-		// children) belong to this view: closing it unloads them.
+		// The body's own teardown: the toolbar's setting, if it is open.
 		this.browser?.destroy();
 		this.browser = null;
 	}
@@ -159,28 +140,6 @@ export class NavHistoryView extends ItemView {
 			parent.collapse();
 	}
 
-	// The pane changed size. A sidebar's width is its OWN question, and the
-	// window cannot answer it: the modal's media query (see modal.ts) is asked of
-	// the whole window, which on a 300px rail with a 1400px editor says "plenty of
-	// room for two columns" about a pane that has room for one. So the drawer is
-	// offered exactly when the PANE is wide enough for it — a wide rail on a
-	// desktop, and on a phone the sidebar drawer, which covers the screen and is
-	// therefore the one place a phone can have the two-column presentation.
-	onResize(): void {
-		this.measure();
-	}
-
-	private measure(): void {
-		// clientWidth is 0 until the pane has been laid out (and in a test): the
-		// inline presentation is the one that needs no second column, so it is the
-		// safe answer, and the resize that reports the real width corrects it.
-		const inline = this.contentEl.clientWidth < DRAWER_MIN_WIDTH;
-		if (inline === this.inline)
-			return;
-		this.inline = inline;
-		this.contentEl.toggleClass('is-inline', inline);
-		this.browser?.render();
-	}
 }
 
 // Bring the resident panel up, or bring it back: the panel is a PLACE, so a
