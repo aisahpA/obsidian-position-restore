@@ -153,7 +153,10 @@ export default class PositionRestorePlugin extends Plugin {
 		// was noise on every toolbar — the command palette and hotkeys cover
 		// it, and the settings tab shows whether they are bound.
 		if (Platform.isMobile)
-			this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
+			// NOT navHistory.heading: the ribbon opens the recent-files list, and
+			// that page's name is what the icon has to say. (The heading is the
+			// back/forward stack's, which is the other half of this feature.)
+			this.addRibbonIcon('history', t('navHistory.overview.name'), () => this.manager.openNavHistoryModal());
 	}
 
 	/**

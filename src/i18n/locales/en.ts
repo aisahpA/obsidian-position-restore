@@ -111,9 +111,17 @@ export const en = {
 	'dataStorage.entries.desc':
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
 
-	'navHistory.heading': 'Navigation history',
-	// The settings item is its own heading's content, so it must not repeat the
-	// heading (see settings-tab): what it actually holds is the hotkey list.
+	// The page holds the BACK/FORWARD STACK and nothing else — its size, what
+	// counts as a step, and the keys the two commands are bound to. It is not
+	// called "navigation history" any more: that phrase answered two different
+	// questions at once (see navHistory.overview.name, whose list is the other
+	// one), and a page named after the thing it is not is a page a reader has to
+	// open to find out.
+	'navHistory.heading': 'Back and forward',
+	// A hotkey row is named for what it HOLDS, not for the page it stands on:
+	// the same word heads this page's two commands and the recent-files page's
+	// two (see settings-tab), and a reader looking for one of them is looking
+	// for the key, not for the page.
 	'navHistory.hotkeys.name': 'Hotkeys',
 	// The modal's own title, where there is no heading above it to repeat.
 	// The PANEL's name. It is a list of places the reader has been — recent
@@ -129,9 +137,11 @@ export const en = {
 
 	// The recent-files list's OWN folder rule (see
 	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
-	// Its own list, deliberately not the recording rules' folders above.
+	// Its own list, deliberately not the position records' folder rule — and the
+	// two do not sit on one page, so the description names the OTHER rule rather
+	// than pointing at where it stands.
 	'navHistory.recentFolders.name': 'Folders not listed',
-	'navHistory.recentFolders.desc': 'Files in these folders are not added to the recent files list. Separate from the recording rules above: a folder you do not want to remember positions in may still be one you want to navigate back to.',
+	'navHistory.recentFolders.desc': 'Files in these folders are not added to the recent files list. Unrelated to the plugin\'s recording rules: a folder whose positions you do not want remembered may still be exactly one you want to find your way back to.',
 	'navHistory.recentFolders.list.empty': 'Every folder is listed.',
 	'navHistory.recentFolders.add': 'Add folder',
 	// How far back the list reaches: its own storage knob (see
@@ -201,6 +211,13 @@ export const en = {
 	// (see view.ts). Named as a PLACE rather than as an action, because that is
 	// the difference — the panel stays where it is put.
 	'navHistory.commands.browseHistorySidebar': 'Open recent files in sidebar',
+	// The two commands above, as the settings row that binds them (see
+	// settings-tab). Their keys stand on the recent files page and NOT beside the
+	// back/forward ones: the two pages answer different questions, and a reader
+	// looking for the key that opens the LIST should not have to know that it
+	// lives under a heading about travel.
+	'navHistory.recentHotkeys.desc':
+		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
 	// The one destructive command: it throws the reader's own recent list away. Named
 	// for what it empties rather than for "reset" or "clear history", because the
 	// back/forward stack is a different store and is NOT what this touches.

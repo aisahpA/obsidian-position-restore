@@ -111,9 +111,12 @@ export const zh: En = {
 	'dataStorage.entries.desc':
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',
 
-	'navHistory.heading': '导航历史',
-	// 设置项本身就是分组标题下的内容，不能再重复一遍标题（见 settings-tab）：
-	// 它装的是快捷键清单。
+	// 这一页只装后退/前进栈：它多大、什么算一步、两个命令各绑了什么键。它不再叫
+	// 「导航历史」——那个词同时回答了两个不同的问题（见 navHistory.overview.name，
+	// 列表是另一个），而一个以「它不是的东西」命名的页面，读者只能点开才知道。
+	'navHistory.heading': '前进与后退',
+	// 快捷键行按它装的东西命名，而不是按它所在的页面：同一个词既是这一页两个命令
+	// 的标题，也是最近文件页那两个的标题（见 settings-tab）——读者找的是键，不是页。
 	'navHistory.hotkeys.name': '快捷键',
 	// 弹窗自己的标题：它上面没有标题可以重复。
 	'navHistory.overview.name': '最近文件',
@@ -122,8 +125,11 @@ export const zh: En = {
 	'navHistory.overview.hotkeyUnbound': '未绑定——点击右侧按钮设置',
 	'navHistory.overview.openHotkeySettings': '打开快捷键设置',
 
+	// 最近文件列表自己的文件夹规则（见 PluginSettings.navRecentExcludeFolders）：
+	// 哪些访问值得列出。它与位置记录的文件夹规则互不相干，两者也不在同一页上，
+	// 所以说明点名另一条规则，而不是指一个方位。
 	'navHistory.recentFolders.name': '不收录的文件夹',
-	'navHistory.recentFolders.desc': '这些文件夹里的文件不会进入最近文件列表。它和上面的记录规则是两回事：一个你不想记住滚动位置的文件夹，可能恰恰是你想回头再打开的。',
+	'navHistory.recentFolders.desc': '这些文件夹里的文件不会进入最近文件列表。它和插件的记录规则互不相干：一个你不想记住滚动位置的文件夹，可能恰恰是你想回头再打开的。',
 	'navHistory.recentFolders.list.empty': '所有文件夹都会收录。',
 	'navHistory.recentFolders.add': '添加文件夹',
 	'navHistory.recentCap.name': '保留地点数',
@@ -177,6 +183,11 @@ export const zh: En = {
 	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
 	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
 	'navHistory.commands.browseHistorySidebar': '在侧边栏打开最近文件',
+	// 上面两个命令，作为绑定它们的那一行设置（见 settings-tab）。它们的键放在最近文件
+	// 页，而不是和后退/前进的键并排：两页回答的是不同的问题，想找「打开列表」那个键的
+	// 读者不该先知道它藏在一个讲「走位」的标题底下。
+	'navHistory.recentHotkeys.desc':
+		'进入列表的两种方式：一次性的弹窗，或常驻侧边栏的面板。两者默认都不绑快捷键——在命令面板里按名字打开即可。',
 	// 唯一一个会丢东西的命令：它清掉的是读者自己的最近列表。按「清掉什么」命名，而不是叫
 	// 「重置」或「清空历史」——前进/后退栈是另一个存储，不在这个命令的范围里。
 	'navHistory.commands.clearRecent': '清空最近文件',

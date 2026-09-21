@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, SettingDefinitionItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
+import { App, PluginSettingTab, SettingDefinitionItem, SettingGroupItem, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice, Platform, Hotkey, Modifier } from 'obsidian';
 import type PositionRestorePlugin from '@/main';
 import { ESCAPE_HATCH_PROPERTY } from '@/position/policy/frontmatter';
 import { t } from '@/i18n';
@@ -338,36 +338,54 @@ export class SettingTab extends PluginSettingTab {
 		];
 	}
 
-	// ── Tab 2: Navigation ───────────────────────────────────────────────
+	// ONE HOTKEY ROW, built for a page: its own sentence, then the commands that
+	// belong to THAT page and the key each of them is bound to, as the app itself
+	// reports them (see currentHotkeyText). A command with nothing bound says so,
+	// which is the whole point of the row — the feature needs a key, and this is
+	// where a reader learns whether it has one. The button beside it opens the
+	// app's own hotkey settings, already filtered to this plugin.
+	//
+	// A page's commands stand on the page they belong to rather than in one list:
+	// "open the list of places I have been" is not a question about travel, and a
+	// reader looking for that key should not have to know it was filed under a
+	// heading about going back and forth.
+	private hotkeys(
+		desc: string,
+		commands: { id: string; name: string }[],
+	): SettingGroupItem {
+		return {
+			name: t('navHistory.hotkeys.name'),
+			render: (setting) => {
+				const frag = createFragment();
+				frag.createDiv({ text: desc });
+				const list = frag.createEl('ul', { cls: 'mod-muted' });
+				for (const command of commands)
+					list.createEl('li', {
+						text: `${command.name}: ${currentHotkeyText(this.plugin, command.id)}`,
+					});
+				setting.setDesc(frag);
+				setting.addExtraButton((btn) => {
+					btn.setIcon('keyboard').setTooltip(t('navHistory.overview.openHotkeySettings'))
+						.onClick(() => openHotkeySettings(this.plugin));
+				});
+			},
+		};
+	}
+
+	// ── Tab 2: Back and forward ────────────────────────────────────────
 
 	private getNavDefs(): SettingDefinitionItem[] {
 		return [
 			{
+				// NO heading: the page is already named "Back and forward" (see
+				// navHistory.heading), and a group heading saying it again under
+				// itself is one line of chrome that names nothing the page has not.
 				type: 'group',
-				heading: t('navHistory.heading'),
 				items: [
-					{
-						// NOT navHistory.overview.name: the group heading right above
-						// already says "Navigation history", and the item repeated it
-						// verbatim. What the item holds is the hotkey list.
-						name: t('navHistory.hotkeys.name'),
-						render: (setting) => {
-							const frag = createFragment();
-							frag.createDiv({ text: t('navHistory.overview.desc') });
-							const list = frag.createEl('ul', { cls: 'mod-muted' });
-							list.createEl('li', { text: `${t('navHistory.commands.navigateBack')}: ${currentHotkeyText(this.plugin, 'navigate-back')}` });
-							list.createEl('li', { text: `${t('navHistory.commands.navigateForward')}: ${currentHotkeyText(this.plugin, 'navigate-forward')}` });
-							list.createEl('li', { text: `${t('navHistory.commands.browseHistory')}: ${currentHotkeyText(this.plugin, 'browse-nav-history')}` });
-							// The resident panel is a command like the other three, so it
-							// is bound (or not) in the same place — see view.ts.
-							list.createEl('li', { text: `${t('navHistory.commands.browseHistorySidebar')}: ${currentHotkeyText(this.plugin, 'open-nav-history-sidebar')}` });
-							setting.setDesc(frag);
-							setting.addExtraButton((btn) => {
-								btn.setIcon('keyboard').setTooltip(t('navHistory.overview.openHotkeySettings'))
-									.onClick(() => openHotkeySettings(this.plugin));
-							});
-						},
-					},
+					this.hotkeys(t('navHistory.overview.desc'), [
+						{ id: 'navigate-back', name: t('navHistory.commands.navigateBack') },
+						{ id: 'navigate-forward', name: t('navHistory.commands.navigateForward') },
+					]),
 					{
 						name: t('navHistory.stackCap.name'),
 						desc: t('navHistory.stackCap.desc'),
@@ -408,6 +426,14 @@ export class SettingTab extends PluginSettingTab {
 				type: 'group',
 				heading: t('navHistory.overview.name'),
 				items: [
+					// The two commands that OPEN this list, on the page that is about
+					// it (see `hotkeys`). The back/forward pair is on its own page.
+					this.hotkeys(t('navHistory.recentHotkeys.desc'), [
+						{ id: 'browse-nav-history', name: t('navHistory.commands.browseHistory') },
+						// The resident panel is a command like the other one, so it is
+						// bound (or not) in the same place — see view.ts.
+						{ id: 'open-nav-history-sidebar', name: t('navHistory.commands.browseHistorySidebar') },
+					]),
 					{
 						type: 'page',
 						name: t('navHistory.recentFolders.name'),
