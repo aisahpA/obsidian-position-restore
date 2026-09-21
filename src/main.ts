@@ -117,7 +117,7 @@ export default class PositionRestorePlugin extends Plugin {
 		// details (time travel — the forward part is kept). No availability gate.
 		this.addCommand({
 			id: 'browse-nav-history',
-			name: t('navHistory.commands.browseHistory'),
+			name: t('recentFiles.commands.open'),
 			icon: 'history',
 			callback: () => this.manager.openNavHistoryModal(),
 		});
@@ -129,7 +129,7 @@ export default class PositionRestorePlugin extends Plugin {
 		// they have to get right beforehand.
 		this.addCommand({
 			id: 'open-nav-history-sidebar',
-			name: t('navHistory.commands.browseHistorySidebar'),
+			name: t('recentFiles.commands.openSidebar'),
 			icon: 'panel-right',
 			callback: () => this.manager.openNavHistorySidebar(),
 		});
@@ -143,7 +143,7 @@ export default class PositionRestorePlugin extends Plugin {
 		// PositionManager.clearRecentPlaces).
 		this.addCommand({
 			id: 'clear-recent-files',
-			name: t('navHistory.commands.clearRecent'),
+			name: t('recentFiles.commands.clear'),
 			icon: 'trash-2',
 			callback: () => this.manager.clearRecentPlaces(),
 		});
@@ -156,7 +156,7 @@ export default class PositionRestorePlugin extends Plugin {
 			// NOT navHistory.heading: the ribbon opens the recent-files list, and
 			// that page's name is what the icon has to say. (The heading is the
 			// back/forward stack's, which is the other half of this feature.)
-			this.addRibbonIcon('history', t('navHistory.overview.name'), () => this.manager.openNavHistoryModal());
+			this.addRibbonIcon('history', t('recentFiles.name'), () => this.manager.openNavHistoryModal());
 	}
 
 	/**

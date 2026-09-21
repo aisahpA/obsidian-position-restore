@@ -62,7 +62,7 @@ export class NavHistoryView extends ItemView {
 	// toolbar inside it names nothing, and the pane is where a reader looks for
 	// the panel (see modal.ts, which sets the same string as its dialog title).
 	getDisplayText(): string {
-		return t('navHistory.overview.name');
+		return t('recentFiles.name');
 	}
 
 	getIcon(): string {

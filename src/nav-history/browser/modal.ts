@@ -90,7 +90,7 @@ export class NavHistoryModal extends Modal {
 		// neither can change while the dialog is up.
 		this.modalEl.toggleClass('is-touch', this.mobile);
 		this.modalEl.toggleClass('is-fixed', this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
-		this.titleEl.setText(t('navHistory.overview.name'));
+		this.titleEl.setText(t('recentFiles.name'));
 		this.browser = new NavHistoryBrowser({
 			app: this.app,
 			places: this.places,

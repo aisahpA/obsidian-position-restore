@@ -1,4 +1,6 @@
 export const en = {
+	// ── Feature 1 · Saved positions: what is recorded, how it comes back,
+	//    and where the records live ─────────────────────────────────────
 	'lastPosition.heading': 'Last position',
 
 	'openAndRestore.heading': 'Open & restore',
@@ -111,49 +113,56 @@ export const en = {
 	'dataStorage.entries.desc':
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
 
+	// ── Shared · what a hotkey row says, on either page that binds one ──
+	// A hotkey row is named for what it HOLDS, not for the page it stands on:
+	// the same word heads the back/forward page's two commands and the
+	// recent-files page's two (see settings-tab), and a reader looking for one
+	// of them is looking for the key, not for the page.
+	'hotkeys.name': 'Hotkeys',
+	'hotkeys.unbound': 'Not bound — click the button to set it up',
+	'hotkeys.open': 'Open hotkey settings',
+
+	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	// The page holds the BACK/FORWARD STACK and nothing else — its size, what
 	// counts as a step, and the keys the two commands are bound to. It is not
 	// called "navigation history" any more: that phrase answered two different
-	// questions at once (see navHistory.overview.name, whose list is the other
+	// questions at once (see recentFiles.name, whose list is the other
 	// one), and a page named after the thing it is not is a page a reader has to
 	// open to find out.
 	'navHistory.heading': 'Back and forward',
-	// A hotkey row is named for what it HOLDS, not for the page it stands on:
-	// the same word heads this page's two commands and the recent-files page's
-	// two (see settings-tab), and a reader looking for one of them is looking
-	// for the key, not for the page.
-	'navHistory.hotkeys.name': 'Hotkeys',
-	// The modal's own title, where there is no heading above it to repeat.
-	// The PANEL's name. It is a list of places the reader has been — recent
-	// files, plus the headings and anchors they jumped to inside them (see
-	// places.ts) — and NOT the back/forward stack, which is why it is not
-	// called "Navigation history" any more: the two answer different questions
-	// and only one of them is a history of travel.
-	'navHistory.overview.name': 'Recent files',
-	'navHistory.overview.desc':
+	'navHistory.desc':
 		'VSCode-style "Navigate back" / "Navigate forward" across file switches and in-file jumps (links, outline, search results, large cursor moves). Always on — it only needs hotkeys, none are pre-assigned. Same-tab file switches ride Obsidian\'s native per-tab history (PDF, canvas and other views included); the stack (size configurable below) is device-local and survives restarts.',
-	'navHistory.overview.hotkeyUnbound': 'Not bound — click the button to set it up',
-	'navHistory.overview.openHotkeySettings': 'Open hotkey settings',
-
-	// The recent-files list's OWN folder rule (see
-	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
-	// Its own list, deliberately not the position records' folder rule — and the
-	// two do not sit on one page, so the description names the OTHER rule rather
-	// than pointing at where it stands.
-	'navHistory.recentFolders.name': 'Folders not listed',
-	'navHistory.recentFolders.desc': 'Files in these folders are not added to the recent files list. Unrelated to the plugin\'s recording rules: a folder whose positions you do not want remembered may still be exactly one you want to find your way back to.',
-	'navHistory.recentFolders.list.empty': 'Every folder is listed.',
-	'navHistory.recentFolders.add': 'Add folder',
-	// How far back the list reaches: its own storage knob (see
-	// PluginSettings.navRecentCap), and not the back/forward stack's ceiling below.
-	'navHistory.recentCap.name': 'Places to keep',
-	'navHistory.recentCap.desc': 'How many places the recent files list holds. Lowering it drops the oldest at once.',
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
 	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
+	'navHistory.commands.navigateBack': 'Navigate back',
+	'navHistory.commands.navigateForward': 'Navigate forward',
+
+	// ── Feature 3 · Recent files: the list of places, and its panel ─────
+	// The modal's own title, where there is no heading above it to repeat.
+	// The PANEL's name. It is a list of places the reader has been — recent
+	// files, plus the headings and anchors they jumped to inside them (see
+	// places.ts) — and NOT the back/forward stack, which is why it is not
+	// called "Navigation history" any more: the two answer different questions
+	// and only one of them is a history of travel.
+	'recentFiles.name': 'Recent files',
+
+	// The recent-files list's OWN folder rule (see
+	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
+	// A list of its own, and not the position records' folder rule — but the two
+	// are not on one page, so the row says what it does and stops there rather
+	// than explaining a rule the reader is not looking at.
+	'recentFiles.folders.name': 'Folders not listed',
+	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
+	'recentFiles.folders.list.empty': 'Every folder is listed.',
+	'recentFiles.folders.add': 'Add folder',
+	// How far back the list reaches: its own storage knob (see
+	// PluginSettings.navRecentCap), and not the back/forward stack's ceiling below.
+	'recentFiles.cap.name': 'Places to keep',
+	'recentFiles.cap.desc': 'How many places the recent files list holds. Lowering it drops the oldest at once.',
 	// How many spots in one note the list prints. The two answers are written as what
 	// they do to the LIST rather than as what they do to a note, because that is the
 	// choice: by default the list follows the reader's own navigation, which is by
@@ -162,10 +171,10 @@ export const en = {
 	// describes it, the row opens it, the row of the note the reader is already in
 	// included, where the open re-lands the place rather than pushing it again), so
 	// nothing has to be printed under the row for it.
-	'navHistory.landings.name': 'Landings in the list',
-	'navHistory.landings.desc': 'One row per note, standing for the spot you left it at — or one row for every spot you left it at.',
-	'navHistory.landings.options.last': 'One row per note',
-	'navHistory.landings.options.all': 'Every landing',
+	'recentFiles.landings.name': 'Landings in the list',
+	'recentFiles.landings.desc': 'One row per note, standing for the spot you left it at — or one row for every spot you left it at.',
+	'recentFiles.landings.options.last': 'One row per note',
+	'recentFiles.landings.options.all': 'Every landing',
 	// How much of a row's PATH is printed, and on which side of the name (see
 	// PathDisplayMode). The two "always" answers are written as what gives way when
 	// the row runs out of width — that, and not the side, is what the reader is
@@ -173,25 +182,25 @@ export const en = {
 	// last is the half that drops to a second line. "Only when names repeat" is the
 	// default and the one that says the least: the folder is a disambiguator, so it
 	// is printed where there is something to disambiguate.
-	'navHistory.pathDisplay.name': 'Folder path in the list',
-	'navHistory.pathDisplay.desc': 'Whether a row prints the folder its note sits in — only where two rows share a name, or on every row — and on which side of the name.',
-	'navHistory.pathDisplay.options.smart': 'Only when names repeat',
-	'navHistory.pathDisplay.options.before': 'Always, before the name',
-	'navHistory.pathDisplay.options.after': 'Always, after the name',
+	'recentFiles.pathDisplay.name': 'Folder path in the list',
+	'recentFiles.pathDisplay.desc': 'Whether a row prints the folder its note sits in — only where two rows share a name, or on every row — and on which side of the name.',
+	'recentFiles.pathDisplay.options.smart': 'Only when names repeat',
+	'recentFiles.pathDisplay.options.before': 'Always, before the name',
+	'recentFiles.pathDisplay.options.after': 'Always, after the name',
 	// Whether each row says how long ago it was last visited. The label is the place's
 	// own `t` (see places.ts) — the last time the reader was there, and NOT the file's
 	// modification time, which is a different fact and the one a reader's first guess
 	// at a time printed on a file row would be. The exact moment rides on the label's
 	// own tooltip.
-	'navHistory.rowTime.name': 'Time on each row',
-	'navHistory.rowTime.desc': 'Print how long ago each row was last visited, next to the row.',
-	'navHistory.age.now': 'now',
-	'navHistory.age.m': 'm ago',
-	'navHistory.age.h': 'h ago',
-	'navHistory.age.d': 'd ago',
-	'navHistory.age.w': 'w ago',
-	'navHistory.age.mo': 'mo ago',
-	'navHistory.age.y': 'y ago',
+	'recentFiles.rowTime.name': 'Time on each row',
+	'recentFiles.rowTime.desc': 'Print how long ago each row was last visited, next to the row.',
+	'recentFiles.age.now': 'now',
+	'recentFiles.age.m': 'm ago',
+	'recentFiles.age.h': 'h ago',
+	'recentFiles.age.d': 'd ago',
+	'recentFiles.age.w': 'w ago',
+	'recentFiles.age.mo': 'mo ago',
+	'recentFiles.age.y': 'y ago',
 	// The row's right-click menu (see NavHistoryBrowser.contextRow). The menu itself is
 	// the app's; the ONE item added is the one the app cannot know, because a row here
 	// stands for a PLACE and not merely for a file: a jump row promises a landing, and
@@ -201,54 +210,52 @@ export const en = {
 	// NavHistoryReads.aliasesFor). They are searchable and occupy no cell, so the hover
 	// is the only place a reader ever sees them; the colon is part of the value because
 	// whether to draw one is the language's call.
-	'navHistory.aka': 'aka:',
-	'navHistory.menu.openInNewTab': 'Open in new tab',
-	'navHistory.menu.openHereInNewTab': 'Open here in a new tab',
-	'navHistory.commands.navigateBack': 'Navigate back',
-	'navHistory.commands.navigateForward': 'Navigate forward',
-	'navHistory.commands.browseHistory': 'Open recent files',
+	'recentFiles.aka': 'aka:',
+	'recentFiles.menu.openInNewTab': 'Open in new tab',
+	'recentFiles.menu.openHereInNewTab': 'Open here in a new tab',
+	'recentFiles.commands.open': 'Open recent files',
 	// The resident form of the same browser: a sidebar panel instead of a dialog
 	// (see view.ts). Named as a PLACE rather than as an action, because that is
 	// the difference — the panel stays where it is put.
-	'navHistory.commands.browseHistorySidebar': 'Open recent files in sidebar',
+	'recentFiles.commands.openSidebar': 'Open recent files in sidebar',
 	// The two commands above, as the settings row that binds them (see
 	// settings-tab). Their keys stand on the recent files page and NOT beside the
 	// back/forward ones: the two pages answer different questions, and a reader
 	// looking for the key that opens the LIST should not have to know that it
 	// lives under a heading about travel.
-	'navHistory.recentHotkeys.desc':
+	'recentFiles.hotkeys.desc':
 		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
 	// The one destructive command: it throws the reader's own recent list away. Named
 	// for what it empties rather than for "reset" or "clear history", because the
 	// back/forward stack is a different store and is NOT what this touches.
-	'navHistory.commands.clearRecent': 'Clear recent files',
+	'recentFiles.commands.clear': 'Clear recent files',
 
 	// What a step with no file (the graph) is called in the list.
-	'navHistory.graphView': 'Graph view',
-	'navHistory.searchPlaceholder': 'Filter by note name or text…',
+	'recentFiles.graphView': 'Graph view',
+	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
 	// The × at the end of the filter box (see NavHistoryBrowser.toolbar): the app's own
 	// gesture, named for what it empties. It is the button's accessible name and its
 	// tooltip, so it is written as the action rather than as the glyph.
-	'navHistory.clearFilter': 'Clear filter',
-	'navHistory.noMatch': 'No matching entry.',
+	'recentFiles.clearFilter': 'Clear filter',
+	'recentFiles.noMatch': 'No matching entry.',
 	// There used to be a file scope here: an "only this note" switch plus a chip
 	// listing every note the history had been in. Both asked a question the
 	// search box already answers — a note's name IS text it matches on — and each
 	// cost the toolbar a cell and the dialog a piece of state, so both are gone
 	// (see modal.ts).
-	'navHistory.empty': 'Nowhere to go.',
+	'recentFiles.empty': 'Nowhere to go.',
 
 	// The line of chrome in the toolbar, one sentence per device. The list is a plain
 	// navigator now: a row has ONE gesture — a click opens what it stands for (see
 	// NavHistoryList) — and nothing at all happens on hover. (The keyboard still works
 	// — ↑↓ walk, Enter opens — it is simply not what this line has to teach.)
-	'navHistory.touchHint': 'Tap a row to open it',
-	'navHistory.clickHint': 'Click a row to open it',
+	'recentFiles.touchHint': 'Tap a row to open it',
+	'recentFiles.clickHint': 'Click a row to open it',
 	// A leaf holding a second tab/pane of the same file: without this the
 	// browser's rows for the two panes are indistinguishable. Rendered as
 	// "which of how many" — two digits and no word, because the word was the
 	// widest thing in the row's quiet zone.
-	'navHistory.pane': '{0}/{1}',
+	'recentFiles.pane': '{0}/{1}',
 };
 
 export type En = typeof en;

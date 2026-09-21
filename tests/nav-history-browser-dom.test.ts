@@ -515,7 +515,7 @@ describe('NavHistoryModal — current position', () => {
 		};
 
 		search('zzz');
-		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('navHistory.noMatch'));
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.noMatch'));
 
 		search('b.md'); // the current note alone
 		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
@@ -919,7 +919,7 @@ describe('NavHistoryModal — the file scope is gone', () => {
 		const h = harness(entries(), 3, files);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
-		expect(h.clearButton().getAttribute('aria-label')).toBe(t('navHistory.clearFilter'));
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
 		expect(h.clearButton().querySelector('svg')?.getAttribute('data-icon')).toBe('x');
 		// A press on it is refused, so the focus stays where the reader's typing is.
 		const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
@@ -1055,7 +1055,7 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 		expect(withNames.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
 		expect(Array.from(withNames.querySelectorAll('.nav-tip-sep')).map(s => s.textContent)).toEqual([]);
 		expect(withNames.querySelector('.nav-tip-text')?.textContent)
-			.toBe(`${t('navHistory.aka')} Weekly sync · 周会 · standup`);
+			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
 
 		// …and a note with no other names says the path and nothing else.
 		h.unhover(h.note('a'));
@@ -1200,7 +1200,7 @@ describe('NavHistoryModal — a file that is gone', () => {
 		const h = harness(entries, 1, {}, ['gone.md', 'also-gone.md']);
 
 		expect(h.notes()).toHaveLength(0);
-		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('navHistory.empty'));
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.empty'));
 	});
 });
 
@@ -1377,8 +1377,8 @@ describe('NavHistoryModal — panes', () => {
 		expect(h.rows()).toHaveLength(2);
 
 		// Which of how many, with no word: "2/2" rather than "Pane 2".
-		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 1, 2));
-		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 2, 2));
+		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe(t('recentFiles.pane', 1, 2));
+		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('recentFiles.pane', 2, 2));
 		// ...and it is the note's own name that stays authoritative
 		expect(h.note('a').querySelector('.nav-row-name')?.textContent).toBe('a');
 	});
@@ -1411,7 +1411,7 @@ describe('NavHistoryModal — panes', () => {
 		// there is no column to reserve any more (the note and its landings align
 		// by their own grid, not by a list-wide strip).
 		expect(h.rows()[0].querySelector('.nav-row-pane')).toBeNull();
-		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 1, 2));
+		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('recentFiles.pane', 1, 2));
 	});
 });
 
@@ -1605,7 +1605,7 @@ describe('NavHistoryModal — the name, the type and the path', () => {
 		const tip = h.hover(rowFor(h, 'a/index.md'))!;
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
 		expect(tip.querySelector('.nav-tip-text')?.textContent)
-			.toBe(`${t('navHistory.aka')} Weekly sync · 周会 · standup`);
+			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
 	});
 
 	it('says nothing about a pathless view: no badge, no folder, no tooltip', () => {
@@ -1616,9 +1616,9 @@ describe('NavHistoryModal — the name, the type and the path', () => {
 			...stack(),
 		], 6, files);
 
-		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		expect(graph).toBeDefined();
-		expect(attr(graph)).toEqual({ name: t('navHistory.graphView'), badge: undefined, path: undefined });
+		expect(attr(graph)).toEqual({ name: t('recentFiles.graphView'), badge: undefined, path: undefined });
 		expect(h.hover(graph)).toBeNull();
 	});
 
@@ -1801,7 +1801,7 @@ describe('NavHistoryModal — the time on a row', () => {
 		// The graph is a row like any other and it was visited like any other: what it
 		// has no answer for is a FILE (no path, no type — see badgeOf), not a time.
 		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
-		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 
 		expect(graph.querySelector('.nav-row-time')?.textContent).toBe('2h ago');
 		expect(graph.classList.contains('is-timed')).toBe(true);
@@ -1829,7 +1829,7 @@ describe('NavHistoryModal — the time on a row', () => {
 		// in — and the label is a child of the row, because inside the name cell it
 		// would be part of what wraps, which is the column the track exists to keep.
 		const smart = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
-		const graph = smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		const graph = smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		expect(smart.note('notes').classList.contains('is-timed')).toBe(true);
 		expect(graph.classList.contains('is-timed')).toBe(true);
 		// A 'smart' row whose name nothing collides with prints no folder at all…
@@ -1940,7 +1940,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
 		const menu = menuOf(h.trigger);
 		expect(menu.items).toHaveLength(1);
-		expect(menu.items[0].title).toBe(t('navHistory.menu.openInNewTab'));
+		expect(menu.items[0].title).toBe(t('recentFiles.menu.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
 		expect(menu.items[0].icon).toBe('file-plus');
 		// The context asked for is a LINK's, not the file explorer's: the app decides
@@ -1963,7 +1963,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 		h.rightClick(h.note('a'));
 
 		const menu = menuOf(h.trigger);
-		expect(menu.items[0].title).toBe(t('navHistory.menu.openHereInNewTab'));
+		expect(menu.items[0].title).toBe(t('recentFiles.menu.openHereInNewTab'));
 		menu.items[0].click!();
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
@@ -1975,7 +1975,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 			visit('a.md', NOW - MINUTE),
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavHistoryEntry,
 		], 1, files);
-		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		const ev = h.rightClick(graph);
 
 		expect(ev.defaultPrevented).toBe(true);
@@ -2259,7 +2259,7 @@ describe('NavHistoryModal — touch', () => {
 		// row's gutter control and draw that control's glyph into the line; the control
 		// is gone with the details panel, so the sentence names the one gesture a row
 		// has and carries nothing else.)
-		expect(hint.textContent).toBe(t('navHistory.touchHint'));
+		expect(hint.textContent).toBe(t('recentFiles.touchHint'));
 	});
 
 });

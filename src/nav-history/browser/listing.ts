@@ -314,7 +314,7 @@ export function matchesNavFilter(entry: NavHistoryEntry, query: string, extra?: 
 // haystack, so the order of the parts carries nothing.
 export function navSearchText(entry: NavHistoryEntry): string {
 	if (entry.kind === 'view')
-		return `${entry.viewType} ${t('navHistory.graphView')}`;
+		return `${entry.viewType} ${t('recentFiles.graphView')}`;
 	const parts = [baseName(entry.path), entry.path];
 	const st = entry.st;
 	if (st) {

@@ -398,7 +398,7 @@ export class NavHistoryList {
 	// is NOT one of them: its row opens it (see targetOf). One message for both,
 	// decided by the query; render's `!refs.length` branch is the only caller.
 	private emptyText(query: string): string {
-		return query ? t('navHistory.noMatch') : t('navHistory.empty');
+		return query ? t('recentFiles.noMatch') : t('recentFiles.empty');
 	}
 
 	// The groups as they are drawn RIGHT NOW, by identity: what the browser pins
@@ -529,7 +529,7 @@ export class NavHistoryList {
 		if (group.path && !printsPath)
 			tip.path = group.path;
 		if (aka.length)
-			tip.text = `${t('navHistory.aka')} ${aka.join(' · ')}`;
+			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
 		if (tip.path || tip.text)
 			this.tip.attach(row, tip);
 		// NO "you are here" dot on the note's name: the current note is pinned first

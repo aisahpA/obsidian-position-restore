@@ -138,7 +138,7 @@ export function describeNavEntry(
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ): NavEntryDescription {
 	if (entry.kind === 'view')
-		return { name: t('navHistory.graphView') };
+		return { name: t('recentFiles.graphView') };
 	let n: number | undefined;
 	if (entry.st) {
 		n = landedLine(entry);
@@ -226,13 +226,13 @@ export function ageOf(at: number, now: number): { n: number; unit: AgeUnit } {
 export function ageLabel(at: number, now: number): string {
 	const { n, unit } = ageOf(at, now);
 	switch (unit) {
-		case 'now': return t('navHistory.age.now');
-		case 'm': return `${n}${t('navHistory.age.m')}`;
-		case 'h': return `${n}${t('navHistory.age.h')}`;
-		case 'd': return `${n}${t('navHistory.age.d')}`;
-		case 'w': return `${n}${t('navHistory.age.w')}`;
-		case 'mo': return `${n}${t('navHistory.age.mo')}`;
-		case 'y': return `${n}${t('navHistory.age.y')}`;
+		case 'now': return t('recentFiles.age.now');
+		case 'm': return `${n}${t('recentFiles.age.m')}`;
+		case 'h': return `${n}${t('recentFiles.age.h')}`;
+		case 'd': return `${n}${t('recentFiles.age.d')}`;
+		case 'w': return `${n}${t('recentFiles.age.w')}`;
+		case 'mo': return `${n}${t('recentFiles.age.mo')}`;
+		case 'y': return `${n}${t('recentFiles.age.y')}`;
 	}
 }
 

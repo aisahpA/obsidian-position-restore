@@ -206,7 +206,7 @@ describe('NavHistoryView — the resident panel', () => {
 		// does — the mouse's own wording, since the list is click-only and a pointer must
 		// not change anything by passing over it (see NavHistoryList).
 		const hint = el.querySelector<HTMLElement>('.position-restore-nav-hint')!;
-		expect(hint.textContent).toBe(t('navHistory.clickHint'));
+		expect(hint.textContent).toBe(t('recentFiles.clickHint'));
 	});
 
 	it('follows the history while it is up', async () => {

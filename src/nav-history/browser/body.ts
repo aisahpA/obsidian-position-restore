@@ -163,7 +163,7 @@ export class NavHistoryBrowser {
 		// possible, and the label is the panel's own name.
 		listEl.setAttr('id', this.listId);
 		listEl.setAttr('role', 'listbox');
-		listEl.setAttr('aria-label', t('navHistory.overview.name'));
+		listEl.setAttr('aria-label', t('recentFiles.name'));
 		this.listOpts = {
 			list: listEl,
 			listId: this.listId,
@@ -379,7 +379,7 @@ export class NavHistoryBrowser {
 			type: 'text',
 			cls: 'position-restore-nav-filter',
 			attr: {
-				placeholder: t('navHistory.searchPlaceholder'),
+				placeholder: t('recentFiles.searchPlaceholder'),
 				// The box IS the list's keyboard: it keeps the focus while the
 				// arrow keys walk the rows, so it is a combobox over the list
 				// (always expanded — the list is on screen, not a popup) and the
@@ -418,8 +418,8 @@ export class NavHistoryBrowser {
 		const clear = strip.createDiv({
 			cls: 'clickable-icon position-restore-nav-clear',
 			attr: {
-				'aria-label': t('navHistory.clearFilter'),
-				title: t('navHistory.clearFilter'),
+				'aria-label': t('recentFiles.clearFilter'),
+				title: t('recentFiles.clearFilter'),
 			},
 		});
 		setIcon(clear, 'x');
@@ -457,7 +457,7 @@ export class NavHistoryBrowser {
 	private hint(bar: HTMLElement): void {
 		bar.createSpan({
 			cls: 'position-restore-nav-hint',
-			text: t(this.opts.touch ? 'navHistory.touchHint' : 'navHistory.clickHint'),
+			text: t(this.opts.touch ? 'recentFiles.touchHint' : 'recentFiles.clickHint'),
 		});
 	}
 
@@ -489,7 +489,7 @@ export class NavHistoryBrowser {
 		// "2/3" — which of how many, in three characters: the word ("Pane",
 		// "窗格") was the widest thing in the row's quiet zone and said nothing
 		// the two numbers do not.
-		return t('navHistory.pane', label.n, label.total);
+		return t('recentFiles.pane', label.n, label.total);
 	}
 
 	// The main area as it stands right now: every main-area leaf, in the
@@ -566,8 +566,8 @@ export class NavHistoryBrowser {
 		menu.addItem(item => item
 			.setSection('action')
 			.setTitle(t(entry.kind === 'jump'
-				? 'navHistory.menu.openHereInNewTab'
-				: 'navHistory.menu.openInNewTab'))
+				? 'recentFiles.menu.openHereInNewTab'
+				: 'recentFiles.menu.openInNewTab'))
 			.setIcon('file-plus')
 			.onClick(() => this.jump(rep, 'tab')));
 		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');

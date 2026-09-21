@@ -1,8 +1,9 @@
 import type { En } from './en';
 
 export const zh: En = {
+	// ── 功能一 · 位置记录：记什么、怎么回来、记录存在哪 ────────────────
 	'lastPosition.heading': '最后位置',
-	
+
 	'openAndRestore.heading': '打开与恢复',
 	'openAndRestore.defaultPosition.name': '编辑视图的默认位置',
 	'openAndRestore.defaultPosition.desc':
@@ -111,62 +112,69 @@ export const zh: En = {
 	'dataStorage.entries.desc':
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，将优先移除最久未访问的文件的位置记录。',
 
+	// ── 共用 · 快捷键行要用的词，两个页面都用 ──────────────────────────
+	// 快捷键行按它装的东西命名，而不是按它所在的页面：同一个词既是后退/前进页两个
+	// 命令的标题，也是最近文件页那两个的标题（见 settings-tab）——读者找的是键，不是页。
+	'hotkeys.name': '快捷键',
+	'hotkeys.unbound': '未绑定——点击右侧按钮设置',
+	'hotkeys.open': '打开快捷键设置',
+
+	// ── 功能二 · 前进与后退：导航栈 ────────────────────────────────────
 	// 这一页只装后退/前进栈：它多大、什么算一步、两个命令各绑了什么键。它不再叫
-	// 「导航历史」——那个词同时回答了两个不同的问题（见 navHistory.overview.name，
+	// 「导航历史」——那个词同时回答了两个不同的问题（见 recentFiles.name，
 	// 列表是另一个），而一个以「它不是的东西」命名的页面，读者只能点开才知道。
 	'navHistory.heading': '前进与后退',
-	// 快捷键行按它装的东西命名，而不是按它所在的页面：同一个词既是这一页两个命令
-	// 的标题，也是最近文件页那两个的标题（见 settings-tab）——读者找的是键，不是页。
-	'navHistory.hotkeys.name': '快捷键',
-	// 弹窗自己的标题：它上面没有标题可以重复。
-	'navHistory.overview.name': '最近文件',
-	'navHistory.overview.desc':
+	'navHistory.desc':
 		'类似 VSCode 的“后退 / 前进”导航：记录文件切换与文件内跳转（链接、大纲、搜索结果、大范围光标移动）供命令回溯。功能始终开启，只需绑定快捷键（默认未绑定）。同一标签页内的文件切换走 Obsidian 原生标签页历史（含 PDF、Canvas 等视图）；历史栈大小可在下方调整，按设备保存在 localStorage，重启保留。',
-	'navHistory.overview.hotkeyUnbound': '未绑定——点击右侧按钮设置',
-	'navHistory.overview.openHotkeySettings': '打开快捷键设置',
-
-	// 最近文件列表自己的文件夹规则（见 PluginSettings.navRecentExcludeFolders）：
-	// 哪些访问值得列出。它与位置记录的文件夹规则互不相干，两者也不在同一页上，
-	// 所以说明点名另一条规则，而不是指一个方位。
-	'navHistory.recentFolders.name': '不收录的文件夹',
-	'navHistory.recentFolders.desc': '这些文件夹里的文件不会进入最近文件列表。它和插件的记录规则互不相干：一个你不想记住滚动位置的文件夹，可能恰恰是你想回头再打开的。',
-	'navHistory.recentFolders.list.empty': '所有文件夹都会收录。',
-	'navHistory.recentFolders.add': '添加文件夹',
-	'navHistory.recentCap.name': '保留地点数',
-	'navHistory.recentCap.desc': '最近文件列表最多保留多少个地点。调小会立刻丢掉最旧的那些。',
 	'navHistory.stackCap.name': '前进/后退保留步数',
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
 	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
+	'navHistory.commands.navigateBack': '后退',
+	'navHistory.commands.navigateForward': '前进',
+
+	// ── 功能三 · 最近文件：地点列表，以及它的面板 ──────────────────────
+	// 弹窗自己的标题：它上面没有标题可以重复。
+	'recentFiles.name': '最近文件',
+
+	// 最近文件列表自己的文件夹规则（见 PluginSettings.navRecentExcludeFolders）：
+	// 哪些访问值得列出。它是独立的一份，与位置记录的文件夹规则无关——但两者不在
+	// 同一页上，所以这一行只说自己做什么，不去解释读者此刻没看着的那条规则。
+	'recentFiles.folders.name': '不收录的文件夹',
+	'recentFiles.folders.desc': '这些文件夹里的文件不会进入最近文件列表。',
+	'recentFiles.folders.list.empty': '所有文件夹都会收录。',
+	'recentFiles.folders.add': '添加文件夹',
+	'recentFiles.cap.name': '保留地点数',
+	'recentFiles.cap.desc': '最近文件列表最多保留多少个地点。调小会立刻丢掉最旧的那些。',
 	// 一个文件在列表里打印几个落点。两档按「列表会变成什么样」写，因为这才是选择本身：
 	// 默认跟着读者自己的走法——读历史基本是按文件走的，最后那一个才是「返回」会回到的地方，
 	// 而它已经由笔记那一行代表（点一下看它、箭头跳过去），所以行下不再需要任何子级。
-	'navHistory.landings.name': '列表里的落点',
-	'navHistory.landings.desc': '每篇笔记只占一行（代表你最后离开的那一处），还是每个落点各占一行。',
-	'navHistory.landings.options.last': '每篇一行',
-	'navHistory.landings.options.all': '全部落点',
+	'recentFiles.landings.name': '列表里的落点',
+	'recentFiles.landings.desc': '每篇笔记只占一行（代表你最后离开的那一处），还是每个落点各占一行。',
+	'recentFiles.landings.options.last': '每篇一行',
+	'recentFiles.landings.options.all': '全部落点',
 	// 一行的路径打印多少、打印在名字哪一侧（见 PathDisplayMode）。两个「总是」档写的是
 	// 「放不下时谁下移」，因为那才是读者真正在权衡的东西——flex 行在行尾换行，所以排在后面
 	// 的那一半才会落到第二行。默认档「仅在重名时」说得最少：目录是消歧用的，有要消歧的才打印。
-	'navHistory.pathDisplay.name': '列表里的路径',
-	'navHistory.pathDisplay.desc': '一行是否打印笔记所在的文件夹——只在两行重名时打印，还是每行都打印——以及打印在名字的哪一侧。',
-	'navHistory.pathDisplay.options.smart': '仅在重名时显示',
-	'navHistory.pathDisplay.options.before': '总是显示，路径在前',
-	'navHistory.pathDisplay.options.after': '总是显示，路径在后',
+	'recentFiles.pathDisplay.name': '列表里的路径',
+	'recentFiles.pathDisplay.desc': '一行是否打印笔记所在的文件夹——只在两行重名时打印，还是每行都打印——以及打印在名字的哪一侧。',
+	'recentFiles.pathDisplay.options.smart': '仅在重名时显示',
+	'recentFiles.pathDisplay.options.before': '总是显示，路径在前',
+	'recentFiles.pathDisplay.options.after': '总是显示，路径在后',
 	// 每行是否显示「距上次打开过了多久」。这个时间是地点自己的 t（见 places.ts）——读者
 	// 上一次到那里的时间，不是文件的修改时间；后者是另一回事，而它恰好是读者看到文件行
 	// 上印着时间时的第一反应。确切时刻挂在这个标签自己的 tooltip 上。
-	'navHistory.rowTime.name': '每行的时间',
-	'navHistory.rowTime.desc': '在每行上打印「距上次到访过了多久」。',
-	'navHistory.age.now': '刚刚',
-	'navHistory.age.m': '分钟',
-	'navHistory.age.h': '小时',
-	'navHistory.age.d': '天',
-	'navHistory.age.w': '周',
-	'navHistory.age.mo': '个月',
-	'navHistory.age.y': '年',
+	'recentFiles.rowTime.name': '每行的时间',
+	'recentFiles.rowTime.desc': '在每行上打印「距上次到访过了多久」。',
+	'recentFiles.age.now': '刚刚',
+	'recentFiles.age.m': '分钟',
+	'recentFiles.age.h': '小时',
+	'recentFiles.age.d': '天',
+	'recentFiles.age.w': '周',
+	'recentFiles.age.mo': '个月',
+	'recentFiles.age.y': '年',
 	// 行的右键菜单（见 NavHistoryBrowser.contextRow）。菜单本身是 app 的；唯一加进去的那一项
 	// 是 app 不可能知道的——这里的行代表的是一个「去处」而不只是一个文件：jump 行承诺的是那个
 	// 落点，所以「在新标签页打开」必须也是打开到那里。因此是两个答案而不是一个：文件，与文件里
@@ -174,42 +182,40 @@ export const zh: En = {
 	// 文件「另外几个名字」的引导词，挂在行自己的 tooltip 上（见 NavHistoryReads.aliasesFor）。
 	// 它们可被搜索、不占任何格子，所以悬停是读者唯一能看到它们的地方；冒号写进值里，因为
 	// 用不用冒号是各语言自己的事。
-	'navHistory.aka': '别名：',
-	'navHistory.menu.openInNewTab': '在新标签页打开',
-	'navHistory.menu.openHereInNewTab': '在此处打开新标签页',
-	'navHistory.commands.navigateBack': '后退',
-	'navHistory.commands.navigateForward': '前进',
-	'navHistory.commands.browseHistory': '打开最近文件',
+	'recentFiles.aka': '别名：',
+	'recentFiles.menu.openInNewTab': '在新标签页打开',
+	'recentFiles.menu.openHereInNewTab': '在此处打开新标签页',
+	'recentFiles.commands.open': '打开最近文件',
 	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
 	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
-	'navHistory.commands.browseHistorySidebar': '在侧边栏打开最近文件',
+	'recentFiles.commands.openSidebar': '在侧边栏打开最近文件',
 	// 上面两个命令，作为绑定它们的那一行设置（见 settings-tab）。它们的键放在最近文件
 	// 页，而不是和后退/前进的键并排：两页回答的是不同的问题，想找「打开列表」那个键的
 	// 读者不该先知道它藏在一个讲「走位」的标题底下。
-	'navHistory.recentHotkeys.desc':
+	'recentFiles.hotkeys.desc':
 		'进入列表的两种方式：一次性的弹窗，或常驻侧边栏的面板。两者默认都不绑快捷键——在命令面板里按名字打开即可。',
 	// 唯一一个会丢东西的命令：它清掉的是读者自己的最近列表。按「清掉什么」命名，而不是叫
 	// 「重置」或「清空历史」——前进/后退栈是另一个存储，不在这个命令的范围里。
-	'navHistory.commands.clearRecent': '清空最近文件',
+	'recentFiles.commands.clear': '清空最近文件',
 
 	// 没有文件的一步（关系图谱）在列表里显示成什么。
-	'navHistory.graphView': '关系图谱',
-	'navHistory.searchPlaceholder': '按笔记名或文本过滤…',
+	'recentFiles.graphView': '关系图谱',
+	'recentFiles.searchPlaceholder': '按笔记名或文本过滤…',
 	// 过滤框末尾那个 ×（见 NavHistoryBrowser.toolbar）：app 自己的手势，按「清掉什么」命名。
 	// 它同时是按钮的无障碍名字和它的 tooltip，所以写的是动作而不是那个符号。
-	'navHistory.clearFilter': '清空筛选',
-	'navHistory.noMatch': '没有匹配的历史。',
+	'recentFiles.clearFilter': '清空筛选',
+	'recentFiles.noMatch': '没有匹配的历史。',
 	// 以前这里还有「文件筛选」：一个「只看本笔记」开关加上一个选择器 chip（点开是历史
 	// 里出现过的所有笔记）。两个控件都是搜索框已经能回答的问题——笔记名本身就是它匹配
 	// 的文本——却各自占着工具栏的一格和一份状态，所以一起去掉了（见 modal.ts）。
-	'navHistory.empty': '暂无可跳转的位置。',
+	'recentFiles.empty': '暂无可跳转的位置。',
 
 	// 工具栏里那句提示，一种设备一句。列表是纯导航器了：一行只有一个手势——点它，就打开
 	// 它代表的那处（见 NavHistoryList）。鼠标划过什么也不做。（键盘仍然可用——↑↓ 走、
 	// Enter 打开——只是这行提示要教的不是它。）
-	'navHistory.touchHint': '轻点一行打开',
-	'navHistory.clickHint': '单击一行打开',
+	'recentFiles.touchHint': '轻点一行打开',
+	'recentFiles.clickHint': '单击一行打开',
 	// 同一个文件的第二个标签页/分栏：没有这个标记，两栏的行无法区分。
 	// 只写“第几个/共几个”：不用词，因为那个词是行内“安静区”里最宽的东西。
-	'navHistory.pane': '{0}/{1}',
+	'recentFiles.pane': '{0}/{1}',
 };

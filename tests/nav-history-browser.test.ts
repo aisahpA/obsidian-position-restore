@@ -76,7 +76,7 @@ describe('describeNavEntry', () => {
 
 	it('a pathless entry is the graph, and has no coordinate', () => {
 		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry);
-		expect(graph.name).toBe(t('navHistory.graphView'));
+		expect(graph.name).toBe(t('recentFiles.graphView'));
 		expect(graph.line).toBeUndefined();
 		expect(graph.lineIndex).toBeUndefined();
 	});
@@ -437,7 +437,7 @@ describe('matchesNavFilter', () => {
 	it('matches a pathless view entry by its view type / graph label', () => {
 		const e = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry;
 		expect(matchesNavFilter(e, 'graph')).toBe(true);
-		expect(matchesNavFilter(e, t('navHistory.graphView'))).toBe(true);
+		expect(matchesNavFilter(e, t('recentFiles.graphView'))).toBe(true);
 		expect(matchesNavFilter(e, 'canvas')).toBe(false);
 	});
 

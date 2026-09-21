@@ -86,7 +86,7 @@ export class SettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'page',
-				name: t('navHistory.overview.name'),
+				name: t('recentFiles.name'),
 				items: this.getRecentFileDefs(),
 			},
 		] as SettingDefinitionItem[];
@@ -354,7 +354,7 @@ export class SettingTab extends PluginSettingTab {
 		commands: { id: string; name: string }[],
 	): SettingGroupItem {
 		return {
-			name: t('navHistory.hotkeys.name'),
+			name: t('hotkeys.name'),
 			render: (setting) => {
 				const frag = createFragment();
 				frag.createDiv({ text: desc });
@@ -365,7 +365,7 @@ export class SettingTab extends PluginSettingTab {
 					});
 				setting.setDesc(frag);
 				setting.addExtraButton((btn) => {
-					btn.setIcon('keyboard').setTooltip(t('navHistory.overview.openHotkeySettings'))
+					btn.setIcon('keyboard').setTooltip(t('hotkeys.open'))
 						.onClick(() => openHotkeySettings(this.plugin));
 				});
 			},
@@ -382,7 +382,7 @@ export class SettingTab extends PluginSettingTab {
 				// itself is one line of chrome that names nothing the page has not.
 				type: 'group',
 				items: [
-					this.hotkeys(t('navHistory.overview.desc'), [
+					this.hotkeys(t('navHistory.desc'), [
 						{ id: 'navigate-back', name: t('navHistory.commands.navigateBack') },
 						{ id: 'navigate-forward', name: t('navHistory.commands.navigateForward') },
 					]),
@@ -424,22 +424,22 @@ export class SettingTab extends PluginSettingTab {
 		return [
 			{
 				type: 'group',
-				heading: t('navHistory.overview.name'),
+				heading: t('recentFiles.name'),
 				items: [
 					// The two commands that OPEN this list, on the page that is about
 					// it (see `hotkeys`). The back/forward pair is on its own page.
-					this.hotkeys(t('navHistory.recentHotkeys.desc'), [
-						{ id: 'browse-nav-history', name: t('navHistory.commands.browseHistory') },
+					this.hotkeys(t('recentFiles.hotkeys.desc'), [
+						{ id: 'browse-nav-history', name: t('recentFiles.commands.open') },
 						// The resident panel is a command like the other one, so it is
 						// bound (or not) in the same place — see view.ts.
-						{ id: 'open-nav-history-sidebar', name: t('navHistory.commands.browseHistorySidebar') },
+						{ id: 'open-nav-history-sidebar', name: t('recentFiles.commands.openSidebar') },
 					]),
 					{
 						type: 'page',
-						name: t('navHistory.recentFolders.name'),
+						name: t('recentFiles.folders.name'),
 						desc: (() => {
 							const frag = createFragment();
-							frag.createDiv({ text: t('navHistory.recentFolders.desc') });
+							frag.createDiv({ text: t('recentFiles.folders.desc') });
 							const folders = this.plugin.settings.navRecentExcludeFolders;
 							if (folders.length === 0)
 								return frag;
@@ -453,7 +453,7 @@ export class SettingTab extends PluginSettingTab {
 						items: [
 							{
 								type: 'list',
-								emptyState: t('navHistory.recentFolders.list.empty'),
+								emptyState: t('recentFiles.folders.list.empty'),
 								items: this.plugin.settings.navRecentExcludeFolders.map((folder) => ({
 									name: folder + '/',
 								})),
@@ -462,7 +462,7 @@ export class SettingTab extends PluginSettingTab {
 									void this.setControlValue('navRecentExcludeFolders', folders).then(() => this.update());
 								},
 								addItem: {
-									name: t('navHistory.recentFolders.add'),
+									name: t('recentFiles.folders.add'),
 									action: () => {
 										new FolderSuggestModal(
 											this.app,
@@ -488,41 +488,41 @@ export class SettingTab extends PluginSettingTab {
 					// (see setControlValue), so the question "what does the list
 					// look like" is answered in front of the reader either way.
 					{
-						name: t('navHistory.landings.name'),
-						desc: t('navHistory.landings.desc'),
+						name: t('recentFiles.landings.name'),
+						desc: t('recentFiles.landings.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'navLandings',
 							options: {
-								last: t('navHistory.landings.options.last'),
-								all: t('navHistory.landings.options.all'),
+								last: t('recentFiles.landings.options.last'),
+								all: t('recentFiles.landings.options.all'),
 							},
 						},
 					},
 					{
-						name: t('navHistory.pathDisplay.name'),
-						desc: t('navHistory.pathDisplay.desc'),
+						name: t('recentFiles.pathDisplay.name'),
+						desc: t('recentFiles.pathDisplay.desc'),
 						control: {
 							type: 'dropdown',
 							key: 'navPathDisplay',
 							options: {
-								smart: t('navHistory.pathDisplay.options.smart'),
-								before: t('navHistory.pathDisplay.options.before'),
-								after: t('navHistory.pathDisplay.options.after'),
+								smart: t('recentFiles.pathDisplay.options.smart'),
+								before: t('recentFiles.pathDisplay.options.before'),
+								after: t('recentFiles.pathDisplay.options.after'),
 							},
 						},
 					},
 					{
-						name: t('navHistory.rowTime.name'),
-						desc: t('navHistory.rowTime.desc'),
+						name: t('recentFiles.rowTime.name'),
+						desc: t('recentFiles.rowTime.desc'),
 						control: {
 							type: 'toggle',
 							key: 'navRowTime',
 						},
 					},
 					{
-						name: t('navHistory.recentCap.name'),
-						desc: t('navHistory.recentCap.desc'),
+						name: t('recentFiles.cap.name'),
+						desc: t('recentFiles.cap.desc'),
 						control: {
 							type: 'number',
 							key: 'navRecentCap',
@@ -798,7 +798,7 @@ function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): st
 	}).hotkeyManager;
 	const hotkeys = manager?.getHotkeys(`${plugin.manifest.id}:${commandId}`);
 	if (!hotkeys || hotkeys.length === 0)
-		return t('navHistory.overview.hotkeyUnbound');
+		return t('hotkeys.unbound');
 	return hotkeys.map(formatHotkey).join(' / ');
 }
 
