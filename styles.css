@@ -576,14 +576,30 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--nav-item-size, var(--font-ui-small));
 }
 
+/* ONE ROW UNDER THE POINTER: the app's own hover tint — the wash its file explorer,
+   and this panel's own setting rows (see .nav-settings-option:hover), are painted
+   with — so the row a click is about to land on says so before the click. A list of
+   things to open is read by aiming, and a row that answers nothing until it is hit
+   leaves the reader guessing which line the pointer is on.
+   It is a TINT and not a MOVE: the position (see .is-selected below) is where the
+   reader IS, and no pointer crossing a row ever changes it (see NavHistoryList's class
+   comment), so the two marks have to be told apart by colour alone — a row may be
+   under the pointer while another one is the position.
+   The POSITION's own row is left out: its accent wash is the louder statement, and the
+   rule below deepens THAT one under the pointer rather than replacing it with this
+   tint.
+   Scoped away from touch, by the same class the panel's own layout reads (see
+   `is-touch`): a finger's tap leaves `:hover` stuck on whatever it last touched, so
+   without this a row stays tinted after the finger is gone — a mark for a pointer that
+   is not there. */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover:not(.is-selected) {
+	background-color: var(--background-modifier-hover);
+}
+
 /* THE POSITION: the row the reader is on, whichever hand put them there — a click
    sets it and the arrow keys walk it (see NavHistoryList.choose) — so ONE look has to
-   say "this row, right now". An accent wash.
-   Nothing is painted from a pointer merely crossing a row: the position is a click the
-   reader made, and a tint that appeared under a passing mouse would say the mouse had
-   chosen a row it only went over. The `:hover` rule below is the reader arriving at the
-   row they are ALREADY on, which is why it deepens the wash instead of adding a second
-   one. */
+   say "this row, right now". An accent wash, deliberately deeper than the hover tint
+   above so that being hovered never disguises it. */
 .position-restore-nav-row.is-selected {
 	background-color: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 }

@@ -65,6 +65,12 @@ import { NavRowTip, TipContent } from './tip';
 // row nobody chose, so the position moves only for a click or a key. The arrow travels,
 // and the row's own click travels; no other button does (see onContextMenu).
 //
+// A hover still SAYS something, and saying is all it may do: the row under the pointer
+// takes the app's own tint (see styles.css), which tells the reader which line a click
+// would land on without moving the position off the row a key put them on. The tint is
+// the stylesheet's and no listener in this class draws it, so what a pointer can change
+// remains exactly what it was: nothing.
+//
 // NOTHING MOVES WHILE IT IS BEING READ either, which is the same rule one step later:
 // a click that opens a note re-orders the places it came from (they are kept by last
 // visit), so without being told otherwise the list would answer the click by shuffling

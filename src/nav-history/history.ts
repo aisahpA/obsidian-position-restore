@@ -279,10 +279,15 @@ export class NavHistory {
 		// left would never get a position (the browser would show only its
 		// type badge).
 		this.refreshTopLeafOnActivation(leaf);
-		if (!this.settings.navRecordActivation)
-			return;
 		const view = leaf?.view;
 		if (!leaf || !isMainAreaLeaf(this.app, leaf))
+			return;
+		// Recent files are independent of the nav stack: they track "which
+		// files did I open" regardless of whether tab switches push a
+		// back/forward entry.
+		if (view instanceof FileView && view.file)
+			this.places.remember({ kind: 'visit', path: view.file.path, leafId: this.state.leafId(leaf), t: Date.now() });
+		if (!this.settings.navRecordActivation)
 			return;
 		if (view instanceof FileView && view.file) {
 			this.recordOpen(view.file.path, this.state.leafId(leaf), { via: 'switch' });

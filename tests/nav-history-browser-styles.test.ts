@@ -219,6 +219,29 @@ describe('history browser quiet tiers', () => {
 		expect(browser).not.toContain('is-previewed');
 	});
 
+	// A ROW UNDER THE POINTER takes the app's own hover tint, so the reader can see
+	// which line a click would land on before making it (see body.ts). Three things
+	// about it are load-bearing:
+	//   - it is the app's hover variable and not a colour of this file's own, the same
+	//     tint the setting rows and the file explorer use;
+	//   - the POSITION's own row is excluded, because its accent wash is the louder
+	//     mark and the pointer must not replace it with a weaker one;
+	//   - it is scoped away from touch: a finger's tap leaves `:hover` stuck on the row
+	//     it touched, and a row tinted for a pointer that is gone says nothing true.
+	it('tints the row under the pointer, without touching the position or a finger', () => {
+		const hover =
+			browser.match(
+				/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\)\s*\{[^}]*\}/,
+			)?.[0] ?? '';
+		expect(hover).not.toBe('');
+		expect(hover).toMatch(/background-color: var\(--background-modifier-hover\)/);
+		// …and the position is still the stronger of the two, so a hovered row can never
+		// be mistaken for the row the keyboard is on.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-selected\s*\{[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\) 12%/,
+		);
+	});
+
 	// The toolbar's own setting (see NavHistoryBrowser.settings): its button rides at
 	// the far end of the strip whatever the box and the hint do with the room, and the
 	// panel it opens hangs off the strip rather than taking part in its line — an
