@@ -210,6 +210,22 @@ export class PositionManager {
 				this.nav.places.applyCap();
 				this.save();
 			},
+			// How much of a row's path the list prints, and on which side of the
+			// name (see PathDisplayMode). Read live like the two above: it decides
+			// what the NEXT render prints, and a panel that is already up redraws
+			// itself on the choice (see NavHistoryBrowser.pickPathDisplay).
+			pathDisplay: () => this.settings.navPathDisplay,
+			setPathDisplay: (how) => {
+				this.settings.navPathDisplay = how;
+				this.save();
+			},
+			// Whether each row says how long ago it was last visited. Read live like
+			// the rest: it is a label the next render adds or leaves off.
+			rowTime: () => this.settings.navRowTime,
+			setRowTime: (on) => {
+				this.settings.navRowTime = on;
+				this.save();
+			},
 		};
 	}
 
@@ -263,6 +279,48 @@ export class PositionManager {
 			this.nav.places.applyCap();
 	}
 
+	// Throw the recent-files list away, and stand it up again on the note being read
+	// (main.ts's "clear recent files" command). The panel follows both halves through
+	// its subscription: the rows go, and the one note the reader is actually in comes
+	// back as the first of them.
+	clearRecentPlaces(): void {
+		this.nav.places.clear();
+		this.nav.syncCurrentPosition();
+	}
+
+	// The recent-files list's ceiling changed somewhere other than the panel's
+	// gear (data.json edited by hand, a sync landing): the list in memory is
+	// trimmed at once, so the reader sees the ceiling they just set rather than
+	// discovering it on the next open. The panel's own gear path does this
+	// inline (see browserPrefs().setPlacesCap); this is the same effect reached
+	// from outside.
+	applyNavRecentCap(): void {
+		this.nav.places.applyCap();
+	}
+
+	// Every setting in `before` that differs from the current one has its
+	// derived consequence applied — the same dispatch as SettingTab's
+	// setControlValue, keyed on a diff instead of on the key that was touched.
+	// `before` is what main.ts copied off the settings object immediately
+	// before overwriting it in place; an external write names no keys, so
+	// comparing is the only way to know what to re-apply.
+	applyChangedSettings(before: PluginSettings): void {
+		if (this.settings.navStackCap !== before.navStackCap)
+			this.applyNavStackCap();
+		if (this.settings.navRecentCap !== before.navRecentCap)
+			this.applyNavRecentCap();
+		if (!sameList(this.settings.navRecentExcludeFolders, before.navRecentExcludeFolders))
+			this.applyNavRecentFolders();
+		// The cache is keyed by path and holds answers that the excluded-folder
+		// and frontmatter rules were consulted to produce, so a change to either
+		// rule invalidates it wholesale (see Sampler.clearExclusionCache).
+		if (!sameList(this.settings.excludedFolders, before.excludedFolders)
+			|| !sameList(this.settings.frontmatterExcludeProperties, before.frontmatterExcludeProperties)) {
+			this.clearExclusionCache();
+			this.prunePositions();
+		}
+	}
+
 	// Prune the records the current settings exclude (and, incidentally, the
 	// ones over the entry cap). Routed through the store so the file layer and
 	// the leaf layer are pruned together — main.ts's startup sweep and the
@@ -274,4 +332,11 @@ export class PositionManager {
 	clearExclusionCache() {
 		this.sampler.clearExclusionCache();
 	}
+}
+
+// Element-wise equality for the string-list settings. A fresh array is built by
+// every JSON.parse, so identity comparison would report "changed" on every
+// external write and re-run the prune each time.
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && a.every((v, i) => v === b[i]);
 }

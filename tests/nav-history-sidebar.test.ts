@@ -6,13 +6,16 @@
 // nav-history-browser-dom.test.ts, where it is driven through the modal.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Platform, TFile, WorkspaceLeaf } from 'obsidian';
+import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
 
 import { NAV_HISTORY_VIEW_TYPE, NavHistoryView, activateNavHistoryView } from '@/nav-history/browser/view';
 import type { NavBrowserPrefs } from '@/nav-history/browser/body';
 import type { LandingsMode } from '@/nav-history/browser/listing';
+import type { PathDisplayMode } from '@/types';
 import type { NavHistoryEntry } from '@/nav-history/entry';
+import type { PaneTarget } from '@/nav-history/places';
 import { t } from '@/i18n';
+import { TIME_REFRESH_MS } from '@/nav-history/browser/constants';
 
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
@@ -22,7 +25,11 @@ Element.prototype.scrollIntoView = () => {};
 // per mount, so no test decides another's — except for the one that hands the WRITE
 // back, which is how a test sees the panel ask the plugin to remember a value it was
 // given (see setLandings).
-function browserPrefs(landings: LandingsMode = 'last'): NavBrowserPrefs {
+function browserPrefs(
+	landings: LandingsMode = 'last',
+	path: PathDisplayMode = 'smart',
+	time = false,
+): NavBrowserPrefs {
 	return {
 		landings: () => landings,
 		setLandings: (how) => {
@@ -32,6 +39,18 @@ function browserPrefs(landings: LandingsMode = 'last'): NavBrowserPrefs {
 		// NavBrowserPrefs.placesCap).
 		placesCap: () => 200,
 		setPlacesCap: () => undefined,
+		// How much of a row's path is printed, and on which side of the name (see
+		// PathDisplayMode).
+		pathDisplay: () => path,
+		setPathDisplay: (how) => {
+			path = how;
+		},
+		// Whether each row is dated (see NavBrowserPrefs.rowTime): a switch, off unless
+		// a test asks — what the LABEL says is the body's business and is covered where
+		// the body is (see nav-history-browser-dom.test.ts); what the shell adds is the
+		// lifetime of the timer that keeps it fresh (see the test below).
+		rowTime: () => time,
+		setRowTime: () => undefined,
 	};
 }
 
@@ -58,14 +77,19 @@ class FakeNav {
 	readonly jumped: number[] = [];
 	private listeners = new Set<() => void>();
 
+	// Where each travel was told to open (see PaneTarget): recorded beside the place,
+	// because the panel's own answer to "where" is what a modifier test is about.
+	readonly targets: (PaneTarget | undefined)[] = [];
+
 	// The real travel, in miniature: the place visited is re-stamped and becomes the
 	// current one — so the list is rewritten under the panel, which is the whole
 	// reason the panel has to collapse first (see NavPlaces.travel /
 	// NavHistoryList.collapse).
-	travel = async (i: number): Promise<void> => {
+	travel = async (i: number, target?: PaneTarget): Promise<void> => {
 		this.jumped.push(i);
-		const target = this.entries[i];
-		this.entries = [...this.entries.slice(0, i), { ...target, t: Date.now() }];
+		this.targets.push(target);
+		const visited = this.entries[i];
+		this.entries = [...this.entries.slice(0, i), { ...visited, t: Date.now() }];
 		this.index = this.entries.length - 1;
 		for (const fn of this.listeners)
 			fn();
@@ -104,6 +128,11 @@ function makeApp(paths: string[] = []) {
 		workspace: {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
+			// The app's own file-menu event: a row's right-click asks the APP what it can
+			// do with the file (see NavHistoryBrowser.contextRow), and this panel is not
+			// what is being tested by it. Without an answer here the right-click tests
+			// threw out of the listener instead of asserting what they came for.
+			trigger: () => undefined,
 		},
 	};
 	return app as never;
@@ -132,11 +161,17 @@ async function mount(
 	const el = view.containerEl;
 	const rows = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'));
 	const names = () => rows().map(r => r.querySelector('.nav-row-name')?.textContent);
-	return { view, el, nav, rows, names };
+	// The listbox itself: what the pointer events that decide whether the list is
+	// being READ arrive on (see NavHistoryBrowser.freezeOrder).
+	const list = () => el.querySelector<HTMLElement>('.position-restore-nav-list')!;
+	return { view, el, nav, rows, names, list };
 }
 
 describe('NavHistoryView — the resident panel', () => {
 	beforeEach(() => {
+		// The app's own answers (see Keymap): an input a test sets, and one left over
+		// from the case before it would decide this one.
+		Keymap.reset();
 		document.body.empty();
 	});
 
@@ -148,9 +183,9 @@ describe('NavHistoryView — the resident panel', () => {
 		// the current one pinned first and marked.
 		expect(el.querySelector('.position-restore-nav-filter')).not.toBeNull();
 		expect(el.querySelector('.position-restore-nav-settings')).not.toBeNull();
-		expect(names()).toEqual(['b.md', 'a.md']);
+		expect(names()).toEqual(['b', 'a']);
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent)
-			.toBe('b.md');
+			.toBe('b');
 
 		// The classes the shared presentation rules are written against (see
 		// styles.css): without them a sidebar panel would fall back to the stock
@@ -177,7 +212,7 @@ describe('NavHistoryView — the resident panel', () => {
 	it('follows the history while it is up', async () => {
 		const { el, nav, names } = await mount(
 			[visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1, browserPrefs(), ['c.md']);
-		expect(names()).toEqual(['b.md', 'a.md']);
+		expect(names()).toEqual(['b', 'a']);
 
 		// The reader walks to another note elsewhere in the app: the stack grows
 		// under the panel and the panel redraws for it. Nothing was reopened; the
@@ -185,9 +220,76 @@ describe('NavHistoryView — the resident panel', () => {
 		nav.entries = [...nav.entries, visit('c.md', NOW + MINUTE)];
 		nav.moved(2);
 
-		expect(names()).toEqual(['c.md', 'b.md', 'a.md']);
+		expect(names()).toEqual(['c', 'b', 'a']);
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent)
-			.toBe('c.md');
+			.toBe('c');
+	});
+
+	// The list is HELD STILL while the pointer is on it (see
+	// NavHistoryBrowser.freezeOrder / NavHistoryListOptions.order). What a reader is
+	// looking at is the one thing a redraw must not re-arrange: a row that opens a
+	// note and then moves under the hand that opened it is a list that answers a
+	// click with a shuffle — and the row the reader is ON is pinned first, so every
+	// move drags the whole list one place.
+	it('holds the order it is being read at, and catches up when the pointer leaves', async () => {
+		const { el, nav, names, list } = await mount([
+			place('a.md', NOW - 3 * MINUTE, 10),
+			place('b.md', NOW - 2 * MINUTE, 20),
+			place('c.md', NOW - MINUTE, 30),
+		], 2);
+		const current = () =>
+			el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent;
+		// Newest first, the current note (c) already at the top.
+		expect(names()).toEqual(['c', 'b', 'a']);
+
+		list().dispatchEvent(new Event('pointerover', { bubbles: true }));
+
+		// The reader goes back to a.md — elsewhere in the app, with this panel still
+		// standing. The history moves, and a.md is now the note they are in: recency
+		// pins it first, which would drag all three rows down one.
+		nav.moved(0);
+
+		// Nothing moved. The list is still the one they were reading, and the only
+		// thing that changed is WHERE they are: the mark is on the third row now,
+		// which is the row a.md kept (see NavHistoryList.fileRow).
+		expect(names()).toEqual(['c', 'b', 'a']);
+		expect(current()).toBe('a');
+
+		// The pointer leaves, and with nobody reading it the list is free to catch up
+		// on the spot — rather than waiting for the next change to the history, which
+		// may be minutes away.
+		list().dispatchEvent(new Event('pointerleave', { bubbles: true }));
+
+		expect(names()).toEqual(['a', 'c', 'b']);
+		expect(current()).toBe('a');
+	});
+
+	// The ages on the rows are read off a clock, so a panel that just stands there
+	// would otherwise keep saying "5m" while the note it names got an hour old. The
+	// interval that fixes that belongs to the BODY (both shells are destroyed through
+	// it) — and a timer that outlives the panel it redraws is the leak this pins.
+	it('refreshes the ages while it stands, and stops when the panel closes', async () => {
+		vi.useFakeTimers();
+		try {
+			const { view, el } = await mount([visit('a.md', NOW)], 0, browserPrefs('last', 'smart', true));
+			const before = el.querySelector<HTMLElement>('.position-restore-nav-row.is-file')!;
+			expect(before).not.toBeNull();
+
+			// One tick: the list is rebuilt, so the element in hand is not the one on
+			// screen any more. (jsdom lays nothing out and the label's own text may not
+			// have changed at all — what a tick owes is a redraw, not a new word.)
+			vi.advanceTimersByTime(TIME_REFRESH_MS);
+			expect(el.contains(before)).toBe(false);
+
+			// …and the interval is gone with the panel: a closed view must not go on
+			// redrawing a body that has been torn down.
+			await view.onClose();
+			const after = el.querySelector<HTMLElement>('.position-restore-nav-row.is-file')!;
+			vi.advanceTimersByTime(TIME_REFRESH_MS * 3);
+			expect(el.contains(after)).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('stops hearing about the history once it is closed', async () => {
@@ -249,7 +351,7 @@ describe('NavHistoryView — the resident panel', () => {
 		(view.leaf as unknown as { parent?: unknown }).parent = pane;
 		const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
-			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
+			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
 
 		// A desktop leaf's parent is a tab group, not a drawer: nothing moves, because
 		// the panel stands beside the note already.
@@ -281,7 +383,7 @@ describe('NavHistoryView — the resident panel', () => {
 		};
 		const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
-			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a.md')!;
+			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
 
 		const wasMobile = Platform.isMobile;
 		Platform.isMobile = true;
@@ -321,7 +423,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 	it('chooses nothing on hover: only a click is a gesture', async () => {
 		const { el } = await mount(stack(), 2);
-		const note = () => noteRow(el, 'a.md');
+		const note = () => noteRow(el, 'a');
 
 		// Nothing is chosen as the panel opens (see NavHistoryList.choose: a position is
 		// a key or a click, and a click travels).
@@ -352,9 +454,27 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(2);
 	});
 
+	it('opens in a new tab where the app says so, and stays standing', async () => {
+		// The modifier is the APP's answer (see Keymap.isModEvent), and the panel's own
+		// contract does not change with it: a resident panel answers a click by going
+		// somewhere, and it is still there afterwards — the note opened beside it, the
+		// reader's place in the list cleared rather than carried over (see
+		// NavHistoryList.collapse).
+		const { el, nav } = await mount(stack(), 2);
+		const note = () => noteRow(el, 'a');
+		Keymap.modEvent = 'tab';
+
+		click(note());
+
+		expect(nav.jumped).toEqual([1]);
+		expect(nav.targets).toEqual(['tab']);
+		expect(el.querySelector('.position-restore-nav-list')).not.toBeNull();
+		expect(nav.listenerCount).toBe(1);
+	});
+
 	it('opens the file from the row itself, in one click', async () => {
 		const { el, nav } = await mount(stack(), 2);
-		const note = () => noteRow(el, 'a.md');
+		const note = () => noteRow(el, 'a');
 
 		// The row IS the navigation — that is what a navigator is for, and the name is the
 		// target. The reader who already knows where they are going spends ONE click.
@@ -386,7 +506,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 	it('opens nothing on a right-click', async () => {
 		const { el, nav } = await mount(stack(), 2);
-		const note = noteRow(el, 'a.md');
+		const note = noteRow(el, 'a');
 
 		rightClick(note);
 
@@ -398,7 +518,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 	it('leaves a press that was only held down where it was', async () => {
 		const { el, nav } = await mount(stack(), 2);
-		const note = noteRow(el, 'a.md');
+		const note = noteRow(el, 'a');
 
 		// The same event a WebView raises for a long touch, with the LEFT button on it:
 		// nothing opens (see NavHistoryList.onContextMenu). It is the one that made a slow
@@ -442,7 +562,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 		expect(nav.jumped).toEqual([3]);
 		// The note travelled to is now the current one, pinned first …
-		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent).toBe('c.md');
+		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent).toBe('c');
 		// …and the stack was rewritten under the panel: the jump left c holding ONE spot,
 		// while b — which took the slot c's old landing index pointed into — prints its own
 		// two. The list is drawn from the new stack either way; what the collapse buys is

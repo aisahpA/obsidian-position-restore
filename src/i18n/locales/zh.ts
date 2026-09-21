@@ -148,16 +148,59 @@ export const zh: En = {
 	'navHistory.landings.options.last.desc': '（只留最后落点）',
 	'navHistory.landings.options.all': '全部落点',
 	'navHistory.landings.options.all.desc': '（每个落点都列出）',
+	// 一行的路径打印多少、打印在名字哪一侧（见 PathDisplayMode）。两个「总是」档的说明写的是
+	// 「放不下时谁下移」，因为那才是读者真正在权衡的东西——flex 行在行尾换行，所以排在后面的
+	// 那一半才会落到第二行。默认档「仅在重名时」说得最少：目录是消歧用的，有要消歧的才打印。
+	'navHistory.pathDisplay.name': '列表里的路径',
+	'navHistory.pathDisplay.options.smart': '仅在重名时显示',
+	'navHistory.pathDisplay.options.smart.desc': '（其余不显示）',
+	'navHistory.pathDisplay.options.before': '总是显示，路径在前',
+	'navHistory.pathDisplay.options.before.desc': '（过长时文件名下移）',
+	'navHistory.pathDisplay.options.after': '总是显示，路径在后',
+	'navHistory.pathDisplay.options.after.desc': '（过长时路径下移）',
+	// 每行是否显示「上次在里面是什么时候」，以及年龄标签用的字。标签刻意做到语言能给的
+	// 最短——列表是扫的——所以这里是量词而不是词，确切时刻挂在这个标签自己的 tooltip 上。
+	//
+	// 「你上次在里面是什么时候」不是修饰：读者看到文件行上的时间，第一反应是文件的修改
+	// 时间，那是另一回事，不是这个。
+	'navHistory.rowTime.name': '每行的时间',
+	'navHistory.rowTime.options.on': '显示',
+	'navHistory.rowTime.options.on.desc': '（你上次在里面是什么时候）',
+	'navHistory.rowTime.options.off': '不显示',
+	'navHistory.rowTime.options.off.desc': '（行上不加东西）',
+	'navHistory.age.now': '刚刚',
+	'navHistory.age.m': '分',
+	'navHistory.age.h': '时',
+	'navHistory.age.d': '天',
+	'navHistory.age.w': '周',
+	'navHistory.age.mo': '月',
+	'navHistory.age.y': '年',
+	// 行的右键菜单（见 NavHistoryBrowser.contextRow）。菜单本身是 app 的；唯一加进去的那一项
+	// 是 app 不可能知道的——这里的行代表的是一个「去处」而不只是一个文件：jump 行承诺的是那个
+	// 落点，所以「在新标签页打开」必须也是打开到那里。因此是两个答案而不是一个：文件，与文件里
+	// 的这一处，是两个不同的承诺。
+	// 文件「另外几个名字」的引导词，挂在行自己的 tooltip 上（见 NavHistoryReads.aliasesFor）。
+	// 它们可被搜索、不占任何格子，所以悬停是读者唯一能看到它们的地方；冒号写进值里，因为
+	// 用不用冒号是各语言自己的事。
+	'navHistory.aka': '别名：',
+	'navHistory.menu.openInNewTab': '在新标签页打开',
+	'navHistory.menu.openHereInNewTab': '在此处打开新标签页',
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
 	'navHistory.commands.browseHistory': '打开最近文件',
 	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
 	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
 	'navHistory.commands.browseHistorySidebar': '在侧边栏打开最近文件',
+	// 唯一一个会丢东西的命令：它清掉的是读者自己的最近列表。按「清掉什么」命名，而不是叫
+	// 「重置」或「清空历史」——前进/后退栈是另一个存储，不在这个命令的范围里。
+	'navHistory.commands.clearRecent': '清空最近文件',
 
 	// 没有文件的一步（关系图谱）在列表里显示成什么。
 	'navHistory.graphView': '关系图谱',
 	'navHistory.searchPlaceholder': '按笔记名或文本过滤…',
+	// 过滤框末尾那个 ×（见 NavHistoryBrowser.toolbar）：app 自己的手势，按「清掉什么」命名。
+	// 它同时是按钮的无障碍名字和它的 tooltip，所以写的是动作而不是那个符号。
+	'navHistory.clearFilter': '清空筛选',
 	'navHistory.noMatch': '没有匹配的历史。',
 	// 以前这里还有「文件筛选」：一个「只看本笔记」开关加上一个选择器 chip（点开是历史
 	// 里出现过的所有笔记）。两个控件都是搜索框已经能回答的问题——笔记名本身就是它匹配

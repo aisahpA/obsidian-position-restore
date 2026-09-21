@@ -167,6 +167,52 @@ export const en = {
 	'navHistory.landings.options.last.desc': '(last spot only)',
 	'navHistory.landings.options.all': 'Every landing',
 	'navHistory.landings.options.all.desc': '(all spots listed)',
+	// How much of a row's PATH is printed, and on which side of the name (see
+	// PathDisplayMode). The two "always" answers are written as what happens when the
+	// row is too narrow, because that — and not the side — is what the reader is
+	// really choosing: a flex line wraps at its end, so whichever half is laid out
+	// last is the half that drops to a second line. "Only when names repeat" is the
+	// default and the one that says the least: the folder is a disambiguator, so it
+	// is printed where there is something to disambiguate.
+	'navHistory.pathDisplay.name': 'Folder path in the list',
+	'navHistory.pathDisplay.options.smart': 'Only when names repeat',
+	'navHistory.pathDisplay.options.smart.desc': '(hidden otherwise)',
+	'navHistory.pathDisplay.options.before': 'Always, before the name',
+	'navHistory.pathDisplay.options.before.desc': '(name drops below if long)',
+	'navHistory.pathDisplay.options.after': 'Always, after the name',
+	'navHistory.pathDisplay.options.after.desc': '(path drops below if long)',
+	// Whether each row says how long ago it was last visited, and the words the age
+	// itself is built from. The label is deliberately as short as the language can
+	// make it — the list is a scan — so these are units and not words, and the exact
+	// moment is carried as the label's own tooltip instead.
+	//
+	// "when you were last in it" is not decoration: a reader's first guess at a time
+	// printed on a file row is the file's own modification time, which is a different
+	// fact and not what this is.
+	'navHistory.rowTime.name': 'Time on each row',
+	'navHistory.rowTime.options.on': 'Show',
+	'navHistory.rowTime.options.on.desc': '(when you were last in it)',
+	'navHistory.rowTime.options.off': 'Hide',
+	'navHistory.rowTime.options.off.desc': '(nothing on the row)',
+	'navHistory.age.now': 'now',
+	'navHistory.age.m': 'm',
+	'navHistory.age.h': 'h',
+	'navHistory.age.d': 'd',
+	'navHistory.age.w': 'w',
+	'navHistory.age.mo': 'mo',
+	'navHistory.age.y': 'y',
+	// The row's right-click menu (see NavHistoryBrowser.contextRow). The menu itself is
+	// the app's; the ONE item added is the one the app cannot know, because a row here
+	// stands for a PLACE and not merely for a file: a jump row promises a landing, and
+	// "open it in a new tab" has to mean opening it THERE. Hence two answers rather than
+	// one — "the file" and "this spot in it" are different promises.
+	// The word a file's OTHER names are introduced by, on the row's own tooltip (see
+	// NavHistoryReads.aliasesFor). They are searchable and occupy no cell, so the hover
+	// is the only place a reader ever sees them; the colon is part of the value because
+	// whether to draw one is the language's call.
+	'navHistory.aka': 'aka:',
+	'navHistory.menu.openInNewTab': 'Open in new tab',
+	'navHistory.menu.openHereInNewTab': 'Open here in a new tab',
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 	'navHistory.commands.browseHistory': 'Open recent files',
@@ -174,10 +220,18 @@ export const en = {
 	// (see view.ts). Named as a PLACE rather than as an action, because that is
 	// the difference — the panel stays where it is put.
 	'navHistory.commands.browseHistorySidebar': 'Open recent files in sidebar',
+	// The one destructive command: it throws the reader's own recent list away. Named
+	// for what it empties rather than for "reset" or "clear history", because the
+	// back/forward stack is a different store and is NOT what this touches.
+	'navHistory.commands.clearRecent': 'Clear recent files',
 
 	// What a step with no file (the graph) is called in the list.
 	'navHistory.graphView': 'Graph view',
 	'navHistory.searchPlaceholder': 'Filter by note name or text…',
+	// The × at the end of the filter box (see NavHistoryBrowser.toolbar): the app's own
+	// gesture, named for what it empties. It is the button's accessible name and its
+	// tooltip, so it is written as the action rather than as the glyph.
+	'navHistory.clearFilter': 'Clear filter',
 	'navHistory.noMatch': 'No matching entry.',
 	// There used to be a file scope here: an "only this note" switch plus a chip
 	// listing every note the history had been in. Both asked a question the

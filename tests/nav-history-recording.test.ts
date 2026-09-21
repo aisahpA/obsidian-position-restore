@@ -1141,6 +1141,7 @@ function makeSidebarHarness(opts: {
 		iterateAllLeaves: (cb: (l: unknown) => void) => void;
 		setActiveLeaf: (l: unknown, opts?: unknown) => void;
 		getMostRecentLeaf: () => unknown;
+		getLeaf: (target?: unknown) => unknown;
 	};
 	const openFile = vi.fn().mockResolvedValue(undefined);
 	const setViewState = vi.fn().mockResolvedValue(undefined);
@@ -1179,7 +1180,13 @@ function makeSidebarHarness(opts: {
 		activeView = viewsByLeaf[(target as { id: string }).id] ?? null;
 	});
 	ws.getMostRecentLeaf = () => leaves.find((l) => l.id === opts.mostRecentLeafId) ?? null;
-	return { ws, nav: makeNav(app), openFile, setViewState, applied, leaves };
+	// A BRAND-NEW leaf, as workspace.getLeaf hands one over for a target the reader
+	// asked for elsewhere (a tab, a split, a window): it shows nothing yet, so the open
+	// pipeline has to put the place in it. One object, so a test can ask whether the
+	// open landed HERE (the `openFile` mock is shared, and its `this` is the answer).
+	const newLeaf: HarnessLeaf = { id: 'leaf-new', isDeferred: false, containerEl: 'main', openFile, setViewState };
+	ws.getLeaf = vi.fn(() => newLeaf);
+	return { ws, nav: makeNav(app), openFile, setViewState, applied, leaves, newLeaf };
 }
 
 describe('NavHistory.navigate from sidebar focus', () => {
@@ -1437,6 +1444,65 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 	const onSelection = (sampler as unknown as { onEditorSelection: (editor: unknown) => void }).onEditorSelection;
 	return { sampler, state, recordTeleport, refreshTop, database, view, cursor, onSelection };
 }
+
+// A travel the reader asked to happen SOMEWHERE ELSE — the modifier-click, the
+// middle button, the keyboard's Cmd/Ctrl+Enter (see PaneTarget / list.ts). It is a
+// different question from every other branch of the open pipeline, which exists to go
+// BACK to a place: here the place's own tab must not move.
+describe('NavHistory — a travel asked for elsewhere', () => {
+	// The arming flag the setViewState patch consumes: the landing a traversal injects
+	// over the native entry's cursor-only state (see armHistoryNav).
+	const armed = (nav: ReturnType<typeof makeNav>) =>
+		(nav as unknown as {
+			state: { pendingHistoryNav: boolean; pendingHistoryNavState?: unknown; pendingHistoryNavPath?: string };
+		}).state;
+
+	it('opens a JUMP place in the leaf the app picks, with the same landing armed', async () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const place: NavHistoryEntry = {
+			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
+			st: { scroll: 30 },
+		};
+
+		await h.nav.travelTo(place, 'tab');
+
+		// The app's own answer decides the leaf (see Keymap.isModEvent): the plugin only
+		// passes it on.
+		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
+		// …and the open landed in THAT leaf, not in the tab the entry came from.
+		expect(h.openFile.mock.contexts[0]).toBe(h.newLeaf);
+		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.newLeaf, { focus: true });
+		// The landing is not part of the difference: this is the same injection a plain
+		// travel arms, so the same note opened one tab over lands in the same spot.
+		expect(armed(h.nav).pendingHistoryNav).toBe(true);
+		expect(armed(h.nav).pendingHistoryNavState).toEqual({ scroll: 30 });
+		expect(armed(h.nav).pendingHistoryNavPath).toBe('b.md');
+	});
+
+	it('opens a FILE place in the new leaf with nothing injected', async () => {
+		// A file place carries no position of its own (see places.ts): the position
+		// database decides where it lands, in a new tab exactly as in the old one.
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+
+		await h.nav.openFilePlain('b.md', 'leaf-1', 'tab');
+
+		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
+		expect(h.openFile.mock.contexts[0]).toBe(h.newLeaf);
+		expect(armed(h.nav).pendingHistoryNav).toBe(false);
+	});
+
+	it('SHOWS a pathless view in the new leaf rather than opening a file', async () => {
+		// The graph has no file to open: the leaf has to be told to show it, and
+		// `active` is what brings it to the front.
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+
+		await h.nav.openViewPlace({ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1 }, 'tab');
+
+		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
+		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
+		expect(h.openFile).not.toHaveBeenCalled();
+	});
+});
 
 describe('Sampler in-file teleport detection', () => {
 	it('a ≥10-line cursor jump records via the selection event and refreshes the left entry', () => {

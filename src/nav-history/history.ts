@@ -11,7 +11,7 @@ import {
 } from './entry';
 import { isMainAreaLeaf } from '@/shared/leaf';
 import { loadNavHistory, persistNavHistory } from './store';
-import { NavPlaces } from './places';
+import { NavPlaces, PaneTarget } from './places';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
 // VSCode-style back/forward navigation, and the recording funnel for the
@@ -151,9 +151,9 @@ export class NavHistory {
 		// the openers are handed over immediately after, once `this` is usable.
 		this.places = new NavPlaces(app, settings);
 		this.places.attach({
-			openFile: (path, leafId) => this.openFilePlain(path, leafId),
-			openJump: entry => this.travelTo(entry),
-			openView: entry => this.openViewPlace(entry),
+			openFile: (path, leafId, target) => this.openFilePlain(path, leafId, target),
+			openJump: (entry, target) => this.travelTo(entry, target),
+			openView: (entry, target) => this.openViewPlace(entry, target),
 		});
 	}
 
@@ -512,7 +512,7 @@ export class NavHistory {
 	// The place the reader is already standing on is not pushed again: the
 	// traversal top IS that location, and a second press has to re-land it, not
 	// grow a duplicate step (the same rule jumpTo used for the adjacent row).
-	async travelTo(place: NavHistoryEntry): Promise<void> {
+	async travelTo(place: NavHistoryEntry, target?: PaneTarget): Promise<void> {
 		if (place.kind === 'teleport')
 			return;
 		await this.runBracketed(async () => {
@@ -525,7 +525,7 @@ export class NavHistory {
 			// The target's own landing is injected; the direction only feeds the
 			// native-delegation check, and a place knows no stack position — so
 			// both directions are offered to it (see execute's `tryBoth`).
-			await this.execute(this.entries[this.index], -1, true);
+			await this.execute(this.entries[this.index], -1, true, target);
 		});
 		this.places.markCurrent(this.entries[this.index]);
 	}
@@ -536,7 +536,21 @@ export class NavHistory {
 	// is what keeps "open it from the panel" and "open it from the file
 	// explorer" the same act, exclusion rules and all. The open records itself
 	// through the ordinary patch, so the visit still reaches both stores.
-	async openFilePlain(path: string, leafId: string): Promise<void> {
+	async openFilePlain(path: string, leafId: string, target?: PaneTarget): Promise<void> {
+		// With a target, the file is opened ONE TAB OVER instead of in the leaf it
+		// lives in — leaving the reader's place where it was, which is the whole of what
+		// the modifier asks for. Everything else is the same act: no landing is
+		// injected, so the position database decides where it lands (see the note
+		// above), and the file explorer's own click would land in the same spot.
+		if (target) {
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (!(file instanceof TFile))
+				return;
+			const opened = this.app.workspace.getLeaf(target);
+			await opened.openFile(file);
+			this.app.workspace.setActiveLeaf(opened, { focus: true });
+			return;
+		}
 		const leaf = this.findLeafById(leafId)
 			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
 		if (!leaf)
@@ -556,10 +570,10 @@ export class NavHistory {
 	// A pathless view place (the graph tab): reactivate its leaf, or re-assert
 	// the view when the tab was swapped to a file in the meantime — execute()'s
 	// view branch, which needs nothing from the stack.
-	async openViewPlace(place: NavHistoryEntry): Promise<void> {
+	async openViewPlace(place: NavHistoryEntry, target?: PaneTarget): Promise<void> {
 		if (place.kind !== 'view')
 			return;
-		await this.execute(place, 1);
+		await this.execute(place, 1, false, target);
 	}
 
 	// The bracket shared by navigate/jumpTo: one position change, not new
@@ -681,7 +695,29 @@ export class NavHistory {
 			});
 	}
 
-	private async execute(target: NavHistoryEntry, dir: -1 | 1, tryBoth = false) {
+	private async execute(target: NavHistoryEntry, dir: -1 | 1, tryBoth = false, modTarget?: PaneTarget) {
+		// A modifier was held: the place is opened in a leaf the APP picks for that
+		// target — a new tab, a split, a new window — rather than in the leaf the entry
+		// came from. That is a different question from everything below, which exists to
+		// go BACK to a place (find its leaf, ride the tab's own history, re-assert a
+		// swapped-out view); the reader who holds Cmd is asking for a second view of the
+		// place, and the tab they are reading in must not move.
+		//
+		// The LANDING is not part of the difference: openInLeaf arms the same
+		// instant-landing flag a traversal uses, so the same note opened with Cmd held
+		// lands exactly where a plain open would (see its own note).
+		if (modTarget) {
+			const leaf = this.app.workspace.getLeaf(modTarget);
+			if (target.kind === 'view') {
+				// A pathless view has no file to open: the leaf has to be told to SHOW
+				// it, and `active` is what brings it to the front — there is nothing
+				// else on the new tab worth showing on the way.
+				await leaf.setViewState({ type: target.viewType, state: {}, active: true });
+				return;
+			}
+			await this.openInLeaf(leaf, target);
+			return;
+		}
 		const activeView = this.app.workspace.getActiveViewOfType(FileView);
 		// No file view anywhere (only the new-tab page): fall back to the
 		// last main-area leaf — the empty tab — so the traversal can still

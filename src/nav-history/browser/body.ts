@@ -24,16 +24,17 @@
 // shows the history as it stands rather than as it stood when the panel opened — and one
 // that lives for a second (the modal) is not asked for anything more.
 
-import { App, FileView, setIcon } from 'obsidian';
+import { App, FileView, Menu, TFile, setIcon, Keymap } from 'obsidian';
 import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
-import { PlaceList } from '@/nav-history/places';
+import { PaneTarget, PlaceList, placeKey } from '@/nav-history/places';
 import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
-import { EphemeralState, LandingsMode } from '@/types';
+import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
 import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
 import { NavHistoryReads } from './reads';
 import { NavHistoryList, NavHistoryListOptions } from './list';
+import { TIME_REFRESH_MS } from './constants';
 
 // Per-body sequence for the list element's id (see NavHistoryBrowser.listId).
 let browserSeq = 0;
@@ -55,6 +56,17 @@ export interface NavBrowserPrefs {
 	// looking at the list whose length it is (see body.ts's settings gear).
 	placesCap: () => number;
 	setPlacesCap: (cap: number) => void;
+	// How much of a row's path the list prints, and on which side of the name (see
+	// PathDisplayMode). The third choice made in the panel's gear, and the one with
+	// the most visible answer: the list under the gear IS the list it changes.
+	pathDisplay: () => PathDisplayMode;
+	setPathDisplay: (how: PathDisplayMode) => void;
+	// Whether each row says how long ago it was last visited (see model.ts's
+	// ageLabel). The fourth choice in the same gear, and the only one that is a
+	// plain switch: there is nothing to pick between, only whether the row carries
+	// the label at all.
+	rowTime: () => boolean;
+	setRowTime: (on: boolean) => void;
 }
 
 export interface NavHistoryBrowserOptions {
@@ -130,6 +142,15 @@ export class NavHistoryBrowser {
 	// so a second browser mounted beside this one — a sidebar panel and the
 	// modal at once — cannot collide with it.
 	private readonly listId = `position-restore-nav-list-${++browserSeq}`;
+	// The group order the list is being HELD at, while the pointer is on it (see
+	// freezeOrder), or undefined when the list is nobody's business but the places'.
+	// Held as group keys rather than as rows because a rebuild draws new rows: the
+	// order has to survive the redraw it is there to stop from re-ordering anything.
+	private frozenOrder?: string[];
+	// The interval that re-derives the rows' ages while the panel sits idle (see
+	// TIME_REFRESH_MS). Held because destroy is the one place that can stop it, and
+	// because a shell may mount and destroy a body many times in one app run.
+	private timer?: number;
 
 	constructor(private opts: NavHistoryBrowserOptions) {
 		this.reads = new NavHistoryReads(opts.app, {
@@ -159,9 +180,23 @@ export class NavHistoryBrowser {
 		this.listOpts = {
 			list: listEl,
 			listId: this.listId,
-			// How much of a note to print: read LIVE (see NavBrowserPrefs), so the
-			// toolbar's setting reaches a panel that is already up.
+			// How much of a note to print, and how much of its path: read LIVE (see
+			// NavBrowserPrefs), so the toolbar's setting reaches a panel that is
+			// already up.
 			landings: () => this.opts.prefs.landings(),
+			pathDisplay: () => this.opts.prefs.pathDisplay(),
+			rowTime: () => this.opts.prefs.rowTime(),
+			// The order to hold, while the pointer is on the list (see
+			// freezeOrder). Read per render, so a render that happens while the
+			// reader is on the list comes out in the order they are reading.
+			order: () => this.frozenOrder,
+			// What makes two places one, for a click whose row has been rebuilt
+			// away from under it (see NavHistoryList.onClick). The store's own
+			// notion of identity, reached through the list it was handed.
+			keyOf: (rep) => {
+				const entry = this.opts.places.entries[rep];
+				return entry ? placeKey(entry) : undefined;
+			},
 			// The live places, re-pointed per render (see render).
 			entries: this.opts.places.entries,
 			currentIndex: this.opts.places.index,
@@ -173,17 +208,58 @@ export class NavHistoryBrowser {
 			// prunes such a place on its own; this is the list agreeing with it.
 			noteExists: path => this.reads.hasFile(path),
 			trailFor: (entry, d) => this.trailFor(entry, d),
+			// The file's other names (see NavHistoryReads.aliasesFor): searchable, and
+			// printed nowhere on the row but its tooltip.
+			aliasesFor: path => this.reads.aliasesFor(path),
 			paneName: entry => this.paneName(entry),
 			onActiveRow: id => this.setActiveRow(id),
-			onTravel: rep => this.jump(rep),
+			onTravel: (rep, target) => this.jump(rep, target),
+			// A right-click asks the APP what it can do with this file; the menu is
+			// built here because the list does not hold the app (see contextRow).
+			onContextRow: (rep, ev) => this.contextRow(rep, ev),
 		};
 		this.list = new NavHistoryList(this.listOpts);
+		// The pointer is how the body knows the reader is USING this list, which is
+		// the question the held order answers (see frozenOrder). Both listeners are
+		// on the list element and go with it; nothing to undo in destroy.
+		//
+		// pointerover rather than pointerenter: a panel that comes up under a pointer
+		// that is already resting there — the sidebar restored at startup, the modal
+		// opened by a command while the mouse sits mid-screen — never crosses the
+		// boundary, so the enter never fires and the order would never be taken. Any
+		// move inside the list bubbles an over, so the first twitch of the pointer
+		// makes up for it. Taking the order is idempotent (see freezeOrder), so the
+		// repeated events cost nothing.
+		listEl.addEventListener('pointerover', () => this.freezeOrder());
+		listEl.addEventListener('pointerleave', () => this.thawOrder());
+		// …and the click the ROWS did not answer. A click bubbles from the row it
+		// landed on, so this sees one only when there was no row element left to be
+		// the target — the row was rebuilt away between the press and the release —
+		// which is exactly the click the list has to answer by identity (see
+		// NavHistoryList.onUnansweredClick).
+		listEl.addEventListener('click', (ev) => this.list.onUnansweredClick(ev));
 		// One keydown listener on the shell's own element covers both the filter
 		// input and the list: while typing, arrows navigate and Enter jumps (the
 		// input would otherwise move its caret); Escape stays native (closes the
 		// dialog, and in a sidebar does nothing, which is what "resident" means).
 		this.opts.host.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 		this.render();
+		// The ages on the rows are read off a clock, so a panel nobody is touching would
+		// drift: "5m" would sit there while the note it names got an hour old. Two
+		// cheap things keep it honest, and neither needs the other —
+		//   - the interval, for a panel that is simply standing there (see
+		//     TIME_REFRESH_MS: it is a coarse number, so the tick is coarse too), and
+		//   - becoming visible again, which is the case an interval cannot cover at all:
+		//     a tab in the background has its timers throttled and may not run for
+		//     hours, and the reader coming back is exactly when the labels are wrong.
+		// A redraw while the reader is reading is not a redraw they see: the rows are
+		// held in place, and a label that changes text is the one thing that may move.
+		this.timer = window.setInterval(() => {
+			if (document.hidden || !this.opts.prefs.rowTime())
+				return;
+			this.render();
+		}, TIME_REFRESH_MS);
+		document.addEventListener('visibilitychange', this.onVisibilityChange);
 		// A touch device raises its on-screen keyboard the moment an input takes focus,
 		// and the keyboard covers half of a small screen. So on touch the box stays
 		// unfocused (one tap away, when the user actually means to type); on a pointing
@@ -208,12 +284,64 @@ export class NavHistoryBrowser {
 		this.list.render();
 	}
 
+	// The reader's pointer is on the list, so the list is being READ: take the order
+	// it is showing right now and hold it there (see frozenOrder, and
+	// NavHistoryListOptions.order). This is the whole of the answer to "has the list
+	// changed under me?" — the question is not which change was real, it is whether
+	// anyone is still looking, and the pointer is that question's honest answer.
+	//
+	// Nothing happens if an order is already held: the first over takes it, and every
+	// further one is the same fact said again.
+	private freezeOrder(): void {
+		if (this.frozenOrder)
+			return;
+		const keys = this.list.orderedKeys();
+		// An empty list holds nothing: there is no order to keep, and holding `[]`
+		// would pin every later arrival to the front (see groupByFile's rank).
+		if (keys.length)
+			this.frozenOrder = keys;
+	}
+
+	// The pointer has left: nobody is reading this list, so it may catch up with the
+	// places. The redraw is what makes the catch-up visible, and it happens HERE —
+	// while the reader's attention is following the note they just opened — rather
+	// than on the next history change, which may not come for minutes.
+	private thawOrder(): void {
+		if (!this.frozenOrder)
+			return;
+		this.frozenOrder = undefined;
+		this.render();
+	}
+
 	// Throw away what belongs to this body: the toolbar's setting, if it happens to
 	// be open — its press-outside listener lives on the document, which outlives
 	// every panel (see the shell's teardown).
 	destroy(): void {
 		this.closeSettings();
+		// The list put one thing OUTSIDE the panel's element — the tooltip it draws on
+		// the document (see tip.ts) — so a body that goes without this leaves a stray
+		// element behind for every dialog ever opened.
+		this.list.destroy();
+		// The metadata watcher belongs to the READS, and it outlives the DOM it was
+		// built beside: a dialog is a new reads object every time it opens, and a
+		// sidebar panel can be closed and reopened many times in one app run.
+		this.reads.dispose();
+		// The interval and the document listener OUTLIVE the elements they were
+		// registered beside — the timer would go on redrawing a panel that is gone, and
+		// a modal is a new body every time it opens.
+		if (this.timer !== undefined)
+			window.clearInterval(this.timer);
+		this.timer = undefined;
+		document.removeEventListener('visibilitychange', this.onVisibilityChange);
 	}
+
+	// The panel became visible again (or was hidden). Only the visible half matters:
+	// a hidden panel is not being read, and the reader coming back is what the tick
+	// cannot be trusted to have covered.
+	private onVisibilityChange = (): void => {
+		if (!document.hidden && this.opts.prefs.rowTime())
+			this.render();
+	};
 
 	private onKeyDown(ev: KeyboardEvent): void {
 		// The toolbar's setting goes first, and the key STOPS here: a reader pressing
@@ -239,7 +367,13 @@ export class NavHistoryBrowser {
 			// The travel goes through the list, which is what knows which row the
 			// position is on: every row on screen is a destination, the place the
 			// reader is already in included (see list.targetOf).
-			if (this.list.travel())
+			// The keyboard's own "new tab": the focus never leaves the filter box, so
+			// the row's modifier-click is out of reach — Cmd/Ctrl+Enter is the gesture
+			// every list in the app answers to. 'Mod' is the app's platform-independent
+			// name for it (Cmd on macOS, Ctrl elsewhere): reading metaKey/ctrlKey here
+			// would be a second copy of that rule, and the wrong one on one platform.
+			const target = Keymap.isModifier(ev, 'Mod') ? 'tab' : undefined;
+			if (this.list.travel(undefined, target))
 				ev.preventDefault();
 		}
 	}
@@ -259,7 +393,11 @@ export class NavHistoryBrowser {
 	// its focus and caret while typing re-renders the list underneath.
 	private toolbar(): void {
 		const bar = this.opts.host.createDiv({ cls: 'position-restore-nav-toolbar' });
-		const input = bar.createEl('input', {
+		// The box and its × are one control, so they are one element: the clear button
+		// is positioned against the box's own line (see styles.css) and is hidden while
+		// there is nothing to clear, which is a question only the box can answer.
+		const strip = bar.createDiv({ cls: 'position-restore-nav-search' });
+		const input = strip.createEl('input', {
 			type: 'text',
 			cls: 'position-restore-nav-filter',
 			attr: {
@@ -275,13 +413,53 @@ export class NavHistoryBrowser {
 				'aria-autocomplete': 'list',
 			},
 		});
-		input.addEventListener('input', () => {
+		// The one gesture the box has, shared by typing and by the ×: what the reader
+		// typed IS the list's query, so the list is redrawn from it.
+		const apply = (): void => {
 			this.filter = input.value;
 			// The list follows the filter, so the body re-renders (the toolbar does
 			// not).
 			this.render();
-		});
+		};
+		input.addEventListener('input', apply);
 		this.filterInput = input;
+		// THE ×, exactly as the app's own search boxes carry one (see the quick
+		// switcher, whose clear button this copies): the press is REFUSED so that the
+		// caret never leaves the box — a control that takes the focus turns the next
+		// keystroke into nothing — and the click empties the box and re-reads the list
+		// from it. Emptying an empty box is the same as emptying it once, so with
+		// nothing to clear the button does no more than put the caret back.
+		//
+		// A plain div and not a button, for the same reason the app's is: it is not a
+		// stop on the keyboard's way through the panel (the box keeps every key), and a
+		// tabbable control inside a combobox's strip would be a stop that answers to Tab
+		// and then takes the arrows the box was holding. The name is still there for
+		// whatever reads the DOM and is the only label a mouse needs; the `title` beside
+		// it is the quiet tooltip this panel keeps for its own chrome (see styles.css's
+		// --no-tooltip note).
+		const clear = strip.createDiv({
+			cls: 'clickable-icon position-restore-nav-clear',
+			attr: {
+				'aria-label': t('navHistory.clearFilter'),
+				title: t('navHistory.clearFilter'),
+			},
+		});
+		setIcon(clear, 'x');
+		clear.addEventListener('mousedown', (ev) => ev.preventDefault());
+		clear.addEventListener('click', () => {
+			if (input.value !== '') {
+				input.value = '';
+				apply();
+			}
+			// The caret goes back where the reader's typing is — on a pointing device,
+			// where the box is one click from being typed in and usually already is. On
+			// TOUCH the focus is left exactly as it was: a finger that tapped × either
+			// was typing (the box keeps its caret, mousedown was refused) or was not, and
+			// summoning the on-screen keyboard over half the panel is the opposite of
+			// what the tap asked for (see mount's own touch rule).
+			if (!this.opts.touch)
+				input.focus();
+		});
 		// The hint, and then the list's own settings at the far end of the strip. The file
 		// scope that used to sit between them — a "only this note" switch and a chip of
 		// every note the history had been in — is gone: a note's name is text the box
@@ -359,6 +537,45 @@ export class NavHistoryBrowser {
 				desc: t('navHistory.landings.options.all.desc'),
 			},
 		], this.opts.prefs.landings(), mode => this.pickLandings(mode));
+		// How much of each row's PATH is printed, and on which side of the name. It
+		// stands beside the group above because the two answer one question — what a
+		// row prints — and because its answers are a LAYOUT, each of them is written
+		// as what happens when the row is too narrow: that is what the reader is
+		// really choosing (see PathDisplayMode).
+		this.settingGroup<PathDisplayMode>(menu, t('navHistory.pathDisplay.name'), [
+			{
+				value: 'smart',
+				label: t('navHistory.pathDisplay.options.smart'),
+				desc: t('navHistory.pathDisplay.options.smart.desc'),
+			},
+			{
+				value: 'before',
+				label: t('navHistory.pathDisplay.options.before'),
+				desc: t('navHistory.pathDisplay.options.before.desc'),
+			},
+			{
+				value: 'after',
+				label: t('navHistory.pathDisplay.options.after'),
+				desc: t('navHistory.pathDisplay.options.after.desc'),
+			},
+		], this.opts.prefs.pathDisplay(), mode => this.pickPathDisplay(mode));
+		// …and whether each row says how long ago it was last visited. Two answers
+		// rather than a checkbox, because every group here is a radio group and the
+		// reader has to be able to hear which value is in force (see settingGroup);
+		// the ON answer says WHICH time it is, since a reader's first guess at a time
+		// on a file row is the file's own mtime.
+		this.settingGroup<string>(menu, t('navHistory.rowTime.name'), [
+			{
+				value: 'on',
+				label: t('navHistory.rowTime.options.on'),
+				desc: t('navHistory.rowTime.options.on.desc'),
+			},
+			{
+				value: 'off',
+				label: t('navHistory.rowTime.options.off'),
+				desc: t('navHistory.rowTime.options.off.desc'),
+			},
+		], this.opts.prefs.rowTime() ? 'on' : 'off', value => this.pickRowTime(value === 'on'));
 		// How far back the list reaches: the one storage knob of the recent-files
 		// list, and a question only the reader looking at the list can answer (see
 		// NavBrowserPrefs.placesCap). Three answers rather than a number field,
@@ -466,6 +683,29 @@ export class NavHistoryBrowser {
 		this.render();
 	}
 
+	// …and the same for how much path a row prints. The list that changes is the
+	// one the gear was opened over, so the choice is answered where it was made —
+	// and the answers describe the layout, which only a redraw can show.
+	private pickPathDisplay(mode: PathDisplayMode): void {
+		this.closeSettings();
+		if (this.opts.prefs.pathDisplay() === mode)
+			return;
+		this.opts.prefs.setPathDisplay(mode);
+		this.render();
+	}
+
+	// …and the same for the row's age. Nothing about it is stored on the places: the
+	// label is derived from a stamp they already carry, so opening the switch is a
+	// redraw and nothing else — and the timer that keeps the labels honest while the
+	// panel sits idle (see TIME_REFRESH_MS) is already running.
+	private pickRowTime(on: boolean): void {
+		this.closeSettings();
+		if (this.opts.prefs.rowTime() === on)
+			return;
+		this.opts.prefs.setRowTime(on);
+		this.render();
+	}
+
 	// Put the setting away, and say whether there was one up (@returns whether this
 	// was the key the reader meant, see onKeyDown).
 	private closeSettings(): boolean {
@@ -542,7 +782,7 @@ export class NavHistoryBrowser {
 		return live;
 	}
 
-	private jump(i: number): void {
+	private jump(i: number, target?: PaneTarget): void {
 		// The reader's place first where the shell is staying up: going to a place
 		// re-orders the list (it is moved to the end) and a jump re-pushes the stack, so
 		// a position left where it was would name whatever slid into that slot (see the
@@ -552,8 +792,47 @@ export class NavHistoryBrowser {
 		// …then the shell's own reaction, so a dialog is out of the way before
 		// the open it triggers runs (see NavHistoryBrowserOptions.onJump).
 		this.shellReacts();
-		void this.opts.places.travel(i)
+		void this.opts.places.travel(i, target)
 			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
+	}
+
+	// A row was right-clicked: raise the APP's own menu for the file behind it.
+	//
+	// The menu is the app's and not ours, and that is deliberate: what a reader can do
+	// with a file (open it beside, copy a link, reveal it, rename it, whatever the
+	// app's own version of this menu holds) is the app's business, and a second list of
+	// those commands written here would be a stale copy of it. The ONE thing added is
+	// the thing the app cannot know: a row of PLACES promises a specific landing, so a
+	// jump row gets its own "open here in a new tab" (see the two locale keys).
+	//
+	// The context asked for is the LINK one, not the file explorer's: a row here is a
+	// pointer at a file rather than the file in its own tree, and the file-managing
+	// actions (rename, move, delete) do not belong to a reader who came here to go
+	// somewhere. The panel's read-only promise is intact either way: nothing in this
+	// handler writes anything, and whatever the reader picks from the menu is something
+	// they asked the APP to do.
+	private contextRow(rep: number, ev: MouseEvent): void {
+		const entry = this.opts.places.entries[rep];
+		// A pathless view (the graph) has no file: a file menu has nothing to be about.
+		if (!entry || entry.kind === 'view')
+			return;
+		const file = this.opts.app.vault.getAbstractFileByPath(entry.path);
+		if (!(file instanceof TFile))
+			return;
+		const menu = new Menu();
+		// Our own item goes FIRST (section 'action', which the app sorts ahead of its
+		// own sections), because it is the one entry the reader cannot get anywhere
+		// else for THIS row: core's menu can offer "open in a new tab" for the file, but
+		// only this list knows the landing the row stands for.
+		menu.addItem(item => item
+			.setSection('action')
+			.setTitle(t(entry.kind === 'jump'
+				? 'navHistory.menu.openHereInNewTab'
+				: 'navHistory.menu.openInNewTab'))
+			.setIcon('file-plus')
+			.onClick(() => this.jump(rep, 'tab')));
+		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
+		menu.showAtMouseEvent(ev);
 	}
 
 	// Run the shell's own reaction to a travel, and let NOTHING it does stop the journey

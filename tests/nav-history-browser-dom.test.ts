@@ -6,16 +6,18 @@
 // nav-history-browser.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MarkdownView, Platform, TFile } from 'obsidian';
+import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
 
 import { NavHistoryModal } from '@/nav-history/browser/modal';
 import type { NavBrowserPrefs } from '@/nav-history/browser/body';
 import type { LandingsMode } from '@/nav-history/browser/listing';
+import type { PathDisplayMode } from '@/types';
 import type { NavHistoryEntry } from '@/nav-history/entry';
 import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
+import { TIP_DELAY_MS } from '@/nav-history/browser/constants';
 
 // jsdom implements no layout at all, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
@@ -27,8 +29,14 @@ const NOW = Date.now();
 // choice made in one dialog is the choice the next one opens on). The write is
 // recorded, so a test can assert that the list asked the PLUGIN to remember the
 // choice rather than keeping it to itself.
-function prefs(start: { landings?: LandingsMode } = {}) {
-	const state = { landings: 'last' as LandingsMode, cap: 200, ...start };
+function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: boolean } = {}) {
+	const state = {
+		landings: 'last' as LandingsMode,
+		cap: 200,
+		path: 'smart' as PathDisplayMode,
+		time: false,
+		...start,
+	};
 	return {
 		state,
 		browser: {
@@ -41,6 +49,18 @@ function prefs(start: { landings?: LandingsMode } = {}) {
 			placesCap: () => state.cap,
 			setPlacesCap: (cap: number) => {
 				state.cap = cap;
+			},
+			// How much of a row's path is printed, and on which side of the name:
+			// the third choice in the same gear (see PathDisplayMode).
+			pathDisplay: () => state.path,
+			setPathDisplay: (how: PathDisplayMode) => {
+				state.path = how;
+			},
+			// Whether each row is dated: the same gear, as a plain switch (see
+			// NavBrowserPrefs.rowTime).
+			rowTime: () => state.time,
+			setRowTime: (on: boolean) => {
+				state.time = on;
 			},
 		} satisfies NavBrowserPrefs,
 	};
@@ -197,6 +217,10 @@ function harness(
 	// asks whether a leaf's element sits in the root's.
 	const rootEl = document.createElement('div');
 	document.body.appendChild(rootEl);
+	// The metadata reads this harness has answered, and the listeners a `changed`
+	// event will reach (see the fake metadataCache below).
+	let cacheReads = 0;
+	const metaListeners = new Set<(file: { path: string }) => void>();
 	const tabs = layout.length
 		? layout
 		: Object.keys(live).map((path) => ({ leafId: `open:${path}`, path }));
@@ -215,16 +239,38 @@ function harness(
 		metadataCache: {
 			// A path maps either to its parsed headings (the common case) or to the
 			// whole cache record, for the tests that need the frontmatter range the
-			// drawer uses to keep a block out of the properties.
+			// drawer uses to keep a block out of the properties — and, since the
+			// browser also searches a file's aliases, for the frontmatter itself.
+			//
+			// The reads are COUNTED: the browser memoizes one record per path for the
+			// life of a body (see NavHistoryReads), and the count is how a test sees
+			// that the memory is doing its job.
 			getFileCache: (file: { path: string }) => {
+				cacheReads++;
 				const cache = headingMap[file.path];
 				if (!cache)
 					return null;
 				return Array.isArray(cache) ? { headings: cache } : cache;
 			},
+			// The one metadataCache event the browser listens for (see
+			// NavHistoryReads): a file's frontmatter changed, so its record — and with
+			// it its aliases — is stale. `on` hands back the callback itself as the
+			// handle `offref` takes, which is all the browser does with it.
+			on: (name: string, cb: (file: { path: string }) => void) => {
+				if (name === 'changed')
+					metaListeners.add(cb);
+				return cb;
+			},
+			offref: (ref: unknown) => {
+				metaListeners.delete(ref as (file: { path: string }) => void);
+			},
 		},
 		workspace: {
 			rootSplit: { containerEl: rootEl },
+			// The app's own menu event: the browser asks the APP to fill the menu in (see
+			// NavHistoryBrowser.contextRow), so what a test can see is the menu object it
+			// was handed — which is the whole of what this plugin contributes.
+			trigger: vi.fn(),
 			iterateAllLeaves: (cb: (leaf: unknown) => void) => {
 				for (const tab of tabs) {
 					const containerEl = document.createElement('div');
@@ -272,6 +318,29 @@ function harness(
 	// already in is not exempt: the open re-lands it. Only a deleted note goes nowhere.
 	const clickRow = (row: HTMLElement) =>
 		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	// …and the press that a real click is the SECOND half of (see
+	// NavHistoryList.onPress). A test drives the two apart only to move the list in
+	// between; an ordinary click is a press followed immediately by a click, and the
+	// tests that dispatch the click alone are the ones about a programmatic activation
+	// (or an assistive technology's), which has no press to remember.
+	const pressRow = (row: HTMLElement) =>
+		row.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+	// The places moved under the panel. What the store does is re-order them IN
+	// PLACE — the array the browser reads is the same array, spliced and pushed (see
+	// places.remember) — and then tell its listeners. The dialog has no subscription
+	// to tell (it is a snapshot that closes on the first travel, see modal.ts), so a
+	// test does the move itself and then asks the panel for the redraw the SIDEBAR
+	// would have been handed: one `input` event on the filter box, which is the
+	// dialog's own way to rebuild its list. The box stays EMPTY, so the list is
+	// rebuilt rather than narrowed.
+	const filterInput = modal.contentEl.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	const changed = (rep?: number) => {
+		if (rep !== undefined) {
+			const [moved] = entries.splice(rep, 1);
+			entries.push(moved);
+		}
+		filterInput.dispatchEvent(new Event('input', { bubbles: true }));
+	};
 	// …and the muted gestures: a right-click, and a finger's lingering press (a
 	// WebView raises the same `contextmenu` for both — see NavHistoryList.onContextMenu).
 	// Neither goes anywhere any more; what matters is that neither OPENS anything, and
@@ -313,21 +382,62 @@ function harness(
 			.find(b => b.querySelector('.nav-settings-label')?.textContent === label)!;
 		clickRow(option);
 	};
+	// The listbox itself — what a row's click bubbles through, and what the browser
+	// hands a click to when the row the reader pressed has been rebuilt away.
+	const list = () => modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-list')!;
+	// WHAT A ROW SAYS ON HOVER. The tooltip is the panel's own element now, drawn on the
+	// document rather than in the list (see tip.ts), so a test reads it out of the body
+	// — and only after the pointer has RESTED there for the delay, which is what the
+	// fake clock below is for. `hover` answers with the element or null, so the
+	// assertions read as "hovering this row says…".
+	const hover = (el: HTMLElement): HTMLElement | null => {
+		el.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
+		vi.advanceTimersByTime(TIP_DELAY_MS);
+		return document.querySelector<HTMLElement>('.position-restore-nav-tip');
+	};
+	// …and leaving: the pointer was on the row and is now somewhere else.
+	const unhover = (el: HTMLElement) => {
+		el.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+		return document.querySelector<HTMLElement>('.position-restore-nav-tip');
+	};
+	// A metadata change in the vault: what the app fires when a file's frontmatter is
+	// rewritten, and what the browser drops its memory of that path for.
+	const changeFile = (path: string) => {
+		for (const cb of [...metaListeners])
+			cb({ path });
+	};
+	// The × at the end of the filter box (see NavHistoryBrowser.toolbar). It is in the
+	// DOM whether or not the box has anything in it — the stylesheet is what hides it
+	// while the box is empty (asserted in the styles suite, since jsdom loads no
+	// stylesheet) — so a test clicks it the way a reader does.
+	const clearButton = () =>
+		modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-clear')!;
+	const clearFilter = () => clickRow(clearButton());
 	return {
-		modal, jumpTo, cachedRead, el: modal.contentEl,
-		rows, notes, note, place, clickRow, rightClick, longPress, movePointer,
-		key, pickSetting,
+		modal, jumpTo, cachedRead, el: modal.contentEl, entries, list,
+		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
+		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
+		key, pickSetting, hover, unhover, clearButton, clearFilter,
 	};
 }
 
 beforeEach(() => {
+	// The app's answers to "where should this open" and "is the modifier down" are
+	// inputs a test sets per case (see the stub): one left over from the last case
+	// would decide this one.
+	Keymap.reset();
 	document.body.innerHTML = '';
 	// Children (and any class a test left on the body), or one test's DOM leaks
 	// into the next.
 	document.body.className = '';
+	// The tooltip's own clock (see tip.ts): the delay is the one thing a test has to be
+	// able to step over, and only the two timer functions are faked — `Date` is left
+	// alone, so the ages the fixtures were built with are the ages the rows print.
+	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	// The width query is the one global a test installs (see widthQuery): jsdom has none
 	// of its own, and one left behind would decide the panel's presentation for every
@@ -367,7 +477,7 @@ describe('NavHistoryModal — current position', () => {
 		// NavHistoryList.placeRow), and no note row here prints landings.
 		const notes = h.notes();
 		expect(notes).toHaveLength(3);
-		expect(notes[0].textContent).toContain('c.md');
+		expect(notes[0].textContent).toContain('c');
 		expect(notes[0].querySelector('.nav-row-here')).toBeNull();
 		// One spot is not a count either: the "+N" went with the expansion, and the
 		// caret that used to lead a name was gone even before that.
@@ -388,13 +498,13 @@ describe('NavHistoryModal — current position', () => {
 		// the whole of what it is (see LandingsMode), and the row stands for the LAST
 		// spot the reader was at in that note (see NavHistoryList.activeRep).
 		expect(h.rows()).toHaveLength(0);
-		expect(h.note('c.md').querySelector('.nav-row-here')).toBeNull();
+		expect(h.note('c').querySelector('.nav-row-here')).toBeNull();
 
 		// …and the row is a destination all the same: a click opens c.md at that very
 		// place, because the open re-lands it rather than pushing it again — which is
 		// what a reader whose tab was closed is asking for (see NavHistoryList.targetOf).
-		h.clickRow(h.note('c.md'));
-		expect(h.jumpTo).toHaveBeenCalledWith(2);
+		h.clickRow(h.note('c'));
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
 	it('keeps a one-step history a one-row list, and opens that row', () => {
@@ -409,8 +519,8 @@ describe('NavHistoryModal — current position', () => {
 		expect(h.notes()).toHaveLength(1);
 		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
 
-		h.clickRow(h.note('only.md'));
-		expect(h.jumpTo).toHaveBeenCalledWith(0);
+		h.clickRow(h.note('only'));
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 	});
 
 	it('says "no match" only when the query really emptied the list', () => {
@@ -430,8 +540,8 @@ describe('NavHistoryModal — current position', () => {
 
 		search('b.md'); // the current note alone
 		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
-		h.clickRow(h.note('b.md'));
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		h.clickRow(h.note('b'));
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
@@ -454,9 +564,130 @@ describe('NavHistoryModal — current position', () => {
 		// does not hold back the place they are already in (see NavHistoryList.targetOf),
 		// so a note's sub-list under its own row opens like any other note's.
 		h.clickRow(places[0]);
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 		h.clickRow(places[1]);
-		expect(h.jumpTo).toHaveBeenCalledWith(2);
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
+	});
+});
+
+// A click whose row the list has rebuilt away from under it: the reader pressed one
+// note and the release arrives at an element that is no longer ON the list, or is on
+// it at a different place. The row's index is a fact about ONE render (the places move
+// under the list on every visit), so a click that reads it after a rebuild opens
+// whatever slid into that slot — the wrong note. What the click is answered with
+// instead is the place the reader PRESSED (see NavHistoryList.onPress / onClick).
+describe('NavHistoryModal — a click after the list was rebuilt', () => {
+	// a is the OLDEST here, so recency puts it LAST: three rows, a.md third.
+	const three = () => [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+
+	it('opens the note that was PRESSED, not whatever the index names now', () => {
+		const entries = three();
+		const h = harness(entries, 2, files);
+		const row = h.note('a');
+		expect(h.notes().map(r => r.textContent)).toEqual(['c', 'b', 'a']);
+
+		// Press the row, then let the places move the way the reader's own click is
+		// about to move them (a.md to the end, which by recency puts it FIRST), and
+		// let the list be rebuilt. The element in hand is now detached, and the group
+		// index it carries (2) names b.md.
+		h.pressRow(row);
+		h.changed(0);
+
+		expect(h.notes().map(r => r.textContent)).toEqual(['a', 'c', 'b']);
+		h.clickRow(row);
+
+		// a.md was entries[2] before the move, and is entries[2] after it; the index
+		// the stale element carried (the third GROUP) now names b.md, which is
+		// entries[0] — so the wrong answer here is 0 and not 2.
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
+	});
+
+	it('opens nothing when the place it stood for is off the list now', () => {
+		const entries = three();
+		const h = harness(entries, 2, files);
+		const row = h.note('a');
+
+		h.pressRow(row);
+		// The place is gone: the file was deleted, the cap trimmed it, the query
+		// stopped matching. There is no row left that stands for it.
+		entries.splice(0, 1);
+		h.changed();
+
+		h.clickRow(row);
+
+		// Opening nothing is the one failure this list can afford. Opening the note
+		// that took the slot is the one it cannot.
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('still opens the row under the click when no press preceded it', () => {
+		// A programmatic activation, or an assistive technology's: there is no press
+		// to remember, so the event's own row is the answer — and it is the right one,
+		// because such a click can only ever land on an element that IS on the list.
+		const entries = three();
+		const h = harness(entries, 2, files);
+
+		h.clickRow(h.note('a'));
+
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+	});
+
+	it('opens the row under the click when the list did NOT rebuild', () => {
+		// The ordinary click, in two halves: press and release with nothing in
+		// between. The element in hand is still the one the list drew, so its own
+		// index is the exact answer and no lookup is needed.
+		const entries = three();
+		const h = harness(entries, 2, files);
+		const row = h.note('b');
+
+		h.pressRow(row);
+		h.clickRow(row);
+
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
+	});
+
+	it('answers a click that the browser gave to the LIST, when the pressed row was gone', () => {
+		// A press whose element is removed before the release does not always come
+		// back to that element: the browser resolves the click on the nearest
+		// ancestor still in the document, so no row sees it at all. That is the
+		// click that used to do nothing whatever (see NavHistoryList.onUnansweredClick).
+		const entries = three();
+		const h = harness(entries, 2, files);
+		const row = h.note('a');
+
+		h.pressRow(row);
+		h.changed(0);
+		h.list().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
+	});
+
+	it('does nothing with a click on the list that no press preceded', () => {
+		// The list's own background — the gap under the last row. It is not a row,
+		// and it stands for no place: nothing was pressed and nothing may be opened.
+		const entries = three();
+		const h = harness(entries, 2, files);
+
+		h.list().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('answers what the click LANDED on, when a press for another row is outstanding', () => {
+		// A press the reader abandons — the pointer dragged off the row, or a
+		// right-click that raised the row's menu instead — must not lie in wait and
+		// open the row it names later on. An element still on the list answers for
+		// itself (see onClick), so what is opened is what was clicked: here c.md
+		// (entries[2]) and not a.md (entries[0]), which is what was pressed.
+		const entries = three();
+		const h = harness(entries, 2, files);
+
+		h.pressRow(h.note('a'));
+		h.changed();
+		h.clickRow(h.note('c'));
+
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 });
 
@@ -482,7 +713,7 @@ describe('NavHistoryModal — keyboard', () => {
 		h.key('ArrowDown'); // b.md, the newest back note
 		h.key('Enter');
 
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('walks one row per key, and keeps the row it walks to in view', () => {
@@ -499,12 +730,12 @@ describe('NavHistoryModal — keyboard', () => {
 
 		// c.md, b.md, a.md — the current note first, then by recency.
 		h.key('ArrowDown');
-		expect(selected()).toEqual(['c.md']);
+		expect(selected()).toEqual(['c']);
 		expect(spy).toHaveBeenCalled();
 		spy.mockClear();
 
 		h.key('ArrowDown');
-		expect(selected()).toEqual(['b.md']);
+		expect(selected()).toEqual(['b']);
 		expect(spy).toHaveBeenCalled();
 		spy.mockRestore();
 	});
@@ -573,16 +804,16 @@ describe('NavHistoryModal — keyboard', () => {
 		// …and the keyboard's own position is left exactly where it was: no pointer
 		// report, over the row it walked to or over any other, takes it away.
 		h.key('ArrowDown'); // c.md — the current note, pinned first
-		expect(selected()).toEqual(['c.md']);
+		expect(selected()).toEqual(['c']);
 		h.movePointer(b, { x: 44, y: 41 });
 		h.movePointer(h.el.querySelector<HTMLElement>('.position-restore-nav-list')!, { x: 200, y: 90 });
-		expect(selected()).toEqual(['c.md']);
+		expect(selected()).toEqual(['c']);
 
 		// …and a click does not move it either: a click OPENS the row (the travel below),
 		// which is the whole of what the list does with a pointer.
 		h.clickRow(b);
 		expect(h.jumpTo).toHaveBeenCalled();
-		expect(selected()).toEqual(['c.md']);
+		expect(selected()).toEqual(['c']);
 	});
 
 	it('walks the note rows, and ←→ opens nothing because nothing is printed', () => {
@@ -598,15 +829,15 @@ describe('NavHistoryModal — keyboard', () => {
 		h.key('ArrowDown'); // c.md
 		h.key('ArrowDown'); // b.md — one row, whatever the note holds
 		expect(h.rows()).toHaveLength(0);
-		expect(h.note('b.md').classList.contains('is-selected')).toBe(true);
+		expect(h.note('b').classList.contains('is-selected')).toBe(true);
 
 		// Enter travels to the spot that row stands for — the note's NEWEST landing,
 		// where the reader left it (see NavHistoryList.activeRep) — and ↓ walks on to
 		// the next NOTE, because there is no landing row in between to step into.
 		h.key('Enter');
-		expect(h.jumpTo).toHaveBeenCalledWith(2);
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 		h.key('ArrowDown');
-		expect(h.note('a.md').classList.contains('is-selected')).toBe(true);
+		expect(h.note('a').classList.contains('is-selected')).toBe(true);
 
 		// ←→ is not consumed by anything here: there is no tree left to open or close
 		// (see NavHistoryBrowser.onKeyDown), so both keys keep their ordinary meaning
@@ -635,7 +866,7 @@ describe('NavHistoryModal — keyboard', () => {
 		// …and a click on one of them travels to THAT JUMP — never to the record,
 		// whose travel is a plain open (see places.travel).
 		h.clickRow(h.rows()[0]);
-		expect(h.jumpTo).toHaveBeenCalledWith(0);
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 		expect(h.jumpTo).not.toHaveBeenCalledWith(2);
 	});
 
@@ -656,7 +887,7 @@ describe('NavHistoryModal — keyboard', () => {
 		h.key('ArrowDown'); // …into its landings, the older one first (line order)
 		expect(h.rows()[0].classList.contains('is-selected')).toBe(true);
 		h.key('Enter');
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 });
 
@@ -676,23 +907,54 @@ describe('NavHistoryModal — the file scope is gone', () => {
 		visit('c.md', NOW),
 	];
 
-	it('leaves the toolbar to the search box, the hint and the list setting', () => {
+	it('leaves the toolbar to the search box, its ×, the hint and the list setting', () => {
 		const h = harness(entries(), 3, files);
 
 		expect(h.el.querySelector('.position-restore-nav-toggle')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope-menu')).toBeNull();
 		// Box, hint, and the panel's own setting at the far end (see
-		// NavHistoryBrowser.settings) — nothing else. The button's class list is read
-		// one class deep because drawing the icon adds the app's own icon classes to it
-		// (see setIcon).
+		// NavHistoryBrowser.settings) — nothing else. The box's × is not a fourth thing in
+		// the strip: it is INSIDE the box's own element, hung on the line the reader typed
+		// on. The button's class list is read one class deep because drawing the icon adds
+		// the app's own icon classes to it (see setIcon).
 		const strip = Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-toolbar > *'));
 		expect(strip.map(el => el.className.split(' ')[0])).toEqual([
-			'position-restore-nav-filter',
+			'position-restore-nav-search',
 			'position-restore-nav-hint',
 			'clickable-icon',
 		]);
 		expect(strip[2].classList.contains('position-restore-nav-settings')).toBe(true);
+		expect(strip[0].querySelector('.position-restore-nav-clear')).toBe(h.clearButton());
+	});
+
+	it('empties the box from the × at the end of the line', () => {
+		// The app's own gesture, copied from its quick switcher (see NavHistoryBrowser
+		// .toolbar): the press is REFUSED so the caret never leaves the box, and the click
+		// clears the box and re-reads the list from it. It is in the DOM whether or not
+		// the box has anything in it; the STYLESHEET is what hides it while the box is
+		// empty (asserted in the styles suite — jsdom loads no stylesheet).
+		const h = harness(entries(), 3, files);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('navHistory.clearFilter'));
+		expect(h.clearButton().querySelector('svg')?.getAttribute('data-icon')).toBe('x');
+		// A press on it is refused, so the focus stays where the reader's typing is.
+		const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+		h.clearButton().dispatchEvent(press);
+		expect(press.defaultPrevented).toBe(true);
+
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.notes()).toHaveLength(1);
+
+		h.clearFilter();
+
+		// The box is empty, the list is the whole list again, and the caret is back in
+		// the box — which is what makes the × a faster way to type the next query.
+		expect(box.value).toBe('');
+		expect(h.notes()).toHaveLength(3);
+		expect(document.activeElement).toBe(box);
 	});
 
 	it('narrows to a note by its own name, which is what the scope was for', () => {		const h = harness(entries(), 3, files);
@@ -703,7 +965,174 @@ describe('NavHistoryModal — the file scope is gone', () => {
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 
 		expect(h.notes()).toHaveLength(1);
-		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('b.md');
+		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('b');
+	});
+});
+
+// The OTHER NAMES a file goes by (see NavHistoryReads.aliasesFor): searchable, and
+// printed nowhere on the row but its own tooltip. They are the fourth thing a query
+// can hit that is not literally on the row, and the first one that is deliberately
+// about the reader's memory rather than about the visit.
+describe('NavHistoryModal — searching a note by its other names', () => {
+	// The window opens with the note's `visit` (the file's own record) and one jump
+	// into it, so a query's hits can be counted as rows AND as landing rows.
+	const entries = (): NavHistoryEntry[] => [
+		visit('a.md', NOW - 3 * MINUTE, { scroll: 400 }),
+		visit('b.md', NOW - 2 * MINUTE),
+		visit('a.md', NOW - MINUTE),
+	];
+	const cache = {
+		'a.md': {
+			headings: [],
+			frontmatter: { title: 'Weekly sync', aliases: ['周会', 'standup'] },
+		},
+		'b.md': { headings: [], frontmatter: { aliases: 'solo' } },
+	};
+	const files = { 'a.md': '', 'b.md': '' };
+	const search = (h: ReturnType<typeof harness>, query: string) => {
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = query;
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+	};
+	const names = (h: ReturnType<typeof harness>) =>
+		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+
+	it('finds a note by an alias, by its title, and not by an unrelated word', () => {
+		const h = harness(entries(), 2, files, [], {}, cache);
+
+		search(h, '周会');
+		expect(names(h)).toEqual(['a']);
+		// The `title` is read too — a community convention and not a native property
+		// (see readMeta) — and a hit inside it is a hit, token by token.
+		search(h, 'weekly');
+		expect(names(h)).toEqual(['a']);
+		search(h, 'sync');
+		expect(names(h)).toEqual(['a']);
+		// Case-insensitive like every other part of the query.
+		search(h, 'STANDUP');
+		expect(names(h)).toEqual(['a']);
+
+		search(h, 'nothing-here');
+		expect(names(h)).toEqual([]);
+	});
+
+	it('takes an alias written as a single string, not only as a list', () => {
+		// `aliases: solo` is as valid a frontmatter line as the usual block list, and
+		// Obsidian's own matching takes both (see readMeta).
+		const h = harness(entries(), 2, files, [], {}, cache);
+
+		search(h, 'solo');
+
+		expect(names(h)).toEqual(['b']);
+	});
+
+	it('ANDs tokens across the two places a name can come from', () => {
+		const h = harness(entries(), 2, files, [], {}, cache);
+
+		// One token from the title, one from the aliases: both must be somewhere in
+		// what the row stands for, and they are.
+		search(h, 'weekly 周会');
+		expect(names(h)).toEqual(['a']);
+
+		// …but a token nothing holds sinks the match, whichever half held the other.
+		search(h, 'weekly b.md');
+		expect(names(h)).toEqual([]);
+	});
+
+	it('does not re-order anything: an alias match is still the MRU list', () => {
+		// The order is "where have I been", and a name the reader half-remembers says
+		// nothing about when they were there. Two notes carry the same alias and the
+		// note the reader is IN does not, so what is left is the plain MRU order of the
+		// two that match: b was visited later than a, so b leads.
+		const h = harness([
+			visit('a.md', NOW - 3 * MINUTE),
+			visit('b.md', NOW - 2 * MINUTE),
+			visit('c.md', NOW),
+		], 2, { 'a.md': '', 'b.md': '', 'c.md': '' }, [], {}, {
+			'a.md': { headings: [], frontmatter: { aliases: ['x'] } },
+			'b.md': { headings: [], frontmatter: { aliases: ['x'] } },
+		});
+
+		search(h, 'x');
+
+		expect(names(h)).toEqual(['b', 'a']);
+	});
+
+	it('prints the other names on the row\'s tooltip, after the path', () => {
+		// A note WITH names and one without, so the second half of the rule is visible
+		// beside the first: the names are an addition to the tooltip, not a replacement.
+		const h = harness([visit('a.md', NOW - MINUTE), visit('plain.md', NOW)], 1,
+			{ 'a.md': '', 'plain.md': '' }, [], {}, cache);
+
+		// The path first, then the names — title before aliases, in the order the
+		// frontmatter lists them (see readMeta). The row prints neither the extension
+		// nor the folder, so this is where a reader can still see them; and the path is
+		// drawn SEGMENT BY SEGMENT, so the separators are elements of their own (see
+		// tip.ts) — the string a reader copies is the same one either way.
+		const withNames = h.hover(h.note('a'))!;
+		expect(withNames.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
+		expect(Array.from(withNames.querySelectorAll('.nav-tip-sep')).map(s => s.textContent)).toEqual([]);
+		expect(withNames.querySelector('.nav-tip-text')?.textContent)
+			.toBe(`${t('navHistory.aka')} Weekly sync · 周会 · standup`);
+
+		// …and a note with no other names says the path and nothing else.
+		h.unhover(h.note('a'));
+		const plain = h.hover(h.note('plain'))!;
+		expect(plain.querySelector('.nav-tip-path')?.textContent).toBe('plain.md');
+		expect(plain.querySelector('.nav-tip-text')).toBeNull();
+	});
+
+	it('draws a folder path as its segments, with the separators between them', () => {
+		// The one reason the panel draws its own tooltip: a `/` between two long segments
+		// is the least visible character in the string, so it is a span of its own for
+		// the stylesheet to weight (see styles.css), and the folder segments step back so
+		// it has something to stand against.
+		const h = harness([visit('deep/folder/note.md', NOW)], 0, { 'deep/folder/note.md': '' });
+
+		const tip = h.hover(h.note('note'))!;
+		expect(Array.from(tip.querySelectorAll('.nav-tip-sep')).map(s => s.textContent))
+			.toEqual(['/', '/']);
+		expect(Array.from(tip.querySelectorAll('.nav-tip-seg')).map(s => s.textContent))
+			.toEqual(['deep', 'folder']);
+		expect(tip.querySelector('.nav-tip-name')?.textContent).toBe('note.md');
+		// The whole thing still reads as the path it is.
+		expect(tip.querySelector('.nav-tip-path')?.textContent).toBe('deep/folder/note.md');
+	});
+
+	it('leaves a landing row\'s tooltip alone', () => {
+		// A landing row's tooltip is the SCOPE of the landing (a line range, see
+		// placeRow); the other names belong to the FILE and not to one spot in it — and
+		// two spots far enough apart are two rows to say that about.
+		const h = harness([
+			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
+			visit('a.md', NOW - 2 * MINUTE, { scroll: 400 }),
+			visit('b.md', NOW),
+		], 2, files, [], {}, cache, false, [], {}, prefs({ landings: 'all' }).browser);
+
+		const place = h.rows().find(r => r.querySelector('.nav-row-line')?.textContent === 'L401')!;
+		expect(place).toBeDefined();
+		// The row is a landing with ONE spot: there is no range for it to stand for, so it
+		// says nothing on hover — and the file's other names, which belong to the note,
+		// are not something a landing row can be asked about (see placeRow / fileRow).
+		expect(h.hover(place)).toBeNull();
+		expect(h.hover(h.note('a'))!.textContent).toContain('周会');
+	});
+
+	it('reads each path once, and reads it again only when the file changes', () => {
+		// Two notes, one read each: the record is memoized per PATH for the life of the
+		// body (see NavHistoryReads), so filtering, re-ordering and every later render
+		// are answered from memory — and a frontmatter change drops exactly one path.
+		const h = harness(entries(), 2, files, [], {}, cache);
+		expect(h.cacheReads()).toBe(2);
+
+		search(h, 'weekly');
+		expect(h.cacheReads()).toBe(2); // the query added nothing
+		search(h, '');
+		expect(h.cacheReads()).toBe(2); // nor does clearing it
+
+		h.changeFile('a.md');
+		search(h, 'weekly');
+		expect(h.cacheReads()).toBe(3); // one path re-read, the other still remembered
 	});
 });
 
@@ -741,18 +1170,20 @@ describe('NavHistoryModal — the settings menu', () => {
 
 		const panel = menu(h)!;
 		expect(btn.getAttribute('aria-expanded')).toBe('true');
-		// TWO choices (see NavHistoryBrowser.openSettings): how much of a note the list
-		// prints, and how far back it reaches. Each is its own group with its own name —
-		// what is chosen has to be audible without opening the list to look at its shape
-		// — and every ANSWER carries the few words saying what it means, on its own row,
-		// which a menu cannot carry. That is why this is the panel's own DOM and not the
-		// app's Menu.
+		// FOUR choices (see NavHistoryBrowser.openSettings): how much of a note the
+		// list prints, how much of each row's path it prints, whether a row is dated,
+		// and how far back the list reaches. Each is its own group with its own name — what is chosen has to be
+		// audible without opening the list to look at its shape — and every ANSWER
+		// carries the few words saying what it means, on its own row, which a menu
+		// cannot carry. That is why this is the panel's own DOM and not the app's Menu.
 		expect(panel.getAttribute('role')).toBe('group');
 		expect(panel.getAttribute('aria-label')).toBe(t('navHistory.listSettings'));
-		expect(panel.querySelectorAll('.nav-settings-group')).toHaveLength(2);
+		expect(panel.querySelectorAll('.nav-settings-group')).toHaveLength(4);
 		expect(Array.from(panel.querySelectorAll('.nav-settings-title')).map(el => el.textContent))
 			.toEqual([
 				t('navHistory.landings.name'),
+				t('navHistory.pathDisplay.name'),
+				t('navHistory.rowTime.name'),
 				t('navHistory.recentCap.name'),
 			]);
 		// The few words are read where the answer is, after it, and not out of one
@@ -763,6 +1194,11 @@ describe('NavHistoryModal — the settings menu', () => {
 			.toEqual([
 				t('navHistory.landings.options.last.desc'),
 				t('navHistory.landings.options.all.desc'),
+				t('navHistory.pathDisplay.options.smart.desc'),
+				t('navHistory.pathDisplay.options.before.desc'),
+				t('navHistory.pathDisplay.options.after.desc'),
+				t('navHistory.rowTime.options.on.desc'),
+				t('navHistory.rowTime.options.off.desc'),
 				t('navHistory.recentCap.short'),
 				t('navHistory.recentCap.medium'),
 				t('navHistory.recentCap.long'),
@@ -771,7 +1207,12 @@ describe('NavHistoryModal — the settings menu', () => {
 			.querySelector('.nav-settings-option-desc')?.textContent)
 			.toBe(t('navHistory.landings.options.all.desc'));
 		expect(Array.from(panel.querySelectorAll('[role="radiogroup"]')).map(el => el.getAttribute('aria-label')))
-			.toEqual([t('navHistory.landings.name'), t('navHistory.recentCap.name')]);
+			.toEqual([
+				t('navHistory.landings.name'),
+				t('navHistory.pathDisplay.name'),
+				t('navHistory.rowTime.name'),
+				t('navHistory.recentCap.name'),
+			]);
 		// A radio group, not a menu of commands: which of the two is in force has to be
 		// audible without looking at the list's shape.
 		expect(option(h, t('navHistory.landings.options.last')).getAttribute('aria-checked')).toBe('true');
@@ -871,7 +1312,7 @@ describe('NavHistoryModal — a file that is gone', () => {
 		const entries = [visit('gone.md', NOW - 2 * MINUTE), visit('b.md', NOW)];
 		const h = harness(entries, 1, { 'b.md': '' }, ['gone.md']);
 
-		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['b.md']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['b']);
 		// nothing about it is on screen, in any shape the list knows how to draw
 		expect(h.el.querySelector('.is-missing')).toBeNull();
 		expect(h.el.textContent).not.toContain('gone.md');
@@ -884,7 +1325,7 @@ describe('NavHistoryModal — a file that is gone', () => {
 		const entries = [visit('a.md', NOW - MINUTE), visit('gone.md', NOW)];
 		const h = harness(entries, 1, { 'a.md': '' }, ['gone.md']);
 
-		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['a.md']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['a']);
 		expect(h.el.querySelector('.position-restore-nav-row.is-current')).toBeNull();
 	});
 
@@ -986,7 +1427,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 		// cells spent saying there is nothing under them.
 		const h = harnessAll([at('x.md', 100, 30), visit('y.md', NOW)], 1, files);
 
-		const row = h.note('x.md');
+		const row = h.note('x');
 		expect(row.querySelector('.nav-row-count')).toBeNull();
 		expect(row.querySelector('.nav-file-caret')).toBeNull();
 
@@ -995,8 +1436,8 @@ describe('NavHistoryModal — one note, many landings', () => {
 		expect(h.rows()).toHaveLength(0);
 
 		// …and the row is a destination: a click on it opens its one place.
-		h.clickRow(h.note('x.md'));
-		expect(h.jumpTo).toHaveBeenCalledWith(0);
+		h.clickRow(h.note('x'));
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 	});
 
 	it('gives a file with no coordinates ONE landing, however often it was opened', () => {
@@ -1012,7 +1453,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 			visit('b.md', NOW),
 		], 3, { 'board.base': '', 'b.md': '' });
 
-		const row = h.note('board.base');
+		const row = h.note('board');
 		// One spot, so nothing under the row — not even under 'all': one place is not
 		// a list (see NavHistoryList.printsLandings).
 		expect(row.querySelector('.nav-row-count')).toBeNull();
@@ -1027,7 +1468,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 		// …and it is still a destination: a click on the row goes to the place the row
 		// stands for, which is the newest of them.
 		h.clickRow(row);
-		expect(h.jumpTo).toHaveBeenCalledWith(2);
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
 	it('prints every landing when the settings ask for all of them', () => {
@@ -1040,7 +1481,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 		], 3, files, [], {}, {}, false, [], {}, all.browser);
 
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L101', 'L413']);
-		expect(h.note('x.md').querySelector('.nav-row-count')).toBeNull();
+		expect(h.note('x').querySelector('.nav-row-count')).toBeNull();
 	});
 
 	it('never merges two notes, however alike their steps are', () => {
@@ -1052,7 +1493,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 		], 2, files);
 
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
-			.toEqual(['y.md', 'z.md', 'x.md']);
+			.toEqual(['y', 'z', 'x']);
 	});
 
 	it('orders the notes by their newest landing', () => {
@@ -1063,7 +1504,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 		], 3, files);
 
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
-			.toEqual(['z.md', 'y.md', 'x.md']);
+			.toEqual(['z', 'y', 'x']);
 	});
 });
 
@@ -1091,7 +1532,7 @@ describe('NavHistoryModal — panes', () => {
 		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 1, 2));
 		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('navHistory.pane', 2, 2));
 		// ...and it is the note's own name that stays authoritative
-		expect(h.note('a.md').querySelector('.nav-row-name')?.textContent).toBe('a.md');
+		expect(h.note('a').querySelector('.nav-row-name')?.textContent).toBe('a');
 	});
 
 	it('says nothing about panes when a note lives in one leaf', () => {
@@ -1103,7 +1544,7 @@ describe('NavHistoryModal — panes', () => {
 		// a.md holds ONE landing, so there is no landing row to carry the marker: one
 		// live tab means no number to print, and a note with one place prints no rows.
 		expect(h.rows()).toHaveLength(0);
-		expect(h.note('a.md').querySelector('.nav-row-pane')).toBeNull();
+		expect(h.note('a').querySelector('.nav-row-pane')).toBeNull();
 	});
 
 	it('drops the number once that tab has moved to another note', () => {
@@ -1178,11 +1619,15 @@ describe('NavHistoryModal — a landing row', () => {
 		// L13), then L36 — whose one landing has no span to carry.
 		const rows = h.rows();
 		expect(rows.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L13', 'L36']);
-		expect(rows[0].getAttribute('title')).toBe(t('navHistory.lineRange', 7, 13));
-		expect(rows[1].getAttribute('title')).toBeNull();
+		// The span is the ROW's own answer, so it is the row's own tooltip — a line
+		// range and nothing else: it is not the file's, and the file's other names are
+		// not a spot's (see placeRow).
+		expect(h.hover(rows[0])?.textContent).toBe(t('navHistory.lineRange', 7, 13));
+		// …and the one landing that holds no span says nothing at all.
+		expect(h.hover(rows[1])).toBeNull();
 
 		h.clickRow(rows[0]);
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('keeps the heading the landing line itself carries as the deepest level', () => {
@@ -1212,6 +1657,493 @@ describe('NavHistoryModal — a landing row', () => {
 });
 
 
+// WHAT A ROW SAYS about the FILE behind it: the name without its extension, the type
+// badge where the type is worth saying, the folder on the side the setting asks for,
+// and the full path on hover (see displayName / badgeOf / PathDisplayMode).
+describe('NavHistoryModal — the name, the type and the path', () => {
+	const files = {
+		'a/index.md': '', 'b/index.md': '', 'notes.md': '',
+		'report.pdf': '', 'LICENSE': '', 'board.canvas': '',
+	};
+	const stack = (): NavHistoryEntry[] => [
+		visit('a/index.md', NOW - 6 * MINUTE),
+		visit('b/index.md', NOW - 5 * MINUTE),
+		visit('notes.md', NOW - 4 * MINUTE),
+		visit('report.pdf', NOW - 3 * MINUTE),
+		visit('LICENSE', NOW - 2 * MINUTE),
+		visit('board.canvas', NOW),
+	];
+	// A row found by the FILE it stands for, out of what the row PRINTS: the two index
+	// notes print the same name, so the name alone cannot be the lookup, and the folder
+	// is what tells them apart — 'smart' prints exactly the folders a collision needs
+	// and the two "always" modes print all of them, so the pair is unique under every
+	// setting. The tooltip is NOT a lookup key any more: it belongs to the panel and
+	// exists in the document only while the pointer rests on a row (see tip.ts).
+	const rowFor = (h: ReturnType<typeof harness>, path: string) => {
+		const cut = path.lastIndexOf('/');
+		const folder = cut < 0 ? '/' : path.slice(0, cut + 1);
+		const file = path.slice(cut + 1).replace(/\.[^./]+$/, '');
+		const row = h.notes().find(r =>
+			r.querySelector('.nav-row-name')?.textContent === file
+			&& (r.querySelector('.nav-row-path')?.textContent ?? '/') === folder);
+		expect(row, `no row for ${path}`).toBeDefined();
+		return row!;
+	};
+	const attr = (row: HTMLElement) => ({
+		name: row.querySelector('.nav-row-name')?.textContent,
+		badge: row.querySelector('.nav-row-badge')?.textContent,
+		path: row.querySelector('.nav-row-path')?.textContent,
+	});
+	// What one file's row says on hover, found by the path the fixture named it with.
+	const hoverOf = (h: ReturnType<typeof harness>, path: string) => h.hover(rowFor(h, path));
+	// The metadata of ONE note in this stack: it goes by other names, which are printed
+	// nowhere on the row and are the one thing a hover can still add to a row that
+	// already prints its path (see the aliases suite and fileRow).
+	const cache = {
+		'a/index.md': { headings: [], frontmatter: { title: 'Weekly sync', aliases: ['周会', 'standup'] } },
+	};
+
+	it('prints the name without the extension, and marks every type but markdown', () => {
+		const h = harness(stack(), 5, files);
+
+		expect(attr(rowFor(h, 'notes.md')))
+			.toEqual({ name: 'notes', badge: undefined, path: undefined });
+		// A PDF says so, in capitals — the extension is not part of the name it is
+		// printed under, so the badge is the only place the type is said at all.
+		expect(attr(rowFor(h, 'report.pdf')))
+			.toEqual({ name: 'report', badge: 'PDF', path: undefined });
+		// …and a file with NO extension gets one too, or "no badge" would mean both
+		// "markdown" and "no type known" (see badgeOf).
+		expect(attr(rowFor(h, 'LICENSE')))
+			.toEqual({ name: 'LICENSE', badge: 'FILE', path: undefined });
+		expect(attr(rowFor(h, 'board.canvas')))
+			.toEqual({ name: 'board', badge: 'CANVAS', path: undefined });
+	});
+
+	it('carries the file\'s full path, extension and all, where the row does not print it', () => {
+		// The row prints neither the extension nor (by default) the folder, so the
+		// tooltip is the last place either is still said. It is the PANEL's tooltip and
+		// not the native `title` it used to be (see tip.ts): a browser tooltip cannot be
+		// styled, and this one has to be legible — and it is not written as an
+		// `aria-label`, which would REPLACE the option's accessible name (see fileRow).
+		const h = harness(stack(), 5, files);
+
+		expect(h.hover(rowFor(h, 'notes.md'))!.querySelector('.nav-tip-path')?.textContent)
+			.toBe('notes.md');
+		h.unhover(rowFor(h, 'notes.md'));
+		expect(h.hover(rowFor(h, 'LICENSE'))!.querySelector('.nav-tip-path')?.textContent)
+			.toBe('LICENSE');
+	});
+
+	it('says nothing on hover where the row already prints the path', () => {
+		// The reader asked for the paths by turning them on (see PathDisplayMode), so the
+		// hover has nothing left to add: a row that prints its folder is a row that says
+		// nothing on hover — the extension alone is not worth a tooltip (see fileRow).
+		// This is the whole of the rule, told in both of its halves.
+		const always = harness(stack(), 5, files, [], {}, {}, false, [], {}, prefs({ path: 'before' }).browser);
+		for (const path of ['a/index.md', 'notes.md', 'report.pdf', 'LICENSE', 'board.canvas'])
+			expect(hoverOf(always, path), path).toBeNull();
+
+		// …and under 'smart' the same rule picks out the rows that print a folder: the two
+		// index notes collide and print theirs, so they say nothing on hover, while a row
+		// whose folder is NOT printed still says the whole path.
+		const smart = harness(stack(), 5, files);
+		expect(hoverOf(smart, 'a/index.md')).toBeNull();
+		expect(hoverOf(smart, 'b/index.md')).toBeNull();
+		expect(hoverOf(smart, 'notes.md')?.querySelector('.nav-tip-path')?.textContent).toBe('notes.md');
+	});
+
+	it('says the other names even where the row prints the path', () => {
+		// The names are printed NOWHERE on a row and are searchable, so they are the one
+		// thing a hover still owes a reader whose paths are on screen — the path line goes
+		// and the names' line stays (see fileRow).
+		const h = harness(stack(), 5, files, [], {}, cache, false, [], {}, prefs({ path: 'after' }).browser);
+
+		const tip = h.hover(rowFor(h, 'a/index.md'))!;
+		expect(tip.querySelector('.nav-tip-path')).toBeNull();
+		expect(tip.querySelector('.nav-tip-text')?.textContent)
+			.toBe(`${t('navHistory.aka')} Weekly sync · 周会 · standup`);
+	});
+
+	it('says nothing about a pathless view: no badge, no folder, no tooltip', () => {
+		// The graph is a view and not a file: it has no type to mark and no path to
+		// print or to hover — its own name is the translated view label.
+		const h = harness([
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavHistoryEntry,
+			...stack(),
+		], 6, files);
+
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		expect(graph).toBeDefined();
+		expect(attr(graph)).toEqual({ name: t('navHistory.graphView'), badge: undefined, path: undefined });
+		expect(h.hover(graph)).toBeNull();
+	});
+
+	it('prints the folder on every row, on the side the setting asks for', () => {
+		const ctx = (path: 'before' | 'after') =>
+			harness(stack(), 5, files, [], {}, {}, false, [], {}, prefs({ path }).browser);
+		// 'before' is the quick switcher's shape: the whole path laid out in front of
+		// the name, and the NAME is what drops when the row runs out (see styles.css).
+		const before = ctx('before');
+		expect(attr(rowFor(before, 'a/index.md')).path).toBe('a/');
+		expect(attr(rowFor(before, 'notes.md')).path).toBe('/');
+		expect(before.notes().every(r => r.classList.contains('is-path-before'))).toBe(true);
+
+		// 'after' prints the same folders, and drops the PATH instead: the names stay
+		// in the left column, which is the whole reason to choose it.
+		const after = ctx('after');
+		expect(attr(rowFor(after, 'a/index.md')).path).toBe('a/');
+		expect(after.notes().some(r => r.classList.contains('is-path-before'))).toBe(false);
+		// The vault ROOT prints "/" and not nothing, in every mode: a blank cell is
+		// what a note with no folder to print looks like, and the two are different
+		// facts (see fileRow).
+		expect(attr(rowFor(after, 'notes.md')).path).toBe('/');
+	});
+
+	it('prints the folder on the colliding rows only, by default', () => {
+		// 'smart' is the default, and it is the setting that says the least: the
+		// folder is a disambiguator, so it appears exactly where there is something to
+		// disambiguate — and nowhere else.
+		const h = harness(stack(), 5, files);
+
+		expect(rowFor(h, 'a/index.md').querySelector('.nav-row-path')?.textContent).toBe('a/');
+		expect(rowFor(h, 'b/index.md').querySelector('.nav-row-path')?.textContent).toBe('b/');
+		expect(rowFor(h, 'notes.md').querySelector('.nav-row-path')).toBeNull();
+		expect(rowFor(h, 'report.pdf').querySelector('.nav-row-path')).toBeNull();
+		// …and it lays those rows out like 'before', because the folder in front of the
+		// name is what the disambiguating rows are for.
+		expect(rowFor(h, 'a/index.md').classList.contains('is-path-before')).toBe(true);
+	});
+});
+
+// THE ROW'S TOOLTIP AS A THING THAT COMES AND GOES (see tip.ts). It is the panel's own
+// element now, drawn on the document rather than by the browser, so WHEN it is there is
+// the panel's decision: a pointer crossing the list says nothing, a pointer that rests
+// gets an answer, and the answer goes the moment the thing it describes is no longer
+// what the pointer is on — or is no longer on screen at all.
+describe('NavHistoryModal — the row\'s tooltip', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
+
+	it('answers only a pointer that RESTS on the row', () => {
+		// A tooltip that appeared the instant the pointer touched a row would be a band
+		// of text flashing down the list at the speed of the mouse (see TIP_DELAY_MS).
+		const h = harness(entries(), 1, files);
+		const row = h.note('a');
+
+		row.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
+		expect(tip()).toBeNull();
+
+		vi.advanceTimersByTime(TIP_DELAY_MS);
+		expect(tip()?.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
+	});
+
+	it('says nothing for a pointer that only crossed the row', () => {
+		const h = harness(entries(), 1, files);
+		const row = h.note('a');
+
+		row.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
+		row.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+		vi.advanceTimersByTime(TIP_DELAY_MS);
+
+		expect(tip()).toBeNull();
+	});
+
+	it('takes the answer away when the pointer leaves the row', () => {
+		// The row is one target: the tooltip belongs to what the pointer is ON, and the
+		// pointer moving off it — even onto another row that says nothing — takes it away.
+		const h = harness(entries(), 1, files);
+
+		expect(h.hover(h.note('a'))).not.toBeNull();
+		expect(h.unhover(h.note('a'))).toBeNull();
+	});
+
+	it('takes it away when the list is rebuilt under it', () => {
+		// Every keystroke redraws the rows, so a tooltip left standing would be pointing
+		// at a row that no longer exists — and describing a list the reader has just
+		// filtered (see NavHistoryList.render).
+		const h = harness(entries(), 1, files);
+		expect(h.hover(h.note('a'))).not.toBeNull();
+
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(tip()).toBeNull();
+	});
+
+	it('takes it away on a scroll, and on a press that is about to travel', () => {
+		// A tooltip is pinned to the row's own box and does not move with it: a scroll
+		// leaves it hanging over whatever slid underneath. A press is the same fact one
+		// moment later — the row is about to open, or the list to be rebuilt.
+		const h = harness(entries(), 1, files);
+		expect(h.hover(h.note('a'))).not.toBeNull();
+		h.list().dispatchEvent(new Event('scroll'));
+		expect(tip()).toBeNull();
+
+		expect(h.hover(h.note('a'))).not.toBeNull();
+		h.pressRow(h.note('a'));
+		expect(tip()).toBeNull();
+	});
+
+	it('draws it on the document, outside the panel\'s own element', () => {
+		// It has to be able to hang BELOW the list — the rows near the foot are the ones
+		// a reader needs it for — and the list scrolls and clips its own content.
+		const h = harness(entries(), 1, files);
+		const shown = h.hover(h.note('a'))!;
+
+		expect(h.el.contains(shown)).toBe(false);
+		expect(shown.parentElement).toBe(document.body);
+	});
+
+	it('takes its element with it when the panel goes', () => {
+		// The tooltip is the one thing the body put OUTSIDE its own element, so nothing
+		// that removes the panel removes it (see NavHistoryBrowser.destroy).
+		const h = harness(entries(), 1, files);
+		expect(h.hover(h.note('a'))).not.toBeNull();
+
+		h.modal.close();
+
+		expect(tip()).toBeNull();
+	});
+});
+
+// HOW LONG AGO each row's note was last visited (see model.ts's ageLabel). It is a
+// switch and not a scale: off, the rows are exactly the rows that were there before
+// the label existed, and on, every row carries one — including the ones with no file
+// behind them at all.
+describe('NavHistoryModal — the time on a row', () => {
+	const DAY = 24 * 60 * MINUTE;
+	const HOUR = 60 * MINUTE;
+	const on = () => prefs({ time: true }).browser;
+	// OLDEST FIRST, as the store really keeps them (see places.remember): the list's
+	// own order is the reverse scan of this array, so a fixture that shuffles it would
+	// be testing an order the panel never sees.
+	const stack = (): NavHistoryEntry[] => [
+		visit('notes.md', NOW - 3 * DAY),
+		{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW - 2 * HOUR } as NavHistoryEntry,
+		visit('a/index.md', NOW - 5 * MINUTE),
+	];
+	const files = { 'a/index.md': '', 'notes.md': '' };
+	const times = (h: ReturnType<typeof harness>) =>
+		h.notes().map(r => r.querySelector('.nav-row-time')?.textContent);
+
+	it('is off by default, and leaves nothing at all on the row', () => {
+		// Not hidden but ABSENT: the setting is the only reason the element exists, and
+		// a span kept in the DOM to be styled away would still be a cell the row's own
+		// flex line has to lay out.
+		const h = harness(stack(), 2, files);
+
+		expect(h.notes().length).toBeGreaterThan(0);
+		expect(h.el.querySelectorAll('.nav-row-time')).toHaveLength(0);
+	});
+
+	it('says the age of each note, from the newest step the note holds', () => {
+		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+
+		// The current note (a/index.md) leads, then notes.md; the graph is LAST
+		// whatever it holds, because a pathless group never competes with the notes for
+		// the reader's scan order (see groupByFile) — including when it is where the
+		// reader is standing.
+		expect(h.notes()).toHaveLength(3);
+		expect(times(h)).toEqual(['5m', '3d', '2h']);
+	});
+
+	it('dates the pathless view too, and every row the same way', () => {
+		// The graph is a row like any other and it was visited like any other: what it
+		// has no answer for is a FILE (no path, no type — see badgeOf), not a time.
+		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+
+		expect(graph.querySelector('.nav-row-time')?.textContent).toBe('2h');
+		expect(graph.classList.contains('is-pathless')).toBe(true);
+	});
+
+	it('carries the exact moment as the label\'s own tooltip', () => {
+		// The label is as short as the language can make it, and two of its units are
+		// ambiguous in English ("m" is minutes or months): the moment is one hover away
+		// — and it is the TIME's tooltip, so the row's own still says which file. The
+		// time is INSIDE the row, so this is the one place the pointer's nearest subject
+		// is not the row itself (see NavRowTip.subject).
+		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		const label = h.note('notes').querySelector('.nav-row-time')!;
+
+		expect(h.hover(label)?.textContent).toBe(new Date(NOW - 3 * DAY).toLocaleString());
+		h.unhover(label);
+		expect(h.hover(h.note('notes'))?.querySelector('.nav-tip-path')?.textContent).toBe('notes.md');
+	});
+
+	it('right-aligns the time only on a row that prints no folder', () => {
+		// The class is the ROW's shape and not a fact about the file's folder: a
+		// 'smart' row whose name nothing collides with is pathless, and so is a
+		// pathless view. What the class buys is in styles.css — and what it costs is
+		// the row's folder, which the automatic margin would drag to the end with it.
+		const smart = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		expect(smart.note('notes').classList.contains('is-pathless')).toBe(true);
+		expect(smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!
+			.classList.contains('is-pathless')).toBe(true);
+
+		// …and under 'always' there is exactly ONE pathless row left: the graph, which
+		// has no folder to print under any setting. The root note prints "/", which is
+		// a folder on the row like any other, and so keeps its time beside the name.
+		const always = harness(stack(), 2, files, [], {}, {}, false, [], {}, prefs({ time: true, path: 'before' }).browser);
+		expect(always.el.querySelectorAll('.is-pathless')).toHaveLength(1);
+		expect(always.note('notes').classList.contains('is-pathless')).toBe(false);
+		expect(always.note('notes').querySelector('.nav-row-path')?.textContent).toBe('/');
+	});
+});
+
+// WHERE a row opens, when the reader says so: the modifier keys, the middle button,
+// the keyboard's own equivalent, and the app's menu on a right-click. Which of these
+// the app decides rather than this plugin is the point of most of them (see
+// Keymap / PaneTarget).
+describe('NavHistoryModal — where a row opens, and the right-click menu', () => {
+	// a.md is the OLDER note, so recency puts it SECOND: two rows, b.md first.
+	const files = { 'a.md': '', 'b.md': '' };
+	const entries = (): NavHistoryEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	// A note with a LANDING and no file record — the shape a note has once its `visit`
+	// has been evicted while the jumps made inside it survive (see places.ts). Its row
+	// still opens the landing (see activeRep), so it is the row that can promise a
+	// SPOT rather than a file.
+	const jumped = (): NavHistoryEntry[] => [
+		visit('a.md', NOW - MINUTE, { scroll: 30 }),
+		visit('b.md', NOW),
+	];
+	// The menu the browser handed the app: the app's event carries it as its second
+	// argument, and that is where the plugin's own contribution is visible.
+	const menuOf = (trigger: unknown) => {
+		const calls = (trigger as { mock: { calls: unknown[][] } }).mock.calls;
+		expect(calls).toHaveLength(1);
+		return calls[0][1] as { items: { title: string; section: string; icon: string; click?: () => void }[] };
+	};
+
+	it('asks the app where to open, and opens there', () => {
+		// A plain click: the app says "where it already is" (its `false`), which this
+		// plugin normalises to no target at all (see NavHistoryList.onClick).
+		const h = harness(entries(), 1, files);
+		h.clickRow(h.note('a'));
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+
+		// …and with a modifier down, the row opens where the APP said — the plugin never
+		// reads ctrlKey/metaKey itself, so a platform the plugin knows nothing about is
+		// still the app's answer.
+		const held = harness(entries(), 1, files);
+		Keymap.modEvent = 'tab';
+		held.clickRow(held.note('a'));
+		expect(held.jumpTo).toHaveBeenCalledWith(0, 'tab');
+	});
+
+	it('opens a middle-click in a new tab, from the press itself', () => {
+		// The middle button raises `auxclick` and not `click`, so a handler waiting for
+		// the click would never run; and preventDefault on the press is what keeps the
+		// WebView's middle-click autoscroll out of the list (see NavHistoryList.onPress).
+		const h = harness(entries(), 1, files);
+		const press = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 1 });
+		h.note('a').dispatchEvent(press);
+
+		expect(press.defaultPrevented).toBe(true);
+		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
+	});
+
+	it('leaves a press of any other button alone', () => {
+		// The right button raises the row's menu and never a click (see the suite
+		// below); anything else — a fourth button, a hover-reporting pointer — opens
+		// nothing and claims nothing.
+		const h = harness(entries(), 1, files);
+		for (const button of [2, 3, 4])
+			h.note('a').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button }));
+		h.clickRow(h.note('a'));
+
+		// The click is answered by the row it landed on, and not by an identity a stray
+		// press left behind: a.md is the second row, and its place index is 0 while
+		// b.md's is 1.
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+		expect(h.trigger).not.toHaveBeenCalled();
+	});
+
+	it('opens a row in a new tab on Cmd/Ctrl+Enter', () => {
+		// The focus never leaves the filter box, so a row's modifier-click is out of
+		// reach: the keyboard's own answer is the gesture every list in the app takes.
+		// Whether the modifier is down is the app's call (see Keymap.isModifier).
+		const h = harness(entries(), 1, files);
+		h.key('ArrowDown'); // b.md, the current note, pinned first
+		h.key('ArrowDown'); // a.md
+		Keymap.modifier = true;
+		h.key('Enter');
+
+		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
+	});
+
+	it('hands the app a menu for a file row, with its own item on top', () => {
+		// The menu is the app's — what a reader can do with a file is not this plugin's
+		// business — and the ONE item added is the one the app cannot know: this row
+		// stands for a PLACE, so "open in a new tab" here means this file.
+		const h = harness(entries(), 1, files);
+		const ev = h.rightClick(h.note('a'));
+
+		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
+		const menu = menuOf(h.trigger);
+		expect(menu.items).toHaveLength(1);
+		expect(menu.items[0].title).toBe(t('navHistory.menu.openInNewTab'));
+		expect(menu.items[0].section).toBe('action');
+		expect(menu.items[0].icon).toBe('file-plus');
+		// The context asked for is a LINK's, not the file explorer's: the app decides
+		// what belongs there, and the file-managing actions do not (see contextRow).
+		expect(h.trigger).toHaveBeenCalledWith(
+			'file-menu', menu, expect.objectContaining({ path: 'a.md' }), 'link-context-menu',
+		);
+
+		// …and clicking that item opens the row's own place, one tab over — the same
+		// place a plain click opens.
+		menu.items[0].click!();
+		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
+	});
+
+	it('says WHICH place its own item opens, on a row that stands for a landing', () => {
+		// A row whose note has no file record of its own opens the LANDING it stands for
+		// (see activeRep), so "open in a new tab" would be a promise the row does not
+		// keep: it is opened HERE, at that spot.
+		const h = harness(jumped(), 1, files);
+		h.rightClick(h.note('a'));
+
+		const menu = menuOf(h.trigger);
+		expect(menu.items[0].title).toBe(t('navHistory.menu.openHereInNewTab'));
+		menu.items[0].click!();
+		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
+	});
+
+	it('raises no menu at all for a pathless view', () => {
+		// The graph is not a file: a file menu has nothing to be about, so the event is
+		// refused (the callout) and nothing is built.
+		const h = harness([
+			visit('a.md', NOW - MINUTE),
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavHistoryEntry,
+		], 1, files);
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		const ev = h.rightClick(graph);
+
+		expect(ev.defaultPrevented).toBe(true);
+		expect(h.trigger).not.toHaveBeenCalled();
+	});
+
+	it('raises no menu when the file behind the row is gone', () => {
+		// A place whose file the list cannot open is not DRAWN at all (see
+		// NavHistoryList.render), so the only way here is a file that went between the
+		// render and the right-click — a sync removing it, a delete landing a moment
+		// ago. There is then nothing to ask the app about.
+		const deleted: string[] = [];
+		const h = harness(entries(), 1, files, deleted);
+		const row = h.note('a');
+		deleted.push('a.md');
+
+		const ev = h.rightClick(row);
+
+		expect(ev.defaultPrevented).toBe(true);
+		expect(h.trigger).not.toHaveBeenCalled();
+	});
+});
+
 describe('NavHistoryModal — same-named notes', () => {
 	// The panel is used in a vault, not a code repo: "index.md" exists in five
 	// folders, and a row that printed only its last path segment named all five
@@ -1226,14 +2158,18 @@ describe('NavHistoryModal — same-named notes', () => {
 			visit('notes.md', NOW),
 		], 2, files);
 
-		const folders = h.notes().map(r => r.querySelector('.nav-row-folder')?.textContent ?? '');
+		const folders = h.notes().map(r => r.querySelector('.nav-row-path')?.textContent ?? '');
 		expect(folders).toEqual(['', 'b/', 'a/']); // notes.md (current) first, then the two index.md, newest first
-		expect(h.note('notes.md').querySelector('.nav-row-folder')).toBeNull();
-		// the folder comes BEFORE the name it disambiguates
-		const index = h.note('index.md');
+		expect(h.note('notes').querySelector('.nav-row-path')).toBeNull();
+		// The folder comes BEFORE the name it disambiguates — as a CLASS and not as
+		// an insertion order: the row is built name-first so that it READS the same
+		// however it is drawn, and the stylesheet's `order` is what puts the path in
+		// front (see styles.css, and the `after` mode, where it is not applied).
+		const index = h.note('index');
+		expect(index.classList.contains('is-path-before')).toBe(true);
 		// …and with one landing there is no count riding after the name.
 		expect([...index.querySelector('.nav-row-file')!.children].map(el => el.className))
-			.toEqual(['nav-row-folder', 'nav-row-name']);
+			.toEqual(['nav-row-name', 'nav-row-path']);
 	});
 
 	it('gives a same-named note at the vault root a folder to show', () => {
@@ -1246,7 +2182,7 @@ describe('NavHistoryModal — same-named notes', () => {
 		], 1, { 'index.md': '', 'a/index.md': '' });
 
 		// a/index.md is the current entry, so it leads; the root note follows.
-		const folders = root.notes().map(r => r.querySelector('.nav-row-folder')?.textContent);
+		const folders = root.notes().map(r => r.querySelector('.nav-row-path')?.textContent);
 		expect(folders).toEqual(['a/', '/']);
 	});
 
@@ -1258,14 +2194,14 @@ describe('NavHistoryModal — same-named notes', () => {
 			visit('b/index.md', NOW),
 		], 1, files);
 
-		expect(h.notes()[0].querySelector('.nav-row-folder')).not.toBeNull();
+		expect(h.notes()[0].querySelector('.nav-row-path')).not.toBeNull();
 
 		const input = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		input.value = 'a/index';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 
 		expect(h.notes()).toHaveLength(1);
-		expect(h.notes()[0].querySelector('.nav-row-folder')).toBeNull();
+		expect(h.notes()[0].querySelector('.nav-row-path')).toBeNull();
 	});
 });
 
@@ -1305,7 +2241,7 @@ describe('NavHistoryModal — the recorded landing block', () => {
 		search(h, '到哪里去');
 
 		expect(h.notes()).toHaveLength(1);
-		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('a.md');
+		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('a');
 	});
 
 	it('finds a note by the section its landing row prints', () => {
@@ -1353,19 +2289,37 @@ describe('NavHistoryModal — touch', () => {
 	];
 	const SPREAD_FILES = { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' };
 
+	it('empties the box from the × without summoning the keyboard', () => {
+		// The panel deliberately leaves the box unfocused on touch — the on-screen
+		// keyboard covers half a phone (see body.ts's mount) — so the × must not put the
+		// focus there either: a finger that taps it is clearing, not typing.
+		const h = harness(entries(), 2, files, [], {}, {}, true);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.notes()).toHaveLength(1);
+
+		h.clearFilter();
+
+		expect(box.value).toBe('');
+		expect(h.notes()).toHaveLength(3);
+		expect(document.activeElement).not.toBe(box);
+	});
+
 	it('treats a tap inside any cell of a row as a tap on the row', () => {
 		// A touch WebView sends mousemove before the click. Nothing about the cell
 		// under the finger may change what happens: the note's own name cell and the
 		// row's padding both act on the row — and what the row does is OPEN the file
 		// it stands for (see NavHistoryList.onClick).
 		const h = harness(entries(), 2, files, [], {}, {}, true);
-		h.note('b.md').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
-		const target = h.note('b.md').querySelector<HTMLElement>('.nav-row-file')!;
+		h.note('b').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
+		const target = h.note('b').querySelector<HTMLElement>('.nav-row-file')!;
 
 		target.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
 		target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('ignores the mousemove a tap synthesises, so the click still opens the note', () => {
@@ -1375,13 +2329,13 @@ describe('NavHistoryModal — touch', () => {
 		// own, which opens the file rather than being read as a second press on an
 		// already-open row.
 		const h = harness(entries(), 2, files, [], {}, {}, true);
-		const row = h.note('b.md');
+		const row = h.note('b');
 
 		row.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 		expect(row.classList.contains('is-selected')).toBe(false);
 
 		h.clickRow(row);
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('lets a pointing device open the file from the row itself, in one click', () => {
@@ -1390,14 +2344,14 @@ describe('NavHistoryModal — touch', () => {
 		// do with it (see NavHistoryList.onClick).
 		const h = harness(entries(), 2, files);
 
-		h.clickRow(h.note('b.md'));
-		expect(h.jumpTo).toHaveBeenCalledWith(1);
+		h.clickRow(h.note('b'));
+		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('opens nothing on a right-click, and refuses the gesture', () => {
 		const h = harness(entries(), 2, files);
 
-		const ev = h.rightClick(h.note('b.md'));
+		const ev = h.rightClick(h.note('b'));
 
 		// A row is opened by clicking it. The right button used to travel as well — a
 		// shortcut for a hand already resting on it — and that is gone: one gesture per
@@ -1410,7 +2364,7 @@ describe('NavHistoryModal — touch', () => {
 
 	it('does not travel on a press that was only held down', () => {
 		const h = harness(entries(), 2, files);
-		const row = h.note('b.md');
+		const row = h.note('b');
 
 		// A WebView raises `contextmenu` for a long touch as well as for a right
 		// click, and the two are told apart by the BUTTON the event carries: a real

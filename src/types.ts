@@ -81,6 +81,21 @@ interface TabStateRecord {
 // NavBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
 type LandingsMode = 'last' | 'all';
 
+// How much of a row's PATH the history list prints. The two "always" states are
+// also a choice of what gives way when the row runs out of width: the middle of a
+// flex line is where the wrap happens, so 'before' drops the NAME to a second line
+// with the path kept whole, and 'after' drops the PATH — see list.ts's fileRow and
+// the `order` rule in styles.css, which is the whole of the difference.
+//
+// 'smart' (the default) prints the folder only on the rows whose name another row
+// on screen shares — where it is the only thing that tells two rows apart (see
+// duplicateNames) — and lays them out like 'before'.
+//
+// Named here, beside the setting that holds it, because the settings record, the
+// list's own options and the toolbar's setting all speak it (see
+// NavBrowserPrefs.pathDisplay).
+type PathDisplayMode = 'smart' | 'before' | 'after';
+
 interface PluginSettings {
 	dbFileName: string;
 	minLinesToRecord: number; // 0 = disabled, do not record positions for files with fewer lines
@@ -126,6 +141,12 @@ interface PluginSettings {
 	// toolbar's own setting button — because that is where the reader is looking at
 	// what they change, and the settings tab keeps no second copy of either.
 	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
+	navPathDisplay: PathDisplayMode; // whether a row prints the folder its note sits in, and on which side of the name
+	// Whether a row prints how long ago it was last visited. Off by default: it is a
+	// second thing on every row of a list whose scarce resource is width, and the list
+	// is already IN that order, so the label only adds magnitude. It is the place's own
+	// `t` (see places.ts) — the last time the reader was there, not the file's mtime.
+	navRowTime: boolean;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -147,6 +168,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navRecentCap: 200,
 	navRecentExcludeFolders: [],
 	navLandings: 'last',
+	navPathDisplay: 'smart',
+	navRowTime: false,
 };
 
 export {
@@ -157,4 +180,5 @@ export {
 	TabStateRecord,
 	PluginSettings,
 	LandingsMode,
+	PathDisplayMode,
 };

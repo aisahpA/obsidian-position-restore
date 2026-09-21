@@ -208,6 +208,85 @@ function links(node: Node, text: string): void {
 		node.appendChild(document.createTextNode(text.slice(at)));
 }
 
+// The app's own answers to the two questions a click raises: WHERE should this open
+// (Keymap.isModEvent — 'tab' for Cmd/Ctrl or a middle-click, 'split' with Alt,
+// 'window' with Alt+Shift, and `false` for a plain click) and WHETHER a modifier is
+// down (Keymap.isModifier).
+//
+// The stand-in is DRIVEN BY THE TEST instead of reading real modifier state, and that
+// is the honest way to test this: the plugin's job is to ASK the app and pass the
+// answer along, so the answer is the input. Synthesising a Cmd+click in jsdom would
+// only be testing jsdom. The middle-click rule is kept, because it is the one the
+// plugin's own press handler relies on being the app's (`isModEvent` documents it) —
+// a plugin that stopped asking would stop getting it.
+export class Keymap {
+	static modEvent: unknown = false;
+	static modifier = false;
+	static isModEvent(evt?: { button?: number }): unknown {
+		if (evt?.button === 1)
+			return 'tab';
+		return Keymap.modEvent;
+	}
+	static isModifier(_evt: unknown, _modifier: string): boolean {
+		return Keymap.modifier;
+	}
+	// Called between tests: an answer left set would silently decide the next case.
+	static reset(): void {
+		Keymap.modEvent = false;
+		Keymap.modifier = false;
+	}
+}
+
+// The app's own context menu (see NavHistoryBrowser.contextRow). What the plugin owes
+// the app is a menu OBJECT with the right items in it — the floating DOM the real one
+// builds is the app's business, and jsdom has no layout to position it in — so the
+// stand-in records what was added and what each item would do when clicked.
+export class MenuItem {
+	section = '';
+	title = '';
+	icon = '';
+	click: (() => void) | undefined;
+	setSection(section: string): this {
+		this.section = section;
+		return this;
+	}
+	setTitle(title: string): this {
+		this.title = title;
+		return this;
+	}
+	setIcon(icon: string): this {
+		this.icon = icon;
+		return this;
+	}
+	onClick(fn: () => void): this {
+		this.click = fn;
+		return this;
+	}
+}
+
+export class Menu {
+	items: MenuItem[] = [];
+	shownAt: MouseEvent | undefined;
+	addItem(build: (item: MenuItem) => unknown): this {
+		const item = new MenuItem();
+		build(item);
+		this.items.push(item);
+		return this;
+	}
+	addSeparator(): this {
+		return this;
+	}
+	showAtMouseEvent(ev: MouseEvent): this {
+		this.shownAt = ev;
+		return this;
+	}
+	setNoIcon(): this {
+		return this;
+	}
+	hide(): void {}
+	close(): void {}
+}
+
 // ---------------------------------------------------------------------------
 // Obsidian's runtime mixes chainable DOM helpers into the element prototypes
 // (createEl/createDiv/createSpan/empty/setText/addClass/removeClass/

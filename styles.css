@@ -141,6 +141,18 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-panel {
 	--nav-muted: color-mix(in srgb, var(--text-normal) 88%, transparent);
 	--nav-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
+	/* THE PANEL OWNS ITS TOOLTIPS, and this is how it says so. The app hangs a tooltip
+	   off every element that carries an `aria-label` (see its own tooltip listener),
+	   and an accessible name is not a hover hint: the listbox is named "Recent files"
+	   so a screen reader can say what the list is, and that name was being painted
+	   under the pointer — over the rows, with no relation to the row being read — the
+	   moment the reader hovered anything inside the list. The setting groups are named
+	   for the same reason and had the same problem. `--no-tooltip` is the app's own
+	   switch for exactly this case (its CSS sets it where a name must stay quiet), and
+	   it INHERITS, so one declaration covers the whole panel. Nothing here loses a
+	   tooltip it wanted: the rows' own is the panel's, drawn on the document (see
+	   tip.ts), and the chrome that wants one carries a `title` of its own. */
+	--no-tooltip: true;
 }
 
 /* A long history pins the height and scrolls the list inside it: otherwise
@@ -212,6 +224,18 @@ body.is-mobile .position-restore-cue {
 	--input-border-width-focus: 0;
 }
 
+/* THE BOX AND ITS ×: one control, so one element. The wrapper is the flex item the
+   strip lays out (the box inside it takes the whole of it), and it is what the × is
+   positioned against — the box is a bare rule with no box to hang anything on, and an
+   absolutely positioned × costs the box no layout when it comes and goes. */
+.position-restore-nav-search {
+	position: relative;
+	display: flex;
+	align-items: center;
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
 /* One rule under the caret, and no focus glow. The shell class in the selector is
    load-bearing: the app styles inputs as `input[type='text']`, so only a selector
    at least that specific can take the box away — which is what the [type='text']
@@ -230,6 +254,13 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-small);
 }
 
+/* Room for the × at the end of the line, and ONLY while there is a × there: the
+   reserved strip appears with what has to be cleared, so a reader typing into an
+   empty box keeps the full width and the text never runs under the glyph. */
+.position-restore-nav-panel input.position-restore-nav-filter[type='text']:not(:placeholder-shown) {
+	padding-inline-end: 1.6em;
+}
+
 .position-restore-nav-panel input.position-restore-nav-filter[type='text']:focus,
 .position-restore-nav-panel input.position-restore-nav-filter[type='text']:focus-visible {
 	border-bottom-color: var(--interactive-accent);
@@ -239,6 +270,47 @@ body.is-mobile .position-restore-cue {
 
 .position-restore-nav-panel input.position-restore-nav-filter::placeholder {
 	color: var(--nav-faint);
+}
+
+/* The × itself: a cross at the end of the line in the panel's faint tier, deepening
+   to full text strength under the pointer. It is drawn the way every other icon in
+   this panel is (see the setting's own button), and painted through the panel's OWN
+   variable for the same reason: `.clickable-icon` reads `--icon-color` and dims with
+   `--icon-opacity` rather than painting with `color`, and a theme is free to set
+   either — the ink therefore travels in a variable nothing else writes, and the glyph
+   takes it one element down. */
+.position-restore-nav-panel .position-restore-nav-search .position-restore-nav-clear {
+	position: absolute;
+	inset-inline-end: 0;
+	top: 0;
+	/* The box's own rule is drawn 4px into its height: centring the glyph on the AREA
+	   ABOVE it centres it on the text the reader typed, not on the box. */
+	bottom: 4px;
+	margin: auto;
+	padding: 2px;
+	--nav-clear-ink: var(--nav-faint);
+	--icon-size: var(--icon-xs);
+	--icon-color: var(--nav-clear-ink);
+	--icon-opacity: 1;
+	color: var(--nav-clear-ink);
+	opacity: 1;
+}
+
+.position-restore-nav-panel .position-restore-nav-search .position-restore-nav-clear svg {
+	color: var(--nav-clear-ink);
+	stroke: currentColor;
+}
+
+/* There is nothing to clear, and the control says so by not being there: an empty box
+   shows its placeholder, which is the state the reader can SEE (see the note above the
+   button in body.ts). No class, no listener, and nothing to keep in step. */
+.position-restore-nav-panel .position-restore-nav-search input:placeholder-shown ~ .position-restore-nav-clear {
+	display: none;
+}
+
+.position-restore-nav-panel .position-restore-nav-search .position-restore-nav-clear:hover {
+	--nav-clear-ink: var(--text-normal);
+	background-color: var(--background-modifier-hover);
 }
 
 /* The hint is the one thing in the strip that can be spared, so it is also the
@@ -283,7 +355,17 @@ body.is-mobile .position-restore-cue {
 	row-gap: 2px;
 }
 
-.position-restore-nav-panel.is-touch .position-restore-nav-filter { grid-area: box; }
+/* The BOX's line is the wrapper's: the × travels with it (see
+   .position-restore-nav-search), and stating the cell on the input alone would leave
+   the clear button out of the grid entirely. */
+.position-restore-nav-panel.is-touch .position-restore-nav-search { grid-area: box; }
+/* A finger is not a pointer: the × keeps a target of its own on a phone, where the
+   line it stands on is barely taller than the glyph (see the desktop rule above — the
+   same glyph, with room around it). */
+.position-restore-nav-panel.is-touch .position-restore-nav-search .position-restore-nav-clear {
+	padding: 5px;
+	--icon-size: var(--icon-s);
+}
 .position-restore-nav-panel.is-touch .position-restore-nav-hint { grid-area: hint; min-width: 0; }
 .position-restore-nav-panel.is-touch .position-restore-nav-settings { grid-area: gear; justify-self: end; }
 
@@ -530,29 +612,92 @@ body.is-mobile .position-restore-cue {
 	box-shadow: inset 2px var(--background-modifier-border);
 }
 
-/* The note cell: what the row names itself with. One flex line — the folder (only
-   where two notes on screen share the name), the name, and the "you are here" dot.
-   It takes the row's slack, because the name is what a row that is too narrow gives
-   up first (it ellipsizes; the marks beside it do not). */
+/* The note cell: what the row names itself with — the NAME, the type BADGE, and the
+   folder — on one line until it does not fit, and on two when it does not. It takes
+   the row's slack, because the name is what a row that is too narrow gives up first
+   (it ellipsizes; the marks beside it do not).
+
+   WHERE it breaks is the reader's setting and not this rule's: the folder's `order`
+   below decides which half is laid out first, and the line then wraps after it, so
+   the other half is what drops (see PathDisplayMode). Nothing here measures
+   anything — a row that fits is one line and a row that does not is two, at whatever
+   width the pane happens to be. */
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
 	flex: 1 1 auto;
 	min-width: 0;
+	flex-wrap: wrap;
+	/* Between two things ON ONE LINE, and never before one that wrapped: a column gap
+	   separates without indenting, so the second line starts flush with the first. (A
+	   margin would push the wrapped half to the right, and the two lines would read as
+	   unrelated.) */
+	column-gap: 0.5em;
 }
 
-/* The folder a name collides with, printed so the two can be told apart: the
-   FAINTEST tier, because it is the disambiguator and not the identity, and before
-   the name it belongs to. It may be clipped when the name needs the room: the
-   name is what a reader scans, the folder only what decides between two of them,
-   so the folder is what gives way first — it is a disambiguator, not a label
-   anyone has to read in full. */
-.position-restore-nav-row .nav-row-folder {
-	flex: 0 100 auto;
+/* The type, where the type is worth saying at all (see badgeOf): a boxed label in
+   the faint tier, so it reads as an annotation ON the name rather than as part of
+   it. Text with a border and not an icon — an icon name the app's build does not
+   have draws an empty slot, which is worse than no badge at all. */
+.position-restore-nav-row .nav-row-badge {
+	flex: 0 0 auto;
+	padding: 0 0.35em;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	color: var(--nav-faint);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
+	max-width: 10ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* The folder a note sits in: the FAINTEST tier, because it is the disambiguator and
+   not the identity — a reader scans names, and the folder only decides between two
+   of them. It is also the half that ellipsizes when even a line of its own is not
+   enough: a long path ends in an ellipsis rather than in a row of dots where its
+   middle used to be. */
+.position-restore-nav-row .nav-row-path {
+	flex: 0 1 auto;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	color: var(--nav-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* WHICH HALF GIVES WAY. A flex line wraps at the end it is laid out in, so the item
+   ordered LAST is the one that ends up on the second line. Ordered first, the folder
+   keeps the line and the NAME drops below it — the quick switcher's shape, the whole
+   path with the file name last. Without the order, the folder is last in the DOM and
+   the FOLDER drops: the name stays in the left column and the path becomes a second
+   line under it. The DOM order is the same either way (name, badge, folder), so this
+   one declaration is the whole of the difference between the two "always" modes. */
+.position-restore-nav-row.is-file.is-path-before .nav-row-path {
+	order: -1;
+}
+
+/* HOW LONG AGO the note was last visited (see model.ts's ageLabel). It never
+   shrinks and never gives way: the name is what a row is scanned by, and the age is
+   what the scan is comparing, so a narrow row trims the NAME and keeps the time —
+   the reverse would leave a list of full names and no way to use them. Its distance
+   from the badge beside it is the cell's own column gap, so there is no margin here
+   to say it twice. */
+.position-restore-nav-row .nav-row-time {
+	flex: 0 0 auto;
+	color: var(--nav-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* …and a row that prints NO folder ends in its age, hard against the far edge: the
+   time then forms the column a reader's eye can run down, which is the whole point
+   of printing it. A row that DOES print a folder keeps the age beside the name
+   instead, because an automatic margin eats every free pixel before it — the folder
+   would be pushed to the row's end with the age, and read as part of it. Choosing a
+   folder therefore buys the row its path and gives up the column: that trade is what
+   PathDisplayMode's two "always" answers are, and the default spends nothing. */
+.position-restore-nav-row.is-pathless .nav-row-time {
+	margin-inline-start: auto;
 }
 
 /* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing
@@ -674,6 +819,76 @@ body.is-mobile .position-restore-cue {
 	padding: 10px 8px;
 	color: var(--nav-muted);
 	font-size: var(--font-ui-smaller);
+}
+
+/* THE ROW'S TOOLTIP (see tip.ts), and the reason the panel draws its own: this is a
+   PATH, and a path is read character by character. Two decisions follow from that,
+   and neither is available to the native `title` it replaced —
+    - the type is a step LARGER than the app's tooltip, because the reader is here to
+      make out a folder name, not to glance at a label (see the two rules below: the
+      path is set at the panel's own reading size, the line under it a notch smaller);
+    - the separators are drawn, not inherited: a `/` between two long segments is the
+      least visible thing in the string, so it is a span of its own with a weight the
+      font cannot take away, and the folder segments around it sit a step back so the
+      slash has something to stand against.
+   It hangs on the DOCUMENT (see NavRowTip): position: fixed is against the window,
+   which is what "under the row" means once the list may have scrolled. */
+.position-restore-nav-tip {
+	position: fixed;
+	z-index: var(--layer-tooltip);
+	/* Never in the pointer's way: the tooltip stands under the row the reader is
+	   reading, and a tooltip that could swallow a click would be a control. */
+	pointer-events: none;
+	/* Wide enough for an ordinary vault path on one line, and never wider than the
+	   window it is drawn in: what does not fit wraps, because a path cut off in the
+	   middle says the wrong folder. */
+	max-width: min(56ch, 86vw);
+	padding: 6px 9px;
+	background-color: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+	color: var(--text-normal);
+	text-align: start;
+}
+
+/* The path: the file's own name is what the reader is looking for, so the folder is
+   the part that steps back — it is context, and the reader already knows which vault
+   they are in. Monospace is not decoration either: a path is a coordinate, and the
+   one place a folder name is unambiguous is when its characters are all the same
+   width. */
+.position-restore-nav-tip .nav-tip-path {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-medium);
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+
+.position-restore-nav-tip .nav-tip-seg {
+	color: color-mix(in srgb, var(--text-normal) 78%, transparent);
+}
+
+/* The separator between two segments, and the one glyph this tooltip exists for: a
+   heavier weight at full strength, with a hair of its own room on either side so it
+   cannot be read as part of the name beside it. The padding is in `em` and so follows
+   the path's own size. */
+.position-restore-nav-tip .nav-tip-sep {
+	padding: 0 0.12em;
+	font-weight: 700;
+}
+
+.position-restore-nav-tip .nav-tip-name {
+	font-weight: 500;
+}
+
+/* The line under the path: the file's other names, or the one fact a cell holds (see
+   TipContent). A notch smaller than the path — it is a second answer, not the thing
+   the reader hovered for — and allowed to wrap, since a note may go by many names. */
+.position-restore-nav-tip .nav-tip-text {
+	font-size: var(--font-ui-small);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
 }
 
 .position-restore-nav-panel.is-touch .position-restore-nav-row {

@@ -14,13 +14,13 @@
 //    transparent instead — always the same hue as the text it sits under,
 //    always lighter against the background, in any palette.
 //
-// 2. The list is a TREE: a note's row is its caret plus the name (and its count,
-//    where there are landings to open), and a landing indents under it as
-//    coordinate | section | pane. The name is capped (max-width: 20em), NOT
-//    measured across rows — the tree says with its indent what the flat list
-//    needed a shared name column for — and the pane cell is only there while a
-//    row has one (two live tabs hold that note). The age is not a row cell at
-//    all any more: it lives in the drawer's head.
+// 2. A note's row is its NAME, the type BADGE where the file is not markdown, and
+//    the folder the row sits in — on one line until it does not fit, and on two
+//    when it does not. Which half drops to the second line is the reader's setting
+//    and is decided by ONE `order` declaration (see PathDisplayMode). The name is
+//    capped (max-width: 20em), NOT measured across rows, and the pane cell is only
+//    there while a row has one (two live tabs hold that note). The age is not a
+//    row cell at all any more: it lives in the drawer's head.
 //
 // 3. On touch a LANDING gets two lines — the coordinate and the section, then the
 //    pane — while a note's row stays on one, rather than the old rule that hid
@@ -98,15 +98,63 @@ describe('history browser quiet tiers', () => {
 		expect(browser).not.toContain('nav-hint-icon');
 	});
 
-	// A folder is printed only where two notes on screen share a name, and it may
-	// be clipped when the name needs the room: the name is what a reader scans,
-	// the folder only what decides between two of them.
-	it('prints the disambiguating folder before the name, and lets the name win', () => {
-		expect(browser).toMatch(/\.nav-row-folder\s*\{[^}]*flex: 0 100 auto[^}]*text-overflow: ellipsis/);
-		expect(browser).toMatch(/\.nav-row-folder\s*\{[^}]*color: var\(--nav-faint\)/);
+	// A folder is printed only where the setting asks for it — the name two notes on
+	// screen share, or every row — and WHICH HALF of the row gives way when it does not
+	// fit is the same setting's other half: a flex line wraps at the end it is laid out
+	// in, so the item ordered LAST is the one that drops to the second line. The DOM
+	// order never changes (name, badge, folder), so this one class is the whole of the
+	// difference between the two "always" modes (see PathDisplayMode).
+	it('prints the folder on the side the setting asks for, and wraps the other half', () => {
+		// The cell wraps, and separates what shares a line with a COLUMN gap: a margin
+		// would indent the line that wrapped, and the two lines would read as unrelated.
+		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*flex-wrap: wrap/);
+		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*column-gap: 0\.5em/);
+		// The folder is the faint tier, and it is what ellipsizes when even a line of
+		// its own is not enough.
+		expect(browser).toMatch(/\.nav-row-path\s*\{[^}]*flex: 0 1 auto[^}]*text-overflow: ellipsis/);
+		expect(browser).toMatch(/\.nav-row-path\s*\{[^}]*color: var\(--nav-faint\)/);
+		// …and the name still gives way last: it is capped, not greedy.
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*flex: 0 1 auto/);
+		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
+		// The whole of the side decision.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-file\.is-path-before \.nav-row-path\s*\{\s*order: -1/,
+		);
+		// The old class is GONE, not kept as a second name for the same rule: a row
+		// carrying both would answer to two layouts.
+		expect(browser).not.toContain('nav-row-folder');
 	});
 
+	// The type badge (see badgeOf): TEXT in a box, never an icon. An icon name the
+	// app's build does not have draws an empty slot where the badge should be — worse
+	// than no badge, and invisible in any test that does not render a real theme.
+	it('marks a note\'s type with text in a box, not with an icon', () => {
+		const badge = browser.match(/\.nav-row-badge\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(badge).not.toBe('');
+		expect(badge).toMatch(/border: 1px solid/);
+		expect(badge).toMatch(/font-size: var\(--font-ui-smaller\)/);
+		expect(badge).toMatch(/color: var\(--nav-faint\)/);
+		// it cannot swallow the row however long the extension is
+		expect(badge).toMatch(/max-width: 10ch/);
+		expect(badge).toMatch(/text-overflow: ellipsis/);
+	});
+
+
+	// The row's AGE (see model.ts's ageLabel): the faint tier again, and it never
+	// gives way — a narrow row trims the NAME and keeps the time, because the name is
+	// what a row is scanned by and the time is what the scan is comparing. And a row
+	// that prints no folder ends in its age, hard against the far edge; that is the
+	// whole of the column a reader's eye can run down.
+	it('dates a row in the faint tier, and right-aligns it on a pathless row', () => {
+		const time = browser.match(/\.nav-row-time\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(time).not.toBe('');
+		expect(time).toMatch(/flex: 0 0 auto/);
+		expect(time).toMatch(/color: var\(--nav-faint\)/);
+		expect(time).toMatch(/font-size: var\(--font-ui-smaller\)/);
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-pathless \.nav-row-time\s*\{\s*margin-inline-start: auto/,
+		);
+	});
 
 	// "You are here" is a dot on the note and on the landing the current entry
 	// recorded: the current position is marked INSIDE the list rather than held
@@ -226,7 +274,10 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: grid[^}]*grid-template-areas:\s*'box box'\s*'hint gear'/,
 		);
-		expect(browser).toMatch(/is-touch \.position-restore-nav-filter\s*\{\s*grid-area: box/);
+		// The BOX's line is stated on the WRAPPER — the box and its × travel together
+		// (see .position-restore-nav-search): a cell on the input alone would leave the
+		// clear button out of the grid entirely.
+		expect(browser).toMatch(/is-touch \.position-restore-nav-search\s*\{\s*grid-area: box/);
 		expect(browser).toMatch(/is-touch \.position-restore-nav-hint\s*\{[^}]*grid-area: hint/);
 		expect(browser).toMatch(/is-touch \.position-restore-nav-settings\s*\{[^}]*grid-area: gear/);
 		// …and the hint is back to ONE line: sharing the row means it has less of it,
@@ -242,6 +293,58 @@ describe('history browser quiet tiers', () => {
 		// GRID in place, so the landscape layout has to say `display: flex` as well
 		expect(browser.slice(browser.indexOf('@media (max-height: 520px)'))).toMatch(
 			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: flex[^}]*flex-wrap: nowrap/,
+		);
+	});
+
+	// THE PANEL OWNS ITS TOOLTIPS, and the app must not paint its own over them. Every
+	// `aria-label` is a tooltip to the app (its tooltip listener matches on the
+	// attribute), and the listbox's name — "Recent files", which a screen reader needs —
+	// was being painted under the pointer every time a row was hovered. `--no-tooltip`
+	// is the app's own switch and it INHERITS, so one declaration on the shared shell
+	// covers the list and the setting groups together.
+	it('keeps the app\'s own tooltips off the panel\'s accessible names', () => {
+		const panel = browser.match(/\.position-restore-nav-panel\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(panel).toMatch(/--no-tooltip: true/);
+	});
+
+	// A ROW'S TOOLTIP is the panel's own (see tip.ts), and it exists because a native
+	// `title` cannot be styled: the path was set in the browser's tooltip type, and the
+	// `/` between two segments — the character the whole tooltip is read by — was the
+	// least visible thing in the string. Both are decided here: the path in a LARGER
+	// type than the app's tooltip uses, and the separators as their own spans with a
+	// weight no font can thin away.
+	it('draws the row\'s tooltip in a readable type, with separators of its own', () => {
+		expect(browser).toMatch(
+			/\.position-restore-nav-tip\s*\{[^}]*position: fixed[^}]*pointer-events: none/,
+		);
+		const path = browser.match(/\.nav-tip-path\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(path).toMatch(/font-family: var\(--font-monospace\)/);
+		// NOT the app's tooltip tier (--font-ui-smaller): the reader is making out a
+		// folder name, and that is the one job this element has.
+		expect(path).toMatch(/font-size: var\(--font-ui-medium\)/);
+		const sep = browser.match(/\.nav-tip-sep\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(sep).toMatch(/font-weight: 700/);
+		expect(sep).toMatch(/padding: 0 0\.12em/);
+		// The folder steps back so the separator has something to stand against…
+		expect(browser).toMatch(
+			/\.nav-tip-seg\s*\{[^}]*color: color-mix\(in srgb, var\(--text-normal\)/,
+		);
+		// …and the second line (the file's other names) is a notch smaller than the path.
+		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-small\)/);
+	});
+
+	// The × at the end of the box, and the one rule that makes it a control rather than
+	// a mark: it is there exactly while there is something to clear, asked of the BOX's
+	// own state (`:placeholder-shown` is what an empty, unfocused or focused, filter
+	// looks like) instead of a class a listener has to keep in step.
+	it('shows the clear button only while the box has something in it', () => {
+		expect(browser).toMatch(
+			/\.position-restore-nav-search input:placeholder-shown ~ \.position-restore-nav-clear\s*\{\s*display: none/,
+		);
+		// …and the room it takes on the line is reserved only while it is there, so a
+		// reader typing into an empty box is not typing into a narrower one.
+		expect(browser).toMatch(
+			/input\.position-restore-nav-filter\[type='text'\]:not\(:placeholder-shown\)\s*\{[^}]*padding-inline-end: 1\.6em/,
 		);
 	});
 

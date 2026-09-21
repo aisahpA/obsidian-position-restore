@@ -1,7 +1,13 @@
+import { Keymap } from 'obsidian';
 import { NavHistoryEntry } from '@/nav-history/entry';
+import { PaneTarget } from '@/nav-history/places';
 import { t } from '@/i18n';
 import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
-import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } from './model';
+import { PathDisplayMode } from '@/types';
+import {
+	NavEntryDescription, ageLabel, badgeOf, displayName, duplicateNames, folderOf, newestStamp, rowTrail,
+} from './model';
+import { NavRowTip, TipContent } from './tip';
 
 // The list of notes, and everything that belongs to a row: which steps the query
 // keeps, how they group into one row per note, what the keyboard walks, and the
@@ -59,6 +65,15 @@ import { NavEntryDescription, baseName, duplicateNames, folderOf, rowTrail } fro
 // row nobody chose, so the position moves only for a click or a key. The arrow travels,
 // and the row's own click travels; no other button does (see onContextMenu).
 //
+// NOTHING MOVES WHILE IT IS BEING READ either, which is the same rule one step later:
+// a click that opens a note re-orders the places it came from (they are kept by last
+// visit), so without being told otherwise the list would answer the click by shuffling
+// itself — the row just read moves to the top, every row above it moves down one, and
+// the reader's eye is left on a different note than the one it was on. The list can
+// therefore be handed the order it is currently showing and told to hold it (see the
+// `order` option): the rows stay where they are while the reader's attention is on
+// them, and the order catches up the moment they look away.
+//
 // The list owns its rows and one POSITION among them: `selected`, which the keyboard
 // walks (see move) and a redraw re-finds. It is what Enter travels to and what is
 // announced to a screen reader. A CLICK does not set it: a click opens what the row
@@ -106,6 +121,11 @@ export interface NavHistoryListOptions {
 	noteExists: (path: string) => boolean;
 	// The heading chain an entry's landing sits in.
 	trailFor: (entry: NavHistoryEntry, d: NavEntryDescription) => string[];
+	// The OTHER names the file goes by (see reads.ts's aliasesFor), which the query
+	// matches on and the row's own tooltip prints (see tip.ts). They take up no cell on
+	// the row, so the search box and the hover are the only two places they exist for a
+	// reader — and a pathless view has none (the browser answers [] for it).
+	aliasesFor: (path: string) => string[];
 	// Which live tab holds a landing's destination, if it needs saying.
 	paneName: (entry: NavHistoryEntry) => string | undefined;
 	// The position moved to another row, or off the list (undefined), by either
@@ -115,13 +135,42 @@ export interface NavHistoryListOptions {
 	onActiveRow: (id: string | undefined) => void;
 	// A row was clicked with a pointing device: open the file at what it stands
 	// for. The row IS the navigation, so this fires from the row's own click (see
-	// onClick).
-	onTravel: (rep: number) => void;
+	// onClick). `target` is where to open it when the reader asked for somewhere
+	// other than the tab the file lives in — a new tab, a split, a window — and is
+	// the app's own answer for the gesture, never a modifier this module read
+	// itself (see PaneTarget and onPress / onClick).
+	onTravel: (rep: number, target?: PaneTarget) => void;
+	// A row was right-clicked: WHICH place, and the event, so the browser can raise
+	// the app's own file menu over it (see body.ts's contextRow). The list does not
+	// build the menu because it does not hold the app, and a row here is a row of
+	// PLACES, not of files: which of them has a file behind it is the browser's
+	// question (a pathless view has none).
+	onContextRow: (rep: number, ev: MouseEvent) => void;
 	// How much of a note the list prints (see shownLandings): one row per note — the
 	// plugin's default, the row standing for the last spot the note was left at — or
 	// every distinct spot under the name, nearby ones already folded into one row.
 	// Read per render, so the toolbar's setting reaches a panel that is already up.
 	landings: () => LandingsMode;
+	// How much of a row's PATH to print, and on which side of the name (see
+	// PathDisplayMode). Read per render like the setting above.
+	pathDisplay: () => PathDisplayMode;
+	// Whether a row says how long ago its note was last visited (see model.ts's
+	// ageLabel). Off, the row's structure is exactly what it was before the label
+	// existed: no element is built and none is hidden.
+	rowTime: () => boolean;
+	// The group order to HOLD the list at, by group key (see listing.ts::
+	// NavFileGroup.key), or undefined to order by recency like a list nobody is
+	// reading. Read per render: the browser takes an order when the pointer
+	// arrives and drops it when the pointer leaves, so it is the browser — and
+	// not the list — that decides when the list may move again.
+	order: () => readonly string[] | undefined;
+	// A place's IDENTITY (`placeKey`). Injected rather than imported because the
+	// list does not hold the store: it is handed the places as a plain array (see
+	// `entries`), and an identity has to come from the module that defines what
+	// makes two places one. It is what a click re-finds its row by when the list
+	// has been rebuilt underneath it (see onClick) — an INDEX cannot serve, since
+	// the whole reason for the re-find is that indices moved.
+	keyOf: (rep: number) => string | undefined;
 }
 
 // How far the list has to scroll to show a step the KEYBOARD took: undefined while
@@ -158,10 +207,22 @@ export class NavHistoryList {
 	// pointer moves nothing (see the class comment). Undefined until the first key: Enter
 	// has nothing to act on until then.
 	private selected: RowRef | undefined;
+	// The place the reader PRESSED, by identity (see onPress), until the click that
+	// belongs to it arrives. It is what a click opens FROM when the list has been
+	// rebuilt between the press and the release — the one case where the element the
+	// event names no longer stands for what it stood for (see onClick). Only ever a
+	// pass-through: any press overwrites it and any click consumes it.
+	private pressed?: string;
+	// What a row says on hover, drawn by the panel rather than by the browser (see
+	// tip.ts): the only place a full path can be said in a type the reader can read.
+	private tip: NavRowTip;
 
 	constructor(private opts: NavHistoryListOptions) {
-		// Nothing is listened to here: a pointer moves no position at all (see the
-		// class comment) — the rows' own clicks are wired as the rows are drawn.
+		// Nothing is listened to here for the LIST's own sake: a pointer moves no
+		// position at all (see the class comment) — the rows' own clicks are wired as
+		// the rows are drawn. The tooltip is the one pointer reader, and it answers with
+		// words rather than with a move.
+		this.tip = new NavRowTip(opts.list);
 	}
 
 	// The place index a row acts on: a landing is itself; a NOTE is the note's OWN
@@ -223,6 +284,10 @@ export class NavHistoryList {
 
 	// (Re)draw the rows; the toolbar and the panel persist around them.
 	render(): void {
+		// Whatever the pointer was resting on is about to be thrown away: the tooltip
+		// it earned points at a row of the previous render, and leaving it up would
+		// leave the panel describing a row that is no longer on screen (see tip.ts).
+		this.tip.reset();
 		// The cursor's identity across the rebuild: the note's group index, or the
 		// stack index of the landing it is on (which may be the CURRENT entry's own
 		// or any other). Captured BEFORE the rows go, and re-found after.
@@ -240,12 +305,24 @@ export class NavHistoryList {
 		// chain, "L412") plus what the entry recorded (the landing's context
 		// block, how a link got here). The row's own printed text is derived from
 		// the vault's heading cache rather than carried by the entry, so the pure
-		// predicate takes it as an argument (see matchesNavFilter). Built only
-		// while a query is up: an unfiltered list never asks the heading cache
-		// for anything.
+		// predicate takes it as an argument (see matchesNavFilter). This closure is
+		// called only while a query is up.
+		//
+		// An UNFILTERED list does still read the metadata cache, once per listed path:
+		// a file's other names are searchable and also printed on the row's own tooltip
+		// (see fileRow), and that tooltip is prepared with the row rather than when the
+		// pointer arrives — a hover has to be answered with the row's OWN answer, and a
+		// row is drawn once. It is one memoized lookup per path per body (see reads.ts),
+		// and the honest statement of the rule is that, not "the list never asks".
 		const printed = (i: number): string => {
+			const entry = this.opts.entries[i];
 			const d = this.opts.describe(i);
-			return `${d.line ?? ''} ${this.opts.trailFor(this.opts.entries[i], d).join(' ')}`;
+			// …and the file's OTHER names, which nothing on the row prints: this is what
+			// the `extra` channel is for (see matchesNavFilter), and it is why the panel
+			// can be searched for a name the reader only half remembers. Read per PATH, so
+			// every landing of one note carries the same names.
+			const aka = entry.kind === 'view' ? [] : this.opts.aliasesFor(entry.path);
+			return `${d.line ?? ''} ${this.opts.trailFor(entry, d).join(' ')} ${aka.join(' ')}`;
 		};
 		// …and WHAT may be listed at all: a place whose file is gone is dropped before
 		// the list is grouped, so no row, no landing and no "you are here" ever stands
@@ -266,6 +343,8 @@ export class NavHistoryList {
 			// The line a row PRINTS is what makes two steps one spot, so the
 			// collapse and the coordinates can never disagree (see groupByFile).
 			i => this.opts.describe(i).lineIndex,
+			// The order to hold, when the reader is on the list (see the option).
+			this.opts.order(),
 		);
 		// The names two notes on screen share: those rows are the only ones that
 		// print their folder (see folderOf). Measured over the rows ON SCREEN, so
@@ -319,6 +398,15 @@ export class NavHistoryList {
 		return query ? t('navHistory.noMatch') : t('navHistory.empty');
 	}
 
+	// The groups as they are drawn RIGHT NOW, by identity: what the browser pins
+	// when the pointer arrives (see NavHistoryListOptions.order). It is asked of
+	// the LIST rather than recomputed by the caller because the order on screen is
+	// this render's — the filter in force, the places as they were grouped, and any
+	// order already being held all went into it.
+	orderedKeys(): string[] {
+		return this.groups.map(g => g.key);
+	}
+
 	// Stand on the note a landing belonged to, when that landing itself is no
 	// longer on screen.
 	private focusGroupOf(rep: number): void {
@@ -332,9 +420,12 @@ export class NavHistoryList {
 		}
 	}
 
-	// One NOTE. The name is its last path segment, and the folder is printed only
-	// where another note on screen shares the name. A pathless view row (the graph)
-	// prints no folder either: it is one view, not a note with spots in it.
+	// One NOTE. The first thing on the row is the note's NAME — its last path segment
+	// without the extension (see displayName) — then the type BADGE where the file is
+	// not markdown, then the FOLDER, on the side and under the conditions the reader
+	// chose (see PathDisplayMode). A pathless view row (the graph) prints no folder
+	// and no badge: it is one view, not a note with spots in it, and it has no file
+	// on disk to have a type.
 	//
 	// The row is its NAME and nothing else. The caret that used to lead it opened a
 	// sublist of the note's landings and carried a "+N" count of what was hidden; both
@@ -348,10 +439,19 @@ export class NavHistoryList {
 			?? group.indices.find(i => i !== group.currentRep)
 			?? group.indices[0];
 		const head = rep === undefined ? undefined : this.opts.describe(rep);
-		const name = head?.name ?? baseName(group.path);
+		const name = head?.name ?? displayName(group.path);
 		const row = this.opts.list.createDiv({ cls: 'position-restore-nav-row is-file' });
 		if (group.current)
 			row.addClass('is-current');
+		// WHICH SIDE the folder prints on, as a class rather than as an insertion
+		// order: the DOM order is fixed (name, badge, folder) so that the row reads
+		// in one order however it is drawn, and the visual order is the stylesheet's
+		// (see the `order` rule). The two differ only for 'before' — and that is also
+		// the only case where the name, and not the folder, is what drops to a second
+		// line when the row is too narrow.
+		const mode = this.opts.pathDisplay();
+		if (mode !== 'after')
+			row.addClass('is-path-before');
 		row.dataset.group = String(index);
 		row.setAttr('id', `${this.opts.listId}-row-g${index}`);
 		row.setAttr('role', 'option');
@@ -360,17 +460,75 @@ export class NavHistoryList {
 		// identity is the GROUP: `rep` stays undefined, because a file row stands for the
 		// note (see activeRep) rather than for any one landing.
 		const ref: RowRef = { el: row, group: index };
-		row.addEventListener('click', () => this.onClick(ref));
-		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev));
+		row.addEventListener('click', (ev) => this.onClick(ref, ev));
+		row.addEventListener('pointerdown', (ev) => this.onPress(ref, ev));
+		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
 		this.refs.push(ref);
 
 		const file = row.createDiv({ cls: 'nav-row-file' });
-		// Which folder this note is in — ONLY where its name is another note's
-		// name too, and BEFORE the name.
-		const folder = doubles.has(name) ? folderOf(group.path) : undefined;
-		if (folder !== undefined)
-			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-folder' });
 		file.createSpan({ text: name, cls: 'nav-row-name' });
+		// The type, where the type is worth saying: markdown is what a vault is made
+		// of and prints nothing (see badgeOf). It sits beside the name and BEFORE the
+		// folder, so it stays with the name whichever half wraps.
+		const badge = badgeOf(group.path);
+		if (badge)
+			file.createSpan({ text: badge, cls: 'nav-row-badge' });
+		// HOW LONG AGO this note was last visited — where the reader asked for it. The
+		// stamp is the newest one the group holds (see newestStamp), because a group's
+		// landings are in line order rather than in time order and its anchor may have
+		// been evicted. It sits BEFORE the folder so that the folder is the half that
+		// wraps: a flex line breaks at its end, and an age belongs to the name, not to
+		// a line of its own.
+		if (this.opts.rowTime()) {
+			const stamp = newestStamp(this.opts.entries, group.indices, group.anchor);
+			if (stamp !== undefined) {
+				const label = file.createSpan({ text: ageLabel(stamp, Date.now()), cls: 'nav-row-time' });
+				// The label is deliberately as short as the language can make it, and
+				// two of its units are ambiguous in English ("m" could be minutes or
+				// months): the moment itself is one hover away. It lives on the TIME
+				// and not on the row, so hovering the time says when and hovering
+				// anything else says which file (see the row's own tip).
+				this.tip.attach(label, { text: new Date(stamp).toLocaleString() });
+			}
+		}
+		// Which folder this note is in: 'smart' prints it only where its name is
+		// another note's name too — the one case where the folder is not the same
+		// answer for every row — and the two "always" modes print it everywhere. The
+		// root prints "/" and not nothing: an empty span would leave the row's `/`-
+		// placed note looking exactly like a note whose folder simply was not printed,
+		// which is a different fact.
+		const folder = group.path ? folderOf(group.path) : undefined;
+		const printsPath = folder !== undefined && (mode !== 'smart' || doubles.has(name));
+		if (printsPath)
+			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-path' });
+		else
+			// No folder on this row, so the row's tail is free — and the age takes it
+			// (see styles.css). The class is about the ROW's shape and not about the
+			// file having no folder: 'smart' on a name nothing collides with, the
+			// root's "/" printed only under 'always', and a pathless view are all this
+			// same state, and all of them end in the same right-aligned age.
+			row.addClass('is-pathless');
+		// WHAT THE HOVER SAYS: only what the row does not already say. The path as it is
+		// on disk, extension and all, for the reader who has to know which file of
+		// several this is (see displayName / PathDisplayMode) —
+		//
+		//  - the full path, where the row prints NO folder. The row prints the name
+		//    without its extension, so a row carrying a folder has already answered
+		//    "which one is this": the extension alone is not worth a tooltip, and the
+		//    setting that turns paths on is a reader asking to read them on the rows. This
+		//    is what makes the panel quiet on hover exactly where it is loud on screen.
+		//  - the file's OTHER names (see aliasesFor), which are searchable, take up no
+		//    cell, and are therefore said NOWHERE else — so they keep their line whether
+		//    or not the path does. A note with neither is a note that says nothing on
+		//    hover at all.
+		const aka = group.path ? this.opts.aliasesFor(group.path) : [];
+		const tip: TipContent = {};
+		if (group.path && !printsPath)
+			tip.path = group.path;
+		if (aka.length)
+			tip.text = `${t('navHistory.aka')} ${aka.join(' · ')}`;
+		if (tip.path || tip.text)
+			this.tip.attach(row, tip);
 		// NO "you are here" dot on the note's name: the current note is pinned first
 		// (see groupByFile) and carries `is-current`, so the dot could only ever sit on
 		// row one, saying what the row already says. It survives where it tells
@@ -397,8 +555,9 @@ export class NavHistoryList {
 		// The row's own click is the one thing that acts through this: a landing row
 		// stands for itself.
 		const ref: RowRef = { el: row, rep: i };
-		row.addEventListener('click', () => this.onClick(ref));
-		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev));
+		row.addEventListener('click', (ev) => this.onClick(ref, ev));
+		row.addEventListener('pointerdown', (ev) => this.onPress(ref, ev));
+		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
 		this.refs.push(ref);
 
 		// The coordinate: the coarse "how far in" a reader matches against memory,
@@ -408,12 +567,15 @@ export class NavHistoryList {
 		// and the row travels to ONE member of it, so printing "L412–438" over a
 		// click that lands on L420 (the cluster's newest member; see groupByFile)
 		// made the label a promise the row did not keep. The span still matters as
-		// the row's scope, so it stays reachable as the row's own tooltip.
+		// the row's scope, so it stays reachable as the row's own tooltip. A landing row
+		// carries the RANGE and nothing about the file: the other names belong to the
+		// note, and two spots far enough apart are two rows to say that about (see
+		// fileRow).
 		// A cluster of one — the ordinary spot — prints its line either way.
 		const pos = row.createSpan({ cls: 'nav-row-pos' });
 		const span = group.spans.get(i);
 		if (span && span.count > 1 && span.from !== undefined && span.to !== undefined)
-			row.setAttr('title', t('navHistory.lineRange', span.from + 1, span.to + 1));
+			this.tip.attach(row, { text: t('navHistory.lineRange', span.from + 1, span.to + 1) });
 		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
 		else
@@ -443,21 +605,33 @@ export class NavHistoryList {
 		return 1;
 	}
 
-	// A right-click on a row goes NOWHERE, and neither does a finger's lingering
-	// press — the same event to a WebView, carrying the left button's number.
+	// A right-click on a row — or a finger's lingering press, which a WebView reports
+	// as the same event, carrying the left button's number — hands the row to the APP:
+	// the browser raises the app's own file menu over it (see onContextRow), so what a
+	// reader finds there is what Obsidian offers for that file anywhere else.
 	//
-	// The gesture used to travel, as a shortcut for a hand already resting on the
-	// right button. It is gone: a row is opened by clicking it, and a second button
-	// that opens the same thing is a gesture to learn for nothing — while on a tablet,
-	// where a tap is easy to hold a beat too long, the same gesture turned an ordinary
-	// slow tap into a jump ("tapping the file name jumps too").
+	// It used to TRAVEL, as a shortcut for a hand already resting on the right button,
+	// and the reason that was dropped has not changed: a second button that does the
+	// first button's job is a gesture to learn for nothing, and on a tablet, where a
+	// tap is easy to hold a beat too long, it turned an ordinary slow tap into a jump.
+	// What a right-click does now is a DIFFERENT thing, and the slow tap is safe for
+	// the same reason it is on Obsidian's own file list: the press raises a menu, and
+	// the reader chooses from it.
 	//
-	// It is still REFUSED rather than ignored, which is the one thing that must not
-	// change with the meaning: the app's own menu has nothing to offer on a row (there
-	// is no text to copy and nothing to inspect), and a long press must not raise a
-	// selection callout over the list.
-	private onContextMenu(ev: MouseEvent): void {
+	// The event is still REFUSED as well as used, and that is the one thing that must
+	// not change with the meaning: without preventDefault a long press also raises the
+	// WebView's selection callout, and a menu with a text-selection callout over it is
+	// worse than either alone.
+	//
+	// What the menu may do is not this list's business — the panel writes nothing
+	// itself, and every action in there is one the reader asked the APP for (see
+	// body.ts's contextRow: it asks for the LINK context, so no file-managing action
+	// is among them).
+	private onContextMenu(ev: MouseEvent, ref: RowRef): void {
 		ev.preventDefault();
+		const rep = this.activeRep(ref);
+		if (rep >= 0)
+			this.opts.onContextRow(rep, ev);
 	}
 
 	// Put the position away: the list back to the shape it opens in — nothing
@@ -481,8 +655,123 @@ export class NavHistoryList {
 	// The place the reader is already in is NOT exempt: the row opens it again (the file
 	// back, or the landing re-applied), which is exactly what a reader whose tab was
 	// closed came here for.
-	private onClick(ref: RowRef): void {
-		this.travel(ref);
+	//
+	// WHERE the click opens is decided by the ELEMENT it landed on only while that
+	// element is still part of the list. A row's index is this render's — the places
+	// move under it on every visit — so a click whose element the last render threw
+	// away would otherwise read an index that now names whatever slid into that slot,
+	// and open the wrong note. That is not hypothetical: the reader's own click makes
+	// the store re-order itself (see places.remember), and the jump the previous click
+	// started settles a moment later, so a second click in quick succession can easily
+	// arrive at a list that has been rebuilt under it.
+	//
+	// So a click on a rebuilt-away element is resolved by the place the reader PRESSED
+	// (see onPress, and keyOf for why the identity can outlive the index). A click with
+	// no press behind it — a programmatic `el.click()`, an assistive technology
+	// activating the row — has no such claim, and a row whose element is gone is opened
+	// by neither: opening NOTHING is the one failure this list can afford, and opening
+	// the wrong note is the one it cannot.
+	private onClick(ref: RowRef, ev: MouseEvent): void {
+		// This row answers the click, whatever its answer turns out to be: nothing
+		// further up is asked to answer it again (see onUnansweredClick).
+		ev.preventDefault();
+		// WHERE it opens is the app's call, not this module's: `Keymap.isModEvent` is
+		// the documented answer for a user event (Cmd/Ctrl = a tab, +Alt = a split,
+		// +Alt+Shift = a window, a middle-click = a tab), and it is the same function
+		// Obsidian's own lists ask. Reading ctrlKey/metaKey here would be a second,
+		// worse copy of that rule — one that gets the platform wrong.
+		//
+		// The app's `false` — "open it where it already is" — is normalised to no
+		// target at all: they are the same request, and one of them says it in the
+		// vocabulary this module's callers speak (see PaneTarget).
+		const target = Keymap.isModEvent(ev) || undefined;
+		const key = this.pressed;
+		this.pressed = undefined;
+		const rep = this.refs.includes(ref)
+			? this.activeRep(ref)
+			: key === undefined ? -1 : this.findByKey(key);
+		if (rep >= 0)
+			this.opts.onTravel(rep, target);
+	}
+
+	// The click the rows did NOT answer — the one the list itself is handed, because
+	// the browser resolved the press and the release on the nearest ancestor still in
+	// the document: the row the reader pressed was rebuilt away in between, so it is
+	// no longer there to be the target. The reader is still asking for the row they
+	// pressed, and the press is the record of which one it was, so it is answered by
+	// identity — the same answer a stale element's own click gets (see onClick).
+	//
+	// It runs after the rows have had their say (a click bubbles from the row it
+	// landed on, and a row marks its own answer, see onClick), and it is the ONLY
+	// thing here that could double-answer a click — hence the check. A click with no
+	// press behind it is not a row's click at all (the list's own background under
+	// the last row) and goes nowhere, exactly as it did before anything listened
+	// here.
+	onUnansweredClick(ev: Event): void {
+		if (ev.defaultPrevented)
+			return;
+		const key = this.pressed;
+		this.pressed = undefined;
+		if (key === undefined)
+			return;
+		const rep = this.findByKey(key);
+		if (rep >= 0)
+			this.opts.onTravel(rep, undefined);
+	}
+
+	// The reader pressed a row, with one button or another.
+	//
+	// THE PRIMARY BUTTON presses: remember WHICH place, so the click that follows can be
+	// answered even if this list is rebuilt before it arrives (see onClick). The identity
+	// is the place's own (see keyOf) and not the row's index, because the index is the
+	// thing that is about to stop meaning this place. It is recorded here at all — rather
+	// than read off the click — because the press and the release are two moments, and
+	// the list can be rebuilt in the gap.
+	//
+	// THE MIDDLE BUTTON opens, and it does so HERE: a middle-click is delivered as
+	// `auxclick`, not as `click`, so a handler waiting for the click would never run at
+	// all — and holding it to a press/release pair buys nothing, since no one drags a
+	// middle button off a row to cancel. Where it opens is still the app's answer rather
+	// than this module's (see onClick), which for a middle-click is a new tab (documented
+	// on Keymap.isModEvent). preventDefault on the press is what keeps the WebView's own
+	// middle-click autoscroll out of the list.
+	//
+	// THE RIGHT BUTTON does neither: it raises the row's menu (see onContextMenu) and
+	// never a click, so recording it would only leave a claim for the NEXT click to
+	// inherit.
+	private onPress(ref: RowRef, ev: MouseEvent): void {
+		if (ev.button === 1) {
+			ev.preventDefault();
+			const rep = this.activeRep(ref);
+			if (rep >= 0)
+				this.opts.onTravel(rep, Keymap.isModEvent(ev) || undefined);
+			return;
+		}
+		if (ev.button !== 0)
+			return;
+		const rep = this.activeRep(ref);
+		this.pressed = rep < 0 ? undefined : this.opts.keyOf(rep);
+	}
+
+	// The row holding a place, found by identity rather than by index — or -1 when this
+	// list no longer shows it (the filter dropped it, the file went, the cap trimmed it),
+	// which leaves the click with nothing to open.
+	//
+	// A place the list somehow holds TWICE is refused for the same reason: identity is
+	// what the store dedupes places BY (see places.remember), so two rows carrying one
+	// key means the list cannot tell them apart, and picking one of them would be picking
+	// at random.
+	private findByKey(key: string): number {
+		let found = -1;
+		for (const ref of this.refs) {
+			const rep = this.activeRep(ref);
+			if (rep < 0 || this.opts.keyOf(rep) !== key)
+				continue;
+			if (found >= 0)
+				return -1;
+			found = rep;
+		}
+		return found;
 	}
 
 	// The stack index a row would open, or -1 when it has none (no row is pointed at,
@@ -510,11 +799,11 @@ export class NavHistoryList {
 	// the browser's key handler (see body.ts's onKeyDown) and has no row to name: the
 	// row the cursor is on is this class's own answer, and so is whether it may be
 	// travelled to. @returns whether a travel was started.
-	travel(ref?: RowRef): boolean {
+	travel(ref?: RowRef, target?: PaneTarget): boolean {
 		const rep = this.targetOf(ref);
 		if (rep < 0)
 			return false;
-		this.opts.onTravel(rep);
+		this.opts.onTravel(rep, target);
 		return true;
 	}
 
@@ -564,6 +853,14 @@ export class NavHistoryList {
 		this.selected?.el.setAttr('aria-selected', 'false');
 		this.selected = undefined;
 		this.opts.onActiveRow(undefined);
+	}
+
+	// The panel is going (see NavHistoryBrowser.destroy): the tooltip is the one thing
+	// this class put OUTSIDE the panel's own element — it is drawn on the document, so
+	// nothing that removes the panel removes it — and the events it listens for have to
+	// come off with it.
+	destroy(): void {
+		this.tip.destroy();
 	}
 
 	// The keyboard's walk: one row on, wrapping at either end. A step is `walked`, so

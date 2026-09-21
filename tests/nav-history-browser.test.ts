@@ -6,7 +6,8 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-	describeNavEntry, headingTrailAtLine, rowTrail, baseName, duplicateNames, folderOf,
+	describeNavEntry, headingTrailAtLine, rowTrail, baseName, badgeOf, displayName, duplicateNames, folderOf,
+	ageLabel, ageOf, newestStamp,
 } from '@/nav-history/browser/model';
 import { groupByFile, matchesNavFilter } from '@/nav-history/browser/listing';
 import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '@/nav-history/browser/panes';
@@ -24,9 +25,12 @@ const block = (lines: string[], at: number): NavEntryState => ({
 });
 
 describe('describeNavEntry', () => {
-	it('a file entry shows its basename', () => {
+	it('a file entry shows its name, without the extension', () => {
+		// "meeting-notes.md" is the note "meeting-notes": the suffix is not part of
+		// what a reader calls it, and a vault of markdown would print the same two
+		// characters on every row (see displayName).
 		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry);
-		expect(d.name).toBe('a.md');
+		expect(d.name).toBe('a');
 		expect(d.line).toBeUndefined();
 		expect(d.lineIndex).toBeUndefined();
 	});
@@ -320,6 +324,84 @@ describe('groupByFile', () => {
 			expect(groups.map(g => g.indices)).toEqual([[1], [0]]);
 		});
 	});
+
+	// A HELD ORDER: the sequence the list is showing, handed back to it so a
+	// redraw does not re-order what the reader is reading (see NavHistoryList's
+	// `order` option). The keys are the groups' identities, not their indices —
+	// indices are what the redraw is about to change.
+	describe('a held order', () => {
+		// Newest LAST, as the places list keeps them: a, b, c is oldest-first, so
+		// recency order is the reverse.
+		const three = [spot('a.md', 0, 10), spot('b.md', 1, 20), spot('c.md', 2, 30)];
+
+		it('gives every group the key it is held by', () => {
+			const entries = [
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavHistoryEntry,
+				...three,
+			];
+			const groups = groupByFile(entries, 0);
+
+			// A file is its path. The graph CANNOT be: its path is the empty
+			// NO_PATH, which says it is pathless without saying which view it is.
+			expect(groups.map(g => g.key)).toEqual(['c.md', 'b.md', 'a.md', 'view:graph']);
+		});
+
+		it('keeps the given sequence, and does NOT pull the current note to the front', () => {
+			// The current group is a.md. Recency pins it first (see the test above);
+			// a held order must not, because that pin is exactly the jump the reader
+			// would see after clicking: the note they clicked is the one that moves.
+			const groups = groupByFile(three, 0, undefined, lines(three), ['b.md', 'a.md', 'c.md']);
+
+			expect(groups.map(g => g.path)).toEqual(['b.md', 'a.md', 'c.md']);
+			// The reader is still told where they are — the mark is not the order.
+			expect(groups.find(g => g.path === 'a.md')?.current).toBe(true);
+		});
+
+		it('puts a note the order has never heard of FIRST, and the held ones after it', () => {
+			// A group that appeared since the order was taken is by recency the
+			// newest place, so it goes to the front — where a newly visited note
+			// belongs — while the notes the reader was looking at keep their places.
+			const entries = [...three, spot('d.md', 3, 40)];
+			const groups = groupByFile(entries, 0, undefined, lines(entries), ['a.md', 'b.md', 'c.md']);
+
+			expect(groups.map(g => g.path)).toEqual(['d.md', 'a.md', 'b.md', 'c.md']);
+		});
+
+		it('leaves the notes the order does not name in their own recency order', () => {
+			const entries = [...three, spot('d.md', 3, 40)];
+			const groups = groupByFile(entries, 0, undefined, lines(entries), ['b.md']);
+
+			// d, c and a are all unheard of, and recency is d, c, a: the sort is
+			// stable, so they stay in that order, ahead of the one held note. (In the
+			// browser the order held is the whole list, so a group is unheard of only
+			// when it has just appeared — see the test above.)
+			expect(groups.map(g => g.path)).toEqual(['d.md', 'c.md', 'a.md', 'b.md']);
+		});
+
+		it('still puts the pathless group last, held or not', () => {
+			const entries = [
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavHistoryEntry,
+				...three,
+			];
+			// The order asks for the graph FIRST. The invariant overrides it: a view
+			// is not a place in a note, so it never competes for the scan order.
+			const held = groupByFile(entries, 1, undefined, lines(entries), ['view:graph', 'a.md']);
+			const free = groupByFile(entries, 1, undefined, lines(entries));
+
+			// …while the rest of each list is still whatever ordered it: recency with
+			// the current note (a) pinned first when free, the held sequence when not.
+			expect(free.map(g => g.path)).toEqual(['a.md', 'c.md', 'b.md', '']);
+			expect(held.map(g => g.path)).toEqual(['c.md', 'b.md', 'a.md', '']);
+		});
+
+		it('orders by recency exactly as before when nothing is held', () => {
+			// The regression that keeps the default honest: undefined is the whole of
+			// the old behaviour, current note pinned first.
+			const groups = groupByFile(three, 0, undefined, lines(three), undefined);
+
+			expect(groups.map(g => g.path)).toEqual(['a.md', 'c.md', 'b.md']);
+		});
+	});
 });
 
 // The browser's filter box: tokens AND-match across everything the entry
@@ -419,8 +501,20 @@ describe('folderOf / duplicateNames', () => {
 
 	it('reports exactly the names two paths share', () => {
 		const doubles = duplicateNames(['a/index.md', 'b/index.md', 'notes.md']);
-		expect([...doubles]).toEqual(['index.md']);
+		expect([...doubles]).toEqual(['index']);
 		expect(duplicateNames(['a.md', 'b.md']).size).toBe(0);
+	});
+
+	it('counts two files as a collision on the name they both PRINT', () => {
+		// The collision is about what is on screen, and what is on screen is the name
+		// without its extension: "x.md" and "x.canvas" are one word twice, so the
+		// folder is printed on both. (The badge differs — that is what tells them
+		// apart once the eye is on the right pair of rows — but two rows reading "x"
+		// are still two rows a reader cannot choose between.)
+		expect([...duplicateNames(['a/x.md', 'b/x.canvas'])]).toEqual(['x']);
+		// …and the extension is not part of the name it is counted by, so one note
+		// and one directory-looking name do not collide.
+		expect(duplicateNames(['a.md']).size).toBe(0);
 	});
 });
 
@@ -428,6 +522,115 @@ describe('baseName', () => {
 	it('is the last path segment, and the path itself when there is none', () => {
 		expect(baseName('notes/deep/a.md')).toBe('a.md');
 		expect(baseName('a.md')).toBe('a.md');
+	});
+});
+
+// What a ROW prints as the note's name (see displayName / badgeOf): the last path
+// segment without its extension, and the type said separately. The two are a pair —
+// every name printed without an extension is either markdown (no badge) or marked —
+// and the rules only close because of that.
+describe('displayName / badgeOf', () => {
+	it('prints the name without its extension', () => {
+		expect(displayName('notes/deep/a.md')).toBe('a');
+		expect(displayName('a.md')).toBe('a');
+		// The extension is only the LAST one: a name may contain dots of its own.
+		expect(displayName('archive.tar.gz')).toBe('archive.tar');
+		// …and a LEADING dot is not an extension: that is the whole name.
+		expect(displayName('.gitignore')).toBe('.gitignore');
+		// A pathless group (the graph) has no name to shorten; the list never asks
+		// (its name is the translated view label), and this is what "no path" means.
+		expect(displayName('')).toBe('');
+	});
+
+	it('marks every type but markdown, and marks the ones with no type too', () => {
+		// Markdown has no badge: in a vault it is the unmarked default, and a badge on
+		// every row would be a column of noise.
+		expect(badgeOf('a.md')).toBeUndefined();
+		expect(badgeOf('notes/a.MD')).toBeUndefined();
+		// Everything else says what it is.
+		expect(badgeOf('report.PDF')).toBe('PDF');
+		expect(badgeOf('board.canvas')).toBe('CANVAS');
+		// A file with no extension gets a badge anyway, or "no badge" would mean two
+		// different things.
+		expect(badgeOf('LICENSE')).toBe('FILE');
+		expect(badgeOf('.gitignore')).toBe('FILE');
+		// A dot in a FOLDER is not an extension in the file.
+		expect(badgeOf('notes.v2/readme')).toBe('FILE');
+		expect(badgeOf('notes.v2/readme.md')).toBeUndefined();
+		// The pathless group is a view, not a file: it has no type.
+		expect(badgeOf('')).toBeUndefined();
+	});
+});
+
+// HOW OLD A ROW IS (see ageOf / ageLabel / newestStamp): the magnitude a reader
+// scanning for "where was I" compares rows by, said in as few characters as the
+// language allows. The list is ALREADY in this order — the label adds the scale, not
+// the order — so the boundaries are what matter, and they are what is pinned here.
+describe('ageOf / ageLabel', () => {
+	const at = 1_000_000_000_000;
+	const ago = (ms: number) => ageLabel(at, at + ms);
+	const SECOND = 1000;
+	const MINUTE = 60 * SECOND;
+	const HOUR = 60 * MINUTE;
+	const DAY = 24 * HOUR;
+
+	it('rounds DOWN, so a label never claims more time than has passed', () => {
+		expect(ago(59 * SECOND)).toBe('now');
+		// …and the unit changes exactly at the boundary, not a moment early.
+		expect(ago(60 * SECOND)).toBe('1m');
+		expect(ago(59 * MINUTE)).toBe('59m');
+		expect(ago(60 * MINUTE)).toBe('1h');
+		expect(ago(23 * HOUR)).toBe('23h');
+		expect(ago(24 * HOUR)).toBe('1d');
+		expect(ago(6 * DAY)).toBe('6d');
+		expect(ago(7 * DAY)).toBe('1w');
+		// Five weeks is where the weeks stop being useful: 4w is the last week label,
+		// and a month takes over from there.
+		expect(ago(34 * DAY)).toBe('4w');
+		expect(ago(35 * DAY)).toBe('1mo');
+		expect(ago(364 * DAY)).toBe('12mo');
+		expect(ago(365 * DAY)).toBe('1y');
+		expect(ago(800 * DAY)).toBe('2y');
+	});
+
+	it('clamps a stamp in the FUTURE to now', () => {
+		// A clock that moved backwards — a machine waking from sleep, two devices
+		// syncing — must not print "-3m", which reads as a bug in the list rather than
+		// as a wrong clock.
+		expect(ageLabel(at, at - 3 * MINUTE)).toBe('now');
+		expect(ageOf(at, at - 3 * MINUTE)).toEqual({ n: 0, unit: 'now' });
+	});
+
+	it('says the number and the unit, and nothing else', () => {
+		// The unit is the LOCALE's word for it (the test stub is English, see
+		// obsidian-stub.ts), and the label is a scan target: no "ago", no space.
+		expect(ageOf(at, at + 90 * MINUTE)).toEqual({ n: 1, unit: 'h' });
+		expect(ageLabel(at, at + 90 * MINUTE)).toBe('1h');
+	});
+});
+
+describe('newestStamp', () => {
+	const entry = (stamp?: number) => ({ kind: 'visit', path: 'a.md', leafId: 'l', t: stamp } as NavHistoryEntry);
+
+	it('is the newest stamp the group holds, wherever it sits', () => {
+		// The anchor is usually the note's last visit, but it can have been evicted
+		// while the jumps made inside the note survive — and a group's `indices` are in
+		// LINE order, not in time order (see groupByFile), so the answer is a question
+		// about all of them.
+		const entries = [entry(10), entry(40), entry(30)];
+		expect(newestStamp(entries, [2], 0)).toBe(30);
+		// …and with no anchor at all it still answers.
+		expect(newestStamp(entries, [0, 1], undefined)).toBe(40);
+	});
+
+	it('is undefined for a group with no stamp at all', () => {
+		// The rows print nothing then, rather than "now" — which is what a missing
+		// stamp would otherwise read as.
+		expect(newestStamp([entry(undefined)], [], 0)).toBeUndefined();
+		expect(newestStamp([], [], undefined)).toBeUndefined();
+		// A record that is not there contributes nothing (and does not throw): the
+		// anchor and an index can both name a place the list has since dropped.
+		expect(newestStamp([entry(5)], [7, 0], 7)).toBe(5);
 	});
 });
 

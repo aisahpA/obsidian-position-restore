@@ -48,6 +48,13 @@ export interface NavFileGroup {
 	// The note's path. NO_PATH for a pathless group, which also cannot collide
 	// with a real path (a vault path is never empty).
 	path: string;
+	// The group's IDENTITY (see groupKey): its path, or the view type for a
+	// pathless one. Carried on the group because the key a pathless group is
+	// named by cannot be recovered from `path` — NO_PATH says a group is
+	// pathless, never WHICH view it is — and because a caller that wants to hold
+	// the list's order still (see groupByFile's `order`) has nothing else stable
+	// to hold: indices are the list's current shape, and the path is not the key.
+	key: string;
 	// Stack indices of the note's landings, top of the note first: by line,
 	// ascending (see the sort in groupByFile). Each one is a CLUSTER's
 	// representative — the newest step among the nearby landings it folds — and
@@ -121,7 +128,8 @@ function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 // The filtered steps as one group per note. Groups come out by the recency of
 // their NEWEST step — what a reader scanning for "where was I" expects, and the
 // order the flat chronological list had — except the current entry's group,
-// which is pinned first. INSIDE a group the order is the note's own: by line,
+// which is pinned first (unless `order` holds the list still; see below). INSIDE
+// a group the order is the note's own: by line,
 // ascending, with the spots close enough to be one place already CLUSTERED into
 // one row (see LANDING_MERGE_LINES). `keep` applies the filter (a dropped step is
 // not on screen, so its note may disappear with it) — and the caller's filter is
@@ -138,11 +146,23 @@ function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 // and now also cluster rows the reader can see the numbers of. The default — no
 // line at all — keeps every step, so a caller that does not care is never
 // surprised.
+//
+// The order is the caller's to HOLD, not to choose: `order` says which group
+// keys go where (see its own note). It is a list of keys rather than of indices
+// because this function's group order is derived afresh every time, while a key
+// names the same note before and after the places move under it.
 export function groupByFile(
 	entries: NavHistoryEntry[],
 	currentIndex: number,
 	keep: (index: number) => boolean = () => true,
 	lineOf: (index: number) => number | undefined = () => undefined,
+	// The group order to hold the list at, by group key (see NavFileGroup.key).
+	// undefined orders by recency, which is what the list does whenever nobody is
+	// looking at it. A caller that passes one is saying "the reader is USING this
+	// list": the order they are reading is then not the model's to change, so the
+	// current group is not pulled to the front and groups keep the places they
+	// were given (see NavHistoryListOptions.order).
+	order?: readonly string[],
 ): NavFileGroup[] {
 	const groups = new Map<string, NavFileGroup>();
 	// Per group, the landing each kept step stands for → its slot in the group's
@@ -157,6 +177,7 @@ export function groupByFile(
 		if (!group) {
 			group = {
 				path: entry.kind === 'view' ? NO_PATH : entry.path,
+				key,
 				indices: [],
 				current: false,
 				spans: new Map(),
@@ -273,11 +294,35 @@ export function groupByFile(
 	if (current && keep(currentIndex) && !groups.has(groupKey(current)))
 		open(current).current = true;
 	const out = Array.from(groups.values());
-	const here = out.findIndex(g => g.current);
-	if (here > 0)
-		out.unshift(out.splice(here, 1)[0]);
+	if (!order) {
+		// Recency decides: the current entry's group is pinned first, so "you are
+		// here" is a place in the same list.
+		const here = out.findIndex(g => g.current);
+		if (here > 0)
+			out.unshift(out.splice(here, 1)[0]);
+	} else {
+		// The order the reader is looking at, held still. Two things it
+		// deliberately does NOT do:
+		//
+		//  - It does not pull the current group to the front. That pin is exactly
+		//    what a click would otherwise drag the list around with: the reader
+		//    clicks row 3, the places list moves that note to the end, and the pin
+		//    would answer by flinging it to row 1. The "you are here" MARK still
+		//    moves to the row that was clicked (it is painted per row, see
+		//    list.ts); only the rows stay put.
+		//
+		//  - It does not know about groups the order has never heard of. Those are
+		//    places that appeared since the order was taken, which by recency are
+		//    the NEWEST ones, so they take rank -1 and land at the front. The sort
+		//    is stable, so they keep their own recency order among themselves, and
+		//    the groups that DO have a rank keep the order they were given.
+		const rank = new Map(order.map((k, i): [string, number] => [k, i]));
+		out.sort((a, b) => (rank.get(a.key) ?? -1) - (rank.get(b.key) ?? -1));
+	}
 	// A pathless group sits at the END, after every note: it is not a place in a
-	// note, so it does not compete with them for the reader's scan order.
+	// note, so it does not compete with them for the reader's scan order. This is
+	// a rendering invariant rather than an ordering preference — it holds under
+	// either branch above, and so it is applied last, unconditionally.
 	const pathless = out.findIndex(g => g.path === NO_PATH);
 	if (pathless !== -1 && pathless !== out.length - 1)
 		out.push(out.splice(pathless, 1)[0]);
@@ -290,11 +335,17 @@ export function groupByFile(
 //   - the entry's OWN text (navSearchText: file name, path, the recorded
 //     landing context block, the legacy anchors, and the jump's key / link
 //     origin), and
-//   - `extra`, the text the ROW prints (the section chain and the line label),
-//     which the caller derives from the heading cache rather than the entry.
-// Reads no DOM, so the browser's search is testable without one — and a
-// match is always explainable: everything it can hit is either on the row or
-// in the context block the panel renders.
+//   - `extra`, everything the caller derives from the VAULT rather than from the
+//     entry: what the row prints (the section chain and the line label) and the
+//     other names the file goes by (see reads.ts's aliasesFor).
+// Reads no DOM, so the browser's search is testable without one.
+//
+// "Everything a match can hit is on the row" is NOT the rule, and never quite was
+// (the landing context block has no panel left to print it, and a link's origin is
+// nowhere on screen): a hit is text the READER could have written about that file,
+// which is what the extra sources have in common. An alias is the clearest case of
+// that — it is another name for the file, and finding a note by a name the reader
+// half-remembers is the whole reason a search box is here.
 export function matchesNavFilter(entry: NavHistoryEntry, query: string, extra?: string): boolean {
 	const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0)

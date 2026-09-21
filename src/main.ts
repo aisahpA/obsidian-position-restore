@@ -8,7 +8,10 @@ import { t } from './i18n';
 
 
 export default class PositionRestorePlugin extends Plugin {
-	settings!: PluginSettings;
+	// Initialised in place rather than left to loadSettings, and never
+	// reassigned afterwards — see loadSettings for why the IDENTITY of this
+	// object matters.
+	settings: PluginSettings = { ...DEFAULT_SETTINGS };
 	database!: CursorPositionDatabase;
 	manager!: PositionManager;
 
@@ -46,11 +49,33 @@ export default class PositionRestorePlugin extends Plugin {
 
 	async loadSettings() {
 		const loaded = (await this.loadData()) as Partial<PluginSettings>;
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// Merged INTO the existing object, never assigned over it. NavPlaces and
+		// PositionManager both capture this reference at construction and read
+		// through it live (places.cap(), the panel's landings/placesCap prefs),
+		// so replacing the object would leave them reading a stale copy forever.
+		Object.assign(this.settings, DEFAULT_SETTINGS, loaded);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	// data.json was edited while this plugin was already loaded — by the reader,
+	// by a sync, or by another plugin writing on our behalf. Obsidian calls this
+	// on the running instance; without it a change would not apply until the
+	// next restart.
+	//
+	// Loading is all that is needed for the values themselves: both consumers
+	// read the settings object live, so a new value is in effect on the very
+	// next access. What does NOT happen by itself is the work a few keys owe
+	// when they change — a lowered ceiling has to trim, a new folder rule has to
+	// drop — so the pre-merge copy goes to the manager to diff against. No
+	// saveSettings here: echoing the file straight back is how two writers
+	// ping-pong.
+	async onExternalSettingsChange() {
+		const before = { ...this.settings };
+		await this.loadSettings();
+		this.manager.applyChangedSettings(before);
 	}
 
 	//----------------------------------------------------------------------------------------
@@ -107,6 +132,20 @@ export default class PositionRestorePlugin extends Plugin {
 			name: t('navHistory.commands.browseHistorySidebar'),
 			icon: 'panel-right',
 			callback: () => this.manager.openNavHistorySidebar(),
+		});
+		// Start the recent-files list over. A COMMAND and not a button in the panel's
+		// gear: that panel is a navigator (a row is a place to go, not a row to act on),
+		// its gear holds what a row prints rather than what the list does, and this is
+		// the one action that throws the reader's own history away — which belongs on
+		// the command palette, where they asked for it by name, and not one stray click
+		// from the rows they came here to use. No confirmation: the list is disposable
+		// (see places-store.ts) and the note being read is put back on the spot (see
+		// PositionManager.clearRecentPlaces).
+		this.addCommand({
+			id: 'clear-recent-files',
+			name: t('navHistory.commands.clearRecent'),
+			icon: 'trash-2',
+			callback: () => this.manager.clearRecentPlaces(),
 		});
 		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
 		// and the toolbar only exists while editing, so one tap (the mobile

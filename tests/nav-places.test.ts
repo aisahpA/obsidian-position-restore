@@ -322,6 +322,54 @@ describe('NavPlaces — travel goes the way its record says', () => {
 	});
 });
 
+describe('NavPlaces — starting over', () => {
+	it('throws every place away, and stands nowhere', () => {
+		// The list is disposable by design (see places-store.ts): an empty one fills up
+		// again with use, so clearing it needs no confirmation and no migration — and it
+		// deliberately does NOT touch the position records, which are a different store
+		// keyed by path (see the module comment).
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'outline:## T'));
+		places.remember(view('graph'));
+		places.markCurrent(visit('a.md'));
+		expect(places.entries).toHaveLength(3);
+		expect(places.index).toBe(0);
+
+		places.clear();
+
+		expect(places.entries).toEqual([]);
+		// "Here" goes with it: an index into a list that is gone would name the note
+		// that arrives next.
+		expect(places.index).toBe(-1);
+	});
+
+	it('tells the panel, so the rows go while the reader is looking at them', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.clear();
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('starts empty rather than merely looking empty', () => {
+		// The reader's own note is put back by the caller (main.ts's command goes
+		// through NavHistory.syncCurrentPosition): the panel must be able to say "here
+		// you are" about the note being read, and it does that by there being a PLACE
+		// for it — which this test leaves to the caller and therefore checks the
+		// absence of.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.clear();
+
+		expect(places.knownPaths()).toEqual([]);
+		expect(places.entries.some(e => e.kind !== 'view')).toBe(false);
+	});
+});
+
 describe('NavPlaces — bookkeeping', () => {
 	it('re-keys every place that named a renamed file', () => {
 		const { places } = makePlaces();

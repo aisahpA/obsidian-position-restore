@@ -1,4 +1,4 @@
-import { App } from 'obsidian';
+import { App, PaneType } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { NavHistoryEntry } from './entry';
 import { normAnchor } from '@/position/capture/ephemeral';
@@ -42,6 +42,17 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 // an index as a clock (list.ts's activeRep: the highest index among a note's
 // landings is its newest), so a re-touched place MUST move — an in-place update
 // would leave it looking older than it is.
+// WHERE a travel opens its file, when the reader asked for somewhere other than
+// where the file already lives: a new tab, a split, a new window — or a plain
+// boolean, which is the same question asked by the app's own `getLeaf(true)`.
+//
+// It is `PaneType | boolean` rather than a flag of ours because that is the
+// app's own vocabulary and there is no reason to translate it twice: the value
+// comes from `Keymap.isModEvent` (see list.ts) and goes straight to
+// `workspace.getLeaf`, both of which are Obsidian's. A local enum in the middle
+// could only ever be a lossy copy of this one.
+export type PaneTarget = PaneType | boolean;
+
 export interface PlaceList {
 	// The places, oldest first. Read as a plain NavHistoryEntry list: every
 	// consumer in the browser (describeNavEntry, groupByFile, the search box,
@@ -52,7 +63,10 @@ export interface PlaceList {
 	index: number;
 	// Go to a place: a FILE record opens the file the plain way, a JUMP record
 	// opens it and lands on the recorded spot (see NavPlaces.travel).
-	travel(index: number): Promise<void>;
+	// `target` is where to open it, when the reader asked for somewhere other
+	// than the tab the file is already in (see PaneTarget); absent means the
+	// ordinary open, which is what the row's own click is.
+	travel(index: number, target?: PaneTarget): Promise<void>;
 	// Something a browser would have to redraw for.
 	subscribe(fn: () => void): () => void;
 }
@@ -64,12 +78,14 @@ export interface PlaceList {
 export interface PlaceOpeners {
 	// Open a file the way the file explorer does: activate the tab that holds
 	// it, or open it there. NO injected landing — the position database decides
-	// where it lands.
-	openFile(path: string, leafId: string): Promise<void>;
+	// where it lands. With a `target`, the file is opened in a leaf the app picks
+	// for that target instead (a new tab, a split, a window) and the landing rule
+	// is unchanged: the two opens land in the same place (see history.ts).
+	openFile(path: string, leafId: string, target?: PaneTarget): Promise<void>;
 	// Open the file a jump was made in and land on the jump's recorded spot.
-	openJump(entry: NavHistoryEntry): Promise<void>;
+	openJump(entry: NavHistoryEntry, target?: PaneTarget): Promise<void>;
 	// Reactivate a pathless view (the graph tab).
-	openView(entry: NavHistoryEntry): Promise<void>;
+	openView(entry: NavHistoryEntry, target?: PaneTarget): Promise<void>;
 }
 
 // The no-op opener: a store built without a workspace (a test, or a plugin
@@ -297,19 +313,40 @@ export class NavPlaces implements PlaceList {
 	//   - a JUMP record is an explicit navigation, like back/forward, so it
 	//     carries its own landing and lands on it.
 	//   - a view record reactivates its leaf.
-	async travel(index: number): Promise<void> {
+	// `target` decides WHERE all three of them open, when the reader held a
+	// modifier down (see PaneTarget): a place is opened exactly the same way, one
+	// tab over. Absent — the ordinary click — the record's own leaf is the answer,
+	// which is the plugin's whole point (a place takes you back to where it was,
+	// which `getLeaf(false)` cannot express).
+	async travel(index: number, target?: PaneTarget): Promise<void> {
 		const entry = this.entries[index];
 		if (!entry)
 			return;
 		if (entry.kind === 'jump') {
-			await this.open.openJump(entry);
+			await this.open.openJump(entry, target);
 			return;
 		}
 		if (entry.kind === 'view') {
-			await this.open.openView(entry);
+			await this.open.openView(entry, target);
 			return;
 		}
-		await this.open.openFile(entry.path, entry.leafId);
+		await this.open.openFile(entry.path, entry.leafId, target);
+	}
+
+	// Throw the whole list away. The list is DISPOSABLE by design (see
+	// places-store.ts): an empty one fills up again with use, and nothing else in
+	// the plugin reads it — the position records are a different store, keyed by
+	// path, and are deliberately untouched by this. So there is nothing to confirm
+	// and nothing to migrate; the reader who wants to start over starts over.
+	//
+	// The caller is expected to put the note they are in back (see
+	// NavHistory.syncCurrentPosition, which main.ts's command calls next): a list
+	// that came back empty while the reader is reading a note would say there is
+	// nowhere to go, about the note they are looking at.
+	clear(): void {
+		this.entries = [];
+		this.index = -1;
+		this.changed();
 	}
 
 	// The ceiling changed (the panel's gear): trim NOW rather than on the next
