@@ -1,6 +1,7 @@
 # Intellij
 *.iml
 .idea
+.workbuddy
 
 # npm
 node_modules

@@ -111,9 +111,20 @@ export class NavHistoryView extends ItemView {
 	async onClose(): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = null;
-		// The body's own teardown: the toolbar's setting, if it is open.
+		// The body's own teardown: the age timer and the document listener it
+		// registered.
 		this.browser?.destroy();
 		this.browser = null;
+	}
+
+	// Draw the list again. A preference the reader changed in the settings tab is
+	// read live by the body (see NavBrowserPrefs), so this is all it takes for a
+	// panel standing open beside the page to show the answer they just chose —
+	// and it is asked of the panel rather than pushed into it, because whether a
+	// panel is up at all is the workspace's business (see
+	// PositionManager.refreshNavPanels).
+	refresh(): void {
+		this.browser?.render();
 	}
 
 	// A travel on a phone: collapse the drawer this panel is standing in, so the note

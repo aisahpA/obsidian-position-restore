@@ -1,4 +1,6 @@
 export const en = {
+	'lastPosition.heading': 'Last position',
+
 	'openAndRestore.heading': 'Open & restore',
 	'openAndRestore.defaultPosition.name': 'Default position in edit view',
 	'openAndRestore.defaultPosition.desc':
@@ -132,68 +134,47 @@ export const en = {
 	'navHistory.recentFolders.desc': 'Files in these folders are not added to the recent files list. Separate from the recording rules above: a folder you do not want to remember positions in may still be one you want to navigate back to.',
 	'navHistory.recentFolders.list.empty': 'Every folder is listed.',
 	'navHistory.recentFolders.add': 'Add folder',
-	// How far back the list reaches: the panel's own storage knob, chosen in the
-	// panel (see NavBrowserPrefs.placesCap).
+	// How far back the list reaches: its own storage knob (see
+	// PluginSettings.navRecentCap), and not the back/forward stack's ceiling below.
 	'navHistory.recentCap.name': 'Places to keep',
-	'navHistory.recentCap.short': '(last 100)',
-	'navHistory.recentCap.medium': '(last 200)',
-	'navHistory.recentCap.long': '(last 500)',
+	'navHistory.recentCap.desc': 'How many places the recent files list holds. Lowering it drops the oldest at once.',
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
 	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
-	// How many spots in one note the history list prints. The setting itself stands on
-	// the page too — the small button at the far end of the toolbar (see
-	// NavHistoryBrowser.settings) — because the reader decides it while looking at the
-	// list: by default the list follows the reader's own navigation, which is by file,
-	// and the newest spot is the one their back button keeps returning to. That spot is
-	// exactly what the note's row stands for (the panel describes it, the row opens it
-	// — the row of the note the reader is already in included, where the open re-lands
-	// the place rather than pushing it again), so nothing has to be printed under the
-	// row for it.
+	// How many spots in one note the list prints. The two answers are written as what
+	// they do to the LIST rather than as what they do to a note, because that is the
+	// choice: by default the list follows the reader's own navigation, which is by
+	// file, and the newest spot is the one their back button keeps returning to —
+	// and that spot is exactly what the note's row already stands for (the panel
+	// describes it, the row opens it, the row of the note the reader is already in
+	// included, where the open re-lands the place rather than pushing it again), so
+	// nothing has to be printed under the row for it.
 	'navHistory.landings.name': 'Landings in the list',
-	'navHistory.listSettings': 'Settings',
-	// The few words an answer carries, written AFTER the answer itself (see
-	// NavHistoryBrowser.settingGroup), in brackets so that they are read as a note on
-	// the answer and not as a second label: one paragraph under the group had to name
-	// its two options before it could say anything about them, and the reader had to
-	// pick the sentence that belonged to the answer they were looking at out of a wall
-	// of small print; beside the answer, the words are read where the answer is. The
-	// brackets travel WITH the words, because which pair of them to draw is the
-	// language's own call.
+	'navHistory.landings.desc': 'One row per note, standing for the spot you left it at — or one row for every spot you left it at.',
 	'navHistory.landings.options.last': 'One row per note',
-	'navHistory.landings.options.last.desc': '(last spot only)',
 	'navHistory.landings.options.all': 'Every landing',
-	'navHistory.landings.options.all.desc': '(all spots listed)',
 	// How much of a row's PATH is printed, and on which side of the name (see
-	// PathDisplayMode). The two "always" answers are written as what happens when the
-	// row is too narrow, because that — and not the side — is what the reader is
+	// PathDisplayMode). The two "always" answers are written as what gives way when
+	// the row runs out of width — that, and not the side, is what the reader is
 	// really choosing: a flex line wraps at its end, so whichever half is laid out
 	// last is the half that drops to a second line. "Only when names repeat" is the
 	// default and the one that says the least: the folder is a disambiguator, so it
 	// is printed where there is something to disambiguate.
 	'navHistory.pathDisplay.name': 'Folder path in the list',
+	'navHistory.pathDisplay.desc': 'Whether a row prints the folder its note sits in — only where two rows share a name, or on every row — and on which side of the name.',
 	'navHistory.pathDisplay.options.smart': 'Only when names repeat',
-	'navHistory.pathDisplay.options.smart.desc': '(hidden otherwise)',
 	'navHistory.pathDisplay.options.before': 'Always, before the name',
-	'navHistory.pathDisplay.options.before.desc': '(name drops below if long)',
 	'navHistory.pathDisplay.options.after': 'Always, after the name',
-	'navHistory.pathDisplay.options.after.desc': '(path drops below if long)',
-	// Whether each row says how long ago it was last visited, and the words the age
-	// itself is built from. Each value is a UNIT plus the word "ago"
-	//  — and a row's age is exactly the thing a reader should not have to decode.
-	// The exact moment is carried as the label's own tooltip instead.
-	//
-	// "time since last visit" is not decoration: a reader's first guess at a time
-	// printed on a file row is the file's own modification time, which is a different
-	// fact and not what this is.
+	// Whether each row says how long ago it was last visited. The label is the place's
+	// own `t` (see places.ts) — the last time the reader was there, and NOT the file's
+	// modification time, which is a different fact and the one a reader's first guess
+	// at a time printed on a file row would be. The exact moment rides on the label's
+	// own tooltip.
 	'navHistory.rowTime.name': 'Time on each row',
-	'navHistory.rowTime.options.on': 'Show',
-	'navHistory.rowTime.options.on.desc': '(time since last visit)',
-	'navHistory.rowTime.options.off': 'Hide',
-	'navHistory.rowTime.options.off.desc': '(nothing on the row)',
+	'navHistory.rowTime.desc': 'Print how long ago each row was last visited, next to the row.',
 	'navHistory.age.now': 'now',
 	'navHistory.age.m': 'm ago',
 	'navHistory.age.h': 'h ago',

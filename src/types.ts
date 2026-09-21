@@ -77,7 +77,7 @@ interface TabStateRecord {
 // while 'all' prints every distinct spot the note was left at under its name.
 //
 // Named here, beside the setting that holds it, because three places speak it: the
-// settings record, the list's own options and the toolbar's setting (see
+// settings record, the settings tab's row for it and the list's own options (see
 // NavBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
 type LandingsMode = 'last' | 'all';
 
@@ -92,7 +92,7 @@ type LandingsMode = 'last' | 'all';
 // duplicateNames) — and lays them out like 'before'.
 //
 // Named here, beside the setting that holds it, because the settings record, the
-// list's own options and the toolbar's setting all speak it (see
+// settings tab's row for it and the list's own options all speak it (see
 // NavBrowserPrefs.pathDisplay).
 type PathDisplayMode = 'smart' | 'before' | 'after';
 
@@ -124,9 +124,7 @@ interface PluginSettings {
 	// back/forward stack above (and from the position records): what it holds is
 	// which files the reader has been in and which headings/anchors they jumped
 	// to, so a place may be lived in for months where a stack step lives for
-	// minutes. Its ceiling is chosen in the panel's own gear (see
-	// NavBrowserPrefs.placesCap), because that is where the reader is looking at
-	// the list whose length it decides.
+	// minutes.
 	navRecentCap: number; // max places kept in the recent-files list; oldest drop on overflow
 	// The files the recent-files list must NOT record — its OWN rule, deliberately
 	// not shared with excludedFolders above: that one answers "whose scroll
@@ -134,12 +132,11 @@ interface PluginSettings {
 	// restores and still be exactly what the reader wants to navigate back to),
 	// while this one answers "which visits are worth listing".
 	navRecentExcludeFolders: string[];
-	// The history browser's own preferences. They are persisted rather than held
-	// in the panel because both outlive the panel they are chosen in: a reader who
-	// wants one row per note wants that of every note. Both are chosen IN the
-	// panel — the list's shape and whether the details column exists at all, by the
-	// toolbar's own setting button — because that is where the reader is looking at
-	// what they change, and the settings tab keeps no second copy of either.
+	// The history browser's own preferences: what a row prints, and how far back the
+	// list reaches. They are persisted rather than held in the panel because all of
+	// them outlive the panel they are read in — a reader who wants one row per note
+	// wants that of every note — and they are changed in the settings tab, so the
+	// panel keeps no second copy of any of them.
 	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
 	navPathDisplay: PathDisplayMode; // whether a row prints the folder its note sits in, and on which side of the name
 	// Whether a row prints how long ago it was last visited. Off by default: it is a

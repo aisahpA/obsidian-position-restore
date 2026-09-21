@@ -198,21 +198,17 @@ body.is-mobile .position-restore-cue {
 	padding-bottom: 4px;
 }
 
-/* Toolbar above the list: the filter box, the keyboard hint, and the panel's own
-   setting at the far end (see NavHistoryBrowser.settings). A deliberately QUIET
-   strip — the list below is what the eye should land on — so the box recedes: the
-   filter is a ruled line the caret sits on rather than Obsidian's filled, bordered
-   form field.
-   `position: relative` is what the setting panel is anchored to: it is a child of
-   this strip and hangs off its foot, so opening it cannot move the line the box
-   sits on.
+/* Toolbar above the list: the filter box and the keyboard hint — the strip holds
+   nothing else now that the panel's own settings are rows of the plugin's settings
+   tab (see NavBrowserPrefs). A deliberately QUIET strip — the list below is what
+   the eye should land on — so the box recedes: the filter is a ruled line the caret
+   sits on rather than Obsidian's filled, bordered form field.
    The field is quietened by RETUNING the variables the app's input skin reads
    (--background-modifier-form-field, the border widths) rather than by out-
    specifying it: this is the app's own move for quiet fields (see its
    .search-input-container and .bases-search-row), and it keeps working whatever
    the theme sets those variables to. */
 .position-restore-nav-toolbar {
-	position: relative;
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -328,30 +324,25 @@ body.is-mobile .position-restore-cue {
 }
 
 /* On touch the strip is TWO rows, and the rows are STATED rather than left to
-   wrapping: the box takes the first, and the hint keeps the second company with the
-   setting at its far end.
+   wrapping: the box takes the first and the hint the second.
    The rows are declared because neither of the two ways of getting there by wrapping
    works. The hint used to be forced onto a line of its own (`flex: 1 0 100%`), which
-   is incompatible with sharing it — a 100% basis leaves no room for anything else, so
-   the setting went on the BOX's line and the strip read as a blank row with a gear
-   hanging at its end (the box is a bare rule, so the line it sits on is nearly
-   empty). Left purely to `flex-wrap`, meanwhile, the two rows depend on how wide the
-   panel happens to be: on a wide one the hint joins the box's line and the setting
-   drops to a line of its own — the same complaint, coming and going with the width.
-   Grid states the two rows once, for every width.
+   left the strip's second row reading as a blank line. Left purely to `flex-wrap`,
+   meanwhile, the two rows depend on how wide the panel happens to be: on a wide one
+   the hint joins the box's line — the same complaint, coming and going with the
+   width. Grid states the two rows once, for every width.
    The hint is therefore back to the base rule's one line with an ellipsis (see
-   .position-restore-nav-hint): sharing the row means it has less of it, and a hint
-   that WRAPS would make the second row two lines tall — the height the layout was
-   rearranged to save. A translation too long for its share is ellipsized, and the
-   sentence is worth shortening before the row is worth growing. */
+   .position-restore-nav-hint): it has the row to itself, but a hint that WRAPS would
+   make that row two lines tall — the height the layout was rearranged to save. A
+   translation too long for its share is ellipsized, and the sentence is worth
+   shortening before the row is worth growing. */
 .position-restore-nav-panel.is-touch .position-restore-nav-toolbar {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-areas:
-		'box box'
-		'hint gear';
+		'box'
+		'hint';
 	align-items: center;
-	column-gap: 10px;
 	row-gap: 2px;
 }
 
@@ -367,190 +358,6 @@ body.is-mobile .position-restore-cue {
 	--icon-size: var(--icon-s);
 }
 .position-restore-nav-panel.is-touch .position-restore-nav-hint { grid-area: hint; min-width: 0; }
-.position-restore-nav-panel.is-touch .position-restore-nav-settings { grid-area: gear; justify-self: end; }
-
-/* THE TOOLBAR'S SETTING: the one control in the strip that is not the search box
-   (see NavHistoryBrowser.settings). `margin-left: auto` puts it against the panel's
-   right edge whatever the box and the hint do with the room.
-   IT IS PAINTED AT FULL TEXT STRENGTH, through the panel's OWN variable, and the
-   selector names the toolbar — this button has now been invisible twice, and both
-   times the decision that hid it was taken outside the colour written here:
-   1. `.clickable-icon` does not paint with `color`: it reads `--icon-color` and dims
-      itself with `--icon-opacity`, and a theme is free to set either ON the element
-      (a rule naming the leaf and the class outranks anything this file can say from
-      two classes away). So both variables are set here as well as `color`, and
-      `opacity: 1` is kept on top of them.
-   2. A tier MIXED toward the strip (--nav-muted, see the tiers above) can only ever
-      be as visible as the strip's own background allows — which is the question this
-      button kept losing, since the strip is the quietest surface in the panel. The
-      theme's PRIMARY text colour is the strongest ink available that still cannot be
-      wrong: if it is unreadable, every row's own name is unreadable with it.
-   3. The ink travels in `--nav-settings-ink`, a variable only this plugin declares,
-      and the glyph is painted from it one level down (see the svg rule). That is what
-      makes the answer stick: the colour of the icon no longer depends on winning a
-      fight over `color` or `--icon-color` — where a theme that names the leaf can
-      always outrank a plugin — but on a variable nothing else writes. */
-.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings {
-	flex: 0 0 auto;
-	margin-left: auto;
-	--nav-settings-ink: var(--text-normal);
-	color: var(--nav-settings-ink);
-	--icon-color: var(--nav-settings-ink);
-	--icon-opacity: 1;
-	opacity: 1;
-}
-
-/* …and the glyph takes that ink rather than asking the app's icon skin for it a second
-   time. `.svg-icon` paints with `currentColor`; this rule is what decides which colour
-   that is, under a selector one element deeper than the button's own (see 3 above). */
-.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings svg {
-	color: var(--nav-settings-ink);
-	stroke: currentColor;
-}
-
-/* Reaching for it — or having it open — moves the ink to the accent and gives the
-   pointer a box to land on: the button was a glyph floating in the strip, which is
-   half of why it read as decoration rather than as a control. */
-.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings:hover,
-.position-restore-nav-panel .position-restore-nav-toolbar .position-restore-nav-settings[aria-expanded='true'] {
-	--nav-settings-ink: var(--interactive-accent);
-	background-color: var(--background-modifier-hover);
-}
-
-/* …and what it opens, hanging off the strip's foot: ABSOLUTE, so the line the box
-   and the hint sit on does not move by a pixel when it appears, and anchored to the
-   toolbar (see there) rather than to the viewport. It stands OVER the list, which is
-   what the reader is deciding about, so it carries the app's own menu chrome — a
-   surface, a hairline, a radius and a shadow — instead of the strip's quiet one, and
-   it arrives with a short drop so that a panel appearing over the list reads as
-   something that just opened. The floor is the widest pair of answers written whole —
-   an answer and the few words after it on one line (see .nav-settings-option-desc) —
-   and the ceiling still keeps a phone's copy inside the pane. */
-.position-restore-nav-settings-menu {
-	position: absolute;
-	top: calc(100% - 2px);
-	right: 0;
-	z-index: 20;
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-	min-width: 20em;
-	max-width: min(26em, 100%);
-	padding: 10px;
-	background-color: var(--background-secondary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-	box-shadow: var(--shadow-s);
-	animation: position-restore-nav-settings-in 120ms ease-out;
-}
-
-@keyframes position-restore-nav-settings-in {
-	from {
-		opacity: 0;
-		transform: translateY(-4px);
-	}
-
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-/* The menu holds several choices (see NavHistoryBrowser.openSettings), and they are
-   separate questions — how much of a note the LIST prints, whether the details column
-   exists at all, how far back the list reaches — so they are divided: the rule above a
-   group's answers tells the reader where one question ends and the next begins, and the
-   gap is the same above and below it. */
-.nav-settings-group + .nav-settings-group {
-	margin-top: 10px;
-	padding-top: 10px;
-	border-top: 1px solid var(--background-modifier-border);
-}
-
-/* The name of the choice, over the two answers: a quiet heading in the panel's own
-   small tier, weighted enough to be read as a label rather than as another row. */
-.nav-settings-title {
-	margin: 0 2px 8px;
-	color: var(--nav-muted);
-	font-size: var(--font-ui-smaller);
-	font-weight: 600;
-}
-
-/* One of the two values: a BUTTON and not a row of the list — it fills the panel's
-   width and carries the strip's own small tier, and the app's button chrome
-   (--input-height, a border, a fill) is taken off it for the same reason the gutter
-   control has none: a widget's box inside a quiet panel is louder than the choice.
-   The mark, the label and the answer's own few words are packed together at the START
-   of the row — the mark was at the far end, where the panel's width sat between it and
-   the word it belonged to, and the words now follow the answer they belong to. */
-.nav-settings-option {
-	display: flex;
-	align-items: center;
-	justify-content: flex-start;
-	gap: 6px;
-	width: 100%;
-	height: auto;
-	min-height: 0;
-	padding: 6px 8px;
-	border: none;
-	border-radius: var(--radius-s);
-	background-color: transparent;
-	box-shadow: none;
-	color: var(--text-normal);
-	font-size: var(--font-ui-small);
-	text-align: start;
-	cursor: pointer;
-}
-
-.nav-settings-option:hover {
-	background-color: var(--background-modifier-hover);
-}
-
-/* The value in force says so TWICE: the app's own "active" tint — the wash the
-   position's row is painted with too (see .position-restore-nav-row.is-selected) — and
-   a check mark in front of the label. The tint alone is a fact a theme can take away
-   (it is mixed from the accent), and it is the mark a reader reads when the two rows'
-   backgrounds come out nearly the same; neither changes the row's size, or the choice
-   would move under the pointer that made it. */
-.nav-settings-option[aria-checked='true'] {
-	color: var(--text-normal);
-	background-color: var(--background-modifier-active-hover);
-}
-
-/* THE MARK'S SLOT: the span is in the row whether or not it carries a glyph (see
-   NavHistoryBrowser.openSettings), so the two labels start on one x instead of the
-   unchecked one pulling left, and the row it stands on does not resize as the choice
-   moves between them. The mark itself is the accent, which is a colour no theme can
-   mistake for the row's own text. */
-.nav-settings-tick {
-	display: flex;
-	flex: 0 0 auto;
-	justify-content: center;
-	width: 1.1em;
-	color: var(--interactive-accent);
-	--icon-color: var(--interactive-accent);
-}
-
-.nav-settings-tick svg {
-	width: 1.1em;
-	height: 1.1em;
-}
-
-/* THE ANSWER'S OWN WORDS, after the answer, in the row's own control (see
-   NavHistoryBrowser.settingGroup). They are the muted tier, so the option's word is
-   still what the eye lands on, and they take whatever width is left so a longer
-   translation wraps on the option's own line instead of pushing the menu wider. */
-.nav-settings-label {
-	flex: 0 0 auto;
-}
-
-.nav-settings-option-desc {
-	flex: 1 1 auto;
-	color: var(--nav-muted);
-	font-size: var(--font-ui-smaller);
-	line-height: 1.3;
-	text-align: start;
-}
 
 /* A ROW, in one of two kinds — a note, or one of its landings. Both are options of the
    listbox and both take the same position chrome (see .is-selected below); what differs
@@ -571,14 +378,14 @@ body.is-mobile .position-restore-cue {
 	   on a desktop, the text size on a phone — see its .tree-item-self, which is the
 	   file explorer this list stands beside), so a row here reads at the same size as
 	   the row next to it. It is declared on the ROW because the row is the list: the
-	   strip above it and the setting menu name their own, smaller tiers. The fallback
+	   strip above it names its own, smaller tier. The fallback
 	   is for a theme or a build that never defined the variable. */
 	font-size: var(--nav-item-size, var(--font-ui-small));
 }
 
-/* ONE ROW UNDER THE POINTER: the app's own hover tint — the wash its file explorer,
-   and this panel's own setting rows (see .nav-settings-option:hover), are painted
-   with — so the row a click is about to land on says so before the click. A list of
+/* ONE ROW UNDER THE POINTER: the app's own hover tint — the wash its file explorer
+   paints its rows with — so the row a click is about to land on says so before the
+   click. A list of
    things to open is read by aiming, and a row that answers nothing until it is hit
    leaves the reader guessing which line the pointer is on.
    It is a TINT and not a MOVE: the position (see .is-selected below) is where the

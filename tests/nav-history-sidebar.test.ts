@@ -20,37 +20,36 @@ import { TIME_REFRESH_MS } from '@/nav-history/browser/constants';
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
 
-// The browser's preferences as the plugin hands them over (see NavBrowserPrefs). The
-// panel only READS them, so the shell tests need a set and nothing more — a fresh one
-// per mount, so no test decides another's — except for the one that hands the WRITE
-// back, which is how a test sees the panel ask the plugin to remember a value it was
-// given (see setLandings).
+// The browser's preferences as the plugin hands them over (see NavBrowserPrefs):
+// READERS over values the settings tab owns — a fresh set per mount, so no test
+// decides another's. What the panel does with a value that CHANGED underneath it is
+// the one thing the shell adds, so the fixture can be written to as well: that is
+// what the settings tab does (see SettingTab.setControlValue), and the panel is then
+// asked to draw again (see NavHistoryView.refresh).
+type TestPrefs = NavBrowserPrefs & { setLandings: (how: LandingsMode) => void };
+
 function browserPrefs(
 	landings: LandingsMode = 'last',
 	path: PathDisplayMode = 'smart',
 	time = false,
-): NavBrowserPrefs {
+): TestPrefs {
+	const held = { landings, path, time };
 	return {
-		landings: () => landings,
-		setLandings: (how) => {
-			landings = how;
-		},
-		// How far back the list reaches: chosen in the panel's gear (see
-		// NavBrowserPrefs.placesCap).
+		landings: () => held.landings,
+		// How far back the list reaches (see PluginSettings.navRecentCap): a number
+		// the panel only reads.
 		placesCap: () => 200,
-		setPlacesCap: () => undefined,
 		// How much of a row's path is printed, and on which side of the name (see
 		// PathDisplayMode).
-		pathDisplay: () => path,
-		setPathDisplay: (how) => {
-			path = how;
-		},
+		pathDisplay: () => held.path,
 		// Whether each row is dated (see NavBrowserPrefs.rowTime): a switch, off unless
 		// a test asks — what the LABEL says is the body's business and is covered where
 		// the body is (see nav-history-browser-dom.test.ts); what the shell adds is the
 		// lifetime of the timer that keeps it fresh (see the test below).
-		rowTime: () => time,
-		setRowTime: () => undefined,
+		rowTime: () => held.time,
+		setLandings: (how) => {
+			held.landings = how;
+		},
 	};
 }
 
@@ -178,11 +177,12 @@ describe('NavHistoryView — the resident panel', () => {
 	it('mounts the browser body into the pane, with no dialog around it', async () => {
 		const { view, el, names } = await mount([visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1);
 
-		// The body, whole: the toolbar (with the list's own setting at its end — this is
-		// the same body the dialog mounts, so both shells carry it) and the list of notes,
-		// the current one pinned first and marked.
+		// The body, whole: the toolbar — the box and the hint, and no setting of its
+		// own, since the four choices are rows of the plugin's settings tab now (see
+		// NavBrowserPrefs) — and the list of notes, the current one pinned first and
+		// marked.
 		expect(el.querySelector('.position-restore-nav-filter')).not.toBeNull();
-		expect(el.querySelector('.position-restore-nav-settings')).not.toBeNull();
+		expect(el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(names()).toEqual(['b', 'a']);
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent)
 			.toBe('b');
@@ -303,28 +303,28 @@ describe('NavHistoryView — the resident panel', () => {
 		expect(() => nav.moved(0)).not.toThrow();
 	});
 
-	it('carries the list setting, and redraws on the spot when it is changed', async () => {
-		// The body is the one the dialog mounts as well; what a sidebar adds is that it
-		// STAYS UP, so the setting has to reach a list that is already standing — the
-		// panel redraws itself rather than waiting for the history to move.
+	// The panel reads its preferences live, so a value changed while it stands needs
+	// no re-wiring — only a redraw. That is the whole of what the settings tab's row
+	// and the panel have to agree on (see PositionManager.refreshNavPanels): the
+	// value is written where settings are written, and every standing panel is asked
+	// to draw itself again.
+	it('redraws a standing list when a preference it draws by is changed', async () => {
 		const prefs = browserPrefs('last');
 		const entries: NavHistoryEntry[] = [
 			place('a.md', NOW - 2 * MINUTE, 10),
 			place('a.md', NOW - MINUTE, 40),
 			visit('b.md', NOW),
 		];
-		const { el } = await mount(entries, 2, prefs);
+		const { view, el } = await mount(entries, 2, prefs);
 		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(0);
 
-		el.querySelector<HTMLElement>('.position-restore-nav-settings')!
-			.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		const all = Array.from(el.querySelectorAll<HTMLElement>('.nav-settings-option'))
-			.find(b => b.querySelector('.nav-settings-label')?.textContent === t('navHistory.landings.options.all'))!;
-		all.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		// The reader picks "every landing" in the settings tab: the value is written
+		// there, and this panel is asked to draw again.
+		prefs.setLandings('all');
+		view.refresh();
 
-		// The choice went to the plugin (see NavBrowserPrefs.setLandings), and the list
-		// under the panel is the new one, in the same breath.
-		expect(prefs.landings()).toBe('all');
+		// The list under the panel is the new one, in the same breath — nothing was
+		// reopened, and the reader did not have to wait for the history to move.
 		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
 	});
 

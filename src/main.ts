@@ -18,7 +18,7 @@ export default class PositionRestorePlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.database = new CursorPositionDatabase(this, this.settings);
-		this.manager = new PositionManager(this.app, this.database, this.settings, () => void this.saveSettings());
+		this.manager = new PositionManager(this.app, this.database, this.settings);
 
 		await this.database.readDb();
 		this.manager.prunePositions();

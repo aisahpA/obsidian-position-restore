@@ -349,7 +349,7 @@ export class NavPlaces implements PlaceList {
 		this.changed();
 	}
 
-	// The ceiling changed (the panel's gear): trim NOW rather than on the next
+	// The ceiling changed (the settings tab): trim NOW rather than on the next
 	// visit — the same reason the stack's applyStackCap is called from the
 	// settings panel: waiting drops a large chunk at once, later, unexplained.
 	// @returns how many places were discarded.

@@ -26,9 +26,10 @@ const MINUTE = 60_000;
 const NOW = Date.now();
 
 // A preference set for one harness (or for two, when a test wants to show that a
-// choice made in one dialog is the choice the next one opens on). The write is
-// recorded, so a test can assert that the list asked the PLUGIN to remember the
-// choice rather than keeping it to itself.
+// choice made in the settings tab is the choice the next dialog opens on). The
+// panel only READS them (see NavBrowserPrefs) — the values are the plugin's, and
+// what changes them is the settings tab — so the fixture is a set of live readers
+// over values a test can write, exactly as the settings tab writes them.
 function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: boolean } = {}) {
 	const state = {
 		landings: 'last' as LandingsMode,
@@ -41,27 +42,13 @@ function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: 
 		state,
 		browser: {
 			landings: () => state.landings,
-			setLandings: (how: LandingsMode) => {
-				state.landings = how;
-			},
-			// How far back the list reaches: chosen in the panel's gear (see
-			// NavBrowserPrefs.placesCap).
+			// How far back the list reaches (see PluginSettings.navRecentCap).
 			placesCap: () => state.cap,
-			setPlacesCap: (cap: number) => {
-				state.cap = cap;
-			},
-			// How much of a row's path is printed, and on which side of the name:
-			// the third choice in the same gear (see PathDisplayMode).
+			// How much of a row's path is printed, and on which side of the name (see
+			// PathDisplayMode).
 			pathDisplay: () => state.path,
-			setPathDisplay: (how: PathDisplayMode) => {
-				state.path = how;
-			},
-			// Whether each row is dated: the same gear, as a plain switch (see
-			// NavBrowserPrefs.rowTime).
+			// Whether each row is dated (see NavBrowserPrefs.rowTime).
 			rowTime: () => state.time,
-			setRowTime: (on: boolean) => {
-				state.time = on;
-			},
 		} satisfies NavBrowserPrefs,
 	};
 }
@@ -374,15 +361,6 @@ function harness(
 			clientY: at?.y ?? pointer,
 		}));
 	const key = (k: string) => modal.contentEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
-	// A choice in the toolbar's gear (see NavHistoryBrowser.openSettings): open the
-	// menu, pick the answer by its label, and the menu closes on the pick — the same
-	// two clicks a reader makes.
-	const pickSetting = (label: string) => {
-		clickRow(modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-settings')!);
-		const option = Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.nav-settings-option'))
-			.find(b => b.querySelector('.nav-settings-label')?.textContent === label)!;
-		clickRow(option);
-	};
 	// The listbox itself — what a row's click bubbles through, and what the browser
 	// hands a click to when the row the reader pressed has been rebuilt away.
 	const list = () => modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-list')!;
@@ -418,7 +396,7 @@ function harness(
 		modal, jumpTo, cachedRead, el: modal.contentEl, entries, list,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
-		key, pickSetting, hover, unhover, clearButton, clearFilter,
+		key, hover, unhover, clearButton, clearFilter,
 	};
 }
 
@@ -902,9 +880,9 @@ describe('NavHistoryModal — the file scope is gone', () => {
 	// switch and a chip opening a menu of every note the history had been in.
 	// Both answered "where else in this note was I", and the search box already
 	// answers it — a note's name is text its own steps are searchable by — so the
-	// toolbar keeps the box and the hint, and the list keeps the width. (The one
-	// control beside them is the list's own setting, which is about what the list
-	// PRINTS rather than about the query — see NavHistoryBrowser.settings.)
+	// toolbar keeps the box and the hint, and the list keeps the width. What the
+	// list PRINTS is not a question the toolbar answers either: those four choices
+	// are rows of the plugin's settings tab now (see NavBrowserPrefs).
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 	const entries = () => [
 		visit('a.md', NOW - 5 * MINUTE),
@@ -913,24 +891,22 @@ describe('NavHistoryModal — the file scope is gone', () => {
 		visit('c.md', NOW),
 	];
 
-	it('leaves the toolbar to the search box, its ×, the hint and the list setting', () => {
+	it('leaves the toolbar to the search box, its × and the hint', () => {
 		const h = harness(entries(), 3, files);
 
 		expect(h.el.querySelector('.position-restore-nav-toggle')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope-menu')).toBeNull();
-		// Box, hint, and the panel's own setting at the far end (see
-		// NavHistoryBrowser.settings) — nothing else. The box's × is not a fourth thing in
-		// the strip: it is INSIDE the box's own element, hung on the line the reader typed
-		// on. The button's class list is read one class deep because drawing the icon adds
-		// the app's own icon classes to it (see setIcon).
+		// Box and hint, and nothing else: the gear that used to stand at the strip's far
+		// end is gone with the four choices it carried (see NavBrowserPrefs). The box's ×
+		// is not a third thing in the strip: it is INSIDE the box's own element, hung on
+		// the line the reader typed on.
 		const strip = Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-toolbar > *'));
 		expect(strip.map(el => el.className.split(' ')[0])).toEqual([
 			'position-restore-nav-search',
 			'position-restore-nav-hint',
-			'clickable-icon',
 		]);
-		expect(strip[2].classList.contains('position-restore-nav-settings')).toBe(true);
+		expect(h.el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(strip[0].querySelector('.position-restore-nav-clear')).toBe(h.clearButton());
 	});
 
@@ -1141,169 +1117,36 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 	});
 });
 
-describe('NavHistoryModal — the settings menu', () => {
-	// The setting the panel carries on the PAGE rather than in the settings tab (see
-	// NavHistoryBrowser.settings): the small button at the far end of the strip opens
-	// a radio group of two, and the list under it is what changes. Two spots in a.md
-	// and b.md current, so 'all' has something to print.
+describe('NavHistoryModal — the list\'s looks belong to the settings tab', () => {
+	// What the list PRINTS is no longer chosen in the panel: the four choices the
+	// toolbar's gear used to carry are rows of the plugin's settings tab now (see
+	// NavBrowserPrefs), so the strip is the box and the hint, and a dialog that
+	// lives a second has nothing in it worth changing anyway. Two spots in a.md and
+	// b.md current, so 'all' has something to print.
 	const entries = () => [
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 100 }),
 		visit('a.md', NOW - 2 * MINUTE, { scroll: 412 }),
 		visit('b.md', NOW),
 	];
 	const files = { 'a.md': '', 'b.md': '' };
-	const gear = (h: ReturnType<typeof harness>) =>
-		h.el.querySelector<HTMLElement>('.position-restore-nav-settings')!;
-	const menu = (h: ReturnType<typeof harness>) =>
-		h.el.querySelector<HTMLElement>('.position-restore-nav-settings-menu');
-	const option = (h: ReturnType<typeof harness>, label: string) =>
-		Array.from(h.el.querySelectorAll<HTMLElement>('.nav-settings-option'))
-			.find(b => b.querySelector('.nav-settings-label')?.textContent === label)!;
 
-	it('opens from the strip, and says which of the two values is in force', () => {
-		const h = harness(entries(), 2, files);
-		const btn = gear(h);
+	it('draws from the values the plugin holds, and offers nowhere to change them', () => {
+		const h = harness(entries(), 2, files, [], {}, {}, false, [], {},
+			prefs({ landings: 'all' }).browser);
 
-		// A gear is not a word: the name is said for the reader who has to have it, and
-		// the button says whether the panel it opens is up.
-		expect(btn.getAttribute('aria-label')).toBe(t('navHistory.listSettings'));
-		expect(btn.getAttribute('aria-haspopup')).toBe('true');
-		expect(btn.getAttribute('aria-expanded')).toBe('false');
-		expect(menu(h)).toBeNull();
+		// No gear in the strip, no menu hanging off it — and no key of its own to put
+		// away: Escape is the app's (it closes the dialog), and with nothing of ours up
+		// nothing here may consume it.
+		expect(h.el.querySelector('.position-restore-nav-settings')).toBeNull();
+		expect(h.el.querySelector('.position-restore-nav-settings-menu')).toBeNull();
+		const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+		h.modal.contentEl.dispatchEvent(escape);
+		expect(escape.defaultPrevented).toBe(false);
 
-		h.clickRow(btn);
-
-		const panel = menu(h)!;
-		expect(btn.getAttribute('aria-expanded')).toBe('true');
-		// FOUR choices (see NavHistoryBrowser.openSettings): how much of a note the
-		// list prints, how much of each row's path it prints, whether a row is dated,
-		// and how far back the list reaches. Each is its own group with its own name — what is chosen has to be
-		// audible without opening the list to look at its shape — and every ANSWER
-		// carries the few words saying what it means, on its own row, which a menu
-		// cannot carry. That is why this is the panel's own DOM and not the app's Menu.
-		expect(panel.getAttribute('role')).toBe('group');
-		expect(panel.getAttribute('aria-label')).toBe(t('navHistory.listSettings'));
-		expect(panel.querySelectorAll('.nav-settings-group')).toHaveLength(4);
-		expect(Array.from(panel.querySelectorAll('.nav-settings-title')).map(el => el.textContent))
-			.toEqual([
-				t('navHistory.landings.name'),
-				t('navHistory.pathDisplay.name'),
-				t('navHistory.rowTime.name'),
-				t('navHistory.recentCap.name'),
-			]);
-		// The few words are read where the answer is, after it, and not out of one
-		// paragraph under the group: no group-level note is left, and every answer
-		// holds its own.
-		expect(panel.querySelectorAll('.nav-settings-desc')).toHaveLength(0);
-		expect(Array.from(panel.querySelectorAll('.nav-settings-option-desc')).map(el => el.textContent))
-			.toEqual([
-				t('navHistory.landings.options.last.desc'),
-				t('navHistory.landings.options.all.desc'),
-				t('navHistory.pathDisplay.options.smart.desc'),
-				t('navHistory.pathDisplay.options.before.desc'),
-				t('navHistory.pathDisplay.options.after.desc'),
-				t('navHistory.rowTime.options.on.desc'),
-				t('navHistory.rowTime.options.off.desc'),
-				t('navHistory.recentCap.short'),
-				t('navHistory.recentCap.medium'),
-				t('navHistory.recentCap.long'),
-			]);
-		expect(option(h, t('navHistory.landings.options.all'))
-			.querySelector('.nav-settings-option-desc')?.textContent)
-			.toBe(t('navHistory.landings.options.all.desc'));
-		expect(Array.from(panel.querySelectorAll('[role="radiogroup"]')).map(el => el.getAttribute('aria-label')))
-			.toEqual([
-				t('navHistory.landings.name'),
-				t('navHistory.pathDisplay.name'),
-				t('navHistory.rowTime.name'),
-				t('navHistory.recentCap.name'),
-			]);
-		// A radio group, not a menu of commands: which of the two is in force has to be
-		// audible without looking at the list's shape.
-		expect(option(h, t('navHistory.landings.options.last')).getAttribute('aria-checked')).toBe('true');
-		expect(option(h, t('navHistory.landings.options.all')).getAttribute('aria-checked')).toBe('false');
-		// …and it is marked as well as tinted: the tint is a theme's to take away, so the
-		// check in front of the label is what a reader reads when the two backgrounds
-		// come out nearly the same (see styles.css). The mark's SLOT is on both rows —
-		// that is what keeps the two labels on one x — so what is asked of it is whether
-		// it HOLDS the mark.
-		const marked = option(h, t('navHistory.landings.options.last')).querySelector('.nav-settings-tick');
-		const blank = option(h, t('navHistory.landings.options.all')).querySelector('.nav-settings-tick');
-		expect(marked?.querySelector('svg')?.getAttribute('data-icon')).toBe('check');
-		expect(blank).not.toBeNull();
-		expect(blank?.querySelector('svg')).toBeNull();
-
-		// …and the button is a toggle: a second press puts it away.
-		h.clickRow(btn);
-		expect(menu(h)).toBeNull();
-		expect(btn.getAttribute('aria-expanded')).toBe('false');
-	});
-
-	it('opens on the value the plugin holds, not on its own default', () => {
-		const all = prefs({ landings: 'all' });
-		const h = harness(entries(), 2, files, [], {}, {}, false, [], {}, all.browser);
-
-		h.clickRow(gear(h));
-
-		expect(option(h, t('navHistory.landings.options.all')).getAttribute('aria-checked')).toBe('true');
-		expect(option(h, t('navHistory.landings.options.last')).getAttribute('aria-checked')).toBe('false');
-	});
-
-	it('hands the choice to the plugin and redraws the list under it', () => {
-		// The value is the PLUGIN's to keep (see NavBrowserPrefs): the same object the
-		// settings file is saved from, so the next dialog, the resident panel and the
-		// next app run open on it. What the panel does with it is redraw at once —
-		// seeing the list that follows is the whole reason the choice is offered here.
-		const held = prefs({ landings: 'last' });
-		const h = harness(entries(), 2, files, [], {}, {}, false, [], {}, held.browser);
-		expect(h.rows()).toHaveLength(0);
-
-		h.clickRow(gear(h));
-		h.clickRow(option(h, t('navHistory.landings.options.all')));
-
-		expect(held.state.landings).toBe('all');
-		// …and the list is the new one, with the panel out of the way: a.md's two spots.
-		expect(menu(h)).toBeNull();
-		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L101', 'L413']);
-
-		// …and back the other way, from the same button.
-		h.clickRow(gear(h));
-		h.clickRow(option(h, t('navHistory.landings.options.last')));
-		expect(held.state.landings).toBe('last');
-		expect(h.rows()).toHaveLength(0);
-	});
-
-	// THE DETAILS COLUMN IS OFF AS THE PLUGIN SHIPS (see types.ts): the history is a
-	// list of places to go back to, and what each step WAS is a reader's own choice —
-	// made in the gear, from the list it changes. These two tests are the two directions
-	// of that switch; the suites above them run with it on (see prefs).
-	it('closes on Escape without closing the dialog, and on a press outside', () => {
-		const h = harness(entries(), 2, files);
-		const escape = () => {
-			const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-			h.modal.contentEl.dispatchEvent(ev);
-			return ev;
-		};
-
-		h.clickRow(gear(h));
-		// The key puts THAT away, and stops there: the reader is closing the setting,
-		// not the dialog it happens to be standing in.
-		expect(escape().defaultPrevented).toBe(true);
-		expect(menu(h)).toBeNull();
-		expect(h.modal.contentEl.isConnected).toBe(true);
-
-		// With no setting up, Escape is not this panel's key at all — it is the app's
-		// (which closes the dialog), and nothing here may consume it.
-		expect(escape().defaultPrevented).toBe(false);
-
-		// Anything outside the panel and its button — the list, the filter box, the rest
-		// of the app — puts it away: a small panel over a list is something to be done
-		// with, not a place to stay.
-		h.clickRow(gear(h));
-		expect(menu(h)).not.toBeNull();
-		h.el.querySelector<HTMLElement>('.position-restore-nav-list')!
-			.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		expect(menu(h)).toBeNull();
+		// What the list prints is what the plugin's value says, read live: a.md's two
+		// spots, in line order (see the row tests for the whole of that).
+		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
+			.toEqual(['L101', 'L413']);
 	});
 });
 

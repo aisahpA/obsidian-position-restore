@@ -1,6 +1,8 @@
 import type { En } from './en';
 
 export const zh: En = {
+	'lastPosition.heading': '最后位置',
+	
 	'openAndRestore.heading': '打开与恢复',
 	'openAndRestore.defaultPosition.name': '编辑视图的默认位置',
 	'openAndRestore.defaultPosition.desc':
@@ -125,50 +127,33 @@ export const zh: En = {
 	'navHistory.recentFolders.list.empty': '所有文件夹都会收录。',
 	'navHistory.recentFolders.add': '添加文件夹',
 	'navHistory.recentCap.name': '保留地点数',
-	'navHistory.recentCap.short': '（最近 100 个）',
-	'navHistory.recentCap.medium': '（最近 200 个）',
-	'navHistory.recentCap.long': '（最近 500 个）',
+	'navHistory.recentCap.desc': '最近文件列表最多保留多少个地点。调小会立刻丢掉最旧的那些。',
 	'navHistory.stackCap.name': '前进/后退保留步数',
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
 	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史（类似 VSCode）。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
-	// 一个文件在历史列表里打印几个落点。这个设置本身也在页面上——工具栏最右端那个小按钮
-	// （见 NavHistoryBrowser.settings），因为读者是在看着列表做这个决定的：默认跟着读者自己
-	// 的走法——读历史基本是按文件走的，最后那一个才是「返回」会回到的地方，而它已经由笔记
-	// 那一行代表（点一下看它、箭头跳过去），所以列表里不再需要任何子级。
+	// 一个文件在列表里打印几个落点。两档按「列表会变成什么样」写，因为这才是选择本身：
+	// 默认跟着读者自己的走法——读历史基本是按文件走的，最后那一个才是「返回」会回到的地方，
+	// 而它已经由笔记那一行代表（点一下看它、箭头跳过去），所以行下不再需要任何子级。
 	'navHistory.landings.name': '列表里的落点',
-	'navHistory.listSettings': '设置',
-	// 说明简化成几个字，写在答案自己后面（见 NavHistoryBrowser.settingGroup），并用括号
-	// 括起来——读到的是一句关于答案的注，而不是第二个标签。一段话堆在整组下面，得先点名
-	// 两个选项才能开口，读者还得从一堵小字墙里挑出属于自己正看着的那一档；写在答案旁边，
-	// 字就落在答案上。括号跟着字走：一对半角还是全角，是各语言自己的事。
+	'navHistory.landings.desc': '每篇笔记只占一行（代表你最后离开的那一处），还是每个落点各占一行。',
 	'navHistory.landings.options.last': '每篇一行',
-	'navHistory.landings.options.last.desc': '（只留最后落点）',
 	'navHistory.landings.options.all': '全部落点',
-	'navHistory.landings.options.all.desc': '（每个落点都列出）',
-	// 一行的路径打印多少、打印在名字哪一侧（见 PathDisplayMode）。两个「总是」档的说明写的是
-	// 「放不下时谁下移」，因为那才是读者真正在权衡的东西——flex 行在行尾换行，所以排在后面的
-	// 那一半才会落到第二行。默认档「仅在重名时」说得最少：目录是消歧用的，有要消歧的才打印。
+	// 一行的路径打印多少、打印在名字哪一侧（见 PathDisplayMode）。两个「总是」档写的是
+	// 「放不下时谁下移」，因为那才是读者真正在权衡的东西——flex 行在行尾换行，所以排在后面
+	// 的那一半才会落到第二行。默认档「仅在重名时」说得最少：目录是消歧用的，有要消歧的才打印。
 	'navHistory.pathDisplay.name': '列表里的路径',
+	'navHistory.pathDisplay.desc': '一行是否打印笔记所在的文件夹——只在两行重名时打印，还是每行都打印——以及打印在名字的哪一侧。',
 	'navHistory.pathDisplay.options.smart': '仅在重名时显示',
-	'navHistory.pathDisplay.options.smart.desc': '（其余不显示）',
 	'navHistory.pathDisplay.options.before': '总是显示，路径在前',
-	'navHistory.pathDisplay.options.before.desc': '（过长时文件名下移）',
 	'navHistory.pathDisplay.options.after': '总是显示，路径在后',
-	'navHistory.pathDisplay.options.after.desc': '（过长时路径下移）',
-	// 每行是否显示「距上次打开过了多久」，以及年龄标签用的字。标签是「数字 + 单位」，
-	// 单位是写全的词（分钟 / 小时 / 个月）。确切时刻仍挂在这个标签自己的
-	// tooltip 上（见 model.ts 的 ageLabel）。
-	//
-	// 「距上次打开过了多久」不是修饰：读者看到文件行上的时间，第一反应是文件的修改
-	// 时间，那是另一回事，不是这个。
+	// 每行是否显示「距上次打开过了多久」。这个时间是地点自己的 t（见 places.ts）——读者
+	// 上一次到那里的时间，不是文件的修改时间；后者是另一回事，而它恰好是读者看到文件行
+	// 上印着时间时的第一反应。确切时刻挂在这个标签自己的 tooltip 上。
 	'navHistory.rowTime.name': '每行的时间',
-	'navHistory.rowTime.options.on': '显示',
-	'navHistory.rowTime.options.on.desc': '（距上次打开过了多久）',
-	'navHistory.rowTime.options.off': '不显示',
-	'navHistory.rowTime.options.off.desc': '（行上不加东西）',
+	'navHistory.rowTime.desc': '在每行上打印「距上次到访过了多久」。',
 	'navHistory.age.now': '刚刚',
 	'navHistory.age.m': '分钟',
 	'navHistory.age.h': '小时',

@@ -242,60 +242,22 @@ describe('history browser quiet tiers', () => {
 		);
 	});
 
-	// The toolbar's own setting (see NavHistoryBrowser.settings): its button rides at
-	// the far end of the strip whatever the box and the hint do with the room, and the
-	// panel it opens hangs off the strip rather than taking part in its line — an
-	// absolutely positioned child of the toolbar, whose own `position: relative` is
-	// what anchors it.
-	it('puts the list setting at the far end, and opens its panel off the strip', () => {
-		expect(browser).toMatch(/\.position-restore-nav-toolbar\s*\{[^}]*position: relative/);
-		expect(browser).toMatch(/\.position-restore-nav-settings\s*\{[^}]*margin-left: auto/);
-		expect(browser).toMatch(/\.position-restore-nav-settings-menu\s*\{[^}]*position: absolute/);
-		// …and the value in force takes the app's own "active" tint — the wash the
-		// position's own row is painted with (see .position-restore-nav-row.is-selected)
-		// — rather than a fill that would change the button's size.
-		expect(browser).toMatch(
-			/\.nav-settings-option\[aria-checked='true'\]\s*\{[^}]*background-color: var\(--background-modifier-active-hover\)/,
-		);
-	});
-
-	// A theme left this button all but invisible — twice (see the rules above): the
-	// app's icon skin paints with --icon-color and dims with --icon-opacity, and any
-	// tier MIXED toward the strip is only as visible as the strip's own background
-	// allows. So the button is pinned to the theme's PRIMARY text colour, both icon
-	// variables are set on it, and the ink travels in a variable only this plugin
-	// writes — declared under a selector deep enough (panel + toolbar + button) that a
-	// theme cannot outrank the `color`/`--icon-color` fight, and read back one element
-	// down for the glyph itself, where no theme rule knows to look.
-	it('paints the list setting in a tier a theme cannot wash out', () => {
-		const painted =
-			browser.match(
-				/\.position-restore-nav-panel \.position-restore-nav-toolbar \.position-restore-nav-settings\s*\{[^}]*\}/,
-			)?.[0] ?? '';
-		expect(painted).toMatch(/--nav-settings-ink: var\(--text-normal\)/);
-		expect(painted).toMatch(/color: var\(--nav-settings-ink\)/);
-		expect(painted).toMatch(/--icon-color: var\(--nav-settings-ink\)/);
-		expect(painted).toMatch(/--icon-opacity: 1/);
-		expect(painted).toMatch(/opacity: 1/);
-		expect(painted).not.toMatch(/--nav-faint|--nav-muted/);
-		expect(browser).toMatch(
-			/\.position-restore-nav-settings svg\s*\{[^}]*color: var\(--nav-settings-ink\)/,
-		);
-		// The mark that says which value is in force stands IN FRONT of its label — at
-		// the far end the panel's own width sat between the two — and it keeps its slot
-		// on the row that is not ticked, so the two labels start on one x.
-		expect(browser).toMatch(/\.nav-settings-option\s*\{[^}]*justify-content: flex-start/);
-		expect(browser).toMatch(/\.nav-settings-tick\s*\{[^}]*color: var\(--interactive-accent\)/);
-		expect(browser).toMatch(/\.nav-settings-tick\s*\{[^}]*width: 1\.1em/);
-		// The few words of an answer stand ON the answer's own row, right after its
-		// label (see the locale and NavHistoryBrowser.settingGroup): the tier that
-		// printed a paragraph under the group is gone, so nothing has to keep a break
-		// in it, and what is styled instead is the answer's own line.
-		expect(browser).not.toMatch(/\.nav-settings-desc\s*\{/);
-		expect(browser).toMatch(
-			/\.nav-settings-option-desc\s*\{[^}]*font-size: var\(--font-ui-smaller\)/,
-		);
-		expect(browser).toMatch(/\.nav-settings-option-desc\s*\{[^}]*color: var\(--nav-muted\)/);
+	// The strip carries NO setting of its own: the four choices the gear used to hold
+	// are rows of the plugin's settings tab now (see NavBrowserPrefs), so the panel
+	// has no control surface left to paint — no button, no menu hanging off the strip,
+	// and no ink fought over with a theme on their behalf. The strip is the box and
+	// the hint, which is all a navigator needs.
+	it('leaves the strip to the box and the hint — no gear, no menu of its own', () => {
+		expect(browser).not.toMatch(/position-restore-nav-settings/);
+		expect(browser).not.toMatch(/nav-settings-/);
+		expect(browser).not.toMatch(/nav-settings-ink/);
+		// …and nothing is anchored to the strip any more: the menu it used to hang its
+		// panel off was the only absolutely positioned child it had (the × rides the
+		// box's own wrapper, see .position-restore-nav-search).
+		const toolbar = browser.match(/\.position-restore-nav-toolbar\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(toolbar).not.toBe('');
+		expect(toolbar).not.toMatch(/position: relative/);
+		expect(browser).toMatch(/\.position-restore-nav-search\s*\{[^}]*position: relative/);
 	});
 
 	// The list is the only column there is: it takes the whole width, and the dialog is
@@ -331,27 +293,25 @@ describe('history browser quiet tiers', () => {
 	});
 
 	// On touch the toolbar is TWO rows, and they are stated rather than left to
-	// wrapping: the box takes the first, and the hint keeps the second company with
-	// the setting at its far end. Wrapping alone could not say that — a 100% basis on
-	// the hint leaves no room beside it (so the setting rode the BOX's line, which
-	// reads as a blank row with a gear at its end), and with no basis at all the two
-	// rows depend on how wide the panel happens to be.
-	it('states the touch toolbar\'s two rows, with the setting beside the hint', () => {
+	// wrapping: the box takes the first and the hint the second. Wrapping alone could
+	// not say that — a 100% basis on the hint left the second row reading as a blank
+	// line, and with no basis at all the two rows depend on how wide the panel
+	// happens to be.
+	it('states the touch toolbar\'s two rows, box above hint', () => {
 		expect(browser).toMatch(
-			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: grid[^}]*grid-template-areas:\s*'box box'\s*'hint gear'/,
+			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: grid[^}]*grid-template-areas:\s*'box'\s*'hint'/,
 		);
 		// The BOX's line is stated on the WRAPPER — the box and its × travel together
 		// (see .position-restore-nav-search): a cell on the input alone would leave the
 		// clear button out of the grid entirely.
 		expect(browser).toMatch(/is-touch \.position-restore-nav-search\s*\{\s*grid-area: box/);
 		expect(browser).toMatch(/is-touch \.position-restore-nav-hint\s*\{[^}]*grid-area: hint/);
-		expect(browser).toMatch(/is-touch \.position-restore-nav-settings\s*\{[^}]*grid-area: gear/);
-		// …and the hint is back to ONE line: sharing the row means it has less of it,
-		// and a hint that wrapped would make the second row two lines tall — exactly
-		// the height the layout was rearranged to save
+		// …and the hint is back to ONE line: it has the row to itself, but a hint that
+		// wrapped would make that row two lines tall — exactly the height the layout
+		// was rearranged to save
 		const hint = browser.slice(
 			browser.indexOf('.position-restore-nav-hint {'),
-			browser.indexOf('.position-restore-nav-settings {'),
+			browser.indexOf('.position-restore-nav-panel.is-touch .position-restore-nav-toolbar {'),
 		);
 		expect(hint).toMatch(/white-space: nowrap/);
 		expect(hint).toMatch(/text-overflow: ellipsis/);

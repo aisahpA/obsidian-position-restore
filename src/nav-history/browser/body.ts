@@ -39,34 +39,28 @@ import { TIME_REFRESH_MS } from './constants';
 // Per-body sequence for the list element's id (see NavHistoryBrowser.listId).
 let browserSeq = 0;
 
-// The preferences the browser ITSELF owns, handed to every shell by the plugin
-// that persists them (see PluginSettings and PositionManager.browserPrefs). All are
+// The preferences the browser DRAWS BY, handed to every shell by the plugin that
+// persists them (see PluginSettings and PositionManager.browserPrefs). All are
 // READERS over the one shared settings object rather than values: a resident panel draws
-// its list from a call made during render, so a change made in the panel is picked up by
-// the next history change instead of being frozen into the panel that happened to be
-// open. Both come as a pair — read plus write — because the panel is where each of them
-// is CHOSEN (see NavHistoryBrowser.settings).
+// its list from a call made during render, so a change made elsewhere is picked up by
+// the next redraw instead of being frozen into the panel that happened to be open.
+//
+// Readers and nothing else, because none of them is CHOSEN here any more: all four
+// are rows of the plugin's settings tab (see ui/settings-tab.ts), which is where a
+// reader reaches for a setting anyway. The copy the toolbar's gear used to carry is
+// gone with the gear — two places to change one value is one place to forget.
 export interface NavBrowserPrefs {
 	// How much of one note the list prints (see LandingsMode).
 	landings: () => LandingsMode;
-	// The toolbar's setting: still the plugin's choice to keep (see setLandings).
-	setLandings: (mode: LandingsMode) => void;
-	// How many places the recent-files list keeps. Chosen here rather than in the
-	// settings tab for the same reason the one above is: the reader decides it while
-	// looking at the list whose length it is (see body.ts's settings gear).
+	// How many places the recent-files list keeps.
 	placesCap: () => number;
-	setPlacesCap: (cap: number) => void;
 	// How much of a row's path the list prints, and on which side of the name (see
-	// PathDisplayMode). The third choice made in the panel's gear, and the one with
-	// the most visible answer: the list under the gear IS the list it changes.
+	// PathDisplayMode).
 	pathDisplay: () => PathDisplayMode;
-	setPathDisplay: (how: PathDisplayMode) => void;
 	// Whether each row says how long ago it was last visited (see model.ts's
-	// ageLabel). The fourth choice in the same gear, and the only one that is a
-	// plain switch: there is nothing to pick between, only whether the row carries
-	// the label at all.
+	// ageLabel). The only one of the four that is a plain switch: there is nothing
+	// to pick between, only whether the row carries the label at all.
 	rowTime: () => boolean;
-	setRowTime: (on: boolean) => void;
 }
 
 export interface NavHistoryBrowserOptions {
@@ -108,8 +102,8 @@ export interface NavHistoryBrowserOptions {
 	// move: the modal closes here (a picker has answered its question), the
 	// sidebar does nothing (staying put is the whole point of it).
 	onJump?: () => void;
-	// The browser's own preferences, handed down by the shell (see NavBrowserPrefs):
-	// whether a landing is described at all, and how much of a note the list prints.
+	// The browser's preferences, handed down by the shell (see NavBrowserPrefs):
+	// how much of a note the list prints, and how much of a row's path.
 	prefs: NavBrowserPrefs;
 }
 
@@ -125,13 +119,6 @@ export class NavHistoryBrowser {
 	// The search box's text. The list's own query.
 	private filter = '';
 	private filterInput!: HTMLInputElement;
-	// The toolbar's own setting: the button in the strip's far corner, the small panel
-	// it opens (undefined while it is closed), and the press-outside listener that
-	// dismisses it. Held because only one may be up, and because that listener has to
-	// come off the document when the panel closes or the body goes (see destroy).
-	private settingsBtn!: HTMLElement;
-	private settingsMenu?: HTMLElement;
-	private dismissSettings?: (ev: Event) => void;
 	private panes: PaneInfo = { live: new Map() };
 	// Every vault lookup the panel makes, cached — all of them metadata-cache
 	// lookups: an entry's display pieces and a file's parsed headings (see
@@ -313,11 +300,10 @@ export class NavHistoryBrowser {
 		this.render();
 	}
 
-	// Throw away what belongs to this body: the toolbar's setting, if it happens to
-	// be open — its press-outside listener lives on the document, which outlives
-	// every panel (see the shell's teardown).
+	// Throw away what belongs to this body: everything below was registered beside
+	// elements the shell owns, and each of them outlives those elements (see the
+	// shell's teardown).
 	destroy(): void {
-		this.closeSettings();
 		// The list put one thing OUTSIDE the panel's element — the tooltip it draws on
 		// the document (see tip.ts) — so a body that goes without this leaves a stray
 		// element behind for every dialog ever opened.
@@ -344,14 +330,6 @@ export class NavHistoryBrowser {
 	};
 
 	private onKeyDown(ev: KeyboardEvent): void {
-		// The toolbar's setting goes first, and the key STOPS here: a reader pressing
-		// Escape at an open setting is putting THAT away, not closing the dialog it
-		// happens to be standing in.
-		if (ev.key === 'Escape' && this.closeSettings()) {
-			ev.preventDefault();
-			ev.stopPropagation();
-			return;
-		}
 		if (ev.key === 'ArrowDown') {
 			ev.preventDefault();
 			this.list.move(1);
@@ -460,15 +438,16 @@ export class NavHistoryBrowser {
 			if (!this.opts.touch)
 				input.focus();
 		});
-		// The hint, and then the list's own settings at the far end of the strip. The file
-		// scope that used to sit between them — a "only this note" switch and a chip of
-		// every note the history had been in — is gone: a note's name is text the box
-		// already matches, so the two controls were a slower way to type it, and they cost
-		// the list the width and the row they stood on.
-		// What is left to name is the one gesture a row has: a finger's tap on a touch
-		// device, a click everywhere else (see `hint`).
+		// …and the hint, which is the strip's other half. The file scope that used to
+		// sit between it and the box — a "only this note" switch and a chip of every
+		// note the history had been in — is gone: a note's name is text the box already
+		// matches, so the two controls were a slower way to type it, and they cost the
+		// list the width and the row they stood on. So is the gear that used to stand
+		// at the strip's far end — its four choices are rows of the plugin's settings
+		// tab now (see NavBrowserPrefs) — which leaves what is left worth naming: the
+		// one gesture a row has, a finger's tap on a touch device and a click
+		// everywhere else (see `hint`).
 		this.hint(bar);
-		this.settings(bar);
 	}
 
 	// The hint: one sentence per DEVICE, saying the only thing a row now answers to. It
@@ -480,246 +459,6 @@ export class NavHistoryBrowser {
 			cls: 'position-restore-nav-hint',
 			text: t(this.opts.touch ? 'navHistory.touchHint' : 'navHistory.clickHint'),
 		});
-	}
-
-	// THE TOOLBAR'S SETTINGS: the small button at the strip's far end, and the panel it
-	// opens over the list. Two choices — how much of a note the list prints, and how far
-	// back it reaches.
-	//
-	// It stands here rather than in the settings tab because this is where the questions
-	// are asked — a reader decides how long the list should be while looking at it — and
-	// because the panel is a DIALOG as often as it is a sidebar: a settings row would be
-	// the only way to reach a choice about something that is not on screen at the time.
-	// It leaves the settings tab with no second copy of any of these values that could
-	// drift from this one.
-	//
-	// The panel is plain DOM and not the app's own Menu: each choice is a radio group
-	// whose answers carry their own few words beside them, which a menu cannot carry.
-	private settings(bar: HTMLElement): void {
-		const btn = bar.createEl('button', {
-			cls: 'clickable-icon position-restore-nav-settings',
-			type: 'button',
-			attr: {
-				// The button is the only label the panel needs, and a gear is not a word:
-				// the name is for the reader who has to have it said and for the tooltip.
-				'aria-label': t('navHistory.listSettings'),
-				'aria-haspopup': 'true',
-				'aria-expanded': 'false',
-				title: t('navHistory.listSettings'),
-			},
-		});
-		setIcon(btn, 'settings-2');
-		this.settingsBtn = btn;
-		btn.addEventListener('click', () => {
-			if (this.settingsMenu)
-				this.closeSettings();
-			else
-				this.openSettings(bar);
-		});
-	}
-
-	// Open the settings under the button: each choice is the name of the choice and its
-	// answer(s), every answer carrying its own few words.
-	private openSettings(bar: HTMLElement): void {
-		const menu = bar.createDiv({
-			cls: 'position-restore-nav-settings-menu',
-			attr: { role: 'group', 'aria-label': t('navHistory.listSettings') },
-		});
-		this.settingGroup<LandingsMode>(menu, t('navHistory.landings.name'), [
-			{
-				value: 'last',
-				label: t('navHistory.landings.options.last'),
-				desc: t('navHistory.landings.options.last.desc'),
-			},
-			{
-				value: 'all',
-				label: t('navHistory.landings.options.all'),
-				desc: t('navHistory.landings.options.all.desc'),
-			},
-		], this.opts.prefs.landings(), mode => this.pickLandings(mode));
-		// How much of each row's PATH is printed, and on which side of the name. It
-		// stands beside the group above because the two answer one question — what a
-		// row prints — and because its answers are a LAYOUT, each of them is written
-		// as what happens when the row is too narrow: that is what the reader is
-		// really choosing (see PathDisplayMode).
-		this.settingGroup<PathDisplayMode>(menu, t('navHistory.pathDisplay.name'), [
-			{
-				value: 'smart',
-				label: t('navHistory.pathDisplay.options.smart'),
-				desc: t('navHistory.pathDisplay.options.smart.desc'),
-			},
-			{
-				value: 'before',
-				label: t('navHistory.pathDisplay.options.before'),
-				desc: t('navHistory.pathDisplay.options.before.desc'),
-			},
-			{
-				value: 'after',
-				label: t('navHistory.pathDisplay.options.after'),
-				desc: t('navHistory.pathDisplay.options.after.desc'),
-			},
-		], this.opts.prefs.pathDisplay(), mode => this.pickPathDisplay(mode));
-		// …and whether each row says how long ago it was last visited. Two answers
-		// rather than a checkbox, because every group here is a radio group and the
-		// reader has to be able to hear which value is in force (see settingGroup);
-		// the ON answer says WHICH time it is, since a reader's first guess at a time
-		// on a file row is the file's own mtime.
-		this.settingGroup<string>(menu, t('navHistory.rowTime.name'), [
-			{
-				value: 'on',
-				label: t('navHistory.rowTime.options.on'),
-				desc: t('navHistory.rowTime.options.on.desc'),
-			},
-			{
-				value: 'off',
-				label: t('navHistory.rowTime.options.off'),
-				desc: t('navHistory.rowTime.options.off.desc'),
-			},
-		], this.opts.prefs.rowTime() ? 'on' : 'off', value => this.pickRowTime(value === 'on'));
-		// How far back the list reaches: the one storage knob of the recent-files
-		// list, and a question only the reader looking at the list can answer (see
-		// NavBrowserPrefs.placesCap). Three answers rather than a number field,
-		// because the choice is "how far back do I want to reach", not a figure to
-		// type — and each answer carries its own few words, like every group here.
-		this.settingGroup<string>(menu, t('navHistory.recentCap.name'), [
-			{ value: '100', label: '100', desc: t('navHistory.recentCap.short') },
-			{ value: '200', label: '200', desc: t('navHistory.recentCap.medium') },
-			{ value: '500', label: '500', desc: t('navHistory.recentCap.long') },
-		], String(this.opts.prefs.placesCap()), value => this.pickPlacesCap(Number(value)));
-		this.settingsMenu = menu;
-		this.settingsBtn.setAttr('aria-expanded', 'true');
-		this.watchDismiss(menu);
-	}
-
-	// Anything outside the setting — the list, the filter box, the rest of the app —
-	// puts it away. On the DOCUMENT and in the CAPTURE phase, so that it is gone before
-	// the press it belongs to reaches whatever it landed on.
-	private watchDismiss(menu: HTMLElement): void {
-		const dismiss = (ev: Event) => {
-			const target = ev.target as Node | null;
-			if (target && (menu.contains(target) || this.settingsBtn.contains(target)))
-				return;
-			this.closeSettings();
-		};
-		this.dismissSettings = dismiss;
-		document.addEventListener('mousedown', dismiss, true);
-	}
-
-	// One choice in the menu: its name, and its answers under it — each answer saying
-	// what it means in a few words of its own, right after the word itself.
-	//
-	// The note used to stand under the group as one paragraph, a line per answer: two
-	// short rows and then a wall of small print, which the reader had to pick apart to
-	// find which sentence belonged to which answer, in a menu that is already the
-	// width of the words it holds. Written after its own option, each answer's few
-	// words are read where the answer is, and the paragraph that had to name its
-	// options before it could say anything is gone.
-	private settingGroup<T extends string>(
-		menu: HTMLElement,
-		title: string,
-		options: { value: T; label: string; desc: string }[],
-		current: T,
-		pick: (value: T) => void,
-	): void {
-		const box = menu.createDiv({ cls: 'nav-settings-group' });
-		box.createDiv({ cls: 'nav-settings-title', text: title });
-		const group = box.createDiv({
-			cls: 'nav-settings-options',
-			attr: {
-				// A radio group rather than a menu of commands: what is being chosen is
-				// one of two answers, and the reader has to be able to hear WHICH one is
-				// in force without opening the list to look at its shape.
-				role: 'radiogroup',
-				'aria-label': title,
-			},
-		});
-		for (const option of options) {
-			const checked = option.value === current;
-			const row = group.createEl('button', {
-				cls: 'nav-settings-option',
-				type: 'button',
-				attr: { role: 'radio', 'aria-checked': String(checked) },
-			});
-			// The value in force says so a second time, with a mark: the tint alone is a
-			// fact a theme can take away (see styles.css), and this is the one cue left
-			// when two backgrounds come out nearly the same. The mark's SLOT is written
-			// on every row whether or not it holds a glyph — in front of the label, so
-			// the two labels start on one x instead of the unticked one pulling left.
-			const tick = row.createSpan({ cls: 'nav-settings-tick', attr: { 'aria-hidden': 'true' } });
-			if (checked)
-				setIcon(tick, 'check');
-			row.createSpan({ cls: 'nav-settings-label', text: option.label });
-			// The answer's few words travel in the row's own control, so they are part
-			// of what the option is called when it is announced as well as of what is
-			// read on screen. The BRACKETS around them are the locale's and not this
-			// line's: which pair to draw is the language's own call, and the text here
-			// is taken as it was written.
-			row.createSpan({ cls: 'nav-settings-option-desc', text: option.desc });
-			row.addEventListener('click', () => pick(option.value));
-		}
-	}
-
-	// One of the two values: the plugin is asked to remember it (see NavBrowserPrefs),
-	// and the list is redrawn on the spot — seeing the list that follows is the whole
-	// reason the choice is offered here, so the panel goes first and the change lands
-	// under it.
-	private pickLandings(mode: LandingsMode): void {
-		this.closeSettings();
-		if (this.opts.prefs.landings() === mode)
-			return;
-		this.opts.prefs.setLandings(mode);
-		this.render();
-	}
-
-	// …and the same for how far back the list reaches. Lowering it trims the list
-	// on the spot rather than on the next visit (see NavPlaces.applyCap): a
-	// setting that says "keep 100" has to mean it while the reader is looking at
-	// the 300 it is about to drop.
-	private pickPlacesCap(cap: number): void {
-		this.closeSettings();
-		if (!Number.isFinite(cap) || this.opts.prefs.placesCap() === cap)
-			return;
-		this.opts.prefs.setPlacesCap(cap);
-		this.render();
-	}
-
-	// …and the same for how much path a row prints. The list that changes is the
-	// one the gear was opened over, so the choice is answered where it was made —
-	// and the answers describe the layout, which only a redraw can show.
-	private pickPathDisplay(mode: PathDisplayMode): void {
-		this.closeSettings();
-		if (this.opts.prefs.pathDisplay() === mode)
-			return;
-		this.opts.prefs.setPathDisplay(mode);
-		this.render();
-	}
-
-	// …and the same for the row's age. Nothing about it is stored on the places: the
-	// label is derived from a stamp they already carry, so opening the switch is a
-	// redraw and nothing else — and the timer that keeps the labels honest while the
-	// panel sits idle (see TIME_REFRESH_MS) is already running.
-	private pickRowTime(on: boolean): void {
-		this.closeSettings();
-		if (this.opts.prefs.rowTime() === on)
-			return;
-		this.opts.prefs.setRowTime(on);
-		this.render();
-	}
-
-	// Put the setting away, and say whether there was one up (@returns whether this
-	// was the key the reader meant, see onKeyDown).
-	private closeSettings(): boolean {
-		const menu = this.settingsMenu;
-		if (!menu)
-			return false;
-		this.settingsMenu = undefined;
-		if (this.dismissSettings) {
-			document.removeEventListener('mousedown', this.dismissSettings, true);
-			this.dismissSettings = undefined;
-		}
-		this.settingsBtn.setAttr('aria-expanded', 'false');
-		menu.remove();
-		return true;
 	}
 
 	// The "you are here" CARD that used to stand between the toolbar and the list

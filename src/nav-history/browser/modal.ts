@@ -13,7 +13,7 @@ import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 //  - the list is PLACES (see places.ts): the notes the reader has been in, newest
 //    first, one row per note — a note opened ten times is one line, not ten, and two
 //    notes sharing a name print their folders to say which is which. What the list
-//    prints UNDER a note is the toolbar's own setting (see LandingsMode): by default
+//    prints UNDER a note is a setting of the plugin's own (see LandingsMode): by default
 //    nothing, and what the row OPENS is the NOTE, the plain way — the position
 //    database lands it, exactly as the file explorer would. 'All' prints the jumps
 //    the reader made inside it under the name, by line, top of the note first, one
@@ -114,7 +114,8 @@ export class NavHistoryModal extends Modal {
 	}
 
 	onClose() {
-		// The body's own teardown: the toolbar's setting, if it is open.
+		// The body's own teardown: the age timer and the document listener it
+		// registered.
 		this.browser.destroy();
 	}
 

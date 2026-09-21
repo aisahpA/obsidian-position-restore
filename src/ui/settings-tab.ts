@@ -26,6 +26,12 @@ function dbSyncState(app: App, path: string): 'config' | 'hidden' | 'vault' {
 	return firstSegment.startsWith('.') ? 'hidden' : 'vault';
 }
 
+// The settings a standing recent-files panel draws by (see NavBrowserPrefs): what
+// one row prints, and whether it prints a time. They are read LIVE, so a panel
+// open beside this page is drawn again the moment one of them changes rather than
+// catching up on the reader's next navigation.
+const BROWSER_PREF_KEYS = new Set(['navLandings', 'navPathDisplay', 'navRowTime']);
+
 export class SettingTab extends PluginSettingTab {
 	plugin: PositionRestorePlugin;
 
@@ -50,15 +56,45 @@ export class SettingTab extends PluginSettingTab {
 		if (key === 'navStackCap')
 			this.plugin.manager.applyNavStackCap();
 		// The recent-files list's own folder rule: dropping a folder must drop the
-		// places it already holds, not wait for the reader to revisit one. (The
-		// list's ceiling is not here — it is chosen in the panel's gear, see
-		// NavBrowserPrefs.placesCap.)
+		// places it already holds, not wait for the reader to revisit one.
 		if (key === 'navRecentExcludeFolders')
 			this.plugin.manager.applyNavRecentFolders();
+		// …and its ceiling, which trims the list in memory on the spot so the reader
+		// sees the number they just set rather than discovering it on the next open.
+		if (key === 'navRecentCap')
+			this.plugin.manager.applyNavRecentCap();
+		// How the list LOOKS changed while a panel may be standing open beside this
+		// page: the panel reads these preferences live, so it only has to be drawn
+		// again (see PositionManager.refreshNavPanels) — and the answer the reader
+		// just chose is in front of them without their leaving the tab.
+		if (BROWSER_PREF_KEYS.has(key))
+			this.plugin.manager.refreshNavPanels();
 		await this.plugin.saveSettings();
 	}
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				type: 'page',
+				name: t('lastPosition.heading'),
+				items: this.getPositionDefs(),
+			},
+			{
+				type: 'page',
+				name: t('navHistory.heading'),
+				items: this.getNavDefs(),
+			},
+			{
+				type: 'page',
+				name: t('navHistory.overview.name'),
+				items: this.getRecentFileDefs(),
+			},
+		] as SettingDefinitionItem[];
+	}
+
+	// ── Tab 1: Last Position ─────────────────────────────────────────
+
+	private getPositionDefs(): SettingDefinitionItem[] {
 		return [
 			{
 				type: 'group',
@@ -299,6 +335,13 @@ export class SettingTab extends PluginSettingTab {
 					},
 				],
 			},
+		];
+	}
+
+	// ── Tab 2: Navigation ───────────────────────────────────────────────
+
+	private getNavDefs(): SettingDefinitionItem[] {
+		return [
 			{
 				type: 'group',
 				heading: t('navHistory.heading'),
@@ -336,6 +379,35 @@ export class SettingTab extends PluginSettingTab {
 							step: 1,
 						},
 					},
+					{
+						name: t('navHistory.recordActivation.name'),
+						desc: t('navHistory.recordActivation.desc'),
+						control: {
+							type: 'toggle',
+							key: 'navRecordActivation',
+						},
+					},
+					{
+						name: t('navHistory.recordTeleport.name'),
+						desc: t('navHistory.recordTeleport.desc'),
+						control: {
+							type: 'toggle',
+							key: 'navRecordTeleport',
+						},
+					},
+				],
+			},
+		];
+	}
+
+	// ── Tab 3: Recent File ───────────────────────────────────────────────
+
+	private getRecentFileDefs(): SettingDefinitionItem[] {
+		return [
+			{
+				type: 'group',
+				heading: t('navHistory.overview.name'),
+				items: [
 					{
 						type: 'page',
 						name: t('navHistory.recentFolders.name'),
@@ -380,29 +452,59 @@ export class SettingTab extends PluginSettingTab {
 							},
 						],
 					},
+					// WHAT A ROW PRINTS, and how far back the list reaches: the
+					// browser's own preferences (see NavBrowserPrefs). They stand
+					// here and no longer in a gear of the panel's toolbar — one
+					// place that holds them, reached the way every other setting of
+					// the plugin is, and no second copy inside a panel that is a
+					// navigator rather than a control surface. A panel standing
+					// open beside this page is redrawn as each of them is chosen
+					// (see setControlValue), so the question "what does the list
+					// look like" is answered in front of the reader either way.
 					{
-						name: t('navHistory.recordActivation.name'),
-						desc: t('navHistory.recordActivation.desc'),
+						name: t('navHistory.landings.name'),
+						desc: t('navHistory.landings.desc'),
 						control: {
-							type: 'toggle',
-							key: 'navRecordActivation',
+							type: 'dropdown',
+							key: 'navLandings',
+							options: {
+								last: t('navHistory.landings.options.last'),
+								all: t('navHistory.landings.options.all'),
+							},
 						},
 					},
 					{
-						name: t('navHistory.recordTeleport.name'),
-						desc: t('navHistory.recordTeleport.desc'),
+						name: t('navHistory.pathDisplay.name'),
+						desc: t('navHistory.pathDisplay.desc'),
 						control: {
-							type: 'toggle',
-							key: 'navRecordTeleport',
+							type: 'dropdown',
+							key: 'navPathDisplay',
+							options: {
+								smart: t('navHistory.pathDisplay.options.smart'),
+								before: t('navHistory.pathDisplay.options.before'),
+								after: t('navHistory.pathDisplay.options.after'),
+							},
 						},
 					},
-					// The history browser's own preferences are NOT here: all are chosen in
-					// the panel itself — whether a landing is described at all, and with
-					// which content, and how much of a note the list prints, by the toolbar's
-					// setting button (see NavHistoryBrowser.settings) — because that is where
-					// the reader is looking at what they change. A row here would be a second
-					// copy of each, reachable only while the thing it describes is off
-					// screen.
+					{
+						name: t('navHistory.rowTime.name'),
+						desc: t('navHistory.rowTime.desc'),
+						control: {
+							type: 'toggle',
+							key: 'navRowTime',
+						},
+					},
+					{
+						name: t('navHistory.recentCap.name'),
+						desc: t('navHistory.recentCap.desc'),
+						control: {
+							type: 'number',
+							key: 'navRecentCap',
+							min: 20,
+							max: 500,
+							step: 10,
+						},
+					},
 				],
 			},
 		];

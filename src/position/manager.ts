@@ -10,7 +10,12 @@ import { Sampler } from './capture/sampler';
 import { NavHistory } from '@/nav-history/history';
 import { NavHistoryModal } from '@/nav-history/browser/modal';
 import type { NavBrowserPrefs } from '@/nav-history/browser/body';
-import { NavHistoryView, activateNavHistoryView, createNavHistoryView } from '@/nav-history/browser/view';
+import {
+	NAV_HISTORY_VIEW_TYPE,
+	NavHistoryView,
+	activateNavHistoryView,
+	createNavHistoryView,
+} from '@/nav-history/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
@@ -47,10 +52,6 @@ export class PositionManager {
 		// mutates it in place). Kept as a field because the history browser reads its
 		// own preferences live off it (see browserPrefs).
 		private settings: PluginSettings,
-		// Write the settings object out, for the preferences the browser changes from
-		// the panel rather than from the settings tab. The plugin owns the file; this
-		// facade is only allowed to ask.
-		private save: () => void = () => {},
 	) {
 		this.app = app;
 		this.database = database;
@@ -189,44 +190,40 @@ export class PositionManager {
 		return createNavHistoryView(this.nav.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
-	// The preferences the history browser owns (see types.ts): read LIVE off the
+	// The preferences the history browser draws by (see types.ts): read LIVE off the
 	// shared settings object, so the dialog and the resident panel cannot hold
-	// different opinions about them — and written back through the plugin's own save,
-	// so a choice made in the panel outlives the panel, the dialog and the app run.
+	// different opinions about them, and a choice made in the settings tab is in
+	// force on the next redraw of a panel that is already standing. READERS ONLY —
+	// the values are written by the settings tab, which persists them itself (see
+	// SettingTab.setControlValue), so there is no second writer to keep in step.
 	// One new object per shell: the object is a set of readers over settings that stay
 	// live, not a snapshot of them.
 	private browserPrefs(): NavBrowserPrefs {
 		return {
 			landings: () => this.settings.navLandings,
-			setLandings: (how) => {
-				this.settings.navLandings = how;
-				this.save();
-			},
-			// How far back the recent-files list reaches. Written through the
-			// same save; lowered, it trims the list on the spot.
+			// How far back the recent-files list reaches (see
+			// SettingTab.setControlValue: lowering it trims the list on the spot).
 			placesCap: () => this.settings.navRecentCap,
-			setPlacesCap: (cap) => {
-				this.settings.navRecentCap = cap;
-				this.nav.places.applyCap();
-				this.save();
-			},
 			// How much of a row's path the list prints, and on which side of the
-			// name (see PathDisplayMode). Read live like the two above: it decides
-			// what the NEXT render prints, and a panel that is already up redraws
-			// itself on the choice (see NavHistoryBrowser.pickPathDisplay).
+			// name (see PathDisplayMode): it decides what the NEXT render prints.
 			pathDisplay: () => this.settings.navPathDisplay,
-			setPathDisplay: (how) => {
-				this.settings.navPathDisplay = how;
-				this.save();
-			},
-			// Whether each row says how long ago it was last visited. Read live like
-			// the rest: it is a label the next render adds or leaves off.
+			// Whether each row says how long ago it was last visited: a label the
+			// next render adds or leaves off.
 			rowTime: () => this.settings.navRowTime,
-			setRowTime: (on) => {
-				this.settings.navRowTime = on;
-				this.save();
-			},
 		};
+	}
+
+	// A preference the reader just changed in the settings tab, while a panel may be
+	// standing open beside the page they are looking at. The panel reads those
+	// preferences live (see browserPrefs), so nothing has to be rebuilt or re-wired —
+	// it only has to be drawn again, which is what this asks every resident panel to
+	// do. A panel that is not open is simply not there to ask.
+	refreshNavPanels(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(NAV_HISTORY_VIEW_TYPE)) {
+			const view = leaf.view;
+			if (view instanceof NavHistoryView)
+				view.refresh();
+		}
 	}
 
 	// Tab/pane activation records a nav entry (VSCode semantics) — see
@@ -288,12 +285,11 @@ export class PositionManager {
 		this.nav.syncCurrentPosition();
 	}
 
-	// The recent-files list's ceiling changed somewhere other than the panel's
-	// gear (data.json edited by hand, a sync landing): the list in memory is
-	// trimmed at once, so the reader sees the ceiling they just set rather than
-	// discovering it on the next open. The panel's own gear path does this
-	// inline (see browserPrefs().setPlacesCap); this is the same effect reached
-	// from outside.
+	// The recent-files list's ceiling changed: the list in memory is trimmed at
+	// once, so the reader sees the ceiling they just set rather than discovering
+	// it on the next open. Called by the settings tab and by an external write
+	// (data.json edited by hand, a sync landing) — the panel no longer carries a
+	// second copy of the knob, so every writer comes through here.
 	applyNavRecentCap(): void {
 		this.nav.places.applyCap();
 	}
