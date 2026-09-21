@@ -103,13 +103,19 @@ export class NavPreviewContent {
 		const front = !d.stale && !d.missing ? this.opts.frontmatterEnd(entry.path) : undefined;
 		if (mode === 'spot') {
 			const source = contextMarkdown(entry, front);
-			if (!source)
-				return false;
-			// The entry's own stamp identifies the block: two entries of one note
-			// recorded at one line cannot both be on the list (see groupByFile),
-			// so a shared stamp is a shared block.
-			this.draw(host, 'spot', `spot|${entry.path}|${entry.t}|${front ?? ''}`, source, entry.path, this.landing(d));
-			return true;
+			// A FILE place (the recent-files list's own record, see places.ts)
+			// carries no position of its own — its line is the position database's,
+			// and that record has no recorded lines to show. So rather than admit
+			// there is nothing here, fall through to the note as it stands, with the
+			// remembered line marked: "this is where opening it puts me" is the
+			// honest answer, and an empty column under a file's name is not.
+			if (source) {
+				// The entry's own stamp identifies the block: two entries of one note
+				// recorded at one line cannot both be on the list (see groupByFile),
+				// so a shared stamp is a shared block.
+				this.draw(host, 'spot', `spot|${entry.path}|${entry.t}|${front ?? ''}`, source, entry.path, this.landing(d));
+				return true;
+			}
 		}
 		// The whole note. Keyed on the recorded mtime too, so two landings of one
 		// unchanged note share a render while a note written since does not.

@@ -14,11 +14,11 @@ import { PreviewMode } from './preview-content';
 // TWO PRESENTATIONS, ONE RENDERER, decided by the room the window has:
 //  - DRAWER: the panel is a standing second column beside the list (see
 //    styles.css). It is where the "which spot was this?" question is answered,
-//    and it answers it for whatever the pointer or the keyboard is on — the list
-//    stays scannable because the content it would otherwise have to carry inline
-//    lives here instead. Its head is pinned and its own content scrolls, so the
-//    caption that names the content, and the switch that changes it, stay put
-//    however long the note is.
+//    and it answers it for the row whose own gutter control asked (see
+//    NavHistoryList.disclose) — the list stays scannable because the content it
+//    would otherwise have to carry inline lives here instead. Its head is pinned
+//    and its own content scrolls, so what the spot IS stays put however long the
+//    note is.
 //  - INLINE: no room for two columns, so the SAME content opens UNDER the row it
 //    describes, in the list's own scroll flow. There is one scroller (the list) and
 //    the panel's pinned block is pinned by THAT (see styles.css), so the same "which
@@ -37,8 +37,9 @@ import { PreviewMode } from './preview-content';
 // It shows the entry's OWN recorded block by default (see NavEntryState.context)
 // rather than reading the file: no vault IO, no loading state, no dependence on
 // the file still existing, and no chance of printing today's content where the
-// row promises the recorded spot. The whole note is one switch away for the
-// reader who wants it, and that is the only read behind any of this.
+// row promises the recorded spot. The whole note is one gear setting away for the
+// reader who wants it (see NavHistoryBrowser.openSettings), and that is the only
+// read behind any of this.
 
 export interface LandingPanelOptions {
 	// The element the panel draws into (created by the browser beside the list).
@@ -81,12 +82,12 @@ export interface LandingPanelOptions {
 	// picked. @returns whether there was anything to draw, so the panel can admit
 	// it when there was not.
 	content: (host: HTMLElement, mode: PreviewMode, entry: NavHistoryEntry, d: NavEntryDescription) => boolean;
-	// Which content the panel opens on, and the switch that changes it: the plugin's
-	// own PERSISTED preference, read live (see NavBrowserPrefs). The panel neither
-	// owns the value nor remembers it — the two shells, the settings file and the
-	// next app run all read the same one.
+	// Which content the panel shows: the plugin's own PERSISTED preference, read live
+	// (see NavBrowserPrefs). The panel neither owns the value nor remembers it — the
+	// two shells, the settings file and the next app run all read the same one, and
+	// the choice itself is made in the toolbar's gear (see
+	// NavHistoryBrowser.openSettings), not here.
 	previewMode: () => PreviewMode;
-	setPreviewMode: (mode: PreviewMode) => void;
 }
 
 export class LandingPanel {
@@ -223,6 +224,31 @@ export class LandingPanel {
 		this.lastRep = -1;
 	}
 
+	// Put the panel away ENTIRELY: the details column is switched off (see
+	// NavBrowserPrefs.showDetails), so there is nothing for the panel to describe until
+	// it is switched back on.
+	//
+	// Not the same as the inline "nothing is pointed at" state (see render): that one
+	// parks a panel which is still part of the browser, and the next click brings it
+	// back. Here the panel is not drawn at all — the body takes the column out of its
+	// flow (see styles.css) — so what is left of the panel's own state has to go with
+	// it: the row it was pinned by, the row it was opened under, the landing it
+	// remembered, and the mark on the row it was describing.
+	putAway(): void {
+		this.pin(undefined);
+		this.openedUnder = undefined;
+		this.lastRep = -1;
+		const box = this.opts.panel;
+		box.empty();
+		// Back to the parking spot, which is also where the note about a switched-off
+		// column is written: inline the panel is INSERTED under a row, and it is not
+		// drawn there for a reader whose rows no longer ask for it.
+		box.addClass('is-parked');
+		if (box.parentElement !== this.opts.parkAt)
+			this.opts.parkAt.appendChild(box);
+		this.opts.onPreviewed(-1);
+	}
+
 	// The row the panel hangs under is PINNED to the top of the list while the panel is
 	// still under it.
 	//
@@ -268,21 +294,20 @@ export class LandingPanel {
 	}
 
 	// Everything the panel says about one landing, in the order a reader reads it:
-	// what it was, where it was, WHICH of the two contents is on screen, and then
-	// the lines themselves.
+	// what it was, where it was, and then the lines themselves.
 	//
 	// TWO BLOCKS, and only the second one moves: the head, the trail and the caption
-	// — with the view switch at its end — are PINNED at the top of the drawer, and
-	// the lines scroll under them (see styles.css). A whole note is thousands of lines
-	// long, and a recorded block is read by scrolling through it: either way, "which
-	// note, which spot, and which of the two am I reading" has to stay where the
-	// reader can see it rather than being the first thing that leaves the panel.
+	// are PINNED at the top of the drawer, and the lines scroll under them (see
+	// styles.css). A whole note is thousands of lines long, and a recorded block is
+	// read by scrolling through it: either way, "which note, which spot" has to stay
+	// where the reader can see it rather than being the first thing that leaves the
+	// panel.
 	private draw(box: HTMLElement, rep: number, entry: NavHistoryEntry): void {
 		const d = this.opts.describe(rep);
 		const top = box.createDiv({ cls: 'nav-preview-top' });
 		// The head is drawn as a FIXED SHAPE — a name, a line of small print, a
 		// section line, a caption line — whether or not this entry has anything for
-		// each of them (see styles.css). The pointer walks the list while the reader
+		// each of them (see styles.css). The keyboard walks the list while the reader
 		// reads this column, and a block that is one line shorter for the entries with
 		// no section, or two lines shorter for a deleted file, made the lines below it
 		// jump up and down under the eye.
@@ -291,11 +316,9 @@ export class LandingPanel {
 		// by, and it needs no file read. The full chain here (the row trims it).
 		// Pinned with the name: it is part of what the spot IS.
 		this.trail(top, entry, d);
-		// …and the line that says WHICH of the two contents is under it, with the
-		// switch that changes it at its end: the sentence and the control are one
-		// thing said twice — "this is the recorded spot" / "this is the note now" —
-		// so they sit on one line, in the pinned half, where a reader who has
-		// scrolled into a long note can still reach them (see caption).
+		// …and the line the content cannot say about itself: which recorded lines
+		// these are (see caption). Absent in the whole-note view, where there is
+		// nothing of the sort to say.
 		this.caption(top, entry, d);
 
 		// …and what scrolls: the lines, and the labels that describe them (which
@@ -358,9 +381,13 @@ export class LandingPanel {
 		}
 		// "L412 / 1200": the recorded size at the time is the only denominator
 		// available without a read per entry, and without one the coordinate says
-		// nothing about where in the note the spot is.
-		if (d.line)
-			meta.createSpan({ text: d.lineCount ? `${d.line} / ${d.lineCount}` : d.line, cls: 'nav-row-line' });
+		// nothing about where in the note the spot is. The whole-note view drops it:
+		// the file in front of the reader is not the file the number was measured
+		// against, and where the spot sits in it can be seen.
+		if (d.line) {
+			const size = this.mode === 'spot' && d.lineCount ? `${d.line} / ${d.lineCount}` : d.line;
+			meta.createSpan({ text: size, cls: 'nav-row-line' });
+		}
 		// The file was written after this step was recorded: the recorded lines
 		// are what was there THEN. Worth saying, since the search box matches them.
 		if (d.stale)
@@ -384,80 +411,55 @@ export class LandingPanel {
 		}
 	}
 
-	// The line above the content, with the view switch at its end: WHAT the reader
-	// is about to look at ("what I saw then, L412–L480" / "this note as it stands
-	// now"), said and chosen in one place. The two belong together — a caption
-	// describing one of two contents while the control for them sits on another line
-	// makes the reader pair them up themselves — and both are pinned with the head,
-	// because a reader who has scrolled into a whole note still has to be able to
-	// tell which of the two they are reading, and to say "the other one".
+	// The line above the content: WHAT the reader is looking at, where there is
+	// something to say about it. The sentence is pinned with the head, because a
+	// reader who has scrolled into a whole note still has to be able to tell which
+	// part of the column is the fixed one.
 	//
-	// The pair is offered only where there IS a pair: a file that is not a note has
-	// one view (its own source), a step with no file left has none at all, and the
-	// graph has no note behind it. A deleted note keeps the caption and loses the
-	// switch: what is under it is the recorded block whatever the preference says
-	// (see PreviewContent).
+	// WHICH of the two contents is on screen is NOT said here: that choice is a
+	// setting, made in the toolbar's gear and the same on every row (see
+	// NavHistoryBrowser.openSettings), so a sentence naming it would be the same line
+	// of chrome on all of them. What is left is what the content cannot say about
+	// itself: the range the recorded block covers (a file that is not a note has one
+	// view, its own source, and no range to name; a step with no file left has neither
+	// the range nor the content).
 	private caption(box: HTMLElement, entry: NavHistoryEntry, d: NavEntryDescription): void {
-		const switches = !d.missing && entry.kind !== 'view' && isMarkdown(entry.path);
 		const text = this.captionText(entry, d);
 		// A row with nothing in it is not drawn: the pinned block's fixed shape is
 		// about the lines that are always there (the head, the section), and an
 		// empty caption line for the graph would be a line of nothing on a phone.
-		if (!text && !switches)
+		if (!text)
 			return;
 		const row = box.createDiv({ cls: 'nav-preview-caption-row' });
-		if (text)
-			row.createDiv({ cls: 'nav-preview-caption', text });
-		if (switches)
-			this.modes(row);
+		row.createDiv({ cls: 'nav-preview-caption', text });
 	}
 
-	// What the caption SAYS, or nothing when there is nothing to say. Three cases,
-	// and all three are about which of the two contents is on screen: which lines
-	// the recorded block covers (the rendered lines have no gutter of their own left
-	// to say it), that these are today's lines rather than the recorded ones, or —
-	// for a file that is not a note — that its source is the only view there is.
+	// What the caption SAYS, or nothing when there is nothing to say. Two cases, both
+	// about what the content cannot say for itself: which lines the recorded block
+	// covers (the rendered lines have no gutter of their own left to say it), or — for
+	// a file that is not a note — that its source is the only view there is.
+	//
+	// The WHOLE-NOTE view says nothing: the content is the note, and "this is the note
+	// as it stands" is a constant, which is what makes it chrome (see NavBrowserPrefs).
+	// The one exception is a step whose file is GONE: there is no note to show whole,
+	// so what is under the caption is the recorded block after all — and then which
+	// lines those are is exactly the thing worth saying.
 	private captionText(entry: NavHistoryEntry, d: NavEntryDescription): string | undefined {
 		if (entry.kind === 'view')
 			return undefined;
 		if (!isMarkdown(entry.path))
 			return d.missing ? undefined : t('navHistory.preview.source');
 		if (this.mode === 'note' && !d.missing)
-			return t('navHistory.preview.aside');
+			return undefined;
 		const range = contextRange(entry);
 		return range ? t('navHistory.preview.recorded', range.from, range.to) : undefined;
 	}
 
-	// The switch between the two contents. Two buttons and not a menu: what they
-	// choose between are two views of ONE spot, and the reader flipping between
-	// them is comparing — which a menu would make a two-click operation.
-	private modes(row: HTMLElement): void {
-		const modes = row.createDiv({ cls: 'nav-preview-modes' });
-		for (const mode of ['spot', 'note'] as PreviewMode[]) {
-			const active = this.mode === mode;
-			const btn = modes.createEl('button', {
-				text: t(mode === 'spot' ? 'navHistory.preview.spot' : 'navHistory.preview.note'),
-				cls: `nav-preview-mode${active ? ' is-active' : ''}`,
-			});
-			btn.setAttr('aria-pressed', active);
-			btn.addEventListener('click', () => {
-				if (this.mode === mode)
-					return;
-				// The choice is the plugin's own preference (see the option): the same
-				// row is then redrawn in the other view, so the caption, the content
-				// and the pressed button cannot disagree — and the next dialog, the
-				// resident panel and the next app run open on it.
-				this.opts.setPreviewMode(mode);
-				this.render();
-			});
-		}
-	}
-
 	// Keep the panel in view after the position moved — inline only, where the panel
 	// hangs BELOW the row it describes (see render). Two things have to be visible and
-	// they cannot both fit: the ROW, which is the only thing a finger can tap to put the
-	// panel away again, and the panel's own TOP, where the caption that names the
-	// content and the switch that changes it are. The panel as a whole never fits — it
+	// they cannot both fit: the ROW, whose gutter control is the only thing a finger
+	// can use to put the panel away again, and the panel's own TOP, where the caption
+	// and the first of the lines are. The panel as a whole never fits — it
 	// is taller than the list it sits
 	// in — so the list is moved just far enough to leave PANEL_PEEK under the row, and
 	// NO further: the scroll stops when the note's own row — the name, or the landing row

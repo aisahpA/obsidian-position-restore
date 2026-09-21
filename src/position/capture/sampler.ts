@@ -182,9 +182,12 @@ export class Sampler {
 				// The jump has landed and the view is quiet: the settled read IS
 				// the landing. Attach it to the entry the jump was pushed for
 				// (keyed → backfill/keep inside refreshTop, which guards
-				// path+leaf) — the precise-return position. Nav read (low
-				// frequency): the landing entry carries the display fields.
-				this.nav.refreshTop(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st);
+				// path+leaf) — the precise-return position, and the one position
+				// the recent-files list takes from here (`landing: true`; every
+				// other caller hands over the reader's LEAVE, which the place must
+				// not mistake for the jump's own spot). Nav read (low frequency):
+				// the landing entry carries the display fields.
+				this.nav.refreshTop(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st, { landing: true });
 				}
 			} else {
 				this.searchSettledTicks = 0;

@@ -1,5 +1,5 @@
 import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
+import { EphemeralState, NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
 import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
@@ -11,17 +11,29 @@ import {
 } from './entry';
 import { isMainAreaLeaf } from '@/shared/leaf';
 import { loadNavHistory, persistNavHistory } from './store';
+import { NavPlaces } from './places';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
-// VSCode-style back/forward navigation.
+// VSCode-style back/forward navigation, and the recording funnel for the
+// recent-files list.
 //
-// One global stack of entries (NavJump | NavTeleport | NavVisit | NavView)
-// with a current
-// index. Every recorded jump (any file switch, tab/pane activation,
-// in-file anchor/search/large cursor jumps) pushes; back/forward move the
-// index; a fresh jump — recorded or picked from the history browser —
-// truncates the forward part, and the browser jump re-pushes its target on
-// top so back returns to the jump's origin. Two position regimes:
+// TWO LISTS, TWO QUESTIONS, ONE SET OF RECORDING POINTS. This class owns the
+// back/forward STACK (below). The panel draws the PLACE list instead, which is
+// its own store (places.ts) — it is fed from here, at push and at the landing
+// settle, because a navigation is one event with two readers, but what the two
+// keep differs: the stack holds steps (ordered, capped, truncated, teleports
+// included), the place list holds places (deduped, never truncated, teleports
+// dropped, no position at all for a file). A traversal travels through
+// navigate(); a panel row travels through places.travel, which decides from the
+// record itself: a FILE opens the plain way and lets the position database land
+// it, a JUMP carries its own landing (see travelTo).
+//
+// THE STACK. One global array of entries (NavJump | NavTeleport | NavVisit |
+// NavView) with a current index. Every recorded jump (any file switch, tab/pane
+// activation, in-file anchor/search/large cursor jumps) pushes; back/forward
+// move the index; a fresh jump truncates the forward part — that IS back/forward
+// semantics, and it is why the panel does not draw this list. Two position
+// regimes:
 // keyed entries (outline:<heading>, anchor linktext) and teleports carry
 // the jump's precise landing — written at push time (teleport) or when the
 // landing settles (outline/anchor) — and are never overwritten afterwards
@@ -92,18 +104,35 @@ export class NavHistory {
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
 
-	// Who wants to hear that the stack as a BROWSER sees it changed (see
-	// subscribe). Nothing in the recording or the traversal reads this: it exists
-	// for the one consumer that outlives a single render — the resident sidebar
-	// panel, which draws the stack as it stands and has no other way to learn
-	// that it moved.
-	private listeners = new Set<() => void>();
+	// THE RECENT FILES LIST (see places.ts) — a store of its own, not a view of
+	// the stack above. The panel draws ITS records and travels through ITS
+	// travel(); the stack stays the traversal device (ordered, capped small, and
+	// truncating on a fresh jump) and is what the two commands walk.
+	//
+	// The two are fed from the same recording points (this class's push and
+	// refreshTop), because a navigation is one event with two readers: the
+	// traversal wants it as a step, the panel wants it as a place. What they
+	// store is not the same — the panel's file records carry no position (the
+	// position database owns "where I left this file") and its inferred steps
+	// are dropped — which is exactly why they are two stores and not one list
+	// read twice.
+	readonly places: NavPlaces;
 
 	// True while a back/forward traversal is executing: the opens it triggers
 	// (openFile, native go-back) are the traversal itself, not new jumps.
 	private executing = false;
 
-	constructor(app: App, settings: PluginSettings, state: PositionState) {
+	constructor(
+		app: App,
+		settings: PluginSettings,
+		state: PositionState,
+		// The file's saved record, for a step that recorded no position of its own:
+		// the browser draws such a row's line from it (see describeNavEntry), and a
+		// same-file jump applies it so the row's line is still the line it opens (see
+		// appliedLanding). A cross-file open needs no such help — the open pipeline
+		// already falls back to the record.
+		private savedPosition?: (path: string) => EphemeralState | undefined,
+	) {
 		this.app = app;
 		this.state = state;
 		this.settings = settings;
@@ -116,6 +145,16 @@ export class NavHistory {
 		// first render rather than after the next navigation.
 		this.applyStackCap();
 		this.modes = new RestoreModes(settings, state);
+		// The recent-files list, fed by this class's recording points and
+		// travelled through its open pipeline. Built here (rather than injected)
+		// so the two stores can never be wired to different settings objects;
+		// the openers are handed over immediately after, once `this` is usable.
+		this.places = new NavPlaces(app, settings);
+		this.places.attach({
+			openFile: (path, leafId) => this.openFilePlain(path, leafId),
+			openJump: entry => this.travelTo(entry),
+			openView: entry => this.openViewPlace(entry),
+		});
 	}
 
 	// The stack ceiling in force: the setting, clamped, with a fallback for a
@@ -149,47 +188,17 @@ export class NavHistory {
 		// negative, so forward still walks what remains instead of traversal
 		// being disabled outright.
 		this.index = this.entries.length === 0 ? -1 : Math.max(0, this.index - removed);
-		// A resident panel draws the dropped entries until it is told (see
-		// subscribe). The constructor's own call reaches nobody.
-		if (removed > 0)
-			this.changed();
 		return removed;
 	}
 
-	// ===== Change notification =====
-
-	// Hear about every change a BROWSER would have to redraw for: a push, a step,
-	// a leave-refresh, a prune, a rename, a jump. @returns how to stop hearing
-	// about them.
-	//
-	// It exists for a panel that is on screen for hours (the sidebar view): the
-	// modal is opened, read and closed inside one render, but a resident panel has
-	// to catch a history that moves under it. The signal is deliberately coarse —
-	// "something changed", never what — because the only honest consumer redraws
-	// the whole body anyway, and a finer vocabulary would be a second model for the
-	// one thing the browser already derives from the stack itself.
-	//
-	// Every caller is a user-scale event (a navigation, a leave, a settings change),
-	// never a per-tick one: the 100ms poll records cursor movement in the position
-	// store and only reaches the stack through refreshTop on a settle or a mobile
-	// teleport (see sampler), so a listener may redraw synchronously.
-	subscribe(fn: () => void): () => void {
-		this.listeners.add(fn);
-		return () => {
-			this.listeners.delete(fn);
-		};
-	}
-
-	private changed(): void {
-		for (const fn of this.listeners)
-			fn();
-	}
-
-	// Every distinct file path the stack still names (view entries name none).
-	// The caller pairs this with a vault check — the startup sweep for files
-	// deleted while Obsidian was closed (see PathBookkeeper.sweepMissingHistory).
+	// Every distinct file path the stack OR the recent-files list still names
+	// (view entries name none). The caller pairs this with a vault check — the
+	// startup sweep for files deleted while Obsidian was closed (see
+	// PathBookkeeper.sweepMissingHistory). Both lists are swept: a place whose
+	// file is gone is as dead as a step whose file is gone, and it holds a slot
+	// in a capped list.
 	knownPaths(): string[] {
-		const seen = new Set<string>();
+		const seen = new Set<string>(this.places.knownPaths());
 		for (const entry of this.entries)
 			if (entry.kind !== 'view')
 				seen.add(entry.path);
@@ -291,6 +300,17 @@ export class NavHistory {
 	private refreshTopLeafOnActivation(next: WorkspaceLeaf | null) {
 		if (!next || !this.canRecord())
 			return;
+		// A SIDEBAR (or any other non-main-area pane) taking the focus is not a
+		// tab/pane switch the history records — recordActivation refuses those leaves
+		// itself — so the entry being left is not going anywhere. Refreshing it here
+		// also NOTIFIED every browser on screen (refreshTop → changed), so clicking
+		// into the resident panel rebuilt its rows while the reader's press was still
+		// in flight: the click was lost and the same row had to be clicked a second
+		// time. The entry's position is still captured where it matters — on open
+		// (syncCurrentPosition), on a jump (refreshTopFromActiveView), and on the
+		// sampler's own leave reads.
+		if (!isMainAreaLeaf(this.app, next))
+			return;
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view')
 			return;
@@ -315,7 +335,7 @@ export class NavHistory {
 	// Keyless open/activation entries are overwritten on every leave.
 	// Guarded by path+leaf: the top entry must still describe this view's
 	// leaf+file.
-	refreshTop(path: string, leafId: string, st: NavEntryState) {
+	refreshTop(path: string, leafId: string, st: NavEntryState, opts: { landing?: boolean } = {}) {
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
@@ -323,19 +343,24 @@ export class NavHistory {
 			if (!top.st) {
 				top.st = st;		
 				this.upgradeKeyLine(top, st);
-				this.changed();
+				// A PLACE is only told about a real LANDING (`opts.landing`), never
+				// about the leave-read that backfills the stack: the stack wants
+				// *some* position to return to, while the place's row PROMISES the
+				// jump's own spot — and a reader who clicked a heading, read on and
+				// then switched files must not find that heading's recorded place
+				// moved to wherever they happened to be when they left.
+				if (opts.landing)
+					this.places.settle(top);
 			}
 			return;
 		}
 		if (top.kind === 'teleport') {
 			if (!top.st) {
 				top.st = st;
-				this.changed();
 			}
 			return;
 		}
 		top.st = st;
-		this.changed();
 	}
 
 	// Upgrade a keyed jump with the anchor's RECORD-TIME line from
@@ -435,7 +460,10 @@ export class NavHistory {
 		// just established, not to the entry the push replaced.
 		this.index = this.entries.length - 1;
 		this.applyStackCap();
-		this.changed();
+		// …and the same event as a PLACE on the recent-files list: no truncation
+		// there, and an inferred step is not a place at all (see places.ts).
+		this.places.remember(this.entries[this.index]);
+		this.places.markCurrent(this.entries[this.index]);
 	}
 
 	// ===== Traversal =====
@@ -469,44 +497,69 @@ export class NavHistory {
 			return;
 		await this.runBracketed(() => this.traverse(dir));
 		// The pointer moved even where no step was pushed (a traversal that only
-		// reactivates a tab), and "you are here" moved with it.
-		this.changed();
+		// reactivates a tab), and "you are here" moved with it — on the stack and
+		// on the recent-files list alike.
+		this.places.markCurrent(this.entries[this.index]);
 	}
 
-	// Time travel to an arbitrary entry (the history browser). Same bracket
-	// as navigate. The jump is a fresh navigation branching from the current
-	// entry (VSCode/IDEA semantics): the forward part is truncated and the
-	// target re-pushed on top, so the origin is always the entry right below
-	// and back returns to where the user was. The target goes in as a shallow
-	// copy — the original entry keeps its own leave-position. Clicking the
-	// current row just re-lands (keyed entries re-apply their landing).
+	// Time travel to a PLACE (the recent-files list). A place is an explicit
+	// navigation, so it gets the same treatment a back/forward step does: the
+	// place is re-pushed on top of the stack (branching from where the reader
+	// is), and the entry it displaced stays one step below — back returns to the
+	// origin. The place's own landing is what the open injects, so the line the
+	// panel printed is the line the travel lands on.
 	//
-	// The entry NEXT TO the current one is the exception: that is just a
-	// back/forward step, so the pointer moves instead. Branching there would
-	// duplicate the entry, and the copy would make the origin the new
-	// "previous" entry — so a browser step followed by another bounced
-	// straight back (A → B → A …), adding one duplicate per press.
-	async jumpTo(index: number): Promise<void> {
-		if (index < 0 || index >= this.entries.length)
+	// The place the reader is already standing on is not pushed again: the
+	// traversal top IS that location, and a second press has to re-land it, not
+	// grow a duplicate step (the same rule jumpTo used for the adjacent row).
+	async travelTo(place: NavHistoryEntry): Promise<void> {
+		if (place.kind === 'teleport')
 			return;
-		if (index === this.index - 1 || index === this.index + 1) {
-			await this.navigate(index < this.index ? -1 : 1);
-			return;
-		}
 		await this.runBracketed(async () => {
+			// Capture where we are leaving first, so the entry below keeps the
+			// exact position a later back must return to.
 			this.refreshTopFromActiveView();
-			// Only feeds delegateNative's direction (command id + landing
-			// verification); multi-step jumps never match the native stack's
-			// next entry, so the value is a formality beyond ±1 hops.
-			const dir: -1 | 1 = index > this.index ? 1 : -1;
-			if (index !== this.index)
-				this.push({ ...this.entries[index] });
-			await this.execute(this.entries[this.index], dir);
+			const top = this.entries[this.index];
+			if (!top || !this.sameLocation(top, place))
+				this.push({ ...place });
+			// The target's own landing is injected; the direction only feeds the
+			// native-delegation check, and a place knows no stack position — so
+			// both directions are offered to it (see execute's `tryBoth`).
+			await this.execute(this.entries[this.index], -1, true);
 		});
-		// The stack moved under whoever is drawing it (see subscribe). The push
-		// above already announced the new top; this catches the jump onto the
-		// entry the reader is already standing on, which pushes nothing.
-		this.changed();
+		this.places.markCurrent(this.entries[this.index]);
+	}
+
+	// A FILE place: open it the way Obsidian's own file explorer does, with no
+	// landing injected. The panel's file rows carry no position of their own
+	// (see places.ts), so the position database decides where this lands — which
+	// is what keeps "open it from the panel" and "open it from the file
+	// explorer" the same act, exclusion rules and all. The open records itself
+	// through the ordinary patch, so the visit still reaches both stores.
+	async openFilePlain(path: string, leafId: string): Promise<void> {
+		const leaf = this.findLeafById(leafId)
+			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
+		if (!leaf)
+			return;
+		if (this.app.workspace.getActiveViewOfType(FileView)?.leaf !== leaf)
+			this.app.workspace.setActiveLeaf(leaf, { focus: true });
+		if (leaf.isDeferred)
+			await leaf.loadIfDeferred();
+		const current = (leaf.view as FileView | undefined)?.file;
+		if (current?.path === path)
+			return;
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (file instanceof TFile)
+			await leaf.openFile(file);
+	}
+
+	// A pathless view place (the graph tab): reactivate its leaf, or re-assert
+	// the view when the tab was swapped to a file in the meantime — execute()'s
+	// view branch, which needs nothing from the stack.
+	async openViewPlace(place: NavHistoryEntry): Promise<void> {
+		if (place.kind !== 'view')
+			return;
+		await this.execute(place, 1);
 	}
 
 	// The bracket shared by navigate/jumpTo: one position change, not new
@@ -588,29 +641,47 @@ export class NavHistory {
 	}
 
 	// The leave-refresh of a traversal/jump: the top entry gets the exact
-	// current position so a return lands where the user actually was. Only
-	// when the top entry really describes the active leaf+file (a non-file
-	// view activation — search, graph — records nothing, so the stack can
-	// point at the last file view while something else is active).
+	// current position so a return lands where the user actually was. The entry must
+	// still describe its own leaf+file (a non-file view activation — search, graph —
+	// records nothing, so the stack can point at the last file view while something
+	// else is active). The view is taken from the entry's OWN leaf when the
+	// workspace's active view is not it: a sidebar holding the focus — the resident
+	// history panel included — leaves no active FileView at all, and the entry still
+	// describes the file tab behind it.
 	private refreshTopFromActiveView() {
-		const activeView = this.app.workspace.getActiveViewOfType(FileView);
 		const cur = this.entries[this.index];
-		if (cur && cur.kind !== 'view' && activeView?.file
-			&& cur.leafId === this.state.leafId(activeView.leaf)
-			&& cur.path === activeView.file.path && activeView instanceof MarkdownView) {
-			const st = readNavEntryState(activeView);
+		if (!cur || cur.kind === 'view')
+			return;
+		const activeView = this.app.workspace.getActiveViewOfType(FileView);
+		const view = activeView?.file && cur.leafId === this.state.leafId(activeView.leaf)
+			? activeView
+			: this.findLeafById(cur.leafId)?.view;
+		if (view instanceof MarkdownView && view.file?.path === cur.path) {
+			const st = readNavEntryState(view);
 			if (st) this.refreshTop(cur.path, cur.leafId, st);
 		}
 	}
 
-	// Fill the current (top) entry's position from the live active view.
-	// Called before the history browser renders: the entry you are sitting in
-	// has had no leave-refresh yet, so it would otherwise show no position.
+	// Fill the current (top) entry's position from the live active view — the
+	// panel's entry point. The entry you are sitting in has had no leave-refresh
+	// yet, so its stack record would otherwise show no position.
+	//
+	// For the recent-files list the same call answers a different need: the file
+	// being read must HAVE a place and be marked "here". A workspace restored at
+	// startup opens its file through a path the history does not record (the
+	// layoutReady gate), so without this the panel would open showing neither the
+	// note being read nor where the reader is.
 	syncCurrentPosition() {
 		this.refreshTopFromActiveView();
+		const view = this.app.workspace.getActiveViewOfType(FileView);
+		if (view?.file)
+			this.places.ensureCurrent({
+				kind: 'visit', path: view.file.path,
+				leafId: this.state.leafId(view.leaf), t: Date.now(),
+			});
 	}
 
-	private async execute(target: NavHistoryEntry, dir: -1 | 1) {
+	private async execute(target: NavHistoryEntry, dir: -1 | 1, tryBoth = false) {
 		const activeView = this.app.workspace.getActiveViewOfType(FileView);
 		// No file view anywhere (only the new-tab page): fall back to the
 		// last main-area leaf — the empty tab — so the traversal can still
@@ -671,42 +742,85 @@ export class NavHistory {
 		const curFile = (leaf.view as FileView | undefined)?.file;
 
 		if (curFile?.path === target.path) {
-			// In-file jump: no open, apply the entry's position directly.
-			// Only markdown has positions (the entry's st is refreshed at
-			// leave time); a same-file non-markdown entry is a no-op — the
-			// view is already there. (leaf is the active leaf here — the
-			// cross-tab case returned above — so this is the active view.)
-			if (activeView instanceof MarkdownView)
-				await this.applyLanding(activeView, target);
+			// In-file jump: no open, apply the entry's position directly. The view to
+			// apply it to is THIS leaf's, not the workspace's ACTIVE view: with a
+			// sidebar holding the focus (the resident history panel included) there is
+			// no active file view at all, while the leaf still shows the file — and the
+			// branch then applied nothing, so a jump to a place in the note already on
+			// screen did nothing. That is the sidebar's "sometimes it jumps, sometimes
+			// it does not": the ADJACENT case goes through traverse(), which
+			// reactivates the file leaf first (see traverse), which is why it worked.
+			// Only markdown has positions (the entry's st is refreshed at leave time);
+			// a same-file non-markdown entry is a no-op — the view is already there.
+			const view = leaf.view;
+			if (view instanceof MarkdownView)
+				await this.applyLanding(view, target);
 			return;
 		}
 
 		// Same-tab file switch: ride the native per-tab history when its next
 		// entry matches (keeps PDF/canvas native), else open directly. Both
 		// routes are handed this target's own landing when it has one.
-		if (await this.delegateNative(dir, leaf, target.path, undefined, this.landingFor(target)))
+		const landing = this.landingFor(target);
+		if (await this.delegateNative(dir, leaf, target.path, undefined, landing))
+			return;
+		// A PLACE's travel knows no stack position, so its direction is a guess:
+		// offer the other one before falling back to a direct open. A failed
+		// delegateNative has no side effect (it returns before arming or
+		// executing anything), so the second attempt costs one comparison.
+		if (tryBoth && await this.delegateNative(dir === 1 ? -1 : 1, leaf, target.path, undefined, landing))
 			return;
 		await this.openInLeaf(leaf, target);
 	}
 
-	// Apply a target's recorded landing to a view that ALREADY shows the file
-	// — the in-file jump both execute() (same file on the active leaf) and
-	// openInLeaf() (a tab that still shows the target file) end in. Re-anchor
-	// structurally first (the entry's lines predate any later edits), then run
-	// the shared apply. Nothing to do without a recorded landing: a keyless
-	// entry that never got its leave-refresh, a legacy entry, or a view entry
-	// (non-markdown views have no position of ours to apply).
+	// Apply a target's landing to a view that ALREADY shows the file — the in-file
+	// jump both execute() (the target's own leaf, whether or not it is the ACTIVE
+	// one) and openInLeaf() (a tab that still shows the target file) end in.
+	// Re-anchor structurally first (the entry's lines predate any later edits), then
+	// run the shared apply. Nothing to do when there is no landing anywhere for the
+	// entry (see appliedLanding).
 	private async applyLanding(view: MarkdownView, target: NavJump | NavVisit | NavTeleport) {
-		if (!target.st)
+		const st = this.appliedLanding(target);
+		if (!st)
 			return;
 		const isCurrent = () => view.file?.path === target.path;
 		this.state.cueSuppressUntil = Date.now() + NAV_CUE_SUPPRESS_MS;
-		await this.modes.historyJumpApply(view, target.st, isCurrent, this.resolveAnchorShift(target));
+		await this.modes.historyJumpApply(view, st, isCurrent, this.resolveAnchorShift(target));
+	}
+
+	// The landing a SAME-FILE jump applies. What the entry itself recorded comes
+	// first (see landingOf); a step that recorded none falls back to the file's saved
+	// record — the very source the browser borrowed that row's line from (see
+	// describeNavEntry) — so the line on the row is still the line the click lands on.
+	// Without this, such a row named a line and the jump applied nothing at all in the
+	// same file. It is deliberately NOT part of landingFor: a cross-file open already
+	// falls back to that record, so naming it there would only duplicate what the open
+	// pipeline does by itself.
+	private appliedLanding(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		return this.landingOf(target) ?? this.savedPosition?.(target.path);
+	}
+
+	// The landing an entry can actually restore: its own recorded state, or — for a
+	// teleport whose landing never settled (the post-jump read never arrived, so the
+	// entry kept only the line it aimed at) — that target line as the viewport top.
+	// The browser prints exactly that line on the row (see describeNavEntry), so
+	// honouring it is what keeps the row from promising a place the jump then does
+	// not take the reader to. undefined for an entry that recorded no position of its
+	// own (a legacy entry, a tab activation before its leave-refresh): a same-file
+	// jump falls back to the file's saved record (see appliedLanding), and a
+	// cross-file open falls back to it by itself.
+	private landingOf(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		if (target.st)
+			return target.st;
+		if (target.kind === 'teleport' && Number.isFinite(target.line))
+			return { scroll: Math.max(0, target.line) };
+		return undefined;
 	}
 
 	// The landing a cross-file traversal hands to the open pipeline: the
 	// entry's OWN recorded position — the spot the browser row shows, and
-	// (per this module's contract) the spot back/forward must return to. The
+	// (per this module's contract) the spot back/forward must return to — which for
+	// an unsettled teleport is the target line it recorded (see landingOf). The
 	// structural re-anchor is applied when the entry is a keyed jump whose
 	// heading has moved since: the injected open path has no target editor to
 	// run the text-snippet remap against, so the structural shift is the only
@@ -714,10 +828,11 @@ export class NavHistory {
 	// leave-refresh, a legacy persisted entry, a ^block key (never upgraded) —
 	// leaves the open to the file record: where the user actually was.
 	private landingFor(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
-		if (!target.st)
+		const st = this.landingOf(target);
+		if (!st)
 			return undefined;
 		const shift = this.resolveAnchorShift(target);
-		return shift ? shiftNavState(target.st, shift) : target.st;
+		return shift ? shiftNavState(st, shift) : st;
 	}
 
 	// Arms the one-shot flag the setViewState patch consumes (see
@@ -853,24 +968,23 @@ export class NavHistory {
 	// ===== Bookkeeping =====
 
 	renameFile(oldPath: string, newPath: string) {
-		let renamed = false;
 		for (const entry of this.entries)
-			if (entry.kind !== 'view' && entry.path === oldPath) {
+			if (entry.kind !== 'view' && entry.path === oldPath)
 				entry.path = newPath;
-				renamed = true;
-			}
-		// The rows name the OLD path until the browser redraws (see subscribe).
-		if (renamed)
-			this.changed();
+		// The recent-files list re-keys its own records (a place's identity is
+		// recomputed from the path, so nothing has to be rewritten there).
+		this.places.renameFile(oldPath, newPath);
 	}
 
-	// A real vault delete drops the file's steps (the browser shows the gap as
-	// a missing row until then). NOT called straight off the vault 'delete'
-	// event: PathBookkeeper schedules the prune and re-checks the vault before
-	// it commits, because a sync plugin replaces a changed file by removing it
-	// and renaming the download over it — a delete that is undone a moment
+	// A real vault delete drops the file's steps AND its places (see
+	// places.ts's deleteFile) — a dead name holds a slot in a capped list just as
+	// it holds a step in a capped stack. NOT called straight off the vault
+	// 'delete' event: PathBookkeeper schedules the prune and re-checks the vault
+	// before it commits, because a sync plugin replaces a changed file by removing
+	// it and renaming the download over it — a delete that is undone a moment
 	// later (see position/path-bookkeeping.ts).
 	deleteFile(path: string) {
+		this.places.deleteFile(path);
 		const kept: NavHistoryEntry[] = [];
 		let removedBefore = 0;
 		for (let i = 0; i < this.entries.length; i++) {
@@ -884,16 +998,13 @@ export class NavHistory {
 		}
 		// A path no step names (the bookkeeper re-checks the vault, and a sync
 		// plugin's replace-and-rename is one path that comes straight back): the
-		// stack is not rewritten and no browser is told anything.
+		// stack is not rewritten at all.
 		if (kept.length === this.entries.length)
 			return;
 		this.entries = kept;
 		this.index = kept.length === 0
 			? -1
 			: Math.min(this.index - removedBefore, kept.length - 1);
-		// The rows for the pruned steps stay on screen until the browser redraws
-		// (see subscribe).
-		this.changed();
 	}
 
 	// ===== Persistence (device-local, per vault — mirrors the overlay) =====
@@ -906,8 +1017,13 @@ export class NavHistory {
 	// write it owes.
 	private lastPersisted = '';
 
+	// Write BOTH lists out: they are separate blobs (a place list is written
+	// rarely and is large; the stack is written often and is small), but every
+	// existing flush point means "the navigation state changed", and the caller
+	// that owns the list should not have to know there are two.
 	persist() {
 		this.lastPersisted = persistNavHistory(
 			this.app, this.entries, this.index, this.lastPersisted);
+		this.places.persist();
 	}
 }

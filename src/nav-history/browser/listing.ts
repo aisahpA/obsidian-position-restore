@@ -4,7 +4,26 @@
 
 import { NavHistoryEntry } from '@/nav-history/entry';
 import { t } from '@/i18n';
+import { LANDING_MERGE_LINES } from './constants';
 import { baseName } from './model';
+
+// What one row of the list stands for under the 'all' setting: the span of lines a
+// cluster of nearby landings covers, and how many landings went into it. The span is
+// the row's SCOPE, not its coordinate: the row PRINTS the representative's own line —
+// the one the click opens — and keeps this span as its tooltip, so the reader can see
+// what was folded without the label promising a line the row will not land on. Drawn
+// from the members themselves, so the scope and the set of steps it folds are the
+// same fact (see landingKey).
+export interface ClusterSpan {
+	// The lowest and highest line the cluster covers, as the rows' own lines (0-based
+	// as recorded; the row adds one). Both undefined for a cluster with no coordinate
+	// at all — a `.base`, an image, a step whose position never resolved.
+	from?: number;
+	to?: number;
+	// How many distinct landings the cluster folds. One means the row is an ordinary
+	// spot and prints its whole story; more means it prints a range.
+	count: number;
+}
 
 // One FILE on the list: the note, and the steps that landed in it (by line,
 // ascending — see groupByFile). The list is one of these per note — which is what
@@ -20,21 +39,43 @@ import { baseName } from './model';
 // "where in it I can go", which is the question its row is opened to answer;
 // the chronological account of how often it was visited is what the count used
 // to carry and no longer needs to.
+//
+// AND NEARBY SPOTS ARE ONE SPOT (see LANDING_MERGE_LINES): a note the reader
+// scrolled through leaves a trail of landings a few lines apart, and printing each
+// of them is a wall of rows whose numbers all look alike. The trail is clustered
+// into the places a reader can tell apart, and a cluster is one row.
 export interface NavFileGroup {
 	// The note's path. NO_PATH for a pathless group, which also cannot collide
 	// with a real path (a vault path is never empty).
 	path: string;
-	// Stack indices of the note's distinct landings, top of the note first: by
-	// line, ascending (see the sort in groupByFile). Each one stands for every
-	// dropped step that landed in the same place.
+	// Stack indices of the note's landings, top of the note first: by line,
+	// ascending (see the sort in groupByFile). Each one is a CLUSTER's
+	// representative — the newest step among the nearby landings it folds — and
+	// stands for every step that landed in that place.
 	indices: number[];
 	// The subset of `indices` that may be TRAVELLED to: a note whose file is
 	// deleted is still the note (the panel says what stood there), but nothing
 	// under it is a destination.
 	reachable: number[];
+	// The note's OWN record — the place that stands for the file rather than for
+	// a spot inside it (see places.ts), i.e. the `visit` (or the `view`) the
+	// group was opened by. The file's row IS this record: it opens the file the
+	// plain way, and its line (when the panel prints one) is the line a plain
+	// open will land on. It is deliberately NOT one of `indices`: a note's own
+	// record is not a landing to list under the note, it IS the note.
+	anchor?: number;
 	// The current entry's own group: pinned to the top of the list, so "you are
 	// here" is a place in the same list.
 	current: boolean;
+	// What each cluster covers, keyed by its representative: the row's own scope,
+	// which it carries as its tooltip (see ClusterSpan).
+	spans: Map<number, ClusterSpan>;
+	// The representative whose cluster holds the CURRENT entry, when one of them
+	// does. It is what "here" means once several spots are one row: the entry itself
+	// may be a member the cluster does not stand for. The row is still a destination
+	// — clicking it re-lands that place, closed tab and all (see
+	// NavHistoryList.targetOf).
+	currentRep?: number;
 }
 
 // How much of one note the list prints (see the type's own note in types.ts, the
@@ -83,17 +124,20 @@ function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 // their NEWEST step — what a reader scanning for "where was I" expects, and the
 // order the flat chronological list had — except the current entry's group,
 // which is pinned first. INSIDE a group the order is the note's own: by line,
-// ascending (see the sort below). `keep` applies the filter (a dropped step is
+// ascending, with the spots close enough to be one place already CLUSTERED into
+// one row (see LANDING_MERGE_LINES). `keep` applies the filter (a dropped step is
 // not on screen, so its note may disappear with it).
 //
-// `lineOf` resolves the line a step landed on, which is what makes two steps
-// the same spot (see landingKey). It is INJECTED rather than read off the entry
-// because the line a row prints is not always the entry's own: a step recorded
-// before the block was captured falls back to the file's saved position, and
-// only the caller can ask for that (see NavHistoryReads.describe). Whatever the
-// caller passes must be the same number the row shows, or the list would
-// collapse steps the reader can still see apart. The default — no line at all —
-// keeps every step, so a caller that does not care is never surprised.
+// `lineOf` resolves the line a step landed on, which is what makes two steps the
+// same spot (see landingKey) and what decides whether two of them are NEARBY. It
+// is INJECTED rather than read off the entry because the line a row prints is not
+// always the entry's own: a step recorded before the block was captured falls back
+// to the file's saved position, and only the caller can ask for that (see
+// NavHistoryReads.describe). Whatever the caller passes must be the same number
+// the row shows, or the list would collapse steps the reader can still see apart —
+// and now also cluster rows the reader can see the numbers of. The default — no
+// line at all — keeps every step, so a caller that does not care is never
+// surprised.
 export function groupByFile(
 	entries: NavHistoryEntry[],
 	currentIndex: number,
@@ -105,23 +149,33 @@ export function groupByFile(
 	lineOf: (index: number) => number | undefined = () => undefined,
 ): NavFileGroup[] {
 	const groups = new Map<string, NavFileGroup>();
-	// Per group, the landing each kept step stands for → its slot in `indices`:
-	// what a later step with the same landing is compared against.
+	// Per group, the landing each kept step stands for → its slot in the group's
+	// landings: what a later step with the same landing is compared against.
 	const seen = new Map<string, Map<string, number>>();
+	// The distinct landings of a note as the reverse scan meets them — newest step
+	// first, which is the order a cluster's representative is chosen in.
+	const found = new Map<string, { line: number | undefined; index: number }[]>();
 	const open = (entry: NavHistoryEntry): NavFileGroup => {
 		const key = groupKey(entry);
 		let group = groups.get(key);
 		if (!group) {
-			group = { path: entry.kind === 'view' ? NO_PATH : entry.path, indices: [], reachable: [], current: false };
+			group = {
+				path: entry.kind === 'view' ? NO_PATH : entry.path,
+				indices: [],
+				reachable: [],
+				current: false,
+				spans: new Map(),
+			};
 			groups.set(key, group);
 			seen.set(key, new Map());
+			found.set(key, []);
 		}
 		return group;
 	};
 	// Reverse order: the first time a note is seen is its newest surviving step,
 	// and Map insertion order preserves exactly that as the group order. The
-	// CURRENT entry is included with the rest: the list marks it (its note row
-	// carries the ● of .nav-row-here, its own landing the same dot) instead of
+	// CURRENT entry is included with the rest: the list pins its note first and
+	// marks the landing that holds it (the ● of .nav-row-here) instead of
 	// holding it out of the list, so a note that was only ever opened once still
 	// has a row to name.
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -130,37 +184,92 @@ export function groupByFile(
 		const entry = entries[i];
 		const key = groupKey(entry);
 		const group = open(entry);
-		const landing = landingKey(entry, lineOf(i));
+		// The note's own record names the FILE rather than a spot inside it, so it
+		// becomes the group's ANCHOR (see `anchor`) and adds NO landing. What is
+		// listed under a note is the jumps the reader made inside it, and a row
+		// standing for the file's own record would be a row whose click opens the
+		// file the reader is already in — i.e. a row that visibly does nothing
+		// (see list.ts's activeRep, and places.travel: a FILE place opens plainly).
+		// The record still marks the group as the CURRENT one: the reader standing
+		// in this note is standing on the file, whether or not they jumped inside it.
+		if (entry.kind === 'visit' || entry.kind === 'view') {
+			if (group.anchor === undefined)
+				group.anchor = i;
+			if (i === currentIndex)
+				group.current = true;
+			continue;
+		}
+		const line = lineOf(i);
+		const landing = landingKey(entry, line);
 		const at = seen.get(key)?.get(landing);
+		const landings = found.get(key)!;
 		if (at !== undefined) {
 			// Already on the list: the step adds no destination. It is still the
 			// step the reader is ON when it is the current entry, whose own
 			// landing has to be the one drawn as "here" (the newer step in that
 			// slot is the same place, and the marker is the only difference).
 			if (i === currentIndex) {
-				group.indices[at] = i;
+				landings[at].index = i;
 				group.current = true;
 			}
 			continue;
 		}
-		seen.get(key)?.set(landing, group.indices.length);
-		group.indices.push(i);
+		seen.get(key)?.set(landing, landings.length);
+		landings.push({ line, index: i });
 		if (i === currentIndex)
 			group.current = true;
 	}
-	// Under one note the landings come out by LINE, ascending — the order of the
+	// Under one note the rows come out by LINE, ascending — the order of the
 	// document they are places in. Between notes recency still decides (a note is
 	// a "where was I", and time answers that), but INSIDE one nothing is learned
 	// from the order the spots were visited in: what the reader is doing is
 	// looking for a place in a text, and a text runs from line 1 down. A step with
-	// no recorded line cannot be placed in that order at all — it keeps its
-	// recency order at the END of its note's list, where the rows with no
-	// coordinate have always stood.
+	// no recorded line cannot be placed in that order at all: it keeps its recency
+	// order at the END of its note's list, where the rows with no coordinate have
+	// always stood — and being alone there, it comes out a cluster of its own.
+	//
+	// …and the sorted landings are then CLUSTERED (see LANDING_MERGE_LINES): a
+	// landing opens a new cluster the moment it sits more than the window below
+	// the cluster's HEAD. Measured from the head and not from the previous line,
+	// so a dense run of steps cannot chain one cluster across a whole section: a
+	// cluster is never wider than the window. Each cluster becomes one row,
+	// represented by its NEWEST step — "the last spot the reader was at in that
+	// place", the same answer the note's own row gives (see
+	// NavHistoryList.activeRep) — so the line the row prints IS the line it opens,
+	// and the span it covers rides along as its tooltip (see ClusterSpan).
 	const rank = (line: number | undefined) => line === undefined ? Number.MAX_SAFE_INTEGER : line;
-	for (const group of groups.values())
-		group.indices.sort((a, b) => rank(lineOf(a)) - rank(lineOf(b)));
-	// What may be travelled to, over the DISTINCT landings: a note whose file is
-	// deleted keeps its rows but none of them is a destination.
+	for (const [key, group] of groups) {
+		const landings = found.get(key)!;
+		landings.sort((a, b) => rank(a.line) - rank(b.line));
+		let members: { line: number | undefined; index: number }[] = [];
+		let head: number | undefined;
+		const close = () => {
+			if (!members.length)
+				return;
+			const newest = members.reduce((a, b) => (a.index > b.index ? a : b));
+			const lines = members.map(m => m.line).filter((l): l is number => l !== undefined);
+			group.indices.push(newest.index);
+			group.spans.set(newest.index, {
+				from: lines.length ? Math.min(...lines) : undefined,
+				to: lines.length ? Math.max(...lines) : undefined,
+				count: members.length,
+			});
+			if (members.some(m => m.index === currentIndex))
+				group.currentRep = newest.index;
+			members = [];
+		};
+		for (const landing of landings) {
+			if (members.length && (landing.line === undefined || head === undefined
+				|| landing.line - head > LANDING_MERGE_LINES))
+				close();
+			if (!members.length)
+				head = landing.line;
+			members.push(landing);
+		}
+		close();
+	}
+	// What may be travelled to, over the CLUSTERS: a note whose file is deleted
+	// keeps its rows but none of them is a destination.
 	for (const group of groups.values())
 		group.reachable = group.indices.filter(reach);
 	// The current note reaches the list by the same scan as every other note: its

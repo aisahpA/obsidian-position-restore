@@ -1,9 +1,9 @@
-// "Browse navigation history" panel: the MODAL shell around the browser body
-// (see body.ts for everything that is not a shell, and view.ts for the
-// resident sidebar panel that shares it).
+// "Open recent files" panel: the MODAL shell around the browser body (see
+// body.ts for everything that is not a shell, and view.ts for the resident
+// sidebar panel that shares it).
 
 import { App, Modal, Platform } from 'obsidian';
-import { NavHistory } from '@/nav-history/history';
+import { PlaceList } from '@/nav-history/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { DRAWER_MIN_WIDTH, FIXED_HEIGHT_MIN_ENTRIES } from './constants';
@@ -21,34 +21,44 @@ function drawerFits(): boolean {
 }
 
 // A destination picker, laid out around how a user actually gets lost:
-//  - the list is NOTES, newest note first, one row per note — a note opened ten
-//    times is one line, not ten, and two notes sharing a name print their folders
-//    to say which is which. What the list prints UNDER a note is the toolbar's own
-//    setting (see LandingsMode): by default nothing, and the row stands for the spot
-//    the reader left that note at — the one their back button keeps returning to,
-//    which is what the row's arrow travels to and what the panel beside it describes.
-//    'All' prints the note's other spots under it, by line, top of the note first;
-//    without it the older ones are still reachable through the search box, which
-//    matches the lines that were there (see list.ts);
-//  - one click points the panel at the spot a row stands for — a second click on the
-//    same row puts it away again — and the row's own arrow travels. ONE click says it
-//    all on every device, and a note's row and a landing's row take the same gesture,
-//    because there is only one thing a row can be asked: WHICH SPOT. Nothing answers
-//    a pointer that merely passed over a row (see list.ts): a drawer that followed
-//    the mouse described whatever it happened to cross;
-//  - the CURRENT note is pinned first and its landing carries the "you are
-//    here" marker, so the current position is a place in the same list — the
-//    first row, marked — and not a line of chrome above it;
-//  - picking a spot is by RECOGNITION, never by retrieval, which is what the
+//  - the list is PLACES (see places.ts): the notes the reader has been in, newest
+//    first, one row per note — a note opened ten times is one line, not ten, and two
+//    notes sharing a name print their folders to say which is which. What the list
+//    prints UNDER a note is the toolbar's own setting (see LandingsMode): by default
+//    nothing, and what the row OPENS is the NOTE, the plain way — the position
+//    database lands it, exactly as the file explorer would. 'All' prints the jumps
+//    the reader made inside it under the name, by line, top of the note first,
+//    nearby ones already folded into one row (see groupByFile); without it the older
+//    ones are still reachable through the search box, which matches the lines that
+//    were there (see list.ts);
+//  - the ROW ITSELF IS THE NAVIGATION: a click opens what the row stands for (see
+//    NavHistoryList.onClick) — a note plainly, a jump at its recorded spot. The
+//    panel is a navigator, so going somewhere is the first thing it does, and the
+//    whole width of a row is that target. Both kinds of row take the same gesture,
+//    because there is only one thing a row can be asked: WHERE. A row with nowhere
+//    to open — a deleted note — simply does nothing, while the one the reader is
+//    already in opens the file back (a jump re-lands its place rather than pushing a
+//    second step);
+//  - the row's OTHER half is the control in its left gutter: one click and the panel
+//    beside it describes THAT row — the recorded spot it stands for, or the note as it
+//    stands now (see LandingPanel) — and a second click puts it away again. So a row
+//    is an OPEN and a LOOK, two hotspots that never reach into each other, and
+//    nothing answers a pointer that merely passed over a row (see list.ts): a drawer
+//    that followed the mouse described whatever it happened to cross;
+//  - the CURRENT note is pinned first, so the current position is a place in the
+//    same list — the first row — and not a line of chrome above it. The ● of "you
+//    are here" rides on the LANDING that holds the current entry, where it tells one
+//    spot from another (see NavHistoryList.placeRow): on the note's own row it could
+//    only ever sit on row one, saying what the position already says;
+//  - picking a place is by RECOGNITION, never by retrieval, which is what the
 //    LANDING's recorded lines are for: the few lines the reader was looking at
 //    when they left, drawn as markdown so they look like the note they came from
-//    (see PreviewContent), with the note as it stands now one switch away. They
-//    stand in a column beside the list and follow the row the reader has clicked —
-//    a click and the arrow keys move the SAME position (see list.ts), so there is no
-//    separate selection for the drawer to disagree with; where there
-//    is no room for two columns (a phone held upright) the same content opens under
-//    the clicked row instead, with a button to travel and a pinned bar that stays in
-//    reach however long the note is (see LandingPanel);
+//    (see PreviewContent), with the note as it stands now one gear setting away. They
+//    stand in a column beside the list and describe the row whose gutter control was
+//    used — the same row the keyboard walks (see list.ts), so there is no separate
+//    selection for the drawer to disagree with; where there is no room for two columns
+//    (a phone held upright) the same content opens under that row instead, with a
+//    pinned bar that stays in reach however long the note is (see LandingPanel);
 //  - the toolbar can narrow the list to matching text — a name, a path, a
 //    section, a line, or a phrase the step recorded. That is the only narrowing
 //    there is: the file scope that used to sit beside it (a "only this note"
@@ -56,12 +66,14 @@ function drawerFits(): boolean {
 //    to ask a question the search box already answers — a note's name IS text it
 //    matches on — and it cost a control, a dropdown and a modal's worth of state
 //    to say what typing three letters says;
-//  - choosing an entry time-travels there (NavHistory.jumpTo): the target is
-//    re-pushed on top, so back always returns to where you were.
+//  - choosing a place travels there (NavPlaces.travel): a jump re-pushes its target
+//    on top, so back always returns to where you were. The dialog closes itself on
+//    the way out (see onJump) — a picker that has answered its question gets out of
+//    the way.
 // The forward/back segments and the step counts are gone: this panel answers
 // "which note, and where in it", and a direction of travel is not part of that
 // answer. A deleted note's row is still the note — the panel says what stood there —
-// but nothing on it travels.
+// but the row itself has nowhere to open.
 //
 // WHAT MAKES IT A MODAL, and nothing else does: the window's own width decides
 // whether the drawer has room (a dialog is as wide as the window it sits in —
@@ -92,10 +104,11 @@ export class NavHistoryModal extends Modal {
 
 	constructor(
 		app: App,
-		private nav: NavHistory,
+		// The recent-files list: the panel's only data source (see view.ts).
+		private places: PlaceList,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The browser's own two preferences (see NavBrowserPrefs): the plugin owns
-		// and persists them, this shell only hands them down.
+		// The browser's own preferences (see NavBrowserPrefs): the plugin owns and
+		// persists them, this shell only hands them down.
 		private prefs: NavBrowserPrefs,
 	) {
 		super(app);
@@ -121,7 +134,7 @@ export class NavHistoryModal extends Modal {
 		this.watchWidth();
 		this.browser = new NavHistoryBrowser({
 			app: this.app,
-			nav: this.nav,
+			places: this.places,
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
 			// The list is click-only, like every shell's (see list.ts): nothing here
@@ -203,6 +216,6 @@ export class NavHistoryModal extends Modal {
 	private applyPresentation(): void {
 		this.modalEl.toggleClass('is-inline', this.inline);
 		this.modalEl.toggleClass('is-fixed',
-			this.inline || this.nav.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
+			this.inline || this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
 	}
 }

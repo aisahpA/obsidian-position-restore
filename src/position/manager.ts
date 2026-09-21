@@ -45,7 +45,7 @@ export class PositionManager {
 		database: CursorPositionDatabase,
 		// The one shared settings object (main.ts assigns it once, the settings tab
 		// mutates it in place). Kept as a field because the history browser reads its
-		// own two preferences live off it (see browserPrefs).
+		// own preferences live off it (see browserPrefs).
 		private settings: PluginSettings,
 		// Write the settings object out, for the preferences the browser changes from
 		// the panel rather than from the settings tab. The plugin owns the file; this
@@ -55,7 +55,7 @@ export class PositionManager {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
-		this.nav = new NavHistory(app, settings, this.state);
+		this.nav = new NavHistory(app, settings, this.state, (path) => this.database.db[path]);
 		this.store = new PositionStore(app, database);
 		this.restorer = new Restorer(app, settings, this.store, this.state);
 		this.sampler = new Sampler(app, this.store, settings, this.state, this.nav);
@@ -165,30 +165,31 @@ export class PositionManager {
 	// NavHistoryModal / NavHistory.jumpTo.
 	openNavHistoryModal() {
 		// The file you are sitting in has had no leave-refresh yet — fill its
-		// position before the browser renders so it is not a bare type badge.
+		// position, and make sure it has a place on the list, before the browser
+		// renders.
 		this.nav.syncCurrentPosition();
-		new NavHistoryModal(this.app, this.nav, (path) => this.database.db[path], this.browserPrefs()).open();
+		new NavHistoryModal(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs()).open();
 	}
 
 	// The resident form of the same browser (main.ts command) — see
 	// NavHistoryView. Same history, same rows, standing in a sidebar instead of
 	// asked and dismissed.
 	openNavHistorySidebar() {
-		// Same reason as the modal's: the panel draws the stack as it stands, and
-		// the note being sat in has had no leave-refresh yet.
+		// Same reason as the modal's: the panel draws the list as it stands, and
+		// the note being sat in may have no place on it yet.
 		this.nav.syncCurrentPosition();
-		void activateNavHistoryView(this.app, this.nav, (path) => this.database.db[path], this.browserPrefs());
+		void activateNavHistoryView(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
 	// The factory main.ts hands to Plugin.registerView: the view needs the
-	// history, the saved positions and the browser's own two preferences, all of
+	// history, the saved positions and the browser's own preferences, all of
 	// which this facade owns, so the wiring is handed out here rather than reached
 	// for through it.
 	navHistoryViewCreator(): (leaf: WorkspaceLeaf) => NavHistoryView {
-		return createNavHistoryView(this.nav, (path) => this.database.db[path], this.browserPrefs());
+		return createNavHistoryView(this.nav.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
-	// The two preferences the history browser owns (see types.ts): read LIVE off the
+	// The preferences the history browser owns (see types.ts): read LIVE off the
 	// shared settings object, so the dialog and the resident panel cannot hold
 	// different opinions about them — and written back through the plugin's own save,
 	// so a choice made in the panel outlives the panel, the dialog and the app run.
@@ -204,6 +205,19 @@ export class PositionManager {
 			landings: () => this.settings.navLandings,
 			setLandings: (how) => {
 				this.settings.navLandings = how;
+				this.save();
+			},
+			// How far back the recent-files list reaches. Written through the
+			// same save; lowered, it trims the list on the spot.
+			placesCap: () => this.settings.navRecentCap,
+			setPlacesCap: (cap) => {
+				this.settings.navRecentCap = cap;
+				this.nav.places.applyCap();
+				this.save();
+			},
+			showDetails: () => this.settings.navShowDetails,
+			setShowDetails: (on) => {
+				this.settings.navShowDetails = on;
 				this.save();
 			},
 		};
@@ -248,6 +262,15 @@ export class PositionManager {
 	// drop a large chunk at once (see NavHistory.applyStackCap).
 	applyNavStackCap(): void {
 		this.nav.applyStackCap();
+	}
+
+	// The recent-files list's own folder rule changed: drop the places the new
+	// rule excludes. A place the reader can no longer be shown must not keep a
+	// slot in a capped list until they happen to revisit it — and the drop has to
+	// happen while they are looking at the setting they just changed.
+	applyNavRecentFolders(): void {
+		if (this.nav.places.pruneExcluded() > 0)
+			this.nav.places.applyCap();
 	}
 
 	// Prune the records the current settings exclude (and, incidentally, the

@@ -178,10 +178,13 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 		sampler.sampleActiveView();
 		sampler.sampleActiveView();
 		expect(state.searchAnchorUntil).toBeLessThanOrEqual(Date.now());
+		// The 4th argument says this read IS the landing (the recent-files list only
+		// takes a place's position from here, never from a leave — see
+		// NavHistory.refreshTop).
 		expect(refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 42,
 			cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } },
-		});
+		}, { landing: true });
 	});
 });
 

@@ -1,5 +1,5 @@
-// The history browser as a RESIDENT sidebar panel: the same body as the modal
-// (see body.ts), standing in a workspace leaf instead of a dialog.
+// The recent-files panel as a RESIDENT sidebar: the same body as the modal (see
+// body.ts), standing in a workspace leaf instead of a dialog.
 //
 // Why it exists beside the modal: the modal answers "where was I, and take me
 // there" once and closes. A reader who works that way repeatedly — hopping
@@ -11,7 +11,7 @@
 //
 // WHAT THE SHELL OWNS, and nothing else:
 //  - the leaf's own lifetime: mount a body on open, destroy it on close, and
-//    hear about history changes while it is up (see NavHistory.subscribe);
+//    hear about list changes while it is up (see NavPlaces.subscribe);
 //  - the presentation decision, which a SIDEBAR has to ask differently from a
 //    dialog — see drawerFits below;
 //  - the classes the stylesheet reads, which no element of the pane's own
@@ -23,20 +23,21 @@
 // the pane's own menu offers, and `revealLeaf` brings it back.
 
 import { App, ItemView, Platform, WorkspaceLeaf } from 'obsidian';
-import { NavHistory } from '@/nav-history/history';
+import { PlaceList } from '@/nav-history/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { DRAWER_MIN_WIDTH } from './constants';
 import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 
-// The view type, which is also what the layout file remembers: renaming it
-// orphans every reader's saved sidebar (they would find an empty pane where the
-// panel used to be), so it is a constant no refactor may touch.
-export const NAV_HISTORY_VIEW_TYPE = 'position-restore-nav-history';
+// The view type, which is also what the layout file remembers. Renamed with the
+// panel itself, while the feature is still unreleased: nothing has been saved
+// into a reader's layout yet, so the constant is settled now — before it becomes
+// the one string no refactor may touch (a rename would orphan the sidebar).
+export const NAV_HISTORY_VIEW_TYPE = 'position-restore-recent-files';
 
 export class NavHistoryView extends ItemView {
 	// The panel itself, and the subscription that keeps it current (see
-	// NavHistory.subscribe). Both are the view's own: the modal has no
+	// NavPlaces.subscribe). Both are the view's own: the modal has no
 	// equivalent of either, because nothing outlives a dialog.
 	private browser: NavHistoryBrowser | null = null;
 	private unsubscribe: (() => void) | null = null;
@@ -48,10 +49,13 @@ export class NavHistoryView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private nav: NavHistory,
+		// The recent-files list: the panel's only data source. The back/forward
+		// stack is NOT here — this pane lists places, and every one of them
+		// travels the way its own record says (see places.ts's travel).
+		private places: PlaceList,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The browser's own two preferences (see NavBrowserPrefs): the plugin owns
-		// and persists them, this shell only hands them down.
+		// The browser's own preferences (see NavBrowserPrefs): the plugin owns and
+		// persists them, this shell only hands them down.
 		private prefs: NavBrowserPrefs,
 	) {
 		super(leaf);
@@ -87,7 +91,7 @@ export class NavHistoryView extends ItemView {
 		this.measure();
 		this.browser = new NavHistoryBrowser({
 			app: this.app,
-			nav: this.nav,
+			places: this.places,
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
 			// The panel is click-only, exactly as it is in the dialog (see list.ts):
@@ -100,10 +104,16 @@ export class NavHistoryView extends ItemView {
 			// The DEVICE still answers for its own ergonomics (the on-screen
 			// keyboard, and whether the hint says "tap" or "click").
 			touch: Platform.isMobile,
-			// …and a travel starts from a cleared list: the jump pins the note it landed
-			// on first, so the row the reader had pointed at is about to stand for a
-			// different spot in the same slot (see NavHistoryList.collapse).
+			// …and a travel starts from a cleared list: the travel re-orders the list
+			// (the place visited moves to the end) and a jump re-pushes the stack, so
+			// the row the reader had pointed at is about to stand for a different place
+			// in the same slot (see NavHistoryList.collapse).
 			collapseOnJump: true,
+			// …and on a PHONE the panel itself gets out of the way (see
+			// dismissOnMobile): a resident panel is a drawer over the whole screen
+			// there, so a row that opens a note behind it looks like a row that did
+			// nothing.
+			onJump: () => this.dismissOnMobile(),
 			inline: () => this.inline,
 			// A resident panel is restored WITH the workspace, so taking the caret
 			// out of the editor to put a sidebar panel up is not something the
@@ -113,7 +123,7 @@ export class NavHistoryView extends ItemView {
 			prefs: this.prefs,
 		});
 		this.browser.mount();
-		this.unsubscribe = this.nav.subscribe(() => this.browser?.render());
+		this.unsubscribe = this.places.subscribe(() => this.browser?.render());
 	}
 
 	async onClose(): Promise<void> {
@@ -123,6 +133,30 @@ export class NavHistoryView extends ItemView {
 		// children) belong to this view: closing it unloads them.
 		this.browser?.destroy();
 		this.browser = null;
+	}
+
+	// A travel on a phone: collapse the drawer this panel is standing in, so the note
+	// the reader just opened is what they see. The panel itself STAYS in the layout —
+	// collapsing is not closing, and where to put it is the reader's business (see
+	// main.ts on why nothing detaches it). On a desktop the panel stands beside the
+	// note, so there is nothing to move.
+	private dismissOnMobile(): void {
+		if (!Platform.isMobile)
+			return;
+		// The drawer this panel stands in IS the leaf's parent on a phone (see
+		// WorkspaceLeaf.parent), so there is no question of which side it is on — and
+		// it is checked by SHAPE, never with `instanceof`.
+		//
+		// That is not a style preference. The typings declare WorkspaceMobileDrawer,
+		// but a typings-only package is not the app's runtime module: an `instanceof`
+		// against a name the bundle does not export THROWS ("right-hand side of
+		// 'instanceof' is not an object") — and this runs as the shell's reaction to a
+		// travel, BEFORE the travel, so the panel answered no click at all on a phone.
+		// Anything with a `collapsed` flag and a `collapse` is a drawer.
+		const parent = this.leaf.parent as unknown as
+			{ collapsed?: boolean; collapse?: () => void } | undefined;
+		if (parent?.collapsed === false && typeof parent.collapse === 'function')
+			parent.collapse();
 	}
 
 	// The pane changed size. A sidebar's width is its OWN question, and the
@@ -157,7 +191,7 @@ export class NavHistoryView extends ItemView {
 // about.
 export async function activateNavHistoryView(
 	app: App,
-	nav: NavHistory,
+	places: PlaceList,
 	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
 	prefs: NavBrowserPrefs,
 ): Promise<void> {
@@ -177,9 +211,9 @@ export async function activateNavHistoryView(
 // builds so that the leaf's runtime wiring (who gets the history, how a saved
 // position is read) is one thing in one file.
 export function createNavHistoryView(
-	nav: NavHistory,
+	places: PlaceList,
 	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
 	prefs: NavBrowserPrefs,
 ): (leaf: WorkspaceLeaf) => NavHistoryView {
-	return leaf => new NavHistoryView(leaf, nav, savedPosition, prefs);
+	return leaf => new NavHistoryView(leaf, places, savedPosition, prefs);
 }

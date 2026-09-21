@@ -49,6 +49,12 @@ export class SettingTab extends PluginSettingTab {
 		// drop a large chunk at once.
 		if (key === 'navStackCap')
 			this.plugin.manager.applyNavStackCap();
+		// The recent-files list's own folder rule: dropping a folder must drop the
+		// places it already holds, not wait for the reader to revisit one. (The
+		// list's ceiling is not here — it is chosen in the panel's gear, see
+		// NavBrowserPrefs.placesCap.)
+		if (key === 'navRecentExcludeFolders')
+			this.plugin.manager.applyNavRecentFolders();
 		await this.plugin.saveSettings();
 	}
 
@@ -331,6 +337,50 @@ export class SettingTab extends PluginSettingTab {
 						},
 					},
 					{
+						type: 'page',
+						name: t('navHistory.recentFolders.name'),
+						desc: (() => {
+							const frag = createFragment();
+							frag.createDiv({ text: t('navHistory.recentFolders.desc') });
+							const folders = this.plugin.settings.navRecentExcludeFolders;
+							if (folders.length === 0)
+								return frag;
+							const list = frag.createEl('ul', { cls: 'mod-muted' });
+							for (const folder of folders.slice(0, 5))
+								list.createEl('li', { text: folder + '/' });
+							if (folders.length > 5)
+								list.createEl('li', { text: '...' });
+							return frag;
+						})(),
+						items: [
+							{
+								type: 'list',
+								emptyState: t('navHistory.recentFolders.list.empty'),
+								items: this.plugin.settings.navRecentExcludeFolders.map((folder) => ({
+									name: folder + '/',
+								})),
+								onDelete: (index) => {
+									const folders = this.plugin.settings.navRecentExcludeFolders.filter((_, i) => i !== index);
+									void this.setControlValue('navRecentExcludeFolders', folders).then(() => this.update());
+								},
+								addItem: {
+									name: t('navHistory.recentFolders.add'),
+									action: () => {
+										new FolderSuggestModal(
+											this.app,
+											this.plugin.settings.navRecentExcludeFolders,
+											(path) => {
+												const folders = [...this.plugin.settings.navRecentExcludeFolders, path];
+												void this.setControlValue('navRecentExcludeFolders', folders)
+													.then(() => this.update());
+											}
+										).open();
+									},
+								},
+							},
+						],
+					},
+					{
 						name: t('navHistory.recordActivation.name'),
 						desc: t('navHistory.recordActivation.desc'),
 						control: {
@@ -346,13 +396,13 @@ export class SettingTab extends PluginSettingTab {
 							key: 'navRecordTeleport',
 						},
 					},
-					// The history browser's own two preferences are NOT here: both are
-					// chosen in the panel itself — which content a landing opens on by
-					// the switch above the landing's lines, how much of a note the list
-					// prints by the toolbar's setting button (see
-					// NavHistoryBrowser.settings) — because that is where the reader is
-					// looking at what they change. A row here would be a second copy of
-					// each, reachable only while the thing it describes is off screen.
+					// The history browser's own preferences are NOT here: all are chosen in
+					// the panel itself — whether a landing is described at all, and with
+					// which content, and how much of a note the list prints, by the toolbar's
+					// setting button (see NavHistoryBrowser.settings) — because that is where
+					// the reader is looking at what they change. A row here would be a second
+					// copy of each, reachable only while the thing it describes is off
+					// screen.
 				],
 			},
 		];

@@ -52,8 +52,9 @@ export class Notice {
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
 
-// The history browser draws the row's arrow, and the one it names in the toolbar
-// hint, with Obsidian's icon helper (see NavHistoryList.go and NavHistoryBrowser.hint).
+// The history browser draws the row's gutter control, and the one it names in the
+// toolbar hint, with Obsidian's icon helper (see NavHistoryList.disclose and
+// NavHistoryBrowser.hint).
 // jsdom has no icons, so it is stood in for: the icon builds the element a test can
 // find and records WHICH icon it was asked for — the drawing is the app's, and a test
 // asserts on the name, not on the paths.
@@ -300,7 +301,7 @@ function installDomHelpers(): void {
 	};
 	// The app's own way to style an element from script, which the browser uses where a
 	// value has to be measured rather than declared (and where a stylesheet rule cannot
-	// be trusted to win: see NavHistoryList.go). A test asserting what a reader would see
+	// be trusted to win: see NavHistoryList.disclose). A test asserting what a reader would see
 	// needs the element's own style to carry them.
 	proto.setCssStyles = function (this: HTMLElement, styles: Record<string, string>) {
 		Object.assign(this.style, styles);
