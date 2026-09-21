@@ -148,7 +148,7 @@ export interface NavHistoryListOptions {
 	onContextRow: (rep: number, ev: MouseEvent) => void;
 	// How much of a note the list prints (see shownLandings): one row per note — the
 	// plugin's default, the row standing for the last spot the note was left at — or
-	// every distinct spot under the name, nearby ones already folded into one row.
+	// every distinct spot under the name, one row each.
 	// Read per render, so the toolbar's setting reaches a panel that is already up.
 	landings: () => LandingsMode;
 	// How much of a row's PATH to print, and on which side of the name (see
@@ -263,21 +263,18 @@ export class NavHistoryList {
 	}
 
 	// Whether this note's landings are printed under its own row right now — the
-	// setting's 'all', and a note that HAS more than one cluster to print. One
-	// cluster is not a list: it is what the note's own row stands for (see
+	// setting's 'all', and a note that HAS more than one landing to print. One
+	// landing is not a list: it is what the note's own row stands for (see
 	// activeRep), so a second row one line under the name, saying the same thing,
-	// would be a row of chrome for nothing. Note that the count is of CLUSTERS, not
-	// of steps: a note the reader scrolled through, whose spots are all within
-	// LANDING_MERGE_LINES of each other, has one row's worth of places and prints
-	// none under it.
+	// would be a row of chrome for nothing.
 	private printsLandings(group: number): boolean {
 		return this.opts.landings() === 'all' && (this.groups[group]?.indices.length ?? 0) > 1;
 	}
 
 	// WHICH of a note's places are on screen: none by default — the list is one row
-	// per note (see LandingsMode) — and under 'all', every cluster, in the line order
-	// `indices` already carries (top of the note first, never with the newest pulled
-	// to the top).
+	// per note (see LandingsMode) — and under 'all', every distinct line, in the line
+	// order `indices` already carries (top of the note first, never with the newest
+	// pulled to the top).
 	private shownLandings(group: ReturnType<typeof groupByFile>[number], index: number): number[] {
 		return this.printsLandings(index) ? group.indices : [];
 	}
@@ -358,7 +355,7 @@ export class NavHistoryList {
 		this.groups.forEach((group, index) => {
 			this.fileRow(group, index, doubles);
 			for (const i of this.shownLandings(group, index))
-				this.placeRow(i, group, i === group.currentRep);
+				this.placeRow(i, i === group.currentRep);
 		});
 
 		// Nothing to draw: the query found no step to list, or the history has nothing
@@ -420,12 +417,15 @@ export class NavHistoryList {
 		}
 	}
 
-	// One NOTE. The first thing on the row is the note's NAME — its last path segment
+	// One NOTE. The row's name CELL holds the NAME — its last path segment
 	// without the extension (see displayName) — then the type BADGE where the file is
 	// not markdown, then the FOLDER, on the side and under the conditions the reader
-	// chose (see PathDisplayMode). A pathless view row (the graph) prints no folder
-	// and no badge: it is one view, not a note with spots in it, and it has no file
-	// on disk to have a type.
+	// chose (see PathDisplayMode). Beside that cell, at the row's far end and only
+	// where the reader asked for it, stands the AGE (see the rowTime option): a track
+	// of the row rather than a fourth thing in the name, so the times end on one x
+	// down the whole list whichever half of the name wrapped. A pathless view row (the
+	// graph) prints no folder and no badge: it is one view, not a note with spots in
+	// it, and it has no file on disk to have a type.
 	//
 	// The row is its NAME and nothing else. The caret that used to lead it opened a
 	// sublist of the note's landings and carried a "+N" count of what was hidden; both
@@ -473,24 +473,6 @@ export class NavHistoryList {
 		const badge = badgeOf(group.path);
 		if (badge)
 			file.createSpan({ text: badge, cls: 'nav-row-badge' });
-		// HOW LONG AGO this note was last visited — where the reader asked for it. The
-		// stamp is the newest one the group holds (see newestStamp), because a group's
-		// landings are in line order rather than in time order and its anchor may have
-		// been evicted. It sits BEFORE the folder so that the folder is the half that
-		// wraps: a flex line breaks at its end, and an age belongs to the name, not to
-		// a line of its own.
-		if (this.opts.rowTime()) {
-			const stamp = newestStamp(this.opts.entries, group.indices, group.anchor);
-			if (stamp !== undefined) {
-				const label = file.createSpan({ text: ageLabel(stamp, Date.now()), cls: 'nav-row-time' });
-				// The label is deliberately as short as the language can make it, and
-				// two of its units are ambiguous in English ("m" could be minutes or
-				// months): the moment itself is one hover away. It lives on the TIME
-				// and not on the row, so hovering the time says when and hovering
-				// anything else says which file (see the row's own tip).
-				this.tip.attach(label, { text: new Date(stamp).toLocaleString() });
-			}
-		}
 		// Which folder this note is in: 'smart' prints it only where its name is
 		// another note's name too — the one case where the folder is not the same
 		// answer for every row — and the two "always" modes print it everywhere. The
@@ -501,13 +483,29 @@ export class NavHistoryList {
 		const printsPath = folder !== undefined && (mode !== 'smart' || doubles.has(name));
 		if (printsPath)
 			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-path' });
-		else
-			// No folder on this row, so the row's tail is free — and the age takes it
-			// (see styles.css). The class is about the ROW's shape and not about the
-			// file having no folder: 'smart' on a name nothing collides with, the
-			// root's "/" printed only under 'always', and a pathless view are all this
-			// same state, and all of them end in the same right-aligned age.
-			row.addClass('is-pathless');
+		// HOW LONG AGO this note was last visited — where the reader asked for it. The
+		// stamp is the newest one the group holds (see newestStamp), because a group's
+		// landings are in line order rather than in time order and its anchor may have
+		// been evicted. It is a cell of the ROW and not of the name: it stands in the
+		// row's own second track, at the far end, where the same x on every row makes
+		// the times the column a reader's eye can run down (see styles.css's is-timed).
+		// Inside the name it had to be pushed with an automatic margin, which worked
+		// only on a row whose folder the reader had not asked to print.
+		if (this.opts.rowTime()) {
+			const stamp = newestStamp(this.opts.entries, group.indices, group.anchor);
+			if (stamp !== undefined) {
+				const label = row.createSpan({ text: ageLabel(stamp, Date.now()), cls: 'nav-row-time' });
+				// The row's shape follows the label that was built, so the two can never
+				// disagree about whether the second track is there.
+				row.addClass('is-timed');
+				// The label is deliberately as short as the language can make it, and
+				// two of its units are ambiguous in English ("m" could be minutes or
+				// months): the moment itself is one hover away. It lives on the TIME
+				// and not on the row, so hovering the time says when and hovering
+				// anything else says which file (see the row's own tip).
+				this.tip.attach(label, { text: new Date(stamp).toLocaleString() });
+			}
+		}
 		// WHAT THE HOVER SAYS: only what the row does not already say. The path as it is
 		// on disk, extension and all, for the reader who has to know which file of
 		// several this is (see displayName / PathDisplayMode) —
@@ -539,10 +537,11 @@ export class NavHistoryList {
 		return 1;
 	}
 
-	// One PLACE of a note: the coordinate (or the range of coordinates it folds), the
-	// section it sits in, and the pane holding it. Drawn only under 'all' (see
-	// shownLandings), where a note's places are listed under its name.
-	private placeRow(i: number, group: ReturnType<typeof groupByFile>[number], current: boolean): number {
+	// One PLACE of a note: the coordinate it landed on, the section it sits in, and
+	// the pane holding it. Drawn only under 'all' (see shownLandings), where a note's
+	// places are listed under its name — one row per distinct line, so the row is ONE
+	// destination and nothing about it has to be explained away.
+	private placeRow(i: number, current: boolean): number {
 		const entry = this.opts.entries[i];
 		const d = this.opts.describe(i);
 		const row = this.opts.list.createDiv({ cls: 'position-restore-nav-row is-place' });
@@ -560,28 +559,26 @@ export class NavHistoryList {
 		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
 		this.refs.push(ref);
 
-		// The coordinate: the coarse "how far in" a reader matches against memory,
-		// and — since a row is an OPEN — the line the click will actually land on.
-		// A row that folds several nearby landings therefore prints the
-		// REPRESENTATIVE's own line, never the span it covers: the span is a range,
-		// and the row travels to ONE member of it, so printing "L412–438" over a
-		// click that lands on L420 (the cluster's newest member; see groupByFile)
-		// made the label a promise the row did not keep. The span still matters as
-		// the row's scope, so it stays reachable as the row's own tooltip. A landing row
-		// carries the RANGE and nothing about the file: the other names belong to the
-		// note, and two spots far enough apart are two rows to say that about (see
-		// fileRow).
-		// A cluster of one — the ordinary spot — prints its line either way.
+		// The coordinate: the coarse "how far in" a reader matches against memory, and
+		// — since a row is an OPEN — the line the click will actually land on. Those
+		// two are the same number because the row stands for exactly one landing: a
+		// row that folded the spots near it used to print the newest member's line
+		// while covering a range, and the two only agreed by luck. A landing row says
+		// nothing about the FILE: the other names belong to the note, and a spot is
+		// placed by its coordinate and its section (see fileRow).
+		//
+		// …and the marker of "you are here" is written FIRST, in front of the number it
+		// belongs to. It is hung off the box's own start rather than laid out inside it
+		// (see styles.css), so the DOM order says what the eye sees — the dot, then the
+		// coordinate it marks — while the box keeps holding the number alone and gives
+		// up none of its width to a mark that only one row shows.
 		const pos = row.createSpan({ cls: 'nav-row-pos' });
-		const span = group.spans.get(i);
-		if (span && span.count > 1 && span.from !== undefined && span.to !== undefined)
-			this.tip.attach(row, { text: t('navHistory.lineRange', span.from + 1, span.to + 1) });
+		if (current)
+			pos.createSpan({ text: '●', cls: 'nav-row-here' });
 		if (d.line)
 			pos.createSpan({ text: d.line, cls: 'nav-row-line' });
 		else
 			pos.createSpan({ text: '—', cls: 'nav-row-nopos' });
-		if (current)
-			pos.createSpan({ text: '●', cls: 'nav-row-here' });
 
 		// The section the landing sits in, deepest one or two levels: what a
 		// reader recognizes a spot by, so it takes the row's slack. The cell is

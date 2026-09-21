@@ -16,8 +16,8 @@ import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 //    prints UNDER a note is the toolbar's own setting (see LandingsMode): by default
 //    nothing, and what the row OPENS is the NOTE, the plain way — the position
 //    database lands it, exactly as the file explorer would. 'All' prints the jumps
-//    the reader made inside it under the name, by line, top of the note first,
-//    nearby ones already folded into one row (see groupByFile); without it the older
+//    the reader made inside it under the name, by line, top of the note first, one
+//    ROW PER DISTINCT LINE (see groupByFile); without it the older
 //    ones are still reachable through the search box, which matches the lines that
 //    were there (see list.ts);
 //  - the ROW ITSELF IS THE NAVIGATION, and the whole of it: a click opens what the row

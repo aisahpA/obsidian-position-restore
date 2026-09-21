@@ -251,10 +251,6 @@ export const en = {
 	// "which of how many" — two digits and no word, because the word was the
 	// widest thing in the row's quiet zone.
 	'navHistory.pane': '{0}/{1}',
-	// The span a row prints when it folds several nearby landings into one (see
-	// groupByFile and LANDING_MERGE_LINES). The second L is dropped: it and the first
-	// sit in the same column, and that column is narrow on a phone.
-	'navHistory.lineRange': 'L{0}–{1}',
 };
 
 export type En = typeof en;

@@ -159,11 +159,13 @@ describe('groupByFile', () => {
 		expect(groups.map(g => g.path)).toEqual(['a.md', '']);
 	});
 
-	// NEARBY landings are ONE row (see LANDING_MERGE_LINES). A note the reader
-	// scrolled through leaves a trail of them a few lines apart, and printing each is
-	// a wall of rows whose numbers all look alike; what is printed is the PLACES a
-	// reader can tell apart, and each is represented by the newest step in it.
-	describe('nearby landings fold into one row', () => {
+	// EVERY SPOT IS A ROW, however close the next one stands. Nearby landings used to
+	// be folded into one row (a LANDING_MERGE_LINES window, since removed): the row
+	// printed ONE member's line while covering the others, so a click could not reach
+	// them, the fold was invisible once the row stopped printing the range, and the
+	// "you are here" dot could sit on a row whose line was not where the reader was.
+	// 'all' is the reader asking for every place in the note (see NavFileGroup).
+	describe('every landing is a row of its own', () => {
 		const at = (path: string, i: number, line: number): NavHistoryEntry =>
 			({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
 		const lineOf = (entries: NavHistoryEntry[]) => (i: number) => {
@@ -171,53 +173,54 @@ describe('groupByFile', () => {
 			return entry.kind === 'view' ? undefined : entry.st?.scroll;
 		};
 
-		it('folds a trail inside the window into one row, represented by its newest step', () => {
+		it('keeps a trail a few lines apart as one row per line, down the note', () => {
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 18), at('a.md', 2, 26)];
 			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
-			// One row, and it stands for the LAST spot the reader was at in that
-			// neighbourhood — the same answer a note's own row gives (see activeRep).
-			expect(groups[0].indices).toEqual([2]);
-			expect(groups[0].spans.get(2)).toEqual({ from: 10, to: 26, count: 3 });
+			// Three spots eight lines apart, three rows — L11 before L19 before L27, not in
+			// the order they were visited (see groupByFile) — and each one is the step a
+			// click on it lands on.
+			expect(groups[0].indices).toEqual([0, 1, 2]);
 		});
 
-		it('measures from the cluster\'s HEAD, so a dense trail cannot chain a whole section', () => {
-			// Every step is within the window of the one before it, and the run is
-			// wider than the window: measured from the previous line these three would
-			// be one row spanning sixty lines.
-			const entries = [at('a.md', 0, 0), at('a.md', 1, 15), at('a.md', 2, 30)];
-			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
+		it('stands for a line with its NEWEST step, and lets the reader\'s own step win', () => {
+			// Two steps on one line are one landing (see landingKey). The row opens the
+			// newest of them — the last place the reader was in that line — except where
+			// the CURRENT entry shares the line: then the slot keeps the reader's own step,
+			// because that is the step "here" has to name.
+			const entries = [at('a.md', 0, 10), at('a.md', 1, 12), at('a.md', 2, 12)];
 
-			expect(groups[0].indices).toEqual([1, 2]);
-			expect(groups[0].spans.get(1)).toEqual({ from: 0, to: 15, count: 2 });
-			expect(groups[0].spans.get(2)).toEqual({ from: 30, to: 30, count: 1 });
+			const newest = groupByFile(entries, 0, undefined, lineOf(entries));
+			expect(newest[0].indices).toEqual([0, 2]);
+
+			const current = groupByFile(entries, 1, undefined, lineOf(entries));
+			expect(current[0].indices).toEqual([0, 1]);
+			expect(current[0].currentRep).toBe(1);
+			expect(current[0].current).toBe(true);
 		});
 
-		it('records the span a folded row covers, which the row carries as its scope', () => {
-			// The span is NOT the row's coordinate: the row prints the representative's
-			// own line (the line it opens), and this is the scope it keeps as its
-			// tooltip — every step the row folds, including one a query matched.
-			const entries = [at('a.md', 0, 10), at('a.md', 1, 22)];
-			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
+		it('marks the row the reader is on, and marks nothing when no landing holds them', () => {
+			// The dot is the listed landing the reader is standing on — and the note's OWN
+			// record is not a landing, so a reader who is in the note without having jumped
+			// in it has no row to mark (see NavFileGroup.currentRep).
+			const entries = [
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 500 } as NavHistoryEntry,
+				at('a.md', 1, 18),
+			];
 
-			expect(groups[0].spans.get(1)).toEqual({ from: 10, to: 22, count: 2 });
+			const onLanding = groupByFile(entries, 1, undefined, lineOf(entries));
+			expect(onLanding[0].indices).toEqual([1]);
+			expect(onLanding[0].currentRep).toBe(1);
+
+			const onNote = groupByFile(entries, 0, undefined, lineOf(entries));
+			expect(onNote[0].indices).toEqual([1]);
+			expect(onNote[0].current).toBe(true);
+			expect(onNote[0].currentRep).toBeUndefined();
 		});
 
-		it('remembers WHICH cluster holds the current entry, not just that it is listed', () => {
-			// The current step is a MEMBER of the cluster whose representative is a
-			// newer step: the row is still the place the reader is in, and a row that is
-			// where they are must not offer to open (see NavHistoryList.targetOf).
-			const entries = [at('a.md', 0, 10), at('a.md', 1, 18)];
-			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
-
-			expect(groups[0].indices).toEqual([1]);
-			expect(groups[0].currentRep).toBe(1);
-			expect(groups[0].current).toBe(true);
-		});
-
-		it('keeps a cluster with no coordinate of its own apart from the numbered ones', () => {
-			// A `.base`, an image, a step whose position never resolved: one place, and
-			// it cannot be near anything — there is no number to be near.
+		it('keeps a landing with no coordinate of its own apart from the numbered ones', () => {
+			// A `.base`, an image, a step whose position never resolved: one place, and it
+			// cannot be near anything — there is no number to be near.
 			const entries = [
 				at('a.md', 0, 400),
 				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:H1', t: 1400, st: {} } as NavHistoryEntry,
@@ -225,7 +228,6 @@ describe('groupByFile', () => {
 			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
 			expect(groups[0].indices).toEqual([0, 1]);
-			expect(groups[0].spans.get(1)).toEqual({ from: undefined, to: undefined, count: 1 });
 		});
 	});
 

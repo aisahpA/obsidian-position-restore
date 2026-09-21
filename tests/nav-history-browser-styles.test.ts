@@ -19,8 +19,9 @@
 //    when it does not. Which half drops to the second line is the reader's setting
 //    and is decided by ONE `order` declaration (see PathDisplayMode). The name is
 //    capped (max-width: 20em), NOT measured across rows, and the pane cell is only
-//    there while a row has one (two live tabs hold that note). The age is not a
-//    row cell at all any more: it lives in the drawer's head.
+//    there while a row has one (two live tabs hold that note). The AGE is the row's
+//    own far track rather than a fourth thing in the name, so the labels end on one
+//    x down the list. A row is set in the app's own nav-list tier.
 //
 // 3. On touch a LANDING gets two lines — the coordinate and the section, then the
 //    pane — while a note's row stays on one, rather than the old rule that hid
@@ -68,17 +69,41 @@ describe('history browser quiet tiers', () => {
 		// that state is a column spent twice (see NavHistoryList.fileRow).
 		expect(browser).not.toContain('nav-file-caret');
 		expect(browser).not.toContain('nav-row-count');
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*display: flex/);
+		// The note is a GRID and not a flex line: the age is not a fourth thing in the
+		// name, it is the row's own second track (see is-timed).
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*display: grid/);
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
 		// the landing steps in under the note it belongs to
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
-		// the coordinate keeps its own width — every row prints a line number, and
-		// sections start on one x only if each row reserves the same room: a row
-		// that printed a one-line label while its neighbour printed a wider one
-		// would not line up with it
-		expect(browser).toMatch(/\.nav-row-pos\s*\{[^}]*min-width: 8ch/);
+		// THE COORDINATE RESERVES NOTHING. Its box is the section's competition for the
+		// row's width — the section's track is the only flexible one (see .is-place) —
+		// so a fixed room for the widest label ("L9999" and the "L412–438" a folded
+		// cluster used to print before that) is blank space spent on every row, and the
+		// rows whose labels are short pay the most for it: the number ends, and up to
+		// three characters of nothing stand between it and the section. What the column
+		// holds is the number and nothing else (see .nav-row-pos), and what the section
+		// stands off it by is the row's OWN column gap — no second start margin on the
+		// section, which is the other half of the same blank.
+		const pos = browser.match(/\.position-restore-nav-row \.nav-row-pos\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(pos).not.toBe('');
+		expect(pos).not.toMatch(/min-width/);
+		const trail = browser.match(/\.position-restore-nav-row \.nav-row-trail\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(trail).not.toBe('');
+		expect(trail).not.toMatch(/margin-inline-start/);
 		// and the name is capped rather than greedy
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
+	});
+
+	// THE LIST'S TYPE is the app's own nav-list tier and not the 15px `body` hands
+	// down to every panel: this list stands beside the file explorer, and it read a
+	// size larger than every other sidebar. `--nav-item-size` is exactly the variable
+	// the app sets its own lists in (13px on a desktop, the text size on a phone, see
+	// its .tree-item-self), so a row matches its neighbour without this file picking a
+	// number — and the strip and the setting menu keep the smaller tiers they name.
+	it('sets a row in the app\'s own nav-list tier', () => {
+		const row = browser.match(/\.position-restore-nav-row\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(row).not.toBe('');
+		expect(row).toMatch(/font-size: var\(--nav-item-size/);
 	});
 
 	// THE TRAVEL ARROW is the row's first thing on screen, but NOT a grid track: it
@@ -140,28 +165,46 @@ describe('history browser quiet tiers', () => {
 	});
 
 
-	// The row's AGE (see model.ts's ageLabel): the faint tier again, and it never
-	// gives way — a narrow row trims the NAME and keeps the time, because the name is
-	// what a row is scanned by and the time is what the scan is comparing. And a row
-	// that prints no folder ends in its age, hard against the far edge; that is the
-	// whole of the column a reader's eye can run down.
-	it('dates a row in the faint tier, and right-aligns it on a pathless row', () => {
+	// The row's AGE (see model.ts's ageLabel): the faint tier, in the row's own second
+	// track at the far end. That TRACK is what makes a column of it — every row that
+	// prints a label ends it on the same x, whatever the name and the folder beside it
+	// did, and no row can squeeze or wrap the label away (the name ellipsizes first).
+	// The row states the track only while it has a label (see is-timed), so a list with
+	// the age switched off spends no second column: the automatic margin the label used
+	// to be pushed with was a per-row trick that only worked where no folder printed.
+	it('dates a row in the far track, which the row states only when it has one', () => {
 		const time = browser.match(/\.nav-row-time\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(time).not.toBe('');
-		expect(time).toMatch(/flex: 0 0 auto/);
 		expect(time).toMatch(/color: var\(--nav-faint\)/);
 		expect(time).toMatch(/font-size: var\(--font-ui-smaller\)/);
 		expect(browser).toMatch(
-			/\.position-restore-nav-row\.is-pathless \.nav-row-time\s*\{\s*margin-inline-start: auto/,
+			/\.position-restore-nav-row\.is-file\.is-timed\s*\{\s*grid-template-columns: minmax\(0, 1fr\) auto/,
 		);
+		// …and ONE track until then: a second track nothing occupies would still take
+		// its column gap out of the name.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
+		);
+		expect(browser).not.toMatch(/\.nav-row-time\s*\{[^}]*margin-inline-start: auto/);
 	});
 
 	// "You are here" is a dot on the note and on the landing the current entry
 	// recorded: the current position is marked INSIDE the list rather than held
 	// out of it.
-	it('marks the current note and its current landing with a dot', () => {
+	it('marks the current landing with a dot in front of its coordinate', () => {
 		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*color: var\(--interactive-accent\)/);
-		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*flex: 0 0 auto/);
+		// …HUNG off the coordinate's own START edge, so it leads the number it marks
+		// without standing in the coordinate's box: a dot laid out in there would be a
+		// dot's worth of width taken from the SECTION on every landing row, to hold a
+		// mark only one of them ever shows (see .nav-row-pos).
+		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*position: absolute/);
+		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*inset-inline-end: 100%/);
+		// …and its distance from the number is a margin on its END edge, against the
+		// box: what is fixed is the GAP, not the glyph's width, so a font is free to
+		// draw ● as wide as it likes without ever touching the number.
+		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*margin-inline-end: 0\.3em/);
+		// …and the landing row must not clip what hangs off it (see .is-place).
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*overflow: visible/);
 	});
 
 	// THE POSITION is the row the keyboard is on (see NavHistoryList.choose), and the

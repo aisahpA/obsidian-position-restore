@@ -145,12 +145,13 @@ const A_HEADINGS = {
 	],
 };
 
-// A note long enough for TWO of its places to be two PLACES. The list folds
-// landings within LANDING_MERGE_LINES of each other into one row (see
-// groupByFile), so a fixture whose sections sit four lines apart holds ONE place
-// however many steps landed in it — which is the behaviour, not a fixture quirk.
-// The filler is what puts the second section more than the window below the
-// first; the two heads below are the two places the landing-row suite draws.
+// A note long enough for its places to be MORE than the two headings a few lines
+// apart cannot be. Every distinct line is a row of its own now (see NavFileGroup),
+// but a landing row is only printed at all when the note holds more than one (see
+// NavHistoryList.printsLandings) — so a fixture with two heads three lines apart
+// still says something different from one with two heads a section apart: the
+// filler is what puts a second section far enough down the note for the suite's
+// second place to be a place of its own, under a heading of its own.
 const SPREAD_LINES = Array.from({ length: 24 }, (_, i) => `正文第 ${i + 1} 行`);
 const SPREAD_DOC = [
 	'# 面板设计', '', '## 呈现方案', '', '### 预览', '',
@@ -559,6 +560,11 @@ describe('NavHistoryModal — current position', () => {
 		expect(places.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L21', 'L91']);
 		expect(places[0].querySelector('.nav-row-here')).toBeNull();
 		expect(places[1].querySelector('.nav-row-here')).not.toBeNull();
+		// …in front of the coordinate it marks, and not laid out inside the box: the
+		// dot's place in the DOM is where the eye finds it, and the stylesheet keeps it
+		// out of the track so the number itself does not move (see .nav-row-here).
+		expect([...places[1].querySelector('.nav-row-pos')!.children].map(el => el.className))
+			.toEqual(['nav-row-here', 'nav-row-line']);
 
 		// BOTH are destinations, the one the reader is standing in included: the list
 		// does not hold back the place they are already in (see NavHistoryList.targetOf),
@@ -1100,9 +1106,9 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 	});
 
 	it('leaves a landing row\'s tooltip alone', () => {
-		// A landing row's tooltip is the SCOPE of the landing (a line range, see
-		// placeRow); the other names belong to the FILE and not to one spot in it — and
-		// two spots far enough apart are two rows to say that about.
+		// A landing row has no tooltip at all: a spot is placed by the coordinate and the
+		// section it prints, and the file's other names belong to the FILE rather than to
+		// one spot in it (see placeRow / fileRow).
 		const h = harness([
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 400 }),
@@ -1111,9 +1117,8 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 
 		const place = h.rows().find(r => r.querySelector('.nav-row-line')?.textContent === 'L401')!;
 		expect(place).toBeDefined();
-		// The row is a landing with ONE spot: there is no range for it to stand for, so it
-		// says nothing on hover — and the file's other names, which belong to the note,
-		// are not something a landing row can be asked about (see placeRow / fileRow).
+		// …so it says nothing on hover, and the file's other names are asked of the note's
+		// own row instead.
 		expect(h.hover(place)).toBeNull();
 		expect(h.hover(h.note('a'))!.textContent).toContain('周会');
 	});
@@ -1600,13 +1605,13 @@ describe('NavHistoryModal — a landing row', () => {
 		expect(row.textContent).not.toContain('最后一段');
 	});
 
-	it('labels a folded row with the line it will OPEN, and keeps the span as its scope', () => {
-		// Two of a note's places close enough to be ONE row, plus a third far enough
-		// that the note still prints rows at all (a note with a single place prints
-		// none — see printsLandings). The folded row stands for its NEWEST member, so
-		// it prints THAT line and not the range it covers: the row is an OPEN, and a
-		// "L7–L13" over a click that lands on L13 was a promise the row did not keep.
-		// The span is still what the row covers, and survives as its own tooltip.
+	it('labels every landing with the line it will OPEN, and says nothing on hover', () => {
+		// The list used to fold landings close enough together into one row, which printed
+		// the NEWEST member's line while covering the rest: a click could reach only that
+		// line, and the range the row covered survived as its tooltip. Every spot is a row
+		// of its own now (see NavFileGroup), so the label IS the destination — and a
+		// landing row has nothing left to say on hover, because a spot is placed by the
+		// coordinate and the section it already prints.
 		const entries = [
 			visit('a.md', NOW - 3 * MINUTE, captured(SPREAD_DOC, 6)),
 			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 12)),
@@ -1615,19 +1620,14 @@ describe('NavHistoryModal — a landing row', () => {
 		];
 		const h = harnessAll(entries, 3, files, [], {}, SPREAD_HEADINGS);
 
-		// Down the note: the folded cluster (L7 and L13, represented by the newer
-		// L13), then L36 — whose one landing has no span to carry.
+		// Down the note: L7 and L13 are two spots, so they are two rows — whatever the
+		// distance between them — and L36 follows.
 		const rows = h.rows();
-		expect(rows.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L13', 'L36']);
-		// The span is the ROW's own answer, so it is the row's own tooltip — a line
-		// range and nothing else: it is not the file's, and the file's other names are
-		// not a spot's (see placeRow).
-		expect(h.hover(rows[0])?.textContent).toBe(t('navHistory.lineRange', 7, 13));
-		// …and the one landing that holds no span says nothing at all.
-		expect(h.hover(rows[1])).toBeNull();
-
-		h.clickRow(rows[0]);
+		expect(rows.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L7', 'L13', 'L36']);
+		// …and a row opens the line it prints: the second one lands on the step behind it.
+		h.clickRow(rows[1]);
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
+		expect(h.hover(rows[1])).toBeNull();
 	});
 
 	it('keeps the heading the landing line itself carries as the deepest level', () => {
@@ -1932,11 +1932,15 @@ describe('NavHistoryModal — the time on a row', () => {
 	it('is off by default, and leaves nothing at all on the row', () => {
 		// Not hidden but ABSENT: the setting is the only reason the element exists, and
 		// a span kept in the DOM to be styled away would still be a cell the row's own
-		// flex line has to lay out.
+		// grid has to lay out.
 		const h = harness(stack(), 2, files);
 
 		expect(h.notes().length).toBeGreaterThan(0);
 		expect(h.el.querySelectorAll('.nav-row-time')).toHaveLength(0);
+		// …and no row claims the far track either: the row's SHAPE follows its label
+		// (see is-timed), so a list with the labels switched off spends no second
+		// column on them.
+		expect(h.el.querySelectorAll('.is-timed')).toHaveLength(0);
 	});
 
 	it('says the age of each note, from the newest step the note holds', () => {
@@ -1957,7 +1961,8 @@ describe('NavHistoryModal — the time on a row', () => {
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
 
 		expect(graph.querySelector('.nav-row-time')?.textContent).toBe('2h');
-		expect(graph.classList.contains('is-pathless')).toBe(true);
+		expect(graph.classList.contains('is-timed')).toBe(true);
+		expect(graph.querySelector('.nav-row-path')).toBeNull();
 	});
 
 	it('carries the exact moment as the label\'s own tooltip', () => {
@@ -1974,23 +1979,31 @@ describe('NavHistoryModal — the time on a row', () => {
 		expect(h.hover(h.note('notes'))?.querySelector('.nav-tip-path')?.textContent).toBe('notes.md');
 	});
 
-	it('right-aligns the time only on a row that prints no folder', () => {
-		// The class is the ROW's shape and not a fact about the file's folder: a
-		// 'smart' row whose name nothing collides with is pathless, and so is a
-		// pathless view. What the class buys is in styles.css — and what it costs is
-		// the row's folder, which the automatic margin would drag to the end with it.
+	it('gives every dated row the far track its age stands in, folder or no folder', () => {
+		// The age is a cell of the ROW and not of the name (see
+		// NavHistoryList.fileRow): that is what puts every label at the same x down the
+		// list, whatever the row prints beside it. The class the stylesheet reads is
+		// written WITH the label, so a row cannot claim a track it has nothing to put
+		// in — and the label is a child of the row, because inside the name cell it
+		// would be part of what wraps, which is the column the track exists to keep.
 		const smart = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
-		expect(smart.note('notes').classList.contains('is-pathless')).toBe(true);
-		expect(smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!
-			.classList.contains('is-pathless')).toBe(true);
+		const graph = smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
+		expect(smart.note('notes').classList.contains('is-timed')).toBe(true);
+		expect(graph.classList.contains('is-timed')).toBe(true);
+		// A 'smart' row whose name nothing collides with prints no folder at all…
+		expect(smart.note('notes').querySelector('.nav-row-path')).toBeNull();
+		expect(graph.querySelector('.nav-row-path')).toBeNull();
+		// …and the label is the row's own child, not the name cell's.
+		expect(smart.note('notes').querySelector('.nav-row-time')!.parentElement)
+			.toBe(smart.note('notes'));
 
-		// …and under 'always' there is exactly ONE pathless row left: the graph, which
-		// has no folder to print under any setting. The root note prints "/", which is
-		// a folder on the row like any other, and so keeps its time beside the name.
+		// Under 'always' the root note prints "/", which is a folder on the row like any
+		// other — and it keeps the same far track its age stands in.
 		const always = harness(stack(), 2, files, [], {}, {}, false, [], {}, prefs({ time: true, path: 'before' }).browser);
-		expect(always.el.querySelectorAll('.is-pathless')).toHaveLength(1);
-		expect(always.note('notes').classList.contains('is-pathless')).toBe(false);
 		expect(always.note('notes').querySelector('.nav-row-path')?.textContent).toBe('/');
+		expect(always.note('notes').classList.contains('is-timed')).toBe(true);
+		expect(always.note('notes').querySelector('.nav-row-time')!.parentElement)
+			.toBe(always.note('notes'));
 	});
 });
 
@@ -2279,9 +2292,9 @@ describe('NavHistoryModal — touch', () => {
 		visit('b.md', NOW - 2 * MINUTE, { scroll: 80 }),
 		visit('c.md', NOW, { scroll: 120 }),
 	];
-	// Two PLACES of one note, far enough apart to be two ROWS (see SPREAD_DOC): the
-	// list folds landings within LANDING_MERGE_LINES of one another, so a fixture whose
-	// two steps sit four lines apart holds one place however many steps landed in it.
+	// Two PLACES of one note, far enough apart to sit under two different headings
+	// (see SPREAD_DOC): every distinct line is a row of its own, but a note prints its
+	// landings at all only while it holds more than one.
 	const SPREAD = () => [
 		visit('a.md', NOW - 3 * MINUTE, captured(SPREAD_DOC, 6)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),

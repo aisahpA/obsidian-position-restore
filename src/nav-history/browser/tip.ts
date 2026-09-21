@@ -26,8 +26,8 @@ export interface TipContent {
 	// segment so the separators can be drawn as what they are.
 	path?: string;
 	// A plain line under the path: the file's OTHER names, or the one fact a cell
-	// holds instead (the exact moment an age label stands for, the line range a
-	// folded landing covers). Nothing here is styled per character.
+	// holds instead (the exact moment an age label stands for). Nothing here is
+	// styled per character.
 	text?: string;
 }
 

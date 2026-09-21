@@ -566,6 +566,14 @@ body.is-mobile .position-restore-cue {
 	padding: 4px 8px;
 	border-radius: var(--radius-s);
 	cursor: pointer;
+	/* THE LIST'S OWN TYPE, and not the 15px `body` hands down to every panel in the
+	   app: `--nav-item-size` is the tier the app sets its own sidebar lists in (13px
+	   on a desktop, the text size on a phone — see its .tree-item-self, which is the
+	   file explorer this list stands beside), so a row here reads at the same size as
+	   the row next to it. It is declared on the ROW because the row is the list: the
+	   strip above it and the setting menu name their own, smaller tiers. The fallback
+	   is for a theme or a build that never defined the variable. */
+	font-size: var(--nav-item-size, var(--font-ui-small));
 }
 
 /* THE POSITION: the row the reader is on, whichever hand put them there — a click
@@ -592,10 +600,27 @@ body.is-mobile .position-restore-cue {
    under it. The row used to lead with a caret that rotated when the note was open, and
    to end with a count of what a click would print; both went with the expansion, and the
    gutter control that replaced the caret went with the details panel it opened (see
-   NavHistoryList). The name is the row. */
+   NavHistoryList). The name is the row.
+   A GRID, because the row may hold a second thing that is not part of the name: the
+   age, in a track of its own at the far end (see is-timed below). ONE track until
+   then — an empty second track would still spend its column gap out of the name. */
 .position-restore-nav-row.is-file {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	align-items: baseline;
+}
+
+/* …and WITH an age the row is two tracks: the name cell takes the slack and the age
+   gets the far end, where it is the same x on every row. That track — and not an
+   automatic margin on the label — is what makes the times a column a reader's eye can
+   run down: a margin only right-aligns each label in whatever room its own row
+   happened to have left, and a row whose name and folder filled the line pushed its
+   label past the wrap. A track is stated once and the name gives way instead (it
+   ellipsizes; see the truncation order below). The class is written by
+   NavHistoryList.fileRow exactly when the label is built, so the row's shape and the
+   label cannot disagree about whether one exists. */
+.position-restore-nav-row.is-file.is-timed {
+	grid-template-columns: minmax(0, 1fr) auto;
 }
 
 /* ONE OF A NOTE'S PLACES: the coordinate, the section it sits in, then the one
@@ -605,11 +630,17 @@ body.is-mobile .position-restore-cue {
    the row is clickable across its whole width. */
 .position-restore-nav-row.is-place {
 	display: grid;
-	/* The position track keeps the coordinate's own width so the sections start
-	   on one x down the whole list (see .nav-row-pos). */
+	/* The coordinate takes the width its own number needs and not a pixel more, so
+	   everything the row has left over is the section's (see .nav-row-pos). */
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	margin-inline-start: 1.5em;
 	box-shadow: inset 2px var(--background-modifier-border);
+	/* …and it does NOT clip: the ● of "you are here" hangs off the coordinate's START
+	   edge, into the indent this row is set in, and a clip at the row's edge would cut
+	   the marker in half (see .nav-row-here). Nothing here overflows of its own
+	   account — the coordinate is sized to its label and the section is what
+	   ellipsizes — so the clip guarded nothing on this row. */
+	overflow: visible;
 }
 
 /* The note cell: what the row names itself with — the NAME, the type BADGE, and the
@@ -625,7 +656,6 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
-	flex: 1 1 auto;
 	min-width: 0;
 	flex-wrap: wrap;
 	/* Between two things ON ONE LINE, and never before one that wrapped: a column gap
@@ -680,24 +710,14 @@ body.is-mobile .position-restore-cue {
 /* HOW LONG AGO the note was last visited (see model.ts's ageLabel). It never
    shrinks and never gives way: the name is what a row is scanned by, and the age is
    what the scan is comparing, so a narrow row trims the NAME and keeps the time —
-   the reverse would leave a list of full names and no way to use them. Its distance
-   from the badge beside it is the cell's own column gap, so there is no margin here
-   to say it twice. */
+   the reverse would leave a list of full names and no way to use them. It is a CELL
+   of the row and not a cell of the name (see NavHistoryList.fileRow): it stands in
+   the row's own second track, so its labels end on one x down the whole list
+   whatever the name and the folder beside it did — that column is the whole point of
+   printing it, and nothing here has to align it. */
 .position-restore-nav-row .nav-row-time {
-	flex: 0 0 auto;
 	color: var(--nav-faint);
 	font-size: var(--font-ui-smaller);
-}
-
-/* …and a row that prints NO folder ends in its age, hard against the far edge: the
-   time then forms the column a reader's eye can run down, which is the whole point
-   of printing it. A row that DOES print a folder keeps the age beside the name
-   instead, because an automatic margin eats every free pixel before it — the folder
-   would be pushed to the row's end with the age, and read as part of it. Choosing a
-   folder therefore buys the row its path and gives up the column: that trade is what
-   PathDisplayMode's two "always" answers are, and the default spends nothing. */
-.position-restore-nav-row.is-pathless .nav-row-time {
-	margin-inline-start: auto;
 }
 
 /* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing
@@ -715,10 +735,21 @@ body.is-mobile .position-restore-cue {
    and only there — the note's own row carries none, because the current note is
    pinned first and a dot on it would sit on row one saying what the position already
    says. It never gives way (unlike the folder and the name, which both ellipsize),
-   and it is one glyph, so a pathless view row (the graph) and a note read the same. */
+   and it is one glyph, so a pathless view row (the graph) and a note read the same.
+   It HANGS BEFORE THE COORDINATE, off the coordinate box's own start edge, and takes
+   no room at all: the box goes on holding the number alone, and the dot stands in the
+   indent in front of it. That is the whole point of hanging it out of the flow rather
+   than laying it out as the box's first item — a dot in the flow is a dot's worth of
+   width taken from the SECTION, on every landing row, to hold a mark that only one of
+   them ever shows (see .nav-row-pos and .is-place: the row keeps overflow visible for
+   it). Its distance from the number is a margin on its END edge, against the box, so
+   what is fixed is the GAP and not the glyph's width: a font is free to draw ● as
+   wide as it likes without ever touching the number. */
 .position-restore-nav-row .nav-row-here {
-	flex: 0 0 auto;
-	margin-inline-start: 0.35em;
+	position: absolute;
+	inset-inline-end: 100%;
+	top: 0;
+	margin-inline-end: 0.3em;
 	color: var(--interactive-accent);
 	font-size: var(--font-ui-smaller);
 }
@@ -734,31 +765,36 @@ body.is-mobile .position-restore-cue {
 	color: var(--nav-faint);
 }
 
+/* THE COORDINATE. It holds the number and NOTHING ELSE — no reserved width, no
+   gutter — so the box is exactly as wide as the label it prints and every pixel the
+   row has left over belongs to the section beside it (the section's track is the
+   row's only flexible one; see .is-place). The box is measured BY the label, set in
+   the mono font the label is printed in: the column used to reserve a fixed room
+   measured in the row's UI font, which is a couple of characters wider than this one
+   — that, and not the labels, is where the dead space after every number came from.
+   WHAT THIS GIVES UP: the numbers no longer start on one x, because a fixed room for
+   the WIDEST label is the only way to line them up, and that room is spent on every
+   row — including the ones whose labels are short, where it is blank space between
+   the number and the section. The space is the reader's, so the column is the data's
+   size and the sections start where each number ends. */
 .position-restore-nav-row .nav-row-pos {
 	display: flex;
 	align-items: baseline;
-	gap: 6px;
-	/* The coordinate owns its width, measured in its OWN font. A `ch` track on
-	   the row was measured in the UI font — wider than the mono one this label is
-	   set in — so every row reserved a couple of characters of dead space after
-	   "L412". Here 8ch is what the WIDEST ordinary label takes: a folded cluster
-	   prints a range, "L412–438", which is eight characters, and a row that printed
-	   one while its neighbours reserved five would start its section half a word
-	   further right — the columns would stop lining up, which is the whole point of
-	   the track. The same font in every row means the same width in every row, so
-	   the cells below still line up, and a five-digit line (L10000–L10020) takes the
-	   room it needs rather than losing a digit. */
+	min-width: 5ch;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
-	min-width: 8ch;
-	overflow: hidden;
+	/* `position: relative` is what the here-dot hangs from — off this box's START
+	   edge, so the marker stands against the coordinate it marks (see .nav-row-here)
+	   — and there is deliberately no `overflow: hidden` to clip it: the box holds one
+	   short label it is sized to, so nothing here ever overflows it. */
+	position: relative;
 }
 
 /* Where the restore will land. Monospace and MUTED DOWN to the faint tier: it is
    a coordinate the eye uses to place the row by, not something to read — the
    zone beside it is what carries the meaning, and the note's name is the
-   identity. Its 8ch cell is what "L412–438" takes, so the strip's columns stay
-   fixed. */
+   identity. It is the whole of the box above (see .nav-row-pos), so the section
+   starts one row's gap after the last digit. */
 .position-restore-nav-row .nav-row-line {
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
@@ -767,13 +803,14 @@ body.is-mobile .position-restore-cue {
 
 /* The section chain, deepest one or two levels: the coarse index a reader scans
    by, muted and smaller, but a step above the coordinate. It takes the row's own
-   slack, so it starts right after the coordinate. The extra start margin is what
-   keeps the two halves apart — the grid gap alone read as one run of text. */
+   slack, so it starts right after the coordinate — its distance from the number is
+   the row's own column gap and nothing else: a second start margin here spent a
+   second gap between two halves that are already told apart by colour and by the
+   coordinate's own track (see .nav-row-pos). */
 .position-restore-nav-row .nav-row-trail {
 	display: flex;
 	align-items: baseline;
 	min-width: 0;
-	margin-inline-start: 0.5rem;
 	overflow: hidden;
 	color: var(--nav-muted);
 	font-size: var(--font-ui-smaller);
