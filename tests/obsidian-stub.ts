@@ -52,9 +52,8 @@ export class Notice {
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
 
-// The history browser draws the row's gutter control, and the one it names in the
-// toolbar hint, with Obsidian's icon helper (see NavHistoryList.disclose and
-// NavHistoryBrowser.hint).
+// The history browser draws the search box's × with Obsidian's icon helper (see
+// NavHistoryBrowser.toolbar).
 // jsdom has no icons, so it is stood in for: the icon builds the element a test can
 // find and records WHICH icon it was asked for — the drawing is the app's, and a test
 // asserts on the name, not on the paths.
@@ -357,8 +356,9 @@ function installDomHelpers(): void {
 	proto.setText = function (this: HTMLElement, text: string) {
 		this.textContent = text;
 	};
-	// What the browser's toolbar hint composes its sentence with: an icon between two
-	// runs of text is one appendText on either side of it (see NavHistoryBrowser.hint).
+	// A run of text JOINED to what the element already holds — a text node appended
+	// rather than set, so an icon drawn beside a sentence keeps its place (the
+	// difference against proto.setText above).
 	proto.appendText = function (this: HTMLElement, text: string) {
 		this.appendChild(document.createTextNode(text));
 	};

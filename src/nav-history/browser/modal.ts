@@ -97,8 +97,8 @@ export class NavHistoryModal extends Modal {
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
 			// The list is click-only, like every shell's (see list.ts): nothing here
-			// follows a mouse. The device still answers for its own ergonomics through
-			// `touch` (the hint's wording and the on-screen keyboard).
+		// follows a mouse. The device still answers for its own ergonomics through
+		// `touch` (the on-screen keyboard, and a × worth tapping).
 			touch: this.mobile,
 			// The dialog needs no collapse — the first travel closes it.
 			collapseOnJump: false,

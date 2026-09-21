@@ -319,47 +319,6 @@ body.is-mobile .position-restore-cue {
 	background-color: var(--background-modifier-hover);
 }
 
-/* The hint is the one thing in the strip that can be spared, so it is also the
-   one thing that gives way: on a window too narrow for the box and it, the hint
-   truncates instead of running off the panel (an overflowing flex line is
-   clipped by the dialog, mid-word and without the ellipsis). */
-.position-restore-nav-hint {
-	flex: 0 1 auto;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	color: var(--nav-faint);
-	font-size: var(--font-ui-smaller);
-	white-space: nowrap;
-}
-
-/* On touch the strip is TWO rows, and the rows are STATED rather than left to
-   wrapping: the box takes the first and the hint the second.
-   The rows are declared because neither of the two ways of getting there by wrapping
-   works. The hint used to be forced onto a line of its own (`flex: 1 0 100%`), which
-   left the strip's second row reading as a blank line. Left purely to `flex-wrap`,
-   meanwhile, the two rows depend on how wide the panel happens to be: on a wide one
-   the hint joins the box's line — the same complaint, coming and going with the
-   width. Grid states the two rows once, for every width.
-   The hint is therefore back to the base rule's one line with an ellipsis (see
-   .position-restore-nav-hint): it has the row to itself, but a hint that WRAPS would
-   make that row two lines tall — the height the layout was rearranged to save. A
-   translation too long for its share is ellipsized, and the sentence is worth
-   shortening before the row is worth growing. */
-.position-restore-nav-panel.is-touch .position-restore-nav-toolbar {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr);
-	grid-template-areas:
-		'box'
-		'hint';
-	align-items: center;
-	row-gap: 2px;
-}
-
-/* The BOX's line is the wrapper's: the × travels with it (see
-   .position-restore-nav-search), and stating the cell on the input alone would leave
-   the clear button out of the grid entirely. */
-.position-restore-nav-panel.is-touch .position-restore-nav-search { grid-area: box; }
 /* A finger is not a pointer: the × keeps a target of its own on a phone, where the
    line it stands on is barely taller than the glyph (see the desktop rule above — the
    same glyph, with room around it). */
@@ -367,7 +326,6 @@ body.is-mobile .position-restore-cue {
 	padding: 5px;
 	--icon-size: var(--icon-s);
 }
-.position-restore-nav-panel.is-touch .position-restore-nav-hint { grid-area: hint; min-width: 0; }
 
 /* A ROW, in one of two kinds — a note, or one of its landings. Both are options of the
    listbox and both take the same position chrome (see .is-selected below); what differs
@@ -833,10 +791,9 @@ body.is-mobile .position-restore-cue {
    filter, the list. (It is wide, so the panel stands beside the list there rather than
    inside it — see NavHistoryModal.inline — but the height is what everything below is
    about.) Two-line rows left two rows visible — so in a short dialog everything that is
-   not the list gives way: the NAME goes, the hint goes (the panel itself teaches the
-   gesture on the first tap) and the rows go back to one line each, because sideways
-   there is width to spare and the coordinate, the section and the pane fit on one line
-   exactly as they do on the desktop. */
+   not the list gives way: the NAME goes and the rows go back to one line each, because
+   sideways there is width to spare and the coordinate, the section and the pane fit on
+   one line exactly as they do on the desktop. */
 @media (max-height: 520px) {
 	/* The dialog's NAME — "Navigation history", centred in the app's own 24px of header
 	   padding, above the row of text it names — is the largest single thing in a 390px-tall
@@ -848,11 +805,6 @@ body.is-mobile .position-restore-cue {
 	   below are for. The dialog is still named for assistive tech: the list carries the
 	   same label (see NavHistoryModal.onOpen). */
 	.position-restore-nav-modal.is-touch .modal-header {
-		display: none;
-	}
-
-	/* …and the hint, which is the other line that teaches what the first tap shows. */
-	.position-restore-nav-modal.is-touch .position-restore-nav-hint {
 		display: none;
 	}
 
@@ -868,15 +820,8 @@ body.is-mobile .position-restore-cue {
 	}
 
 	/* One line, and the box takes it: nothing is left to wrap around it — and the
-	   button's own column on the right, or the box runs straight under it.
-	   `display: flex` is not redundant: the upright phone's strip is a two-row GRID
-	   (see the is-touch block above), and a media query that only overrode
-	   `flex-wrap` would leave the grid in place — the two rows would stay, and the
-	   `nowrap` would do nothing at all. */
+	   button's own column on the right, or the box runs straight under it. */
 	.position-restore-nav-modal.is-touch .position-restore-nav-toolbar {
-		display: flex;
-		flex-wrap: nowrap;
-		row-gap: 0;
 		padding-bottom: 4px;
 		min-height: var(--touch-size-m, 44px);
 		padding-inline-end: calc(var(--touch-size-m, 44px) + var(--size-4-1, 4px));

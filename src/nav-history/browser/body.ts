@@ -79,9 +79,9 @@ export interface NavHistoryBrowserOptions {
 	savedPosition?: (path: string) => EphemeralState | undefined;
 	// Whether this device is a touch device. It is about the device's own
 	// ergonomics and nothing else — an on-screen keyboard that covers half a phone
-	// when a field takes focus, and the wording of the hint ("tap" for a finger,
-	// "click" for a mouse). The list's own interaction is the same either way: it is
-	// click-only on every device (see NavHistoryList).
+	// when a field takes focus, and a × worth tapping where a mouse gets a few
+	// pixels. The list's own interaction is the same either way: it is click-only
+	// on every device (see NavHistoryList).
 	touch: boolean;
 	// Whether a travel CLEARS the reader's place in the list first: nothing pointed
 	// at before the history is asked to move.
@@ -438,27 +438,15 @@ export class NavHistoryBrowser {
 			if (!this.opts.touch)
 				input.focus();
 		});
-		// …and the hint, which is the strip's other half. The file scope that used to
-		// sit between it and the box — a "only this note" switch and a chip of every
-		// note the history had been in — is gone: a note's name is text the box already
+		// …and that is the whole strip: the box, and nothing beside it. The file scope
+		// that used to stand here — a "only this note" switch and a chip of every note
+		// the history had been in — is gone: a note's name is text the box already
 		// matches, so the two controls were a slower way to type it, and they cost the
-		// list the width and the row they stood on. So is the gear that used to stand
-		// at the strip's far end — its four choices are rows of the plugin's settings
-		// tab now (see NavBrowserPrefs) — which leaves what is left worth naming: the
-		// one gesture a row has, a finger's tap on a touch device and a click
-		// everywhere else (see `hint`).
-		this.hint(bar);
-	}
-
-	// The hint: one sentence per DEVICE, saying the only thing a row now answers to. It
-	// used to be written from the details setting, because half of it named the gutter
-	// control that opened the panel; with the control gone there is one gesture left, so
-	// the sentence is fixed and the element is built once.
-	private hint(bar: HTMLElement): void {
-		bar.createSpan({
-			cls: 'position-restore-nav-hint',
-			text: t(this.opts.touch ? 'recentFiles.touchHint' : 'recentFiles.clickHint'),
-		});
+		// list the width and the row they stood on. So is the gear that used to stand at
+		// the strip's far end — its four choices are rows of the plugin's settings tab
+		// now (see NavBrowserPrefs) — and so is the hint that used to say "click a row
+		// to open it": a row in a list answers a click everywhere else in the app, and
+		// the sentence was buying its line with the height the list needed.
 	}
 
 	// The "you are here" CARD that used to stand between the toolbar and the list

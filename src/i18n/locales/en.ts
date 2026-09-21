@@ -261,12 +261,6 @@ export const en = {
 	// (see modal.ts).
 	'recentFiles.empty': 'Nowhere to go.',
 
-	// The line of chrome in the toolbar, one sentence per device. The list is a plain
-	// navigator now: a row has ONE gesture — a click opens what it stands for (see
-	// NavHistoryList) — and nothing at all happens on hover. (The keyboard still works
-	// — ↑↓ walk, Enter opens — it is simply not what this line has to teach.)
-	'recentFiles.touchHint': 'Tap a row to open it',
-	'recentFiles.clickHint': 'Click a row to open it',
 	// A leaf holding a second tab/pane of the same file: without this the
 	// browser's rows for the two panes are indistinguishable. Rendered as
 	// "which of how many" — two digits and no word, because the word was the

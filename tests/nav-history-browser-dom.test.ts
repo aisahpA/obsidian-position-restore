@@ -176,8 +176,8 @@ function harness(
 	// a touch device. The list answers a click either way (see NavHistoryList), so
 	// what this flag decides here is the PRESENTATION — jsdom has no matchMedia to
 	// ask, so a touch device is the inline one (see NavHistoryModal.inline) — plus the
-	// touch ergonomics: the hint's wording, the arrow's size under a finger, and the
-	// filter box left unfocused.
+	// touch ergonomics: the ×'s target under a finger, and the filter box left
+	// unfocused.
 	mobile = false,
 	// The main area's current layout: which tab (leaf id) shows which path, in
 	// layout order. The pane marker is derived from THIS rather than from the
@@ -880,9 +880,10 @@ describe('NavHistoryModal — the file scope is gone', () => {
 	// switch and a chip opening a menu of every note the history had been in.
 	// Both answered "where else in this note was I", and the search box already
 	// answers it — a note's name is text its own steps are searchable by — so the
-	// toolbar keeps the box and the hint, and the list keeps the width. What the
-	// list PRINTS is not a question the toolbar answers either: those four choices
-	// are rows of the plugin's settings tab now (see NavBrowserPrefs).
+	// toolbar keeps the box and nothing beside it, and the list keeps the width and
+	// the row the hint used to stand on. What the list PRINTS is not a question the
+	// toolbar answers either: those four choices are rows of the plugin's settings
+	// tab now (see NavBrowserPrefs).
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 	const entries = () => [
 		visit('a.md', NOW - 5 * MINUTE),
@@ -891,21 +892,21 @@ describe('NavHistoryModal — the file scope is gone', () => {
 		visit('c.md', NOW),
 	];
 
-	it('leaves the toolbar to the search box, its × and the hint', () => {
+	it('leaves the toolbar to the search box and its ×', () => {
 		const h = harness(entries(), 3, files);
 
 		expect(h.el.querySelector('.position-restore-nav-toggle')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope-menu')).toBeNull();
-		// Box and hint, and nothing else: the gear that used to stand at the strip's far
-		// end is gone with the four choices it carried (see NavBrowserPrefs). The box's ×
-		// is not a third thing in the strip: it is INSIDE the box's own element, hung on
-		// the line the reader typed on.
+		// The box, and nothing else: the gear that used to stand at the strip's far end
+		// is gone with the four choices it carried (see NavBrowserPrefs), and so is the
+		// hint that used to say "click a row to open it" — a row in a list answers a
+		// click everywhere else in the app, and the sentence cost the list its line. The
+		// box's × is not a second thing in the strip: it is INSIDE the box's own element,
+		// hung on the line the reader typed on.
 		const strip = Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-toolbar > *'));
-		expect(strip.map(el => el.className.split(' ')[0])).toEqual([
-			'position-restore-nav-search',
-			'position-restore-nav-hint',
-		]);
+		expect(strip.map(el => el.className.split(' ')[0])).toEqual(['position-restore-nav-search']);
+		expect(h.el.querySelector('.position-restore-nav-hint')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(strip[0].querySelector('.position-restore-nav-clear')).toBe(h.clearButton());
 	});
@@ -1120,8 +1121,8 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 describe('NavHistoryModal — the list\'s looks belong to the settings tab', () => {
 	// What the list PRINTS is no longer chosen in the panel: the four choices the
 	// toolbar's gear used to carry are rows of the plugin's settings tab now (see
-	// NavBrowserPrefs), so the strip is the box and the hint, and a dialog that
-	// lives a second has nothing in it worth changing anyway. Two spots in a.md and
+	// NavBrowserPrefs), so the strip is the box alone, and a dialog that lives a
+	// second has nothing in it worth changing anyway. Two spots in a.md and
 	// b.md current, so 'all' has something to print.
 	const entries = () => [
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 100 }),
@@ -2251,15 +2252,24 @@ describe('NavHistoryModal — touch', () => {
 		expect(desktop.el.querySelector('.position-restore-nav-filter')).toBe(document.activeElement);
 	});
 
-	it('talks about fingers, not keyboard keys', () => {
+	it('keeps the keyboard down when the × is tapped', () => {
+		// The × is the one control in the strip a finger reaches for, and putting the
+		// caret back in the box afterwards would unfold the on-screen keyboard over
+		// the list — the opposite of what the tap asked for (see
+		// NavHistoryBrowser.toolbar). The box still empties; only the focus stays
+		// where the reader left it.
 		const h = harness(entries(), 2, files, [], {}, {}, true);
-		const hint = h.el.querySelector<HTMLElement>('.position-restore-nav-hint')!;
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
 
-		// One sentence, and it is the DEVICE's own: a finger taps. (It used to name the
-		// row's gutter control and draw that control's glyph into the line; the control
-		// is gone with the details panel, so the sentence names the one gesture a row
-		// has and carries nothing else.)
-		expect(hint.textContent).toBe(t('recentFiles.touchHint'));
+		h.clearFilter();
+
+		expect(box.value).toBe('');
+		expect(document.activeElement).not.toBe(box);
+		// …and there is no hint beside the box to say what a tap does: a row in a list
+		// answers a tap everywhere else in the app.
+		expect(h.el.querySelector('.position-restore-nav-hint')).toBeNull();
 	});
 
 });

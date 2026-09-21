@@ -116,13 +116,6 @@ describe('history browser quiet tiers', () => {
 		expect(browser).not.toContain('--nav-disclose-');
 	});
 
-	// The hint is ONE plain sentence per device — there is no control for it to draw, and
-	// no `{arrow}` placeholder left in either locale.
-	it('says its sentence without drawing anything into it', () => {
-		expect(browser).toMatch(/\.position-restore-nav-hint\s*\{/);
-		expect(browser).not.toContain('nav-hint-icon');
-	});
-
 	// A folder is printed only where the setting asks for it — the name two notes on
 	// screen share, or every row — and WHICH HALF of the row gives way when it does not
 	// fit is the same setting's other half: a flex line wraps at the end it is laid out
@@ -245,12 +238,16 @@ describe('history browser quiet tiers', () => {
 	// The strip carries NO setting of its own: the four choices the gear used to hold
 	// are rows of the plugin's settings tab now (see NavBrowserPrefs), so the panel
 	// has no control surface left to paint — no button, no menu hanging off the strip,
-	// and no ink fought over with a theme on their behalf. The strip is the box and
-	// the hint, which is all a navigator needs.
-	it('leaves the strip to the box and the hint — no gear, no menu of its own', () => {
+	// and no ink fought over with a theme on their behalf. The strip is the search
+	// box, which is all a navigator needs.
+	it('leaves the strip to the box — no gear, no menu, no hint beside it', () => {
 		expect(browser).not.toMatch(/position-restore-nav-settings/);
 		expect(browser).not.toMatch(/nav-settings-/);
 		expect(browser).not.toMatch(/nav-settings-ink/);
+		// …nor the sentence that used to stand beside the box ("click a row to open
+		// it"): a row in a list answers a click everywhere else in the app, and the
+		// line the sentence stood on was the list's.
+		expect(browser).not.toContain('position-restore-nav-hint');
 		// …and nothing is anchored to the strip any more: the menu it used to hang its
 		// panel off was the only absolutely positioned child it had (the × rides the
 		// box's own wrapper, see .position-restore-nav-search).
@@ -292,34 +289,18 @@ describe('history browser quiet tiers', () => {
 		expect(browser).not.toMatch(/@media \(max-width: 480px\)/);
 	});
 
-	// On touch the toolbar is TWO rows, and they are stated rather than left to
-	// wrapping: the box takes the first and the hint the second. Wrapping alone could
-	// not say that — a 100% basis on the hint left the second row reading as a blank
-	// line, and with no basis at all the two rows depend on how wide the panel
-	// happens to be.
-	it('states the touch toolbar\'s two rows, box above hint', () => {
-		expect(browser).toMatch(
-			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: grid[^}]*grid-template-areas:\s*'box'\s*'hint'/,
-		);
-		// The BOX's line is stated on the WRAPPER — the box and its × travel together
-		// (see .position-restore-nav-search): a cell on the input alone would leave the
-		// clear button out of the grid entirely.
-		expect(browser).toMatch(/is-touch \.position-restore-nav-search\s*\{\s*grid-area: box/);
-		expect(browser).toMatch(/is-touch \.position-restore-nav-hint\s*\{[^}]*grid-area: hint/);
-		// …and the hint is back to ONE line: it has the row to itself, but a hint that
-		// wrapped would make that row two lines tall — exactly the height the layout
-		// was rearranged to save
-		const hint = browser.slice(
-			browser.indexOf('.position-restore-nav-hint {'),
-			browser.indexOf('.position-restore-nav-panel.is-touch .position-restore-nav-toolbar {'),
-		);
-		expect(hint).toMatch(/white-space: nowrap/);
-		expect(hint).toMatch(/text-overflow: ellipsis/);
-		// A media query that only overrode `flex-wrap` would leave the upright phone's
-		// GRID in place, so the landscape layout has to say `display: flex` as well
-		expect(browser.slice(browser.indexOf('@media (max-height: 520px)'))).toMatch(
-			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: flex[^}]*flex-wrap: nowrap/,
-		);
+	// On touch the toolbar is ONE row: the hint that used to take the second one is
+	// gone, and the GRID that stated the two rows went with it — a single cell named
+	// 'box' would have been a grid saying what a flex line already said. What the
+	// touch layout still asks of the strip is the ×: a target a finger can hit.
+	it('leaves the touch toolbar one line, and the × a target a finger can hit', () => {
+		expect(browser).not.toMatch(/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: grid/);
+		expect(browser).not.toContain('grid-area: box');
+		const clear = browser.match(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-search \.position-restore-nav-clear\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(clear).toMatch(/padding: 5px/);
+		expect(clear).toMatch(/--icon-size: var\(--icon-s\)/);
 	});
 
 	// THE PANEL OWNS ITS TOOLTIPS, and the app must not paint its own over them. Every
@@ -427,10 +408,7 @@ describe('history browser quiet tiers', () => {
 		expect(landscape).toMatch(
 			/is-touch \.position-restore-nav-toolbar\s*\{[^}]*padding-inline-end: calc\(var\(--touch-size-m/,
 		);
-		// the hint goes entirely
-		expect(landscape).toMatch(/is-touch \.position-restore-nav-hint\s*\{\s*display: none/);
-		// the box keeps the one line the toolbar has left
-		expect(landscape).toMatch(/is-touch \.position-restore-nav-toolbar\s*\{[^}]*flex-wrap: nowrap/);
+		// the box keeps the one line the toolbar has, and takes all of it
 		expect(landscape).toMatch(/input\.position-restore-nav-filter\s*\{[^}]*flex: 1 1 5em/);
 		// …and nothing of the chrome it used to compact is left: the "you are
 		// here" card and the file scope both went (see NavHistoryModal)

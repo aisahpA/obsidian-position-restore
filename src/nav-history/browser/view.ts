@@ -83,9 +83,8 @@ export class NavHistoryView extends ItemView {
 			savedPosition: this.savedPosition,
 			// The list is click-only, exactly as it is in the dialog (see list.ts):
 			// nothing follows a pointer that merely passes over it — the reader asked
-			// for a place that stays put while they work. The DEVICE still answers for
-			// its own ergonomics (the on-screen keyboard, and whether the hint says
-			// "tap" or "click").
+		// for a place that stays put while they work. The DEVICE still answers for
+		// its own ergonomics (the on-screen keyboard, and a × worth tapping).
 			touch: Platform.isMobile,
 			// …and a travel starts from a cleared list: the travel re-orders the list
 			// (the place visited moves to the end) and a jump re-pushes the stack, so
@@ -99,8 +98,8 @@ export class NavHistoryView extends ItemView {
 			onJump: () => this.dismissOnMobile(),
 			// A resident panel is restored WITH the workspace, so taking the caret
 			// out of the editor to put a sidebar panel up is not something the
-			// reader asked for. The box is one click away, and the hint under it
-			// says what the arrows do once it has the focus.
+		// reader asked for. The box is one click away, and it is where the arrow
+		// keys walk the list from once it has the focus.
 			focusFilter: false,
 			prefs: this.prefs,
 		});

@@ -177,10 +177,10 @@ describe('NavHistoryView — the resident panel', () => {
 	it('mounts the browser body into the pane, with no dialog around it', async () => {
 		const { view, el, names } = await mount([visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1);
 
-		// The body, whole: the toolbar — the box and the hint, and no setting of its
-		// own, since the four choices are rows of the plugin's settings tab now (see
-		// NavBrowserPrefs) — and the list of notes, the current one pinned first and
-		// marked.
+		// The body, whole: the toolbar — the search box, and nothing beside it — and
+		// the list of notes, the current one pinned first and marked. No setting of its
+		// own: the four choices are rows of the plugin's settings tab now (see
+		// NavBrowserPrefs).
 		expect(el.querySelector('.position-restore-nav-filter')).not.toBeNull();
 		expect(el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(names()).toEqual(['b', 'a']);
@@ -202,11 +202,11 @@ describe('NavHistoryView — the resident panel', () => {
 		// purpose, and typing is the fastest way through the list. A panel that is
 		// restored with the workspace must not take the caret out of the note.
 		expect(document.activeElement).not.toBe(input);
-		// …and it is still one click away, with the hint under it saying what that click
-		// does — the mouse's own wording, since the list is click-only and a pointer must
-		// not change anything by passing over it (see NavHistoryList).
-		const hint = el.querySelector<HTMLElement>('.position-restore-nav-hint')!;
-		expect(hint.textContent).toBe(t('recentFiles.clickHint'));
+		// …and it is still one click away, and it is where the arrow keys walk the list
+		// from. Nothing beside it says so: the hint that used to name the gesture is gone
+		// (a row in a list answers a click everywhere else in the app), and the list is
+		// click-only — a pointer passing over it changes nothing (see NavHistoryList).
+		expect(el.querySelector('.position-restore-nav-hint')).toBeNull();
 	});
 
 	it('follows the history while it is up', async () => {
