@@ -565,9 +565,10 @@ describe('displayName / badgeOf', () => {
 });
 
 // HOW OLD A ROW IS (see ageOf / ageLabel / newestStamp): the magnitude a reader
-// scanning for "where was I" compares rows by, said in as few characters as the
-// language allows. The list is ALREADY in this order — the label adds the scale, not
-// the order — so the boundaries are what matter, and they are what is pinned here.
+// scanning for "where was I" compares rows by, said compactly but in words a reader
+// does not have to decode. The list is ALREADY in this order — the label adds the
+// scale, not the order — so the boundaries are what matter, and they are what is
+// pinned here.
 describe('ageOf / ageLabel', () => {
 	const at = 1_000_000_000_000;
 	const ago = (ms: number) => ageLabel(at, at + ms);
@@ -579,20 +580,20 @@ describe('ageOf / ageLabel', () => {
 	it('rounds DOWN, so a label never claims more time than has passed', () => {
 		expect(ago(59 * SECOND)).toBe('now');
 		// …and the unit changes exactly at the boundary, not a moment early.
-		expect(ago(60 * SECOND)).toBe('1m');
-		expect(ago(59 * MINUTE)).toBe('59m');
-		expect(ago(60 * MINUTE)).toBe('1h');
-		expect(ago(23 * HOUR)).toBe('23h');
-		expect(ago(24 * HOUR)).toBe('1d');
-		expect(ago(6 * DAY)).toBe('6d');
-		expect(ago(7 * DAY)).toBe('1w');
+		expect(ago(60 * SECOND)).toBe('1m ago');
+		expect(ago(59 * MINUTE)).toBe('59m ago');
+		expect(ago(60 * MINUTE)).toBe('1h ago');
+		expect(ago(23 * HOUR)).toBe('23h ago');
+		expect(ago(24 * HOUR)).toBe('1d ago');
+		expect(ago(6 * DAY)).toBe('6d ago');
+		expect(ago(7 * DAY)).toBe('1w ago');
 		// Five weeks is where the weeks stop being useful: 4w is the last week label,
 		// and a month takes over from there.
-		expect(ago(34 * DAY)).toBe('4w');
-		expect(ago(35 * DAY)).toBe('1mo');
-		expect(ago(364 * DAY)).toBe('12mo');
-		expect(ago(365 * DAY)).toBe('1y');
-		expect(ago(800 * DAY)).toBe('2y');
+		expect(ago(34 * DAY)).toBe('4w ago');
+		expect(ago(35 * DAY)).toBe('1mo ago');
+		expect(ago(364 * DAY)).toBe('12mo ago');
+		expect(ago(365 * DAY)).toBe('1y ago');
+		expect(ago(800 * DAY)).toBe('2y ago');
 	});
 
 	it('clamps a stamp in the FUTURE to now', () => {
@@ -603,11 +604,11 @@ describe('ageOf / ageLabel', () => {
 		expect(ageOf(at, at - 3 * MINUTE)).toEqual({ n: 0, unit: 'now' });
 	});
 
-	it('says the number and the unit, and nothing else', () => {
+	it('says the number, the unit and "ago", and nothing else', () => {
 		// The unit is the LOCALE's word for it (the test stub is English, see
-		// obsidian-stub.ts), and the label is a scan target: no "ago", no space.
+		// obsidian-stub.ts), and the label stays a scan target: no date, no parentheses.
 		expect(ageOf(at, at + 90 * MINUTE)).toEqual({ n: 1, unit: 'h' });
-		expect(ageLabel(at, at + 90 * MINUTE)).toBe('1h');
+		expect(ageLabel(at, at + 90 * MINUTE)).toBe('1h ago');
 	});
 });
 

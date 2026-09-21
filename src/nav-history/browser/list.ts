@@ -498,11 +498,10 @@ export class NavHistoryList {
 				// The row's shape follows the label that was built, so the two can never
 				// disagree about whether the second track is there.
 				row.addClass('is-timed');
-				// The label is deliberately as short as the language can make it, and
-				// two of its units are ambiguous in English ("m" could be minutes or
-				// months): the moment itself is one hover away. It lives on the TIME
-				// and not on the row, so hovering the time says when and hovering
-				// anything else says which file (see the row's own tip).
+				// The label may still be abbreviated ("5m ago"), so the exact moment is
+				// one hover away. It lives on the TIME and not on the row, so hovering
+				// the time says when and hovering anything else says which file (see
+				// the row's own tip).
 				this.tip.attach(label, { text: new Date(stamp).toLocaleString() });
 			}
 		}

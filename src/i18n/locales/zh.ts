@@ -158,22 +158,23 @@ export const zh: En = {
 	'navHistory.pathDisplay.options.before.desc': '（过长时文件名下移）',
 	'navHistory.pathDisplay.options.after': '总是显示，路径在后',
 	'navHistory.pathDisplay.options.after.desc': '（过长时路径下移）',
-	// 每行是否显示「上次在里面是什么时候」，以及年龄标签用的字。标签刻意做到语言能给的
-	// 最短——列表是扫的——所以这里是量词而不是词，确切时刻挂在这个标签自己的 tooltip 上。
+	// 每行是否显示「距上次打开过了多久」，以及年龄标签用的字。标签是「数字 + 单位」，
+	// 单位是写全的词（分钟 / 小时 / 个月）。确切时刻仍挂在这个标签自己的
+	// tooltip 上（见 model.ts 的 ageLabel）。
 	//
-	// 「你上次在里面是什么时候」不是修饰：读者看到文件行上的时间，第一反应是文件的修改
+	// 「距上次打开过了多久」不是修饰：读者看到文件行上的时间，第一反应是文件的修改
 	// 时间，那是另一回事，不是这个。
 	'navHistory.rowTime.name': '每行的时间',
 	'navHistory.rowTime.options.on': '显示',
-	'navHistory.rowTime.options.on.desc': '（你上次在里面是什么时候）',
+	'navHistory.rowTime.options.on.desc': '（距上次打开过了多久）',
 	'navHistory.rowTime.options.off': '不显示',
 	'navHistory.rowTime.options.off.desc': '（行上不加东西）',
 	'navHistory.age.now': '刚刚',
-	'navHistory.age.m': '分',
-	'navHistory.age.h': '时',
+	'navHistory.age.m': '分钟',
+	'navHistory.age.h': '小时',
 	'navHistory.age.d': '天',
 	'navHistory.age.w': '周',
-	'navHistory.age.mo': '月',
+	'navHistory.age.mo': '个月',
 	'navHistory.age.y': '年',
 	// 行的右键菜单（见 NavHistoryBrowser.contextRow）。菜单本身是 app 的；唯一加进去的那一项
 	// 是 app 不可能知道的——这里的行代表的是一个「去处」而不只是一个文件：jump 行承诺的是那个

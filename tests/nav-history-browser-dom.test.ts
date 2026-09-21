@@ -1951,7 +1951,7 @@ describe('NavHistoryModal — the time on a row', () => {
 		// the reader's scan order (see groupByFile) — including when it is where the
 		// reader is standing.
 		expect(h.notes()).toHaveLength(3);
-		expect(times(h)).toEqual(['5m', '3d', '2h']);
+		expect(times(h)).toEqual(['5m ago', '3d ago', '2h ago']);
 	});
 
 	it('dates the pathless view too, and every row the same way', () => {
@@ -1960,15 +1960,14 @@ describe('NavHistoryModal — the time on a row', () => {
 		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('navHistory.graphView'))!;
 
-		expect(graph.querySelector('.nav-row-time')?.textContent).toBe('2h');
+		expect(graph.querySelector('.nav-row-time')?.textContent).toBe('2h ago');
 		expect(graph.classList.contains('is-timed')).toBe(true);
 		expect(graph.querySelector('.nav-row-path')).toBeNull();
 	});
 
 	it('carries the exact moment as the label\'s own tooltip', () => {
-		// The label is as short as the language can make it, and two of its units are
-		// ambiguous in English ("m" is minutes or months): the moment is one hover away
-		// — and it is the TIME's tooltip, so the row's own still says which file. The
+		// The label is abbreviated ("5m ago"), so the moment is one hover away — and it
+		// is the TIME's tooltip, so the row's own still says which file. The
 		// time is INSIDE the row, so this is the one place the pointer's nearest subject
 		// is not the row itself (see NavRowTip.subject).
 		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());

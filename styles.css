@@ -896,7 +896,7 @@ body.is-mobile .position-restore-cue {
    width. */
 .position-restore-nav-tip .nav-tip-path {
 	font-family: var(--font-monospace);
-	font-size: var(--font-ui-medium);
+	font-size: var(--font-ui-small);
 	line-height: 1.35;
 	overflow-wrap: anywhere;
 }
@@ -922,7 +922,7 @@ body.is-mobile .position-restore-cue {
    TipContent). A notch smaller than the path — it is a second answer, not the thing
    the reader hovered for — and allowed to wrap, since a note may go by many names. */
 .position-restore-nav-tip .nav-tip-text {
-	font-size: var(--font-ui-small);
+	font-size: var(--font-ui-smaller);
 	line-height: 1.4;
 	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
 	overflow-wrap: anywhere;

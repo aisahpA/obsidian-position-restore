@@ -182,25 +182,25 @@ export const en = {
 	'navHistory.pathDisplay.options.after': 'Always, after the name',
 	'navHistory.pathDisplay.options.after.desc': '(path drops below if long)',
 	// Whether each row says how long ago it was last visited, and the words the age
-	// itself is built from. The label is deliberately as short as the language can
-	// make it — the list is a scan — so these are units and not words, and the exact
-	// moment is carried as the label's own tooltip instead.
+	// itself is built from. Each value is a UNIT plus the word "ago"
+	//  — and a row's age is exactly the thing a reader should not have to decode.
+	// The exact moment is carried as the label's own tooltip instead.
 	//
-	// "when you were last in it" is not decoration: a reader's first guess at a time
+	// "time since last visit" is not decoration: a reader's first guess at a time
 	// printed on a file row is the file's own modification time, which is a different
 	// fact and not what this is.
 	'navHistory.rowTime.name': 'Time on each row',
 	'navHistory.rowTime.options.on': 'Show',
-	'navHistory.rowTime.options.on.desc': '(when you were last in it)',
+	'navHistory.rowTime.options.on.desc': '(time since last visit)',
 	'navHistory.rowTime.options.off': 'Hide',
 	'navHistory.rowTime.options.off.desc': '(nothing on the row)',
 	'navHistory.age.now': 'now',
-	'navHistory.age.m': 'm',
-	'navHistory.age.h': 'h',
-	'navHistory.age.d': 'd',
-	'navHistory.age.w': 'w',
-	'navHistory.age.mo': 'mo',
-	'navHistory.age.y': 'y',
+	'navHistory.age.m': 'm ago',
+	'navHistory.age.h': 'h ago',
+	'navHistory.age.d': 'd ago',
+	'navHistory.age.w': 'w ago',
+	'navHistory.age.mo': 'mo ago',
+	'navHistory.age.y': 'y ago',
 	// The row's right-click menu (see NavHistoryBrowser.contextRow). The menu itself is
 	// the app's; the ONE item added is the one the app cannot know, because a row here
 	// stands for a PLACE and not merely for a file: a jump row promises a landing, and

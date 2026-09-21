@@ -214,9 +214,9 @@ export function ageOf(at: number, now: number): { n: number; unit: AgeUnit } {
 	return { n: Math.floor(d / YEAR), unit: 'y' };
 }
 
-// What a row prints as its age: the number and the unit's own word, as short as
-// the language can make them (`5m`, `5分`) — the list is a scan, and the exact
-// moment is a tooltip away (see list.ts's fileRow).
+// What a row prints as its age: the number and the unit's own word (`5m ago`,
+// `5分钟`) — short, but spelled out far enough to be read at a glance rather than
+// decoded. The exact moment is a tooltip away (see list.ts's fileRow).
 //
 // The unit goes through an exhaustive switch rather than into a template string:
 // t()'s signature is keyed by the locale's own key union, which a built string
