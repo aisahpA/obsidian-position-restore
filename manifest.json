@@ -1,7 +1,7 @@
 {
 	"id": "position-restore",
 	"name": "Position Restore",
-	"version": "1.4.0-beta.5",
+	"version": "1.4.0-beta.6",
 	"minAppVersion": "1.13.0",
 	"description": "Restore cursor and scroll position for each note across sessions and devices — exact landing, no jump — with VSCode-style back/forward navigation history.",
 	"author": "aisahpA",
