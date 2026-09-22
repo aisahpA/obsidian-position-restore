@@ -3,7 +3,7 @@
 // the pane's own width deciding the presentation, and the place list being heard
 // while it is up (see NavPlaces.subscribe). The body itself — the tree, the
 // landing panel, the keyboard, the travel — is covered in
-// nav-history-browser-dom.test.ts, where it is driven through the modal.
+// recent-files-browser-dom.test.ts, where it is driven through the modal.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
@@ -13,12 +13,24 @@ import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
 import type { NavEntry } from '@/nav/entry';
-import type { PaneTarget } from '@/recent-files/places';
+import type { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
 import { TIME_REFRESH_MS } from '@/recent-files/browser/constants';
 
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
+
+// 'obsidian' resolves to tests/obsidian-stub.ts for the RUN TIME of this suite
+// (see vitest.config.mts), but tsc reads its types from the real, typings-only
+// package — which declares the two questions the plugin asks (isModEvent /
+// isModifier) and nothing else. The stub's answers are INPUTS a test sets, so
+// they are reached through one honest cast rather than pretended onto the app's
+// class.
+const KeymapKnobs = Keymap as unknown as {
+	reset(): void;
+	modEvent: unknown;
+	modifier: boolean;
+};
 
 // The browser's preferences as the plugin hands them over (see RecentFilesBrowserPrefs):
 // READERS over values the settings tab owns — a fresh set per mount, so no test
@@ -44,7 +56,7 @@ function browserPrefs(
 		pathDisplay: () => held.path,
 		// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime): a switch, off unless
 		// a test asks — what the LABEL says is the body's business and is covered where
-		// the body is (see nav-history-browser-dom.test.ts); what the shell adds is the
+		// the body is (see recent-files-browser-dom.test.ts); what the shell adds is the
 		// lifetime of the timer that keeps it fresh (see the test below).
 		rowTime: () => held.time,
 		setLandings: (how) => {
@@ -68,7 +80,7 @@ const place = (path: string, stamp: number, line: number): NavEntry =>
 
 // The place list as the view sees it: entries, the pointer, travel and subscribe
 // (see places.ts's PlaceList). The real store is exercised against the same
-// surface in nav-places.test.ts; here the point is the SHELL, so the list is a
+// surface in recent-files-places.test.ts; here the point is the SHELL, so the list is a
 // fixture that can be moved by hand.
 class FakeNav {
 	entries: NavEntry[] = [];
@@ -170,7 +182,7 @@ describe('RecentFilesView — the resident panel', () => {
 	beforeEach(() => {
 		// The app's own answers (see Keymap): an input a test sets, and one left over
 		// from the case before it would decide this one.
-		Keymap.reset();
+		KeymapKnobs.reset();
 		document.body.empty();
 	});
 
@@ -462,7 +474,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		// RecentFilesList.collapse).
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
-		Keymap.modEvent = 'tab';
+		KeymapKnobs.modEvent = 'tab';
 
 		click(note());
 
@@ -594,7 +606,9 @@ describe('activateRecentFilesView', () => {
 	});
 
 	it('opens the panel in the right sidebar when there is none', async () => {
-		const leaf = new WorkspaceLeaf();
+		// The stub's leaf carries the `state` the last setViewState was handed;
+		// the app's own typings do not declare it (see obsidian-stub.ts).
+		const leaf = new WorkspaceLeaf() as WorkspaceLeaf & { state: unknown };
 		const revealLeaf = vi.fn(async () => {});
 		const app = {
 			workspace: {

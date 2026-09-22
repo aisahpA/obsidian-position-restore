@@ -3,7 +3,7 @@
 // which rows are selectable at all, the landing panel that describes a row, and
 // the search box that is now the toolbar's only control.
 // The pure pieces (describe/group/merge/filter/time) are covered in
-// nav-history-browser.test.ts.
+// recent-files-browser.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
@@ -21,6 +21,18 @@ import { TIP_DELAY_MS } from '@/recent-files/browser/constants';
 
 // jsdom implements no layout at all, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
+
+// 'obsidian' resolves to tests/obsidian-stub.ts for the RUN TIME of this suite
+// (see vitest.config.mts), but tsc reads its types from the real, typings-only
+// package — which declares the two questions the plugin asks (isModEvent /
+// isModifier) and nothing else. The stub's answers are INPUTS a test sets, so
+// they are reached through one honest cast rather than pretended onto the app's
+// class.
+const KeymapKnobs = Keymap as unknown as {
+	reset(): void;
+	modEvent: unknown;
+	modifier: boolean;
+};
 
 const MINUTE = 60_000;
 const NOW = Date.now();
@@ -399,7 +411,7 @@ beforeEach(() => {
 	// The app's answers to "where should this open" and "is the modifier down" are
 	// inputs a test sets per case (see the stub): one left over from the last case
 	// would decide this one.
-	Keymap.reset();
+	KeymapKnobs.reset();
 	document.body.innerHTML = '';
 	// Children (and any class a test left on the body), or one test's DOM leaks
 	// into the next.
@@ -1751,7 +1763,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		// time is INSIDE the row, so this is the one place the pointer's nearest subject
 		// is not the row itself (see NavRowTip.subject).
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
-		const label = h.note('notes').querySelector('.nav-row-time')!;
+		const label = h.note('notes').querySelector<HTMLElement>('.nav-row-time')!;
 
 		expect(h.hover(label)?.textContent).toBe(new Date(NOW - 3 * DAY).toLocaleString());
 		h.unhover(label);
@@ -1821,7 +1833,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		// reads ctrlKey/metaKey itself, so a platform the plugin knows nothing about is
 		// still the app's answer.
 		const held = harness(entries(), 1, files);
-		Keymap.modEvent = 'tab';
+		KeymapKnobs.modEvent = 'tab';
 		held.clickRow(held.note('a'));
 		expect(held.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
@@ -1861,7 +1873,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		const h = harness(entries(), 1, files);
 		h.key('ArrowDown'); // b.md, the current note, pinned first
 		h.key('ArrowDown'); // a.md
-		Keymap.modifier = true;
+		KeymapKnobs.modifier = true;
 		h.key('Enter');
 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');

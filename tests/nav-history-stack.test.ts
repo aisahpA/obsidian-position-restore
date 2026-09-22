@@ -1,8 +1,9 @@
-// Tests for the VSCode-style navigation stack (nav-history/stack.ts), the
-// recording funnel it listens to (nav/funnel.ts) and their integration points:
+// Tests for the VSCode-style navigation stack (nav-history/stack.ts) and its
+// integration points:
 //  - stack logic: every jump pushes, a fresh jump truncates the forward part,
 //    dedup drops repeated same-file jumps (key match), force wins;
-//  - gates: the setting, and the startup window (layout not ready);
+//  - gates: the stack's own settings (record tab switches / record cursor
+//    jumps) and the funnel's startup window (layout not ready);
 //  - rename/delete bookkeeping keeps the index meaningful;
 //  - persistence: localStorage round-trip per vault, corrupt degrades to
 //    empty, out-of-range index clamps;
@@ -12,106 +13,35 @@
 //    its next entry matches (else openFile fallback);
 //  - graph tab steps: activation records a pathless view entry, traversal
 //    reactivates the graph/file leaf without any open;
-//  - sampler teleport detection (large cursor move within one tick);
+//  - a travel asked for elsewhere (the modifier-held place open);
 //  - patcher historyNav injection: the saved position rides OVER the native
 //    entry's cursor-only eState, marker consumed exactly once.
+//
+// The FUNNEL's own contract (the shared gates, what each capture point
+// publishes, the broadcasts) and the sampler's teleport capture sit next door
+// in nav-funnel.test.ts. Both suites share nav-recording-harness.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
-import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NavFunnel } from '@/nav/funnel';
-import { NavStack } from '@/nav-history/stack';
-import { NavPlaces } from '@/recent-files/places';
+import { FileView, MarkdownView } from 'obsidian';
 import { NAV_HISTORY_VERSION } from '@/nav-history/store';
 import { NavEntry, NavJump, NavVisit } from '@/nav/entry';
 import { OpenPatcher } from '@/position/restore/patcher';
-import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
-import { DEFAULT_SETTINGS, EphemeralState, NavEntryState, PluginSettings } from '@/types';
+import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
+import {
+	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viaOf,
+} from './nav-recording-harness';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
-
-function makeApp(
-	headings?: Array<{ heading: string; level: number; position: { start: { line: number } } }>,
-): App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } } {
-	return {
-		appId: 'test-vault',
-		vault: {
-			getName: () => 'Test',
-			getAbstractFileByPath: (path: string) => Object.assign(new TFile(), { path }),
-		},
-		metadataCache: { getFileCache: () => (headings ? { headings } : null) },
-		workspace: {
-			layoutReady: true,
-			rootSplit: { containerEl: { contains: (el: unknown) => el === 'main' } },
-			getActiveViewOfType: () => null,
-			iterateAllLeaves: (_cb: (leaf: WorkspaceLeaf) => void) => undefined,
-			setActiveLeaf: vi.fn(),
-			getMostRecentLeaf: () => null,
-		},
-		commands: { executeCommandById: vi.fn() },
-	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
-}
-
-// The two navigation readers, wired as the composition root wires them (see
-// position/manager.ts): the CAPTURE points (the record* calls below) write to
-// the funnel, and the funnel publishes to the stack and the place list. The
-// harness hands all three back by name, so a test says which side it means —
-// `funnel.` for a capture, `stack.` for the stack's own state and traversal,
-// `places.` for the recent-files list.
-function makeNav(
-	app = makeApp(),
-	settings: Partial<PluginSettings> = {},
-	savedPosition?: (path: string) => EphemeralState | undefined,
-) {
-	const resolved = { ...DEFAULT_SETTINGS, ...settings } as PluginSettings;
-	const state = new PositionState(resolved);
-	const funnel = new NavFunnel(app, state);
-	const stack = new NavStack(app, resolved, state, funnel, savedPosition);
-	const places = new NavPlaces(app, resolved);
-	funnel.subscribe(stack);
-	funnel.subscribe({
-		onVisit: (recording) => places.remember(recording.record),
-		onLanded: (entry) => places.settle(entry),
-		onHere: (entry) => places.markCurrent(entry),
-	});
-	places.attach({
-		openFile: (path, leafId, target) => stack.openFilePlain(path, leafId, target),
-		openJump: (entry, target) => stack.travelTo(entry, target),
-		openView: (entry, target) => stack.openViewPlace(entry, target),
-	});
-	return { funnel, stack, places };
-}
-
-function entry(path: string, leafId = 'leaf-1'): NavEntry {
-	return { kind: 'visit', path, leafId, t: 1 };
-}
 
 // The settings panel mutates the settings object the stack was handed (they
 // share one instance, see NavStack.settings) — this is that mutation, without
 // going through the whole settings tab.
 function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
 	(nav.stack as unknown as { settings: PluginSettings }).settings.navStackCap = cap;
-}
-
-// These tests build file-only stacks (a graph entry appears in exactly one
-// full-object equality assertion); the helpers narrow the file kinds so the
-// per-index reads stay terse.
-const pathOf = (e: NavEntry) => (e.kind !== 'view' ? e.path : undefined);
-const keyOf = (e: NavEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
-const stOf = (e: NavEntry) => (e.kind !== 'view' ? e.st : undefined);
-const viaOf = (e: NavEntry) => (e.kind === 'visit' ? e.via : undefined);
-
-function leafWithFile(id: string, file?: string, containerEl: unknown = 'main'): WorkspaceLeaf {
-	return {
-		id,
-		containerEl,
-		view: file
-			? Object.assign(Object.create(FileView.prototype), { file: { path: file } })
-			: { getViewType: () => 'empty' },
-	} as unknown as WorkspaceLeaf;
 }
 
 beforeEach(() => {
@@ -380,7 +310,7 @@ describe('NavStack activation recording', () => {
 
 		// The entry was not re-stamped from the file view, and no step was added:
 		// a sidebar taking the focus is not a tab/pane switch the list records.
-		expect(nav.stack.entries[0].st).toBeUndefined();
+		expect(stOf(nav.stack.entries[0])).toBeUndefined();
 		expect(nav.stack.entries).toHaveLength(1);
 	});
 
@@ -817,7 +747,7 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 60); // recorded with no landing read
 		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
-		expect(nav.stack.entries[1].st).toBeUndefined();
+		expect(stOf(nav.stack.entries[1])).toBeUndefined();
 
 		await nav.stack.navigate(-1);
 
@@ -838,7 +768,7 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // no landing ever settled
 		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away
 		const at = placeOf(nav, e => e.kind === 'jump');
-		expect(nav.places.entries[at].st).toBeUndefined();
+		expect(stOf(nav.places.entries[at])).toBeUndefined();
 
 		await nav.places.travel(at);
 
@@ -888,17 +818,17 @@ describe('NavStack.navigate', () => {
 		settled.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
 		const a = settled.places.entries.findIndex(e => e.kind === 'jump');
 		settled.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
-		expect(settled.places.entries[a].st).toEqual({ scroll: 152 });
+		expect(stOf(settled.places.entries[a])).toEqual({ scroll: 152 });
 
 		const left = makeNav();
 		left.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
 		const b = left.places.entries.findIndex(e => e.kind === 'jump');
 		left.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		// the stack kept the drift (back needs a position) …
-		expect(left.stack.entries[left.stack.index].st).toEqual({ scroll: 900 });
+		expect(stOf(left.stack.entries[left.stack.index])).toEqual({ scroll: 900 });
 		// …and the place kept none: its row falls back to the file's own record
 		// rather than freezing the drift as the heading's spot.
-		expect(left.places.entries[b].st).toBeUndefined();
+		expect(stOf(left.places.entries[b])).toBeUndefined();
 	});
 
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {
@@ -1409,54 +1339,6 @@ describe('NavStack graph view steps', () => {
 	});
 });
 
-// ===== Sampler: in-file teleport detection =====
-
-type DatabaseStub = { db: Record<string, unknown>; setState: ReturnType<typeof vi.fn>; deleteFile: ReturnType<typeof vi.fn> };
-
-function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
-	const cursor = { line: 60, ch: 0 };
-	const view = Object.assign(Object.create(MarkdownView.prototype), {
-		file: { path: 'a.md' },
-		containerEl: document.createElement('div'),
-		currentMode: { getScroll: () => 42.3 },
-		editor: {
-			lineCount: () => 200,
-			getCursor: () => ({ ...cursor }),
-		},
-		getViewType: () => 'markdown',
-	});
-	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1', view };
-	const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
-	const app = {
-		workspace: {
-			getActiveViewOfType: () => view,
-			iterateAllLeaves: () => undefined,
-			layoutReady: true,
-		},
-		metadataCache: { getFileCache: () => null },
-	};
-	const fullSettings = { ...DEFAULT_SETTINGS, ...settings } as PluginSettings;
-	const state = new PositionState(fullSettings);
-	const leave = vi.fn();
-	const recordTeleport = vi.fn();
-	const store = new PositionStore(app as never, database as never);
-	// The funnel the sampler writes to. The sampler is purely a CAPTURE point —
-	// it never reads the stack — so a spy funnel is the whole of what it needs.
-	const funnel = {
-		recordOpen: vi.fn(),
-		recordTeleport,
-		recordActivation: vi.fn(),
-		leave,
-		settled: vi.fn(),
-		landing: vi.fn(),
-	};
-	const sampler = new Sampler(app as never, store, fullSettings, state, funnel as never);
-	state.lastLoadedFilePath = 'a.md';
-	state.lastEphemeralState = { scroll: 0, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
-	const onSelection = (sampler as unknown as { onEditorSelection: (editor: unknown) => void }).onEditorSelection;
-	return { sampler, state, recordTeleport, leave, database, view, cursor, onSelection };
-}
-
 // A travel the reader asked to happen SOMEWHERE ELSE — the modifier-click, the
 // middle button, the keyboard's Cmd/Ctrl+Enter (see PaneTarget / list.ts). It is a
 // different question from every other branch of the open pipeline, which exists to go
@@ -1513,61 +1395,6 @@ describe('NavStack — a travel asked for elsewhere', () => {
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
 		expect(h.openFile).not.toHaveBeenCalled();
-	});
-});
-
-describe('Sampler in-file teleport detection', () => {
-	it('a ≥10-line cursor jump records via the selection event and refreshes the left entry', () => {
-		const h = makeSamplerHarness(); // view cursor sits at line 60; poll read at line 3
-		h.onSelection(h.view.editor); // baseline: line 60
-		h.cursor.line = 3;
-		h.onSelection(h.view.editor);
-		expect(h.recordTeleport).toHaveBeenCalledTimes(1);
-		expect(h.recordTeleport.mock.calls[0]).toEqual(['a.md', 'leaf-1', 3, {
-			scroll: 42,
-			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
-		}]);
-		// the entry being left got the poll's read (harness baseline:
-		// scroll 0, cursor line 3)
-		expect(h.leave).toHaveBeenCalledWith('a.md', 'leaf-1', {
-			scroll: 0,
-			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
-		});
-	});
-
-	it('recording rules never gate navigation: an excluded file still records teleports, positions stay unwritten', () => {
-		const h = makeSamplerHarness({ excludedFolders: ['a.md'] });
-		// Poll path: the db record is dropped, nothing written — rules
-		// govern positions only.
-		h.sampler.sampleActiveView();
-		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
-		expect(h.database.setState).not.toHaveBeenCalled();
-		// Event path: nav recording never consults exclusions.
-		h.onSelection(h.view.editor); // baseline: line 60
-		h.cursor.line = 3;
-		h.onSelection(h.view.editor);
-		expect(h.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 3, expect.anything());
-	});
-
-	it('navRecordTeleport off: the selection event path stays fully silent', () => {
-		const h = makeSamplerHarness({ navRecordTeleport: false });
-		h.onSelection(h.view.editor); // baseline: line 60
-		h.cursor.line = 3;
-		h.onSelection(h.view.editor); // 57-line jump, setting off
-		expect(h.recordTeleport).not.toHaveBeenCalled();
-		expect(h.leave).not.toHaveBeenCalled();
-	});
-
-	it('flushOnLeave writes the exact leaving state; recording rules still gate it', () => {
-		const st = { scroll: 7, cursor: { from: { line: 5, ch: 0 }, to: { line: 5, ch: 0 } } };
-
-		const h = makeSamplerHarness();
-		h.sampler.flushOnLeave(h.view, 'a.md', st);
-		expect(h.database.setState).toHaveBeenCalledWith('a.md', st);
-
-		const excluded = makeSamplerHarness({ excludedFolders: ['a.md'] });
-		excluded.sampler.flushOnLeave(excluded.view, 'a.md', st);
-		expect(excluded.database.setState).not.toHaveBeenCalled();
 	});
 });
 
@@ -1744,4 +1571,3 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 	});
 });
-
