@@ -149,6 +149,23 @@ export interface NavTeleport extends NavEntryBase {
 // than on whatever is active at the time and a plugin view keeps its filters.
 // Only a view that never had a state to record (the global graph) is rebuilt at
 // the empty one, which is what its own `graph:open` passes too.
+//
+// THE BROWSER IS THE ONE CASE THAT ASKS FOR MORE ROWS THAN IT GETS, and the
+// answer is deliberate. A built-in web view's state carries the url it is
+// showing, so its PLACE is really that url — and since a place's identity is the
+// view TYPE (see places.ts's placeKey), several of its tabs are several places
+// sharing ONE row, each visit writing over the last. Giving every url a row would
+// make this list a browsing history, which is the browser's own back/forward and
+// not what this plugin is about. What stands instead is that the row follows the
+// tab the reader LAST stood in: the state is re-read on every leave and refreshed
+// while they sit in the view (see position/manager.ts's sampleActiveViewState),
+// and the label travels with it, so the browser row MEANS "the page you were last
+// reading" — one place, kept true, rather than many.
+//
+// The seam that follows from it: a url the reader never saw settled is not
+// recorded. Obsidian's own web view has no url until the page has committed, so a
+// tab opened and left inside the same beat leaves the row holding what the visit
+// before it wrote — stale about WHICH page, never wrong about which place.
 export const NON_DESTINATION_VIEW_TYPES = new Set(['empty']);
 
 // Is this view type a place the recent-files list may hold? The one test, shared

@@ -26,7 +26,7 @@ import type { WorkspaceLeaf } from 'obsidian';
 
 import { FileView, MarkdownView } from 'obsidian';
 import { NAV_HISTORY_VERSION } from '@/nav-history/store';
-import { NavEntry, NavJump, NavVisit } from '@/nav/entry';
+import { NavEntry, NavJump, NavView, NavVisit } from '@/nav/entry';
 import { OpenPatcher } from '@/position/restore/patcher';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
@@ -1309,6 +1309,106 @@ describe('NavStack view-tab steps', () => {
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(gLeaf, { focus: true });
 		expect(h.setViewState).not.toHaveBeenCalled(); // the graph is already showing
 		expect(h.openFile).not.toHaveBeenCalled();
+	});
+
+	it('a view step whose state has not moved is only activated', async () => {
+		const live = { file: 'x.md' };
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-a', file: 'a.md', markdown: true },
+				{ id: 'leaf-g', viewType: 'graph', state: live },
+			],
+		});
+		const nav = h.nav;
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf); // the graph, on x.md
+		nav.funnel.recordOpen('a.md', 'leaf-a'); // …then a note
+		h.ws.setActiveLeaf(h.leaves[0]); // the reader is in the note
+
+		await nav.stack.navigate(-1);
+
+		expect(nav.stack.index).toBe(0);
+		expect(h.setViewState).not.toHaveBeenCalled();
+	});
+
+	it('a view step whose state HAS moved has it put back on the leaf showing it', async () => {
+		// The case this exists for: a local graph follows the active file, so its
+		// tab keeps drawing a different neighbourhood while the reader is away —
+		// activating it answers with the view's default behaviour rather than the
+		// place the step names.
+		const live = { file: 'x.md' };
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-a', file: 'a.md', markdown: true },
+				{ id: 'leaf-g', viewType: 'graph', state: live },
+			],
+		});
+		const nav = h.nav;
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+		expect((nav.stack.entries[0] as NavView).state).toEqual({ file: 'x.md' }); // a snapshot, not a reference
+		nav.funnel.recordOpen('a.md', 'leaf-a');
+		h.ws.setActiveLeaf(h.leaves[0]);
+
+		live.file = 'y.md'; // the view moved on while the reader was elsewhere
+
+		await nav.stack.navigate(-1);
+
+		expect(nav.stack.index).toBe(0);
+		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: { file: 'x.md' }, active: true });
+		expect(h.openFile).not.toHaveBeenCalled();
+	});
+
+	it('a view step reads its state off the place, even after its own tab was rebuilt', () => {
+		// A view entry's leafId is never written back (see execute), so once the
+		// place comes back in a NEW tab the step names a tab that is gone. The
+		// snapshot still has to keep up with the PLACE, or a traversal would go on
+		// replaying the state from before the rebuild.
+		const before = { file: 'x.md' };
+		const after = { file: 'y.md' };
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-a', file: 'a.md', markdown: true },
+				{ id: 'leaf-g', viewType: 'graph', state: before },
+			],
+		});
+		const nav = h.nav;
+		nav.funnel.recordOpen('a.md', 'leaf-a');
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+		expect((nav.stack.entries[1] as NavView).state).toEqual({ file: 'x.md' });
+
+		h.leaves.splice(1, 1); // the graph's tab is closed…
+		h.leaves.push(viewLeaf('leaf-g2', 'graph', { state: after }) as never); // …and the place rebuilt
+
+		// Leaving the graph (activating the note) is when the step's state is read.
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
+
+		expect((nav.stack.entries[1] as NavView).state).toEqual({ file: 'y.md' });
+	});
+
+	it('leaving a view re-reads its NAME, not only its state', () => {
+		// The built-in browser is the case: its tab header is the page TITLE
+		// (Obsidian's WebviewerView answers getDisplayText with this.title), so the
+		// name a view gives changes while the reader sits in it. The step and the
+		// row standing for that place have to end up called what they last read.
+		const spec = { label: 'Page one', icon: 'globe-2', state: { url: 'https://one.example/' } };
+		const viewer = viewLeaf('leaf-w', 'webviewer', spec);
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-a', file: 'a.md', markdown: true }] });
+		h.leaves.push(viewer as never);
+		const nav = h.nav;
+
+		nav.funnel.recordActivation(viewer);
+		expect(nav.stack.entries[0]).toMatchObject({ label: 'Page one' });
+		expect(nav.places.entries.find(p => p.kind === 'view')).toMatchObject({ label: 'Page one' });
+
+		// The reader browses on, then switches to a note: leaving is the last moment
+		// either of them can be asked.
+		spec.label = 'Page two';
+		spec.state = { url: 'https://two.example/' };
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
+
+		expect(nav.stack.entries[0]).toMatchObject({
+			kind: 'view', label: 'Page two', state: { url: 'https://two.example/' },
+		});
+		expect(nav.places.entries.find(p => p.kind === 'view')).toMatchObject({ label: 'Page two' });
 	});
 
 	it('forward re-asserts the graph view when a file replaced it in the same leaf', async () => {

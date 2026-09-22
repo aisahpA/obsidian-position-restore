@@ -1,4 +1,4 @@
-import { App, TAbstractFile, Platform, WorkspaceLeaf } from 'obsidian';
+import { App, FileView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
 import { PositionStore } from './storage/position-store';
@@ -19,6 +19,8 @@ import {
 	createRecentFilesView,
 } from '@/recent-files/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
+import { isRecordableViewType } from '@/nav/entry';
+import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
 //  - OpenPatcher: installs the setViewState/openLinkText patches and injects
@@ -156,6 +158,67 @@ export class PositionManager {
 
 	sampleActiveView() {
 		this.sampler.sampleActiveView();
+		this.sampleActiveViewState();
+	}
+
+	// The poll keeps the CURRENT STEP's view state true, the way the sampler's tick
+	// keeps a file's position true — and this is the only place that can: it takes
+	// asking the stack what the reader is standing on, which is a question about
+	// both stores.
+	//
+	// It exists because a view's state is not finished when the reader arrives in
+	// it. The built-in browser is the case that shows it: it answers getState with
+	// `{title, mode}` until its page has actually committed and the url it is on
+	// exists (Obsidian's WebviewerView only carries `url` once it has navigated),
+	// so the step pushed by that activation holds a state with no idea WHERE the
+	// place is — and the place list writes that same state over its own good one.
+	// Nothing else reads it again until the reader leaves, which is exactly the
+	// moment a tab they closed straight after opening never gets to. So the tick
+	// re-reads it, and publishes the difference as a landing: the same fact the
+	// leave-read publishes, through the same wire, with both readers updating in
+	// place (see funnel.ts's NavFunnelSink.onLanded).
+	//
+	// Quiet when nothing moved, which is nearly every tick: the comparison is
+	// against what the step already HOLDS, so no view-state bookkeeping is kept
+	// here and no field had to be added to this class. A view that reports no state
+	// at all is left alone (the global graph), and one that is not the current step
+	// is not this tick's business (its own leave-read has it).
+	//
+	// Cost, measured on this machine through the tick it rides on (a realistic
+	// web-viewer state, ~80 bytes): 0.04µs per tick while a note is the active
+	// view — the branch never gets past `instanceof FileView` — and 2.1µs per tick
+	// while the reader is standing IN the step's view, most of it the state read's
+	// JSON round trip (stringify 0.4µs + parse 0.5µs). Against this poll's 100ms
+	// interval that is 0.002% of one tick, which is why the cadence is not what
+	// this branch's cost argues about. The one thing that cannot be bounded here is
+	// a third-party view whose own getState is expensive: it is asked every tick
+	// while the reader sits in it (the ceiling in shared/leaf.ts's viewState bounds
+	// what may be STORED, not what it costs to ask). The order below is part of
+	// keeping that rare: the two property reads that answer "is this the step?" come
+	// BEFORE isMainAreaLeaf, which walks the workspace's element tree — so a view
+	// that merely holds the focus (a sidebar panel, a view the reader reached
+	// without recording) is answered without touching the DOM or the view.
+	private sampleActiveViewState(): void {
+		if (!this.funnel.isRecording())
+			return;
+		const view = this.app.workspace.getActiveViewOfType(View);
+		if (!view || view instanceof FileView)
+			return;
+		const viewType = view.getViewType();
+		if (!isRecordableViewType(viewType))
+			return;
+		const top = this.stack.entries[this.stack.index];
+		if (!top || top.kind !== 'view' || top.viewType !== viewType)
+			return;
+		if (!isMainAreaLeaf(this.app, view.leaf))
+			return;
+		const state = viewState(view);
+		if (!state || JSON.stringify(state) === JSON.stringify(top.state))
+			return;
+		this.funnel.landing({
+			kind: 'view', leafId: top.leafId, viewType, state,
+			label: viewLabel(view), icon: viewIcon(view),
+		});
 	}
 
 	storePositionData() {

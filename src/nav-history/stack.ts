@@ -6,11 +6,11 @@ import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture
 import { resolveAnchorLine, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
-	NavEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
+	NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
 } from '@/nav/entry';
 import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
 import { PaneTarget } from '@/nav/pane';
-import { isMainAreaLeaf, viewState as readViewState } from '@/shared/leaf';
+import { isMainAreaLeaf, viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState } from '@/shared/leaf';
 import { loadNavHistory, persistNavHistory } from './store';
 
 // VSCode-style BACK/FORWARD, and the open pipeline a place is travelled through.
@@ -181,7 +181,10 @@ export class NavStack implements NavFunnelSink {
 		if (entry.kind === 'view') {
 			// The view the reader just left, re-read. The step it belongs to is the
 			// top one — that IS where they were — and what is refreshed is what the
-			// recording carried: the state the place will be rebuilt with.
+			// recording carried: the state the place will be rebuilt with, and the
+			// name and mark it will be listed under (see refreshTopLeafOnActivation:
+			// a view that renamed itself during the visit should end up called what
+			// the reader just read).
 			if (!entry.state)
 				return;
 			const top = this.entries[this.index];
@@ -189,6 +192,12 @@ export class NavStack implements NavFunnelSink {
 				|| top.leafId !== entry.leafId)
 				return;
 			top.state = entry.state;
+			// Absent means the view said nothing this time, not that it has no name:
+			// a failed read leaves the recorded one standing rather than blanking it.
+			if (entry.label !== undefined)
+				top.label = entry.label;
+			if (entry.icon !== undefined)
+				top.icon = entry.icon;
 			return;
 		}
 		if (entry.kind !== 'teleport' || !entry.st)
@@ -367,7 +376,16 @@ export class NavStack implements NavFunnelSink {
 		const top = this.entries[this.index];
 		if (!top)
 			return;
-		const leaf = this.findLeafById(top.leafId);
+		// A VIEW step falls back to the first main-area leaf SHOWING its type when
+		// its own leaf cannot be found, because a view entry's leafId is never
+		// written back (see execute): the place outlives the tab it came from, and
+		// the snapshot has to keep up with the PLACE. It matters more than it used
+		// to — a traversal now replays what the step holds (see relandViewState) —
+		// so a step whose tab was closed and rebuilt elsewhere would otherwise go
+		// on re-reading nothing and be replayed at whatever state it had before
+		// the rebuild.
+		const leaf = this.findLeafById(top.leafId)
+			?? (top.kind === 'view' ? this.findLeafShowing(top.viewType) : undefined);
 		if (!leaf || leaf === next)
 			return;
 		// A VIEW step's own state, read here for the same reason a file's position
@@ -377,6 +395,14 @@ export class NavStack implements NavFunnelSink {
 		// while the tab lives, so a tab the reader closes outright takes its last
 		// state with it (the snapshot from the last visit stands; see the comment on
 		// NavView.state).
+		//
+		// The NAME and the ICON are re-read with it, and for the same reason: a view
+		// that renames itself while the reader is sitting in it would otherwise go on
+		// being listed under the name it had when they ARRIVED. The built-in browser
+		// is the case that shows it — its tab header is the page TITLE, so browsing
+		// three pages in it leaves a row still called the first one. All three travel
+		// together (see NavView): they are what the row standing for this place prints
+		// and draws, and the place list takes all three (see places.ts's settle).
 		//
 		// Skipped when the leaf no longer SHOWS that view (a graph node click opens
 		// the file over the graph in the same tab) and when it is DEFERRED (unloaded
@@ -389,8 +415,15 @@ export class NavStack implements NavFunnelSink {
 			// Published rather than assigned: this is a fact BOTH readers keep, and
 			// the stack hears it back through onLanded exactly like the place list
 			// does — one write path, so the two cannot drift on what a view's state is.
+			// Gated on the state, deliberately: a view that reports none is one whose
+			// identity this plugin never had anything to say about either (the global
+			// graph names itself and nothing else), and a landing is what a step
+			// carries forward — not a place's whole row.
 			if (state)
-				this.funnel.landing({ kind: 'view', leafId: top.leafId, viewType: top.viewType, state });
+				this.funnel.landing({
+					kind: 'view', leafId: top.leafId, viewType: top.viewType, state,
+					label: readViewLabel(leaf.view), icon: readViewIcon(leaf.view),
+				});
 			return;
 		}
 		const view = leaf.view;
@@ -678,6 +711,17 @@ export class NavStack implements NavFunnelSink {
 		// preference would be a write into the place list's own object — see
 		// places.travel — and the list re-points itself from the activation record
 		// anyway: see places.ts's placeRecord).
+		//
+		// And a step is landed IN its state, not merely in front of the view: an
+		// alive leaf does not remember where the reader left the place, because a
+		// view's state is often not its own to keep. The local graph is the case
+		// that shows it — it follows the ACTIVE FILE, so activating its tab after
+		// reading two other notes draws THOSE notes' neighbourhood, which is the
+		// view's default behaviour rather than the place the step names. So a step
+		// that carries a state (see NavView.state) has it put back, and "the leaf
+		// is already showing this view" is not evidence that it is showing THIS
+		// (see relandViewState). A view with no state of its own — the global
+		// graph — is activated and nothing more, there being nothing to restore.
 		if (target.kind === 'view') {
 			const leaf = targetLeaf ?? this.findLeafShowing(target.viewType);
 			if (!leaf) {
@@ -689,8 +733,10 @@ export class NavStack implements NavFunnelSink {
 			if (leaf.isDeferred)
 				await leaf.loadIfDeferred();
 			const viewType = (leaf.view as { getViewType?: () => string } | undefined)?.getViewType?.();
-			if (viewType === target.viewType)
+			if (viewType === target.viewType) {
+				await this.relandViewState(leaf, target);
 				return;
+			}
 			// The view was swapped out (a graph node click opens the file over
 			// the graph in the same leaf, or graph:open reuses the tab): ride
 			// the native per-tab history when its next entry IS the graph
@@ -755,6 +801,33 @@ export class NavStack implements NavFunnelSink {
 		if (tryBoth && await this.delegateNative(dir === 1 ? -1 : 1, leaf, target.path, undefined, landing))
 			return;
 		await this.openInLeaf(leaf, target);
+	}
+
+	// Put a step's recorded view state back on the leaf that is SHOWING it — the
+	// "land where the step says" half of a view traversal, and the reason a step
+	// carries a state at all (see NavView.state). It is what keeps a place honest
+	// when the view keeps its own state moving: a local graph follows the active
+	// file, so the same tab answers for a different neighbourhood every time the
+	// reader comes back to it (see execute's view branch).
+	//
+	// Only a state that has MOVED is re-asserted. Reading the leaf's own state
+	// first costs one JSON round-trip — the same read the recording does, see
+	// shared/leaf.ts's viewState — and spares every ordinary traversal a needless
+	// setViewState, which a view may answer by rebuilding itself (the graph
+	// redraws, a search re-runs) for a state it was already in.
+	//
+	// Nothing to do when the step carries no state, or the leaf's view reports
+	// none: a view that never had a state is one whose state IS its default (the
+	// global graph), and there is nothing to put back.
+	private async relandViewState(leaf: WorkspaceLeaf, target: NavView): Promise<void> {
+		if (!target.state)
+			return;
+		const live = readViewState(leaf.view);
+		if (live && JSON.stringify(live) === JSON.stringify(target.state))
+			return;
+		await (leaf as unknown as {
+			setViewState(vs: { type: string; state: object; active: boolean }): Promise<void>;
+		}).setViewState({ type: target.viewType, state: target.state, active: true });
 	}
 
 	// Apply a target's landing to a view that ALREADY shows the file — the in-file
