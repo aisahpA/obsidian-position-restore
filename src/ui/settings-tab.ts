@@ -26,7 +26,7 @@ function dbSyncState(app: App, path: string): 'config' | 'hidden' | 'vault' {
 	return firstSegment.startsWith('.') ? 'hidden' : 'vault';
 }
 
-// The settings a standing recent-files panel draws by (see NavBrowserPrefs): what
+// The settings a standing recent-files panel draws by (see RecentFilesBrowserPrefs): what
 // one row prints, and whether it prints a time. They are read LIVE, so a panel
 // open beside this page is drawn again the moment one of them changes rather than
 // catching up on the reader's next navigation.
@@ -457,10 +457,10 @@ export class SettingTab extends PluginSettingTab {
 					// The two commands that OPEN this list, on the page that is about
 					// it (see `hotkeys`). The back/forward pair is on its own page.
 					this.hotkeys(t('recentFiles.hotkeys.desc'), [
-						{ id: 'browse-nav-history', name: t('recentFiles.commands.open') },
+						{ id: 'browse-recent-files', name: t('recentFiles.commands.open') },
 						// The resident panel is a command like the other one, so it is
 						// bound (or not) in the same place — see view.ts.
-						{ id: 'open-nav-history-sidebar', name: t('recentFiles.commands.openSidebar') },
+						{ id: 'open-recent-files-sidebar', name: t('recentFiles.commands.openSidebar') },
 					]),
 					{
 						type: 'page',
@@ -507,7 +507,7 @@ export class SettingTab extends PluginSettingTab {
 						],
 					},
 					// WHAT A ROW PRINTS, and how far back the list reaches: the
-					// browser's own preferences (see NavBrowserPrefs). They stand
+					// browser's own preferences (see RecentFilesBrowserPrefs). They stand
 					// here and no longer in a gear of the panel's toolbar — one
 					// place that holds them, reached the way every other setting of
 					// the plugin is, and no second copy inside a panel that is a

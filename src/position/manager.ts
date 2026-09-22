@@ -8,13 +8,13 @@ import { Restorer } from './restore/restorer';
 import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
 import { NavHistory } from '@/nav-history/history';
-import { NavHistoryModal } from '@/nav-history/browser/modal';
-import type { NavBrowserPrefs } from '@/nav-history/browser/body';
+import { RecentFilesModal } from '@/nav-history/browser/modal';
+import type { RecentFilesBrowserPrefs } from '@/nav-history/browser/body';
 import {
-	NAV_HISTORY_VIEW_TYPE,
-	NavHistoryView,
-	activateNavHistoryView,
-	createNavHistoryView,
+	RECENT_FILES_VIEW_TYPE,
+	RecentFilesView,
+	activateRecentFilesView,
+	createRecentFilesView,
 } from '@/nav-history/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 
@@ -49,7 +49,7 @@ export class PositionManager {
 		app: App,
 		database: CursorPositionDatabase,
 		// The one shared settings object (main.ts assigns it once, the settings tab
-		// mutates it in place). Kept as a field because the history browser reads its
+		// mutates it in place). Kept as a field because the recent-files browser reads its
 		// own preferences live off it (see browserPrefs).
 		private settings: PluginSettings,
 	) {
@@ -162,35 +162,35 @@ export class PositionManager {
 		return this.nav.canNavigate(dir);
 	}
 
-	// "Browse navigation history" modal (main.ts command) — see
-	// NavHistoryModal / NavHistory.jumpTo.
-	openNavHistoryModal() {
+	// The "Open recent files" modal (main.ts command) — see
+	// RecentFilesModal / NavHistory.jumpTo.
+	openRecentFilesModal() {
 		// The file you are sitting in has had no leave-refresh yet — fill its
 		// position, and make sure it has a place on the list, before the browser
 		// renders.
 		this.nav.syncCurrentPosition();
-		new NavHistoryModal(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs()).open();
+		new RecentFilesModal(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs()).open();
 	}
 
 	// The resident form of the same browser (main.ts command) — see
-	// NavHistoryView. Same history, same rows, standing in a sidebar instead of
+	// RecentFilesView. Same history, same rows, standing in a sidebar instead of
 	// asked and dismissed.
-	openNavHistorySidebar() {
+	openRecentFilesSidebar() {
 		// Same reason as the modal's: the panel draws the list as it stands, and
 		// the note being sat in may have no place on it yet.
 		this.nav.syncCurrentPosition();
-		void activateNavHistoryView(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs());
+		void activateRecentFilesView(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
 	// The factory main.ts hands to Plugin.registerView: the view needs the
 	// history, the saved positions and the browser's own preferences, all of
 	// which this facade owns, so the wiring is handed out here rather than reached
 	// for through it.
-	navHistoryViewCreator(): (leaf: WorkspaceLeaf) => NavHistoryView {
-		return createNavHistoryView(this.nav.places, (path) => this.database.db[path], this.browserPrefs());
+	recentFilesViewCreator(): (leaf: WorkspaceLeaf) => RecentFilesView {
+		return createRecentFilesView(this.nav.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
-	// The preferences the history browser draws by (see types.ts): read LIVE off the
+	// The preferences the recent-files browser draws by (see types.ts): read LIVE off the
 	// shared settings object, so the dialog and the resident panel cannot hold
 	// different opinions about them, and a choice made in the settings tab is in
 	// force on the next redraw of a panel that is already standing. READERS ONLY —
@@ -198,7 +198,7 @@ export class PositionManager {
 	// SettingTab.setControlValue), so there is no second writer to keep in step.
 	// One new object per shell: the object is a set of readers over settings that stay
 	// live, not a snapshot of them.
-	private browserPrefs(): NavBrowserPrefs {
+	private browserPrefs(): RecentFilesBrowserPrefs {
 		return {
 			landings: () => this.settings.navLandings,
 			// How far back the recent-files list reaches (see
@@ -219,9 +219,9 @@ export class PositionManager {
 	// it only has to be drawn again, which is what this asks every resident panel to
 	// do. A panel that is not open is simply not there to ask.
 	refreshNavPanels(): void {
-		for (const leaf of this.app.workspace.getLeavesOfType(NAV_HISTORY_VIEW_TYPE)) {
+		for (const leaf of this.app.workspace.getLeavesOfType(RECENT_FILES_VIEW_TYPE)) {
 			const view = leaf.view;
-			if (view instanceof NavHistoryView)
+			if (view instanceof RecentFilesView)
 				view.refresh();
 		}
 	}

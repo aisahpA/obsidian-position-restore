@@ -10,7 +10,7 @@ import { baseName } from './model';
 // ascending — see groupByFile). The list is one of these per note — which is what
 // makes a note opened ten times one row instead of ten, and what gives a
 // same-named note somewhere to say which folder it is in — and under the 'all'
-// setting its landings are printed beneath it (see NavHistoryList.shownLandings).
+// setting its landings are printed beneath it (see RecentFilesList.shownLandings).
 // A pathless view step (the graph) is a group of its own with no path and never
 // more than one landing.
 //
@@ -46,7 +46,7 @@ export interface NavFileGroup {
 	// reader was in that line) — or for the reader's own step where the CURRENT
 	// entry shares the line (see currentRep). Every one of them is a DESTINATION: a
 	// note whose file is gone is not grouped at all (see the `keep` filter in
-	// NavHistoryList.render), so a row on screen always has somewhere to go.
+	// RecentFilesList.render), so a row on screen always has somewhere to go.
 	indices: number[];
 	// The note's OWN record — the place that stands for the file rather than for
 	// a spot inside it (see places.ts), i.e. the `visit` (or the `view`) the
@@ -121,7 +121,7 @@ function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 // same spot (see landingKey). It is INJECTED rather than read off the entry
 // because the line a row prints is not always the entry's own: a step recorded
 // before the block was captured falls back to the file's saved position, and only
-// the caller can ask for that (see NavHistoryReads.describe). Whatever the caller
+// the caller can ask for that (see RecentFilesReads.describe). Whatever the caller
 // passes must be the same number the row shows, or the list would collapse steps
 // the reader can still see apart. The default — no line at all — keeps every
 // step, so a caller that does not care is never surprised.
@@ -140,7 +140,7 @@ export function groupByFile(
 	// looking at it. A caller that passes one is saying "the reader is USING this
 	// list": the order they are reading is then not the model's to change, so the
 	// current group is not pulled to the front and groups keep the places they
-	// were given (see NavHistoryListOptions.order).
+	// were given (see RecentFilesListOptions.order).
 	order?: readonly string[],
 ): NavFileGroup[] {
 	const groups = new Map<string, NavFileGroup>();

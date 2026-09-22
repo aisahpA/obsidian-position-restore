@@ -1,4 +1,4 @@
-// The history browser's pure model layer: what a row SAYS (its display pieces,
+// The recent-files browser's pure model layer: what a row SAYS (its display pieces,
 // its heading chain) derived from an entry, with the two things only the caller
 // can answer — the file's saved position, and its mtime now — coming in as
 // predicates. No DOM and no `this`: every function here is testable on its own.
@@ -89,9 +89,9 @@ export function duplicateNames(paths: Iterable<string>): Set<string> {
 
 // What a ROW needs to know about one entry, derived from the entry. Pure (the one
 // thing only the caller can answer — the file's saved position — comes in as a
-// predicate) so the history browser's labels are testable without a DOM. A place
+// predicate) so the recent-files browser's labels are testable without a DOM. A place
 // whose FILE is gone is never described: the list filters it out before asking (see
-// NavHistoryList.render).
+// RecentFilesList.render).
 //
 // It is deliberately SMALL. The details panel used to print a page of small print
 // about each step — how it was made, where a link came from, the size the file had

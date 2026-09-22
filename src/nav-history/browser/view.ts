@@ -7,7 +7,7 @@
 // close for every hop, and the panel that would help them is the one thing they
 // cannot see while they work. Resident, the same list is a place in the
 // workspace: it stays where they put it, it follows the history as it moves, and
-// a travel leaves it standing (see NavHistoryBrowserOptions.onJump).
+// a travel leaves it standing (see RecentFilesBrowserOptions.onJump).
 //
 // WHAT THE SHELL OWNS, and nothing else:
 //  - the leaf's own lifetime: mount a body on open, destroy it on close, and
@@ -25,19 +25,16 @@ import { App, ItemView, Platform, WorkspaceLeaf } from 'obsidian';
 import { PlaceList } from '@/nav-history/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { NavHistoryBrowser, NavBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
 
-// The view type, which is also what the layout file remembers. Renamed with the
-// panel itself, while the feature is still unreleased: nothing has been saved
-// into a reader's layout yet, so the constant is settled now — before it becomes
-// the one string no refactor may touch (a rename would orphan the sidebar).
-export const NAV_HISTORY_VIEW_TYPE = 'position-restore-recent-files';
+// The view type, which is also what the layout file remembers.
+export const RECENT_FILES_VIEW_TYPE = 'position-restore-recent-files';
 
-export class NavHistoryView extends ItemView {
+export class RecentFilesView extends ItemView {
 	// The panel itself, and the subscription that keeps it current (see
 	// NavPlaces.subscribe). Both are the view's own: the modal has no
 	// equivalent of either, because nothing outlives a dialog.
-	private browser: NavHistoryBrowser | null = null;
+	private browser: RecentFilesBrowser | null = null;
 	private unsubscribe: (() => void) | null = null;
 
 	constructor(
@@ -47,15 +44,15 @@ export class NavHistoryView extends ItemView {
 		// travels the way its own record says (see places.ts's travel).
 		private places: PlaceList,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The browser's own preferences (see NavBrowserPrefs): the plugin owns and
+		// The browser's own preferences (see RecentFilesBrowserPrefs): the plugin owns and
 		// persists them, this shell only hands them down.
-		private prefs: NavBrowserPrefs,
+		private prefs: RecentFilesBrowserPrefs,
 	) {
 		super(leaf);
 	}
 
 	getViewType(): string {
-		return NAV_HISTORY_VIEW_TYPE;
+		return RECENT_FILES_VIEW_TYPE;
 	}
 
 	// The pane's own tab and header text. Not a second name for the panel: the
@@ -65,8 +62,13 @@ export class NavHistoryView extends ItemView {
 		return t('recentFiles.name');
 	}
 
+	// The same icon the two commands carry (see main.ts). A clock, because the
+	// rows are ordered by WHEN they were last sat in — recency is what this
+	// panel is about. Not 'list': that one is the outline's icon (see the
+	// outline pane), and borrowing it would put two different panes under one
+	// mark in the sidebar.
 	getIcon(): string {
-		return 'history';
+		return 'clock';
 	}
 
 	async onOpen(): Promise<void> {
@@ -76,7 +78,7 @@ export class NavHistoryView extends ItemView {
 		this.contentEl.addClass('position-restore-nav-panel', 'position-restore-nav-view');
 		if (Platform.isMobile)
 			this.contentEl.addClass('is-touch');
-		this.browser = new NavHistoryBrowser({
+		this.browser = new RecentFilesBrowser({
 			app: this.app,
 			places: this.places,
 			host: this.contentEl,
@@ -89,7 +91,7 @@ export class NavHistoryView extends ItemView {
 			// …and a travel starts from a cleared list: the travel re-orders the list
 			// (the place visited moves to the end) and a jump re-pushes the stack, so
 			// the row the reader had pointed at is about to stand for a different place
-			// in the same slot (see NavHistoryList.collapse).
+			// in the same slot (see RecentFilesList.collapse).
 			collapseOnJump: true,
 			// …and on a PHONE the panel itself gets out of the way (see
 			// dismissOnMobile): a resident panel is a drawer over the whole screen
@@ -117,7 +119,7 @@ export class NavHistoryView extends ItemView {
 	}
 
 	// Draw the list again. A preference the reader changed in the settings tab is
-	// read live by the body (see NavBrowserPrefs), so this is all it takes for a
+	// read live by the body (see RecentFilesBrowserPrefs), so this is all it takes for a
 	// panel standing open beside the page to show the answer they just chose —
 	// and it is asked of the panel rather than pushed into it, because whether a
 	// panel is up at all is the workspace's business (see
@@ -158,13 +160,13 @@ export class NavHistoryView extends ItemView {
 // filter and its own open notes, is a way to be shown two different answers).
 // With none open the panel lands in the right sidebar, beside the note it is
 // about.
-export async function activateNavHistoryView(
+export async function activateRecentFilesView(
 	app: App,
 	places: PlaceList,
 	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-	prefs: NavBrowserPrefs,
+	prefs: RecentFilesBrowserPrefs,
 ): Promise<void> {
-	const existing = app.workspace.getLeavesOfType(NAV_HISTORY_VIEW_TYPE)[0];
+	const existing = app.workspace.getLeavesOfType(RECENT_FILES_VIEW_TYPE)[0];
 	if (existing) {
 		await app.workspace.revealLeaf(existing);
 		return;
@@ -172,17 +174,17 @@ export async function activateNavHistoryView(
 	const leaf = app.workspace.getRightLeaf(false);
 	if (!leaf)
 		return;
-	await leaf.setViewState({ type: NAV_HISTORY_VIEW_TYPE, active: true });
+	await leaf.setViewState({ type: RECENT_FILES_VIEW_TYPE, active: true });
 	await app.workspace.revealLeaf(leaf);
 }
 
 // The view factory, for Plugin.registerView. Kept here beside the class it
 // builds so that the leaf's runtime wiring (who gets the history, how a saved
 // position is read) is one thing in one file.
-export function createNavHistoryView(
+export function createRecentFilesView(
 	places: PlaceList,
 	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-	prefs: NavBrowserPrefs,
-): (leaf: WorkspaceLeaf) => NavHistoryView {
-	return leaf => new NavHistoryView(leaf, places, savedPosition, prefs);
+	prefs: RecentFilesBrowserPrefs,
+): (leaf: WorkspaceLeaf) => RecentFilesView {
+	return leaf => new RecentFilesView(leaf, places, savedPosition, prefs);
 }

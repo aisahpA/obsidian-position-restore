@@ -7,7 +7,7 @@ import { PlaceList } from '@/nav-history/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';
-import { NavHistoryBrowser, NavBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
 
 // A destination picker, laid out around how a user actually gets lost:
 //  - the list is PLACES (see places.ts): the notes the reader has been in, newest
@@ -21,7 +21,7 @@ import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 //    ones are still reachable through the search box, which matches the lines that
 //    were there (see list.ts);
 //  - the ROW ITSELF IS THE NAVIGATION, and the whole of it: a click opens what the row
-//    stands for (see NavHistoryList.onClick) — a note plainly, a jump at its recorded
+//    stands for (see RecentFilesList.onClick) — a note plainly, a jump at its recorded
 //    spot. Every row on screen has somewhere to go, since a place whose file is gone is
 //    not listed at all, and the place the reader is already in opens the file back (a
 //    jump re-lands its place rather than pushing a second step). Nothing answers a
@@ -29,7 +29,7 @@ import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 //  - the CURRENT note is pinned first, so the current position is a place in the
 //    same list — the first row — and not a line of chrome above it. The ● of "you
 //    are here" rides on the LANDING that holds the current entry, where it tells one
-//    spot from another (see NavHistoryList.placeRow): on the note's own row it could
+//    spot from another (see RecentFilesList.placeRow): on the note's own row it could
 //    only ever sit on row one, saying what the position already says;
 //  - picking a place is by RECOGNITION, never by retrieval, and what a row is
 //    recognized by is on the row: the note's name, the line it would land on, and the
@@ -58,9 +58,9 @@ import { NavHistoryBrowser, NavBrowserPrefs } from './body';
 // WHAT MAKES IT A MODAL, and nothing else does: it is a dialog (a shell of its own
 // lifetime, closed the moment a row is travelled to, with the filter box focused on
 // open). See view.ts for the resident panel that shares the same body.
-export class NavHistoryModal extends Modal {
+export class RecentFilesModal extends Modal {
 	// The panel itself: the toolbar, the rows and the keyboard (see body.ts).
-	private browser!: NavHistoryBrowser;
+	private browser!: RecentFilesBrowser;
 	// The device's own ergonomics, and nothing about how the list is driven: it is
 	// click-only everywhere (see list.ts). Read once, here: the touch flag picks the
 	// hint and decides whether the filter box focuses itself.
@@ -71,9 +71,9 @@ export class NavHistoryModal extends Modal {
 		// The recent-files list: the panel's only data source (see view.ts).
 		private places: PlaceList,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The browser's own preferences (see NavBrowserPrefs): the plugin owns and
+		// The browser's own preferences (see RecentFilesBrowserPrefs): the plugin owns and
 		// persists them, this shell only hands them down.
-		private prefs: NavBrowserPrefs,
+		private prefs: RecentFilesBrowserPrefs,
 	) {
 		super(app);
 	}
@@ -91,7 +91,7 @@ export class NavHistoryModal extends Modal {
 		this.modalEl.toggleClass('is-touch', this.mobile);
 		this.modalEl.toggleClass('is-fixed', this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
 		this.titleEl.setText(t('recentFiles.name'));
-		this.browser = new NavHistoryBrowser({
+		this.browser = new RecentFilesBrowser({
 			app: this.app,
 			places: this.places,
 			host: this.contentEl,

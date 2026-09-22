@@ -1,4 +1,4 @@
-// The history browser's BODY: everything about the panel that is not a shell.
+// The recent-files browser's BODY: everything about the panel that is not a shell.
 //
 // Two shells stand around it — the "Open recent files" modal
 // (modal.ts) and the resident sidebar panel (view.ts) — and everything they have in
@@ -32,11 +32,11 @@ import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
 import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
-import { NavHistoryReads } from './reads';
-import { NavHistoryList, NavHistoryListOptions } from './list';
+import { RecentFilesReads } from './reads';
+import { RecentFilesList, RecentFilesListOptions } from './list';
 import { TIME_REFRESH_MS } from './constants';
 
-// Per-body sequence for the list element's id (see NavHistoryBrowser.listId).
+// Per-body sequence for the list element's id (see RecentFilesBrowser.listId).
 let browserSeq = 0;
 
 // The preferences the browser DRAWS BY, handed to every shell by the plugin that
@@ -49,7 +49,7 @@ let browserSeq = 0;
 // are rows of the plugin's settings tab (see ui/settings-tab.ts), which is where a
 // reader reaches for a setting anyway. The copy the toolbar's gear used to carry is
 // gone with the gear — two places to change one value is one place to forget.
-export interface NavBrowserPrefs {
+export interface RecentFilesBrowserPrefs {
 	// How much of one note the list prints (see LandingsMode).
 	landings: () => LandingsMode;
 	// How many places the recent-files list keeps.
@@ -63,7 +63,7 @@ export interface NavBrowserPrefs {
 	rowTime: () => boolean;
 }
 
-export interface NavHistoryBrowserOptions {
+export interface RecentFilesBrowserOptions {
 	app: App;
 	// The PLACES the rows are drawn from — the recent-files list (see places.ts), never
 	// the back/forward stack: the list answers "which files have I been in, and which
@@ -81,7 +81,7 @@ export interface NavHistoryBrowserOptions {
 	// ergonomics and nothing else — an on-screen keyboard that covers half a phone
 	// when a field takes focus, and a × worth tapping where a mouse gets a few
 	// pixels. The list's own interaction is the same either way: it is click-only
-	// on every device (see NavHistoryList).
+	// on every device (see RecentFilesList).
 	touch: boolean;
 	// Whether a travel CLEARS the reader's place in the list first: nothing pointed
 	// at before the history is asked to move.
@@ -102,20 +102,20 @@ export interface NavHistoryBrowserOptions {
 	// move: the modal closes here (a picker has answered its question), the
 	// sidebar does nothing (staying put is the whole point of it).
 	onJump?: () => void;
-	// The browser's preferences, handed down by the shell (see NavBrowserPrefs):
+	// The browser's preferences, handed down by the shell (see RecentFilesBrowserPrefs):
 	// how much of a note the list prints, and how much of a row's path.
-	prefs: NavBrowserPrefs;
+	prefs: RecentFilesBrowserPrefs;
 }
 
-export class NavHistoryBrowser {
-	// The list of steps, its rows and what is pointed at (see NavHistoryList).
-	private list!: NavHistoryList;
+export class RecentFilesBrowser {
+	// The list of steps, its rows and what is pointed at (see RecentFilesList).
+	private list!: RecentFilesList;
 	// The list's options object, kept because two of its fields are the LIVE
 	// stack and are re-pointed before every render (see render): the list reads
 	// its entries through this object, so a resident panel is refreshed by
 	// assigning to it rather than by rebuilding the list (which would drop the
 	// position the reader was on).
-	private listOpts!: NavHistoryListOptions;
+	private listOpts!: RecentFilesListOptions;
 	// The search box's text. The list's own query.
 	private filter = '';
 	private filterInput!: HTMLInputElement;
@@ -123,7 +123,7 @@ export class NavHistoryBrowser {
 	// Every vault lookup the panel makes, cached — all of them metadata-cache
 	// lookups: an entry's display pieces and a file's parsed headings (see
 	// reads.ts).
-	private reads: NavHistoryReads;
+	private reads: RecentFilesReads;
 	// The list element's id, unique per body: the rows' option ids are built
 	// from it and the filter box's aria-activedescendant points at one of them,
 	// so a second browser mounted beside this one — a sidebar panel and the
@@ -139,8 +139,8 @@ export class NavHistoryBrowser {
 	// because a shell may mount and destroy a body many times in one app run.
 	private timer?: number;
 
-	constructor(private opts: NavHistoryBrowserOptions) {
-		this.reads = new NavHistoryReads(opts.app, {
+	constructor(private opts: RecentFilesBrowserOptions) {
+		this.reads = new RecentFilesReads(opts.app, {
 			savedPosition: opts.savedPosition,
 			// The live list, re-pointed per render (see render): a resident panel
 			// describes the places as they stand, not as they stood when it opened.
@@ -158,7 +158,7 @@ export class NavHistoryBrowser {
 		// of them has nothing left to arrange.
 		const listEl = this.opts.host.createDiv({ cls: 'position-restore-nav-list' });
 		// The list is a listbox whose options are the rows (the list tags them; see
-		// NavHistoryList.row) and whose current option the filter box names through
+		// RecentFilesList.row) and whose current option the filter box names through
 		// aria-activedescendant (see setActiveRow). The id is what makes that reference
 		// possible, and the label is the panel's own name.
 		listEl.setAttr('id', this.listId);
@@ -168,7 +168,7 @@ export class NavHistoryBrowser {
 			list: listEl,
 			listId: this.listId,
 			// How much of a note to print, and how much of its path: read LIVE (see
-			// NavBrowserPrefs), so the toolbar's setting reaches a panel that is
+			// RecentFilesBrowserPrefs), so the toolbar's setting reaches a panel that is
 			// already up.
 			landings: () => this.opts.prefs.landings(),
 			pathDisplay: () => this.opts.prefs.pathDisplay(),
@@ -178,7 +178,7 @@ export class NavHistoryBrowser {
 			// reader is on the list comes out in the order they are reading.
 			order: () => this.frozenOrder,
 			// What makes two places one, for a click whose row has been rebuilt
-			// away from under it (see NavHistoryList.onClick). The store's own
+			// away from under it (see RecentFilesList.onClick). The store's own
 			// notion of identity, reached through the list it was handed.
 			keyOf: (rep) => {
 				const entry = this.opts.places.entries[rep];
@@ -191,11 +191,11 @@ export class NavHistoryBrowser {
 			describe: rep => this.reads.describe(rep),
 			clearDescribeCache: () => this.reads.clearDescribeCache(),
 			// Whether a place may be listed at all: a name the list cannot open is not a
-			// row (see NavHistoryList.render and NavHistoryReads.hasFile). The store
+			// row (see RecentFilesList.render and RecentFilesReads.hasFile). The store
 			// prunes such a place on its own; this is the list agreeing with it.
 			noteExists: path => this.reads.hasFile(path),
 			trailFor: (entry, d) => this.trailFor(entry, d),
-			// The file's other names (see NavHistoryReads.aliasesFor): searchable, and
+			// The file's other names (see RecentFilesReads.aliasesFor): searchable, and
 			// printed nowhere on the row but its tooltip.
 			aliasesFor: path => this.reads.aliasesFor(path),
 			paneName: entry => this.paneName(entry),
@@ -205,7 +205,7 @@ export class NavHistoryBrowser {
 			// built here because the list does not hold the app (see contextRow).
 			onContextRow: (rep, ev) => this.contextRow(rep, ev),
 		};
-		this.list = new NavHistoryList(this.listOpts);
+		this.list = new RecentFilesList(this.listOpts);
 		// The pointer is how the body knows the reader is USING this list, which is
 		// the question the held order answers (see frozenOrder). Both listeners are
 		// on the list element and go with it; nothing to undo in destroy.
@@ -240,7 +240,7 @@ export class NavHistoryBrowser {
 		// landed on, so this sees one only when there was no row element left to be
 		// the target — the row was rebuilt away between the press and the release —
 		// which is exactly the click the list has to answer by identity (see
-		// NavHistoryList.onUnansweredClick).
+		// RecentFilesList.onUnansweredClick).
 		listEl.addEventListener('click', (ev) => this.list.onUnansweredClick(ev));
 		// One keydown listener on the shell's own element covers both the filter
 		// input and the list: while typing, arrows navigate and Enter jumps (the
@@ -290,7 +290,7 @@ export class NavHistoryBrowser {
 
 	// The reader's pointer is on the list, so the list is being READ: take the order
 	// it is showing right now and hold it there (see frozenOrder, and
-	// NavHistoryListOptions.order). This is the whole of the answer to "has the list
+	// RecentFilesListOptions.order). This is the whole of the answer to "has the list
 	// changed under me?" — the question is not which change was real, it is whether
 	// anyone is still looking, and the pointer is that question's honest answer.
 	//
@@ -461,7 +461,7 @@ export class NavHistoryBrowser {
 		// matches, so the two controls were a slower way to type it, and they cost the
 		// list the width and the row they stood on. So is the gear that used to stand at
 		// the strip's far end — its four choices are rows of the plugin's settings tab
-		// now (see NavBrowserPrefs) — and so is the hint that used to say "click a row
+		// now (see RecentFilesBrowserPrefs) — and so is the hint that used to say "click a row
 		// to open it": a row in a list answers a click everywhere else in the app, and
 		// the sentence was buying its line with the height the list needed.
 	}
@@ -534,7 +534,7 @@ export class NavHistoryBrowser {
 		if (this.opts.collapseOnJump)
 			this.list.collapse();
 		// …then the shell's own reaction, so a dialog is out of the way before
-		// the open it triggers runs (see NavHistoryBrowserOptions.onJump).
+		// the open it triggers runs (see RecentFilesBrowserOptions.onJump).
 		this.shellReacts();
 		void this.opts.places.travel(i, target)
 			.catch(e => console.error('Position Restore: recent-files travel failed:', e));

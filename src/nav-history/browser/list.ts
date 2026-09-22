@@ -99,7 +99,7 @@ interface RowRef {
 	group?: number;
 }
 
-export interface NavHistoryListOptions {
+export interface RecentFilesListOptions {
 	// The list element, created by the browser.
 	list: HTMLElement;
 	// The history the rows are drawn from, as one snapshot.
@@ -110,7 +110,7 @@ export interface NavHistoryListOptions {
 	currentIndex: number;
 	// The id the browser gave the list element. Row option ids are built from
 	// it, so they are unique in the document even with a second browser open
-	// (see NavHistoryModal.listId) — aria-activedescendant has to name exactly
+	// (see RecentFilesModal.listId) — aria-activedescendant has to name exactly
 	// one row.
 	listId: string;
 	// The search box's current text.
@@ -202,7 +202,7 @@ export function revealDelta(rowTop: number, rowHeight: number, boxTop: number, b
 	return Math.round(rowTop - (boxTop + (boxHeight - rowHeight) / 2));
 }
 
-export class NavHistoryList {
+export class RecentFilesList {
 	// The rows on screen, top to bottom: a note row, and under it its landings when
 	// the setting prints them (see shownLandings). The keyboard walks THIS, so what
 	// is not on screen is not walked.
@@ -223,7 +223,7 @@ export class NavHistoryList {
 	// tip.ts): the only place a full path can be said in a type the reader can read.
 	private tip: NavRowTip;
 
-	constructor(private opts: NavHistoryListOptions) {
+	constructor(private opts: RecentFilesListOptions) {
 		// Nothing is listened to here for the LIST's own sake: a pointer moves no
 		// position at all (see the class comment) — the rows' own clicks are wired as
 		// the rows are drawn. The tooltip is the one pointer reader, and it answers with
@@ -402,7 +402,7 @@ export class NavHistoryList {
 	}
 
 	// The groups as they are drawn RIGHT NOW, by identity: what the browser pins
-	// when the pointer arrives (see NavHistoryListOptions.order). It is asked of
+	// when the pointer arrives (see RecentFilesListOptions.order). It is asked of
 	// the LIST rather than recomputed by the caller because the order on screen is
 	// this render's — the filter in force, the places as they were grouped, and any
 	// order already being held all went into it.
@@ -857,7 +857,7 @@ export class NavHistoryList {
 		this.opts.onActiveRow(undefined);
 	}
 
-	// The panel is going (see NavHistoryBrowser.destroy): the tooltip is the one thing
+	// The panel is going (see RecentFilesBrowser.destroy): the tooltip is the one thing
 	// this class put OUTSIDE the panel's own element — it is drawn on the document, so
 	// nothing that removes the panel removes it — and the events it listens for have to
 	// come off with it.

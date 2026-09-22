@@ -1,6 +1,6 @@
 // The pane marker's pure model: which LIVE main-area leaf holds which
 // destination, and which step therefore deserves a "2/3" label. The live layout
-// comes in as a list (see NavHistoryModal.liveLeaves); nothing here touches the
+// comes in as a list (see RecentFilesModal.liveLeaves); nothing here touches the
 // workspace or the DOM.
 
 import { NavHistoryEntry } from '@/nav-history/entry';
@@ -18,7 +18,7 @@ export function destinationKey(entry: NavHistoryEntry): string {
 
 // The main area as the pane marker needs to see it: one record per MAIN-AREA
 // leaf, in layout order, naming the destination that leaf currently shows.
-// Built by the browser from the live workspace (NavHistoryModal.liveLeaves) and
+// Built by the browser from the live workspace (RecentFilesModal.liveLeaves) and
 // never from the history: a recorded leaf id keeps pointing at a tab after that
 // tab has walked to another note ("this leaf also held that file") or after it
 // has been closed, and a number derived from those claims named windows that

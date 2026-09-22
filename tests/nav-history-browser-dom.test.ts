@@ -1,4 +1,4 @@
-// DOM-level tests for the history browser's interaction semantics — the parts
+// DOM-level tests for the recent-files browser's interaction semantics — the parts
 // a reader cannot verify by reading a pure function: what a bare Enter does,
 // which rows are selectable at all, the landing panel that describes a row, and
 // the search box that is now the toolbar's only control.
@@ -8,8 +8,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
 
-import { NavHistoryModal } from '@/nav-history/browser/modal';
-import type { NavBrowserPrefs } from '@/nav-history/browser/body';
+import { RecentFilesModal } from '@/nav-history/browser/modal';
+import type { RecentFilesBrowserPrefs } from '@/nav-history/browser/body';
 import type { LandingsMode } from '@/nav-history/browser/listing';
 import type { PathDisplayMode } from '@/types';
 import type { NavHistoryEntry } from '@/nav-history/entry';
@@ -27,7 +27,7 @@ const NOW = Date.now();
 
 // A preference set for one harness (or for two, when a test wants to show that a
 // choice made in the settings tab is the choice the next dialog opens on). The
-// panel only READS them (see NavBrowserPrefs) — the values are the plugin's, and
+// panel only READS them (see RecentFilesBrowserPrefs) — the values are the plugin's, and
 // what changes them is the settings tab — so the fixture is a set of live readers
 // over values a test can write, exactly as the settings tab writes them.
 function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: boolean } = {}) {
@@ -47,15 +47,15 @@ function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: 
 			// How much of a row's path is printed, and on which side of the name (see
 			// PathDisplayMode).
 			pathDisplay: () => state.path,
-			// Whether each row is dated (see NavBrowserPrefs.rowTime).
+			// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime).
 			rowTime: () => state.time,
-		} satisfies NavBrowserPrefs,
+		} satisfies RecentFilesBrowserPrefs,
 	};
 }
 
 // The plain set a harness gets when a test says nothing: one row per note, with the
 // details column on (see prefs).
-function defaultPrefs(): NavBrowserPrefs {
+function defaultPrefs(): RecentFilesBrowserPrefs {
 	return prefs().browser;
 }
 
@@ -135,7 +135,7 @@ const A_HEADINGS = {
 // A note long enough for its places to be MORE than the two headings a few lines
 // apart cannot be. Every distinct line is a row of its own now (see NavFileGroup),
 // but a landing row is only printed at all when the note holds more than one (see
-// NavHistoryList.printsLandings) — so a fixture with two heads three lines apart
+// RecentFilesList.printsLandings) — so a fixture with two heads three lines apart
 // still says something different from one with two heads a section apart: the
 // filler is what puts a second section far enough down the note for the suite's
 // second place to be a place of its own, under a heading of its own.
@@ -160,7 +160,7 @@ function harness(
 	index: number,
 	// The vault as the fake app reports it. Only EXISTENCE is asked of it now — a path
 	// absent here is a place the list will not draw — because the browser reads no file
-	// at all (see NavHistoryReads). The text is kept for the fake `cachedRead`, which
+	// at all (see RecentFilesReads). The text is kept for the fake `cachedRead`, which
 	// nothing calls.
 	files: Record<string, string> = {},
 	// Paths the fixture wants to be RECORDED AND GONE: a place in the history whose file
@@ -173,9 +173,9 @@ function harness(
 	live: Record<string, string> = {},
 	// parsed headings per path, as metadataCache would report them
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
-	// a touch device. The list answers a click either way (see NavHistoryList), so
+	// a touch device. The list answers a click either way (see RecentFilesList), so
 	// what this flag decides here is the PRESENTATION — jsdom has no matchMedia to
-	// ask, so a touch device is the inline one (see NavHistoryModal.inline) — plus the
+	// ask, so a touch device is the inline one (see RecentFilesModal.inline) — plus the
 	// touch ergonomics: the ×'s target under a finger, and the filter box left
 	// unfocused.
 	mobile = false,
@@ -189,11 +189,11 @@ function harness(
 	// browser compares them with the mtime an entry recorded.
 	mtimes: Record<string, number> = {},
 	// The browser's own preferences, as the plugin hands them to a shell (see
-	// NavBrowserPrefs). A test that wants a dialog to open with every landing
+	// RecentFilesBrowserPrefs). A test that wants a dialog to open with every landing
 	// printed passes its own set here — the same object twice, to show that the
 	// choice is not the dialog's — and the default is a fresh one per harness, so
 	// tests cannot leak a preference into each other through the settings file.
-	browserPrefs: NavBrowserPrefs = defaultPrefs(),
+	browserPrefs: RecentFilesBrowserPrefs = defaultPrefs(),
 ) {
 	// The place list's travel: the panel hands it a place index and the list
 	// decides how to go there (a file opens the plain way, a jump lands — see
@@ -231,7 +231,7 @@ function harness(
 			// browser also searches a file's aliases, for the frontmatter itself.
 			//
 			// The reads are COUNTED: the browser memoizes one record per path for the
-			// life of a body (see NavHistoryReads), and the count is how a test sees
+			// life of a body (see RecentFilesReads), and the count is how a test sees
 			// that the memory is doing its job.
 			getFileCache: (file: { path: string }) => {
 				cacheReads++;
@@ -241,7 +241,7 @@ function harness(
 				return Array.isArray(cache) ? { headings: cache } : cache;
 			},
 			// The one metadataCache event the browser listens for (see
-			// NavHistoryReads): a file's frontmatter changed, so its record — and with
+			// RecentFilesReads): a file's frontmatter changed, so its record — and with
 			// it its aliases — is stale. `on` hands back the callback itself as the
 			// handle `offref` takes, which is all the browser does with it.
 			on: (name: string, cb: (file: { path: string }) => void) => {
@@ -256,7 +256,7 @@ function harness(
 		workspace: {
 			rootSplit: { containerEl: rootEl },
 			// The app's own menu event: the browser asks the APP to fill the menu in (see
-			// NavHistoryBrowser.contextRow), so what a test can see is the menu object it
+			// RecentFilesBrowser.contextRow), so what a test can see is the menu object it
 			// was handed — which is the whole of what this plugin contributes.
 			trigger: vi.fn(),
 			iterateAllLeaves: (cb: (leaf: unknown) => void) => {
@@ -279,9 +279,9 @@ function harness(
 	// long, so the tap semantics are decided the way a real device would.
 	const previous = Platform.isMobile;
 	Platform.isMobile = mobile;
-	let modal: NavHistoryModal;
+	let modal: RecentFilesModal;
 	try {
-		modal = new NavHistoryModal(app as never, {
+		modal = new RecentFilesModal(app as never, {
 			entries, index, travel: jumpTo, subscribe: () => () => {},
 		} as never, undefined, browserPrefs);
 	} finally {
@@ -302,12 +302,12 @@ function harness(
 		rows().find(r => r.querySelector('.nav-row-line')?.textContent === line)!;
 	// ONE click on the ROW: the panel is a navigator, so this OPENS the file the row
 	// stands for — the note's own newest landing, or the landing itself (see
-	// NavHistoryList.onClick). The place the reader is
+	// RecentFilesList.onClick). The place the reader is
 	// already in is not exempt: the open re-lands it. Only a deleted note goes nowhere.
 	const clickRow = (row: HTMLElement) =>
 		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	// …and the press that a real click is the SECOND half of (see
-	// NavHistoryList.onPress). A test drives the two apart only to move the list in
+	// RecentFilesList.onPress). A test drives the two apart only to move the list in
 	// between; an ordinary click is a press followed immediately by a click, and the
 	// tests that dispatch the click alone are the ones about a programmatic activation
 	// (or an assistive technology's), which has no press to remember.
@@ -330,7 +330,7 @@ function harness(
 		filterInput.dispatchEvent(new Event('input', { bubbles: true }));
 	};
 	// …and the muted gestures: a right-click, and a finger's lingering press (a
-	// WebView raises the same `contextmenu` for both — see NavHistoryList.onContextMenu).
+	// WebView raises the same `contextmenu` for both — see RecentFilesList.onContextMenu).
 	// Neither goes anywhere any more; what matters is that neither OPENS anything, and
 	// that both are still refused.
 	const rightClick = (row: HTMLElement) => {
@@ -348,7 +348,7 @@ function harness(
 		return ev;
 	};
 	// A real pointer move over a row. Nothing in the list listens for it — the panel
-	// is click-only (see NavHistoryList), so a mouse crossing a row chooses nothing,
+	// is click-only (see RecentFilesList), so a mouse crossing a row chooses nothing,
 	// opens nothing and moves no position — and this is how the tests that say so
 	// deliver the report. The handler used to hit-test by event TARGET; the
 	// coordinates advance per call so that even a list that counted movement as a
@@ -385,7 +385,7 @@ function harness(
 		for (const cb of [...metaListeners])
 			cb({ path });
 	};
-	// The × at the end of the filter box (see NavHistoryBrowser.toolbar). It is in the
+	// The × at the end of the filter box (see RecentFilesBrowser.toolbar). It is in the
 	// DOM whether or not the box has anything in it — the stylesheet is what hides it
 	// while the box is empty (asserted in the styles suite, since jsdom loads no
 	// stylesheet) — so a test clicks it the way a reader does.
@@ -426,7 +426,7 @@ afterEach(() => {
 	document.body.className = '';
 });
 
-describe('NavHistoryModal — the dropped-steps footnote', () => {
+describe('RecentFilesModal — the dropped-steps footnote', () => {
 	it('is gone: the stack sits at its cap in ordinary use, so it never earned a line', () => {
 		// It reported what the ceiling had discarded, from the foot of the list —
 		// which is below the fold exactly when entries HAVE been dropped (a stack
@@ -439,21 +439,21 @@ describe('NavHistoryModal — the dropped-steps footnote', () => {
 	});
 });
 
-describe('NavHistoryModal — current position', () => {
+describe('RecentFilesModal — current position', () => {
 	it('pins the current note first, with no dot of its own', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
 		// There is no second "you are here" anywhere: the card that used to stand
 		// above the list said the same thing in a second place and a second layout,
-		// and the row below is the authoritative one (see NavHistoryModal.render).
+		// and the row below is the authoritative one (see RecentFilesModal.render).
 		expect(h.el.querySelector('.position-restore-nav-here')).toBeNull();
 
 		// The current note is a row in the list like any other, first — and it carries
 		// no ●: the current note is pinned first, so a dot on it could only ever sit on
 		// row one, saying what the position already says. The dot is for the LANDING
 		// that holds the current entry, which has its note's other rows beside it (see
-		// NavHistoryList.placeRow), and no note row here prints landings.
+		// RecentFilesList.placeRow), and no note row here prints landings.
 		const notes = h.notes();
 		expect(notes).toHaveLength(3);
 		expect(notes[0].textContent).toContain('c');
@@ -475,13 +475,13 @@ describe('NavHistoryModal — current position', () => {
 
 		// Two spots in c.md, and the DEFAULT list prints neither: one row per note is
 		// the whole of what it is (see LandingsMode), and the row stands for the LAST
-		// spot the reader was at in that note (see NavHistoryList.activeRep).
+		// spot the reader was at in that note (see RecentFilesList.activeRep).
 		expect(h.rows()).toHaveLength(0);
 		expect(h.note('c').querySelector('.nav-row-here')).toBeNull();
 
 		// …and the row is a destination all the same: a click opens c.md at that very
 		// place, because the open re-lands it rather than pushing it again — which is
-		// what a reader whose tab was closed is asking for (see NavHistoryList.targetOf).
+		// what a reader whose tab was closed is asking for (see RecentFilesList.targetOf).
 		h.clickRow(h.note('c'));
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
@@ -490,7 +490,7 @@ describe('NavHistoryModal — current position', () => {
 		// The list used to call itself empty when the current entry's note was the only
 		// place left on it, and that row answered nothing: the one list a reader with
 		// every tab closed ever sees was the one list with no way back in. The row is a
-		// destination now (see NavHistoryList.targetOf), so the sentence about having
+		// destination now (see RecentFilesList.targetOf), so the sentence about having
 		// nowhere to go belongs to a query that matched nothing, or to a history whose
 		// notes are genuinely gone — never to the spot the reader is standing in.
 		const h = harness([visit('only.md', NOW)], 0, { 'only.md': '' });
@@ -506,7 +506,7 @@ describe('NavHistoryModal — current position', () => {
 		// The sentence is the QUERY's answer and not a verdict on the place the reader
 		// is standing in: a filter that matches nothing empties the list, while a filter
 		// that keeps only the current note leaves a row that opens like any other (see
-		// NavHistoryList.render's refs.some(targetOf) branch).
+		// RecentFilesList.render's refs.some(targetOf) branch).
 		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' });
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		const search = (q: string) => {
@@ -545,7 +545,7 @@ describe('NavHistoryModal — current position', () => {
 			.toEqual(['nav-row-here', 'nav-row-line']);
 
 		// BOTH are destinations, the one the reader is standing in included: the list
-		// does not hold back the place they are already in (see NavHistoryList.targetOf),
+		// does not hold back the place they are already in (see RecentFilesList.targetOf),
 		// so a note's sub-list under its own row opens like any other note's.
 		h.clickRow(places[0]);
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
@@ -559,8 +559,8 @@ describe('NavHistoryModal — current position', () => {
 // it at a different place. The row's index is a fact about ONE render (the places move
 // under the list on every visit), so a click that reads it after a rebuild opens
 // whatever slid into that slot — the wrong note. What the click is answered with
-// instead is the place the reader PRESSED (see NavHistoryList.onPress / onClick).
-describe('NavHistoryModal — a click after the list was rebuilt', () => {
+// instead is the place the reader PRESSED (see RecentFilesList.onPress / onClick).
+describe('RecentFilesModal — a click after the list was rebuilt', () => {
 	// a is the OLDEST here, so recency puts it LAST: three rows, a.md third.
 	const three = () => [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
@@ -635,7 +635,7 @@ describe('NavHistoryModal — a click after the list was rebuilt', () => {
 		// A press whose element is removed before the release does not always come
 		// back to that element: the browser resolves the click on the nearest
 		// ancestor still in the document, so no row sees it at all. That is the
-		// click that used to do nothing whatever (see NavHistoryList.onUnansweredClick).
+		// click that used to do nothing whatever (see RecentFilesList.onUnansweredClick).
 		const entries = three();
 		const h = harness(entries, 2, files);
 		const row = h.note('a');
@@ -675,7 +675,7 @@ describe('NavHistoryModal — a click after the list was rebuilt', () => {
 	});
 });
 
-describe('NavHistoryModal — keyboard', () => {
+describe('RecentFilesModal — keyboard', () => {
 	it('does nothing on Enter until a row is pointed at', () => {
 		// Enter used to fall back to "go back one step", which meant the same key
 		// did two different things depending on whether the pointer had crossed a
@@ -767,7 +767,7 @@ describe('NavHistoryModal — keyboard', () => {
 	});
 
 	it('moves the position for a key and for nothing a pointer merely crosses', () => {
-		// THE RULE OF THE LIST (see NavHistoryList): a pointer that passes over a row
+		// THE RULE OF THE LIST (see RecentFilesList): a pointer that passes over a row
 		// chooses nothing. It used to move THE position — the row Enter travels to —
 		// which meant a mouse crossing the list selected a row nobody chose and could
 		// undo the keyboard's walk. Every report here is a real one, at a coordinate of
@@ -816,7 +816,7 @@ describe('NavHistoryModal — keyboard', () => {
 		expect(h.note('b').classList.contains('is-selected')).toBe(true);
 
 		// Enter travels to the spot that row stands for — the note's NEWEST landing,
-		// where the reader left it (see NavHistoryList.activeRep) — and ↓ walks on to
+		// where the reader left it (see RecentFilesList.activeRep) — and ↓ walks on to
 		// the next NOTE, because there is no landing row in between to step into.
 		h.key('Enter');
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
@@ -824,7 +824,7 @@ describe('NavHistoryModal — keyboard', () => {
 		expect(h.note('a').classList.contains('is-selected')).toBe(true);
 
 		// ←→ is not consumed by anything here: there is no tree left to open or close
-		// (see NavHistoryBrowser.onKeyDown), so both keys keep their ordinary meaning
+		// (see RecentFilesBrowser.onKeyDown), so both keys keep their ordinary meaning
 		// in the search box.
 		const right = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
 		h.modal.contentEl.dispatchEvent(right);
@@ -856,7 +856,7 @@ describe('NavHistoryModal — keyboard', () => {
 
 	it('walks the landing rows too when the setting prints them', () => {
 		// The same list under 'all': the note's spots are rows of their own, so ↓ steps
-		// into them and Enter travels to the one it is on (see NavHistoryList.move).
+		// into them and Enter travels to the one it is on (see RecentFilesList.move).
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
 			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
@@ -875,7 +875,7 @@ describe('NavHistoryModal — keyboard', () => {
 	});
 });
 
-describe('NavHistoryModal — the file scope is gone', () => {
+describe('RecentFilesModal — the file scope is gone', () => {
 	// What stood here was two controls carrying one state: an "only this note"
 	// switch and a chip opening a menu of every note the history had been in.
 	// Both answered "where else in this note was I", and the search box already
@@ -883,7 +883,7 @@ describe('NavHistoryModal — the file scope is gone', () => {
 	// toolbar keeps the box and nothing beside it, and the list keeps the width and
 	// the row the hint used to stand on. What the list PRINTS is not a question the
 	// toolbar answers either: those four choices are rows of the plugin's settings
-	// tab now (see NavBrowserPrefs).
+	// tab now (see RecentFilesBrowserPrefs).
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 	const entries = () => [
 		visit('a.md', NOW - 5 * MINUTE),
@@ -899,7 +899,7 @@ describe('NavHistoryModal — the file scope is gone', () => {
 		expect(h.el.querySelector('.position-restore-nav-scope')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope-menu')).toBeNull();
 		// The box, and nothing else: the gear that used to stand at the strip's far end
-		// is gone with the four choices it carried (see NavBrowserPrefs), and so is the
+		// is gone with the four choices it carried (see RecentFilesBrowserPrefs), and so is the
 		// hint that used to say "click a row to open it" — a row in a list answers a
 		// click everywhere else in the app, and the sentence cost the list its line. The
 		// box's × is not a second thing in the strip: it is INSIDE the box's own element,
@@ -912,7 +912,7 @@ describe('NavHistoryModal — the file scope is gone', () => {
 	});
 
 	it('empties the box from the × at the end of the line', () => {
-		// The app's own gesture, copied from its quick switcher (see NavHistoryBrowser
+		// The app's own gesture, copied from its quick switcher (see RecentFilesBrowser
 		// .toolbar): the press is REFUSED so the caret never leaves the box, and the click
 		// clears the box and re-reads the list from it. It is in the DOM whether or not
 		// the box has anything in it; the STYLESHEET is what hides it while the box is
@@ -952,11 +952,11 @@ describe('NavHistoryModal — the file scope is gone', () => {
 	});
 });
 
-// The OTHER NAMES a file goes by (see NavHistoryReads.aliasesFor): searchable, and
+// The OTHER NAMES a file goes by (see RecentFilesReads.aliasesFor): searchable, and
 // printed nowhere on the row but its own tooltip. They are the fourth thing a query
 // can hit that is not literally on the row, and the first one that is deliberately
 // about the reader's memory rather than about the visit.
-describe('NavHistoryModal — searching a note by its other names', () => {
+describe('RecentFilesModal — searching a note by its other names', () => {
 	// The window opens with the note's `visit` (the file's own record) and one jump
 	// into it, so a query's hits can be counted as rows AND as landing rows.
 	const entries = (): NavHistoryEntry[] => [
@@ -1102,7 +1102,7 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 
 	it('reads each path once, and reads it again only when the file changes', () => {
 		// Two notes, one read each: the record is memoized per PATH for the life of the
-		// body (see NavHistoryReads), so filtering, re-ordering and every later render
+		// body (see RecentFilesReads), so filtering, re-ordering and every later render
 		// are answered from memory — and a frontmatter change drops exactly one path.
 		const h = harness(entries(), 2, files, [], {}, cache);
 		expect(h.cacheReads()).toBe(2);
@@ -1118,10 +1118,10 @@ describe('NavHistoryModal — searching a note by its other names', () => {
 	});
 });
 
-describe('NavHistoryModal — the list\'s looks belong to the settings tab', () => {
+describe('RecentFilesModal — the list\'s looks belong to the settings tab', () => {
 	// What the list PRINTS is no longer chosen in the panel: the four choices the
 	// toolbar's gear used to carry are rows of the plugin's settings tab now (see
-	// NavBrowserPrefs), so the strip is the box alone, and a dialog that lives a
+	// RecentFilesBrowserPrefs), so the strip is the box alone, and a dialog that lives a
 	// second has nothing in it worth changing anyway. Two spots in a.md and
 	// b.md current, so 'all' has something to print.
 	const entries = () => [
@@ -1151,12 +1151,12 @@ describe('NavHistoryModal — the list\'s looks belong to the settings tab', () 
 	});
 });
 
-describe('NavHistoryModal — a file that is gone', () => {
+describe('RecentFilesModal — a file that is gone', () => {
 	// A place whose file no longer exists is not listed at all: no row, no landing,
 	// no "you are here" — not even for the note the reader is standing in. The
 	// recent-files store prunes such a place on the vault's own delete event (see
 	// places.ts); the list agrees with it on the spot, which is also what covers the
-	// moment before that prune lands (see NavHistoryList.render).
+	// moment before that prune lands (see RecentFilesList.render).
 	it('leaves a deleted note out of the list entirely', () => {
 		const entries = [visit('gone.md', NOW - 2 * MINUTE), visit('b.md', NOW)];
 		const h = harness(entries, 1, { 'b.md': '' }, ['gone.md']);
@@ -1205,7 +1205,7 @@ describe('NavHistoryModal — a file that is gone', () => {
 	});
 });
 
-describe('NavHistoryModal — keyboard is announced', () => {
+describe('RecentFilesModal — keyboard is announced', () => {
 	// The focus never leaves the filter box (typing narrows the list from the
 	// same keys that walk it), so the box is an ARIA combobox over the list and
 	// the current option is named by aria-activedescendant. Without that
@@ -1238,7 +1238,7 @@ describe('NavHistoryModal — keyboard is announced', () => {
 	});
 });
 
-describe('NavHistoryModal — one note, many landings', () => {
+describe('RecentFilesModal — one note, many landings', () => {
 	// A reading capture lands on a viewport line: every landing of one note is a
 	// row under that note, and two DIFFERENT lines stay two rows.
 	const at = (path: string, line: number, agoMin: number): NavHistoryEntry =>
@@ -1281,7 +1281,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 		expect(row.querySelector('.nav-file-caret')).toBeNull();
 
 		// ONE spot is not a list, so not even 'all' prints a row for it (see
-		// NavHistoryList.printsLandings): the note's own row stands for it.
+		// RecentFilesList.printsLandings): the note's own row stands for it.
 		expect(h.rows()).toHaveLength(0);
 
 		// …and the row is a destination: a click on it opens its one place.
@@ -1304,7 +1304,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 
 		const row = h.note('board');
 		// One spot, so nothing under the row — not even under 'all': one place is not
-		// a list (see NavHistoryList.printsLandings).
+		// a list (see RecentFilesList.printsLandings).
 		expect(row.querySelector('.nav-row-count')).toBeNull();
 		expect(h.rows()).toHaveLength(0);
 		expect(harnessAll([
@@ -1357,7 +1357,7 @@ describe('NavHistoryModal — one note, many landings', () => {
 	});
 });
 
-describe('NavHistoryModal — panes', () => {
+describe('RecentFilesModal — panes', () => {
 	// A landing of a note, taken in one tab: a jump the reader made (see places.ts).
 	const pane = (path: string, leafId: string, stamp: number): NavHistoryEntry =>
 		({ kind: 'jump', path, leafId, key: `outline:${leafId}`, t: stamp, st: { scroll: stamp } });
@@ -1416,12 +1416,12 @@ describe('NavHistoryModal — panes', () => {
 	});
 });
 
-describe('NavHistoryModal — a landing row', () => {
+describe('RecentFilesModal — a landing row', () => {
 	// The landings a note holds are rows of their own under 'all', so these tests ask
 	// for them: the note here holds TWO places — L7 under "预览" and L36 under
 	// "尾巴" — far enough apart that they are two rows at all (see SPREAD_DOC), and a
 	// note with ONE prints none either way — a single place is not a list (see
-	// NavHistoryList.printsLandings).
+	// RecentFilesList.printsLandings).
 	const body = () => [
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -1504,7 +1504,7 @@ describe('NavHistoryModal — a landing row', () => {
 // WHAT A ROW SAYS about the FILE behind it: the name without its extension, the type
 // badge where the type is worth saying, the folder on the side the setting asks for,
 // and the full path on hover (see displayName / badgeOf / PathDisplayMode).
-describe('NavHistoryModal — the name, the type and the path', () => {
+describe('RecentFilesModal — the name, the type and the path', () => {
 	const files = {
 		'a/index.md': '', 'b/index.md': '', 'notes.md': '',
 		'report.pdf': '', 'LICENSE': '', 'board.canvas': '',
@@ -1665,7 +1665,7 @@ describe('NavHistoryModal — the name, the type and the path', () => {
 // the panel's decision: a pointer crossing the list says nothing, a pointer that rests
 // gets an answer, and the answer goes the moment the thing it describes is no longer
 // what the pointer is on — or is no longer on screen at all.
-describe('NavHistoryModal — the row\'s tooltip', () => {
+describe('RecentFilesModal — the row\'s tooltip', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
@@ -1706,7 +1706,7 @@ describe('NavHistoryModal — the row\'s tooltip', () => {
 	it('takes it away when the list is rebuilt under it', () => {
 		// Every keystroke redraws the rows, so a tooltip left standing would be pointing
 		// at a row that no longer exists — and describing a list the reader has just
-		// filtered (see NavHistoryList.render).
+		// filtered (see RecentFilesList.render).
 		const h = harness(entries(), 1, files);
 		expect(h.hover(h.note('a'))).not.toBeNull();
 
@@ -1743,7 +1743,7 @@ describe('NavHistoryModal — the row\'s tooltip', () => {
 
 	it('takes its element with it when the panel goes', () => {
 		// The tooltip is the one thing the body put OUTSIDE its own element, so nothing
-		// that removes the panel removes it (see NavHistoryBrowser.destroy).
+		// that removes the panel removes it (see RecentFilesBrowser.destroy).
 		const h = harness(entries(), 1, files);
 		expect(h.hover(h.note('a'))).not.toBeNull();
 
@@ -1757,7 +1757,7 @@ describe('NavHistoryModal — the row\'s tooltip', () => {
 // switch and not a scale: off, the rows are exactly the rows that were there before
 // the label existed, and on, every row carries one — including the ones with no file
 // behind them at all.
-describe('NavHistoryModal — the time on a row', () => {
+describe('RecentFilesModal — the time on a row', () => {
 	const DAY = 24 * 60 * MINUTE;
 	const HOUR = 60 * MINUTE;
 	const on = () => prefs({ time: true }).browser;
@@ -1824,7 +1824,7 @@ describe('NavHistoryModal — the time on a row', () => {
 
 	it('gives every dated row the far track its age stands in, folder or no folder', () => {
 		// The age is a cell of the ROW and not of the name (see
-		// NavHistoryList.fileRow): that is what puts every label at the same x down the
+		// RecentFilesList.fileRow): that is what puts every label at the same x down the
 		// list, whatever the row prints beside it. The class the stylesheet reads is
 		// written WITH the label, so a row cannot claim a track it has nothing to put
 		// in — and the label is a child of the row, because inside the name cell it
@@ -1854,7 +1854,7 @@ describe('NavHistoryModal — the time on a row', () => {
 // the keyboard's own equivalent, and the app's menu on a right-click. Which of these
 // the app decides rather than this plugin is the point of most of them (see
 // Keymap / PaneTarget).
-describe('NavHistoryModal — where a row opens, and the right-click menu', () => {
+describe('RecentFilesModal — where a row opens, and the right-click menu', () => {
 	// a.md is the OLDER note, so recency puts it SECOND: two rows, b.md first.
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = (): NavHistoryEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
@@ -1876,7 +1876,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 
 	it('asks the app where to open, and opens there', () => {
 		// A plain click: the app says "where it already is" (its `false`), which this
-		// plugin normalises to no target at all (see NavHistoryList.onClick).
+		// plugin normalises to no target at all (see RecentFilesList.onClick).
 		const h = harness(entries(), 1, files);
 		h.clickRow(h.note('a'));
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
@@ -1893,7 +1893,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 	it('opens a middle-click in a new tab, from the press itself', () => {
 		// The middle button raises `auxclick` and not `click`, so a handler waiting for
 		// the click would never run; and preventDefault on the press is what keeps the
-		// WebView's middle-click autoscroll out of the list (see NavHistoryList.onPress).
+		// WebView's middle-click autoscroll out of the list (see RecentFilesList.onPress).
 		const h = harness(entries(), 1, files);
 		const press = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 1 });
 		h.note('a').dispatchEvent(press);
@@ -1985,7 +1985,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 
 	it('raises no menu when the file behind the row is gone', () => {
 		// A place whose file the list cannot open is not DRAWN at all (see
-		// NavHistoryList.render), so the only way here is a file that went between the
+		// RecentFilesList.render), so the only way here is a file that went between the
 		// render and the right-click — a sync removing it, a delete landing a moment
 		// ago. There is then nothing to ask the app about.
 		const deleted: string[] = [];
@@ -2000,7 +2000,7 @@ describe('NavHistoryModal — where a row opens, and the right-click menu', () =
 	});
 });
 
-describe('NavHistoryModal — same-named notes', () => {
+describe('RecentFilesModal — same-named notes', () => {
 	// The panel is used in a vault, not a code repo: "index.md" exists in five
 	// folders, and a row that printed only its last path segment named all five
 	// the same. The folder is printed exactly where the name collides, and
@@ -2062,7 +2062,7 @@ describe('NavHistoryModal — same-named notes', () => {
 });
 
 
-describe('NavHistoryModal — the recorded landing block', () => {
+describe('RecentFilesModal — the recorded landing block', () => {
 	// An entry carries the lines it was left on (see NavEntryState.context). The
 	// SEARCH BOX is the block's one reader: "the words I saw when I left" is how a
 	// reader finds an old spot, and a phrase from anywhere in the recorded window has
@@ -2124,7 +2124,7 @@ describe('NavHistoryModal — the recorded landing block', () => {
 	});
 });
 
-describe('NavHistoryModal — touch', () => {
+describe('RecentFilesModal — touch', () => {
 	// Three notes, sitting on c.md. Each earlier step carries a landing line, so
 	// the row it stands for has a coordinate of its own to describe — and each
 	// note holds exactly one place, which is the ordinary shape of a vault's history
@@ -2167,7 +2167,7 @@ describe('NavHistoryModal — touch', () => {
 		// A touch WebView sends mousemove before the click. Nothing about the cell
 		// under the finger may change what happens: the note's own name cell and the
 		// row's padding both act on the row — and what the row does is OPEN the file
-		// it stands for (see NavHistoryList.onClick).
+		// it stands for (see RecentFilesList.onClick).
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		h.note('b').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
 		const target = h.note('b').querySelector<HTMLElement>('.nav-row-file')!;
@@ -2180,7 +2180,7 @@ describe('NavHistoryModal — touch', () => {
 
 	it('ignores the mousemove a tap synthesises, so the click still opens the note', () => {
 		// A touch WebView sends mouseover/mousemove before the click. The list has no
-		// mousemove handler to take that for a hover any more (see NavHistoryList), so
+		// mousemove handler to take that for a hover any more (see RecentFilesList), so
 		// the pointer report selects nothing — and the click that follows is the row's
 		// own, which opens the file rather than being read as a second press on an
 		// already-open row.
@@ -2197,7 +2197,7 @@ describe('NavHistoryModal — touch', () => {
 	it('lets a pointing device open the file from the row itself, in one click', () => {
 		// The row is not a touch affordance: a mouse gets the same one click, and it is
 		// the whole journey — one press, one destination, and the panel has nothing to
-		// do with it (see NavHistoryList.onClick).
+		// do with it (see RecentFilesList.onClick).
 		const h = harness(entries(), 2, files);
 
 		h.clickRow(h.note('b'));
@@ -2211,7 +2211,7 @@ describe('NavHistoryModal — touch', () => {
 
 		// A row is opened by clicking it. The right button used to travel as well — a
 		// shortcut for a hand already resting on it — and that is gone: one gesture per
-		// meaning, and the visible one is the click (see NavHistoryList.onContextMenu).
+		// meaning, and the visible one is the click (see RecentFilesList.onContextMenu).
 		expect(h.jumpTo).not.toHaveBeenCalled();
 		// …and it is still refused rather than handed to the app: a row has no text to
 		// copy, nothing to inspect, and a long press must raise no callout over the list.
@@ -2256,7 +2256,7 @@ describe('NavHistoryModal — touch', () => {
 		// The × is the one control in the strip a finger reaches for, and putting the
 		// caret back in the box afterwards would unfold the on-screen keyboard over
 		// the list — the opposite of what the tap asked for (see
-		// NavHistoryBrowser.toolbar). The box still empties; only the focus stays
+		// RecentFilesBrowser.toolbar). The box still empties; only the focus stays
 		// where the reader left it.
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
@@ -2282,7 +2282,7 @@ describe('NavHistoryModal — touch', () => {
 // the gesture, and answering it as if it were the mouse's rebuilds every row
 // underneath a touch that is in the middle of becoming a scroll — which is what a
 // phone's list could not be scrolled by, and what left a folded drawer half-open.
-describe('NavHistoryModal — a finger in the list', () => {
+describe('RecentFilesModal — a finger in the list', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 	// jsdom has no PointerEvent, and `pointerType` is the one field the panel reads:
@@ -2301,7 +2301,7 @@ describe('NavHistoryModal — a finger in the list', () => {
 		h.list().dispatchEvent(pointer('pointerleave', 'touch'));
 
 		// The rows are the SAME ELEMENTS as before the finger arrived: nothing was
-		// rebuilt under the touch (see NavHistoryBrowser.thawOrder).
+		// rebuilt under the touch (see RecentFilesBrowser.thawOrder).
 		expect(h.note('a')).toBe(row);
 	});
 

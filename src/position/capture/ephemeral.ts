@@ -99,7 +99,7 @@ function cursorOnScreen(view: MarkdownView, line: number): boolean {
 
 // The recorded context block's radius, in NON-BLANK lines either side of the
 // landing (the landing line itself is always recorded, blank or not). One
-// number for one window: the history browser renders exactly this block, so
+// number for one window: the recent-files browser renders exactly this block, so
 // what the search box matches is what the panel can show. Non-blank counting
 // is the point — a note written one sentence per line with blank separators
 // spends a raw ±5 on two or three lines of actual text, and the remembered

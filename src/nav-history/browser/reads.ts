@@ -12,7 +12,7 @@ import { HeadingRef, NavEntryDescription, describeNavEntry } from './model';
 // its deferred-read timer, its line cache and the one whole-file read it used to
 // keep for the panel's content views.
 
-export interface NavHistoryReadsOptions {
+export interface RecentFilesReadsOptions {
 	// The file's saved record: the position source for a place that carries none
 	// of its own — which, on the recent-files list, is every FILE record (see
 	// places.ts). The line such a row prints is therefore the line a plain open
@@ -36,7 +36,7 @@ export interface FileMeta {
 	aliases: string[];
 }
 
-export class NavHistoryReads {
+export class RecentFilesReads {
 	// Per-render describe cache: filtering re-renders on every keystroke, so
 	// the vault lookups behind describeNavEntry are not repeated per row.
 	private descCache = new Map<number, NavEntryDescription>();
@@ -51,7 +51,7 @@ export class NavHistoryReads {
 
 	constructor(
 		private app: App,
-		private opts: NavHistoryReadsOptions,
+		private opts: RecentFilesReadsOptions,
 	) {
 		// A renamed alias is exactly when a stale memory is worst: the reader is typing
 		// the name they just changed. What a change invalidates is ONE file's record and
@@ -73,7 +73,7 @@ export class NavHistoryReads {
 	}
 
 	// Whether the note is still on disk. This is the browser's ONE question about a
-	// file's existence, and `NavHistoryList` is its only asker: a place whose file is
+	// file's existence, and `RecentFilesList` is its only asker: a place whose file is
 	// gone is filtered out before a row is drawn (see the list's `keep`), so nothing
 	// downstream — a row, the sheet, the describe cache — ever has to wonder whether
 	// the thing it names is there. An arrow field rather than a method so it can be

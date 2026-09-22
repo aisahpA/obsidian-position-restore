@@ -1,4 +1,4 @@
-// The history browser's RESIDENT shell (browser/view.ts): what makes it a
+// The recent-files browser's RESIDENT shell (browser/view.ts): what makes it a
 // sidebar panel rather than a dialog — the pane's own lifetime around the body,
 // the pane's own width deciding the presentation, and the history being heard
 // while it is up (see NavHistory.subscribe). The body itself — the tree, the
@@ -8,8 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { NAV_HISTORY_VIEW_TYPE, NavHistoryView, activateNavHistoryView } from '@/nav-history/browser/view';
-import type { NavBrowserPrefs } from '@/nav-history/browser/body';
+import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/nav-history/browser/view';
+import type { RecentFilesBrowserPrefs } from '@/nav-history/browser/body';
 import type { LandingsMode } from '@/nav-history/browser/listing';
 import type { PathDisplayMode } from '@/types';
 import type { NavHistoryEntry } from '@/nav-history/entry';
@@ -20,13 +20,13 @@ import { TIME_REFRESH_MS } from '@/nav-history/browser/constants';
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
 
-// The browser's preferences as the plugin hands them over (see NavBrowserPrefs):
+// The browser's preferences as the plugin hands them over (see RecentFilesBrowserPrefs):
 // READERS over values the settings tab owns — a fresh set per mount, so no test
 // decides another's. What the panel does with a value that CHANGED underneath it is
 // the one thing the shell adds, so the fixture can be written to as well: that is
 // what the settings tab does (see SettingTab.setControlValue), and the panel is then
-// asked to draw again (see NavHistoryView.refresh).
-type TestPrefs = NavBrowserPrefs & { setLandings: (how: LandingsMode) => void };
+// asked to draw again (see RecentFilesView.refresh).
+type TestPrefs = RecentFilesBrowserPrefs & { setLandings: (how: LandingsMode) => void };
 
 function browserPrefs(
 	landings: LandingsMode = 'last',
@@ -42,7 +42,7 @@ function browserPrefs(
 		// How much of a row's path is printed, and on which side of the name (see
 		// PathDisplayMode).
 		pathDisplay: () => held.path,
-		// Whether each row is dated (see NavBrowserPrefs.rowTime): a switch, off unless
+		// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime): a switch, off unless
 		// a test asks — what the LABEL says is the body's business and is covered where
 		// the body is (see nav-history-browser-dom.test.ts); what the shell adds is the
 		// lifetime of the timer that keeps it fresh (see the test below).
@@ -83,7 +83,7 @@ class FakeNav {
 	// The real travel, in miniature: the place visited is re-stamped and becomes the
 	// current one — so the list is rewritten under the panel, which is the whole
 	// reason the panel has to collapse first (see NavPlaces.travel /
-	// NavHistoryList.collapse).
+	// RecentFilesList.collapse).
 	travel = async (i: number, target?: PaneTarget): Promise<void> => {
 		this.jumped.push(i);
 		this.targets.push(target);
@@ -128,7 +128,7 @@ function makeApp(paths: string[] = []) {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
 			// The app's own file-menu event: a row's right-click asks the APP what it can
-			// do with the file (see NavHistoryBrowser.contextRow), and this panel is not
+			// do with the file (see RecentFilesBrowser.contextRow), and this panel is not
 			// what is being tested by it. Without an answer here the right-click tests
 			// threw out of the listener instead of asserting what they came for.
 			trigger: () => undefined,
@@ -140,10 +140,10 @@ function makeApp(paths: string[] = []) {
 async function mount(
 	entries: NavHistoryEntry[],
 	index: number,
-	prefs: NavBrowserPrefs = browserPrefs(),
+	prefs: RecentFilesBrowserPrefs = browserPrefs(),
 	// Paths the VAULT holds that no entry names yet: a test that appends a step to the
 	// history while the panel is up needs the file behind it to exist, or the list
-	// filters the new place out (see NavHistoryList.render).
+	// filters the new place out (see RecentFilesList.render).
 	extraPaths: string[] = [],
 ) {
 	const nav = new FakeNav();
@@ -152,8 +152,8 @@ async function mount(
 	const app = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
 	// jsdom lays nothing out, so the pane reports width 0 — which is the INLINE
-	// presentation, the one that needs no second column (see NavHistoryView.measure).
-	const view = new NavHistoryView(leaf, nav as never, () => undefined, prefs);
+	// presentation, the one that needs no second column (see RecentFilesView.measure).
+	const view = new RecentFilesView(leaf, nav as never, () => undefined, prefs);
 	await view.onOpen();
 	// The view's OWN container and content elements: what the pane hands the
 	// panel, and what Obsidian asks the view to build in.
@@ -161,12 +161,12 @@ async function mount(
 	const rows = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'));
 	const names = () => rows().map(r => r.querySelector('.nav-row-name')?.textContent);
 	// The listbox itself: what the pointer events that decide whether the list is
-	// being READ arrive on (see NavHistoryBrowser.freezeOrder).
+	// being READ arrive on (see RecentFilesBrowser.freezeOrder).
 	const list = () => el.querySelector<HTMLElement>('.position-restore-nav-list')!;
 	return { view, el, nav, rows, names, list };
 }
 
-describe('NavHistoryView — the resident panel', () => {
+describe('RecentFilesView — the resident panel', () => {
 	beforeEach(() => {
 		// The app's own answers (see Keymap): an input a test sets, and one left over
 		// from the case before it would decide this one.
@@ -180,7 +180,7 @@ describe('NavHistoryView — the resident panel', () => {
 		// The body, whole: the toolbar — the search box, and nothing beside it — and
 		// the list of notes, the current one pinned first and marked. No setting of its
 		// own: the four choices are rows of the plugin's settings tab now (see
-		// NavBrowserPrefs).
+		// RecentFilesBrowserPrefs).
 		expect(el.querySelector('.position-restore-nav-filter')).not.toBeNull();
 		expect(el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(names()).toEqual(['b', 'a']);
@@ -205,7 +205,7 @@ describe('NavHistoryView — the resident panel', () => {
 		// …and it is still one click away, and it is where the arrow keys walk the list
 		// from. Nothing beside it says so: the hint that used to name the gesture is gone
 		// (a row in a list answers a click everywhere else in the app), and the list is
-		// click-only — a pointer passing over it changes nothing (see NavHistoryList).
+		// click-only — a pointer passing over it changes nothing (see RecentFilesList).
 		expect(el.querySelector('.position-restore-nav-hint')).toBeNull();
 	});
 
@@ -226,7 +226,7 @@ describe('NavHistoryView — the resident panel', () => {
 	});
 
 	// The list is HELD STILL while the pointer is on it (see
-	// NavHistoryBrowser.freezeOrder / NavHistoryListOptions.order). What a reader is
+	// RecentFilesBrowser.freezeOrder / RecentFilesListOptions.order). What a reader is
 	// looking at is the one thing a redraw must not re-arrange: a row that opens a
 	// note and then moves under the hand that opened it is a list that answers a
 	// click with a shuffle — and the row the reader is ON is pinned first, so every
@@ -251,7 +251,7 @@ describe('NavHistoryView — the resident panel', () => {
 
 		// Nothing moved. The list is still the one they were reading, and the only
 		// thing that changed is WHERE they are: the mark is on the third row now,
-		// which is the row a.md kept (see NavHistoryList.fileRow).
+		// which is the row a.md kept (see RecentFilesList.fileRow).
 		expect(names()).toEqual(['c', 'b', 'a']);
 		expect(current()).toBe('a');
 
@@ -400,7 +400,7 @@ describe('NavHistoryView — the resident panel', () => {
 
 });
 
-describe('NavHistoryView — the pointer is driven by clicks only', () => {
+describe('RecentFilesView — the pointer is driven by clicks only', () => {
 	// A note with several spots, so there is a landing row to click once the list is
 	// asked to print them (see groupByFile / LandingsMode). The stack runs OLDEST FIRST,
 	// which is the order a real history is built in (see NavHistory.push): the newest
@@ -413,7 +413,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 	const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	// The RIGHT button, and a finger's lingering press (the same event with the left
-	// button's number): neither opens anything (see NavHistoryList.onContextMenu).
+	// button's number): neither opens anything (see RecentFilesList.onContextMenu).
 	const rightClick = (el: HTMLElement) => el.dispatchEvent(
 		new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }),
 	);
@@ -425,12 +425,12 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		const { el } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 
-		// Nothing is chosen as the panel opens (see NavHistoryList.choose: a position is
+		// Nothing is chosen as the panel opens (see RecentFilesList.choose: a position is
 		// a key or a click, and a click travels).
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 
 		// A mouse merely crossing the rows is not a choice. This is the rule the list is
-		// built on (see NavHistoryList): a list that lurches under a passing mouse
+		// built on (see RecentFilesList): a list that lurches under a passing mouse
 		// selects a row nobody chose.
 		note().dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
 		note().dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 40 }));
@@ -449,7 +449,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		const { el } = await mount(stack(), 2, browserPrefs('all'));
 
 		// Both of a.md's places, and nothing under b.md, which holds one (see
-		// NavHistoryList.printsLandings): one place is not a list.
+		// RecentFilesList.printsLandings): one place is not a list.
 		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
 		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(2);
 	});
@@ -459,7 +459,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		// contract does not change with it: a resident panel answers a click by going
 		// somewhere, and it is still there afterwards — the note opened beside it, the
 		// reader's place in the list cleared rather than carried over (see
-		// NavHistoryList.collapse).
+		// RecentFilesList.collapse).
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 		Keymap.modEvent = 'tab';
@@ -483,7 +483,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		// It opens the landing the note's row stands for: the NEWEST one, where the
 		// reader left that note — step 1, L40 — and not the top of the note (step 0,
 		// L10), which is what the row meant while its landings ran in line order (see
-		// NavHistoryList.activeRep). And no row is left selected: a click travels.
+		// RecentFilesList.activeRep). And no row is left selected: a click travels.
 		expect(nav.jumped).toEqual([1]);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
@@ -512,7 +512,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 
 		// The right button no longer travels: a row is opened by clicking it, and a
 		// second button that opens the same thing is a gesture to learn for nothing
-		// (see NavHistoryList.onContextMenu).
+		// (see RecentFilesList.onContextMenu).
 		expect(nav.jumped).toEqual([]);
 	});
 
@@ -521,7 +521,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		const note = noteRow(el, 'a');
 
 		// The same event a WebView raises for a long touch, with the LEFT button on it:
-		// nothing opens (see NavHistoryList.onContextMenu). It is the one that made a slow
+		// nothing opens (see RecentFilesList.onContextMenu). It is the one that made a slow
 		// tap on a tablet's file name look like a jump.
 		const held = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
 		note.dispatchEvent(held);
@@ -551,7 +551,7 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		const places = () => el.querySelectorAll('.position-restore-nav-row.is-place').length;
 
 		// b prints its two spots and c its two: a and d hold one each, which is not a list
-		// of its own (see NavHistoryList.printsLandings).
+		// of its own (see RecentFilesList.printsLandings).
 		expect(places()).toBe(4);
 		// c's older landing — the step recorded at scroll 7, printed "L8": the top of that
 		// note by line order, which is not the one its own row stands for (the newest,
@@ -566,26 +566,26 @@ describe('NavHistoryView — the pointer is driven by clicks only', () => {
 		// …and the stack was rewritten under the panel: the jump left c holding ONE spot,
 		// while b — which took the slot c's old landing index pointed into — prints its own
 		// two. The list is drawn from the new stack either way; what the collapse buys is
-		// that nothing is left POINTED at (see NavHistoryList.collapse).
+		// that nothing is left POINTED at (see RecentFilesList.collapse).
 		expect(places()).toBe(2);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 });
 
-describe('activateNavHistoryView', () => {
+describe('activateRecentFilesView', () => {
 	it('brings the panel that is already open back rather than opening a second', async () => {
 		const leaf = new WorkspaceLeaf();
 		const revealLeaf = vi.fn(async () => {});
 		const getRightLeaf = vi.fn();
 		const app = {
 			workspace: {
-				getLeavesOfType: (type: string) => (type === NAV_HISTORY_VIEW_TYPE ? [leaf] : []),
+				getLeavesOfType: (type: string) => (type === RECENT_FILES_VIEW_TYPE ? [leaf] : []),
 				revealLeaf,
 				getRightLeaf,
 			},
 		};
 
-		await activateNavHistoryView(app as never, new FakeNav() as never, undefined, browserPrefs());
+		await activateRecentFilesView(app as never, new FakeNav() as never, undefined, browserPrefs());
 
 		expect(revealLeaf).toHaveBeenCalledWith(leaf);
 		// Two panels of one history, each with its own filter and its own open
@@ -604,9 +604,9 @@ describe('activateNavHistoryView', () => {
 			},
 		};
 
-		await activateNavHistoryView(app as never, new FakeNav() as never, undefined, browserPrefs());
+		await activateRecentFilesView(app as never, new FakeNav() as never, undefined, browserPrefs());
 
-		expect(leaf.state).toEqual({ type: NAV_HISTORY_VIEW_TYPE, active: true });
+		expect(leaf.state).toEqual({ type: RECENT_FILES_VIEW_TYPE, active: true });
 		expect(revealLeaf).toHaveBeenCalledWith(leaf);
 	});
 });

@@ -452,7 +452,7 @@ export class NavHistory {
 	}
 
 	// The single entry funnel: every push is stamped here, so `t` (the
-	// history browser's relative-time label) can never be missing on a live
+	// recent-files browser's relative-time label) can never be missing on a live
 	// entry. A jumpTo copy arrives unstamped too and gets a FRESH stamp —
 	// the picker jump is a new navigation moment, not a replay of the old
 	// one, and it is what the row's "刚刚" label should report.

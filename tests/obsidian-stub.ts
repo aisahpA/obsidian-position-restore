@@ -6,7 +6,7 @@ export class FileView {}
 export class MarkdownView extends FileView {}
 export class TFile {}
 
-// The history browser (nav-history/browser/modal) extends this. Real enough for DOM
+// The recent-files browser (nav-history/browser/modal) extends this. Real enough for DOM
 // tests: it builds the three elements the subclass writes into, and open()/
 // close() route to the subclass hooks.
 export class Modal {
@@ -52,8 +52,8 @@ export class Notice {
 
 export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
 
-// The history browser draws the search box's × with Obsidian's icon helper (see
-// NavHistoryBrowser.toolbar).
+// The recent-files browser draws the search box's × with Obsidian's icon helper (see
+// RecentFilesBrowser.toolbar).
 // jsdom has no icons, so it is stood in for: the icon builds the element a test can
 // find and records WHICH icon it was asked for — the drawing is the app's, and a test
 // asserts on the name, not on the paths.
@@ -76,7 +76,7 @@ export function debounce(fn: unknown): unknown {
 	return fn;
 }
 
-// The history browser hangs its rendered preview on a Component and unloads it
+// The recent-files browser hangs its rendered preview on a Component and unloads it
 // when the dialog closes (see PreviewContent). Enough of the real lifecycle for
 // a test to see which of the two happened.
 export class Component {
@@ -236,7 +236,7 @@ export class Keymap {
 	}
 }
 
-// The app's own context menu (see NavHistoryBrowser.contextRow). What the plugin owes
+// The app's own context menu (see RecentFilesBrowser.contextRow). What the plugin owes
 // the app is a menu OBJECT with the right items in it — the floating DOM the real one
 // builds is the app's business, and jsdom has no layout to position it in — so the
 // stand-in records what was added and what each item would do when clicked.
@@ -290,7 +290,7 @@ export class Menu {
 // Obsidian's runtime mixes chainable DOM helpers into the element prototypes
 // (createEl/createDiv/createSpan/empty/setText/addClass/removeClass/
 // toggleClass/setAttr). jsdom has none of them, so any code that BUILDS DOM —
-// the history browser — needs this shim. Installed once, only when a helper
+// the recent-files browser — needs this shim. Installed once, only when a helper
 // is actually missing.
 // ---------------------------------------------------------------------------
 interface ElInfo {
@@ -380,7 +380,7 @@ function installDomHelpers(): void {
 	};
 	// The app's own way to style an element from script, which the browser uses where a
 	// value has to be measured rather than declared (and where a stylesheet rule cannot
-	// be trusted to win: see NavHistoryList.disclose). A test asserting what a reader would see
+	// be trusted to win: see RecentFilesList.disclose). A test asserting what a reader would see
 	// needs the element's own style to carry them.
 	proto.setCssStyles = function (this: HTMLElement, styles: Record<string, string>) {
 		Object.assign(this.style, styles);

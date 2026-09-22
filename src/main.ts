@@ -3,7 +3,7 @@ import { SettingTab } from './ui/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
-import { NAV_HISTORY_VIEW_TYPE } from './nav-history/browser/view';
+import { RECENT_FILES_VIEW_TYPE } from './nav-history/browser/view';
 import { t } from './i18n';
 
 
@@ -26,12 +26,12 @@ export default class PositionRestorePlugin extends Plugin {
 
 		this.addSettingTab(new SettingTab(this.app, this));
 
-		// The history browser's resident form: registered BEFORE the layout is
+		// The recent-files browser's resident form: registered BEFORE the layout is
 		// restored, which is what lets a saved sidebar panel come back as itself
 		// on the next start. Nothing detaches it on unload, deliberately — the
 		// workspace closes a disabled plugin's views, and detaching the leaf here
 		// would throw away where the reader had dragged it to.
-		this.registerView(NAV_HISTORY_VIEW_TYPE, this.manager.navHistoryViewCreator());
+		this.registerView(RECENT_FILES_VIEW_TYPE, this.manager.recentFilesViewCreator());
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
@@ -112,14 +112,22 @@ export default class PositionRestorePlugin extends Plugin {
 				return true;
 			}
 		});
-		// History browser: the stack newest-first, one row per note — the row OPENS the
-		// file at the spot it stands for, and the control in its gutter shows that row's
-		// details (time travel — the forward part is kept). No availability gate.
+		// Recent files: the PLACES list, most recent last (see places.ts) — one row
+		// per note, and the row OPENS the file at the spot it stands for, while the
+		// control in its gutter shows that row's details (time travel — the forward
+		// part is kept). It is NOT the back/forward stack: that store is the pair of
+		// commands above, and the two are kept apart. No availability gate.
+		//
+		// The icon is a CLOCK: the rows are places ordered by when they were last
+		// sat in, so "recent" is the thing to draw. Not 'list', which belongs to
+		// the outline pane and would make the two read as one thing in the
+		// palette. The panel's own tab carries the same icon, for the same reason
+		// (see RecentFilesView.getIcon).
 		this.addCommand({
-			id: 'browse-nav-history',
+			id: 'browse-recent-files',
 			name: t('recentFiles.commands.open'),
-			icon: 'history',
-			callback: () => this.manager.openNavHistoryModal(),
+			icon: 'clock',
+			callback: () => this.manager.openRecentFilesModal(),
 		});
 		// …and the same browser as a RESIDENT sidebar panel: a place in the
 		// workspace rather than a question asked and dismissed. A separate
@@ -128,10 +136,10 @@ export default class PositionRestorePlugin extends Plugin {
 		// is wanted is the reader's call at the moment they ask, not a setting
 		// they have to get right beforehand.
 		this.addCommand({
-			id: 'open-nav-history-sidebar',
+			id: 'open-recent-files-sidebar',
 			name: t('recentFiles.commands.openSidebar'),
 			icon: 'panel-right',
-			callback: () => this.manager.openNavHistorySidebar(),
+			callback: () => this.manager.openRecentFilesSidebar(),
 		});
 		// Start the recent-files list over. A COMMAND and not a button in the panel's
 		// gear: that panel is a navigator (a row is a place to go, not a row to act on),
@@ -156,7 +164,7 @@ export default class PositionRestorePlugin extends Plugin {
 			// NOT navHistory.heading: the ribbon opens the recent-files list, and
 			// that page's name is what the icon has to say. (The heading is the
 			// back/forward stack's, which is the other half of this feature.)
-			this.addRibbonIcon('history', t('recentFiles.name'), () => this.manager.openNavHistoryModal());
+			this.addRibbonIcon('clock', t('recentFiles.name'), () => this.manager.openRecentFilesModal());
 	}
 
 	/**

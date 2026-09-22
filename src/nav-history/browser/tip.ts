@@ -10,7 +10,7 @@ import { TIP_DELAY_MS, TIP_GAP_PX } from './constants';
 // to draw the tooltip ourselves.
 //
 // The panel's own tooltip is also what lets a row say only what the row does not
-// already print (see NavHistoryList.fileRow): a `title` is a static string, while
+// already print (see RecentFilesList.fileRow): a `title` is a static string, while
 // this one is asked for the row it is drawn over — so a row that prints its folder
 // can let the path go, and hover is quiet exactly where the reader has already asked
 // for the path to be on screen.
@@ -39,7 +39,7 @@ export interface TipContent {
 // to, and the rows near either end are exactly the ones a reader needs it for.
 export class NavRowTip {
 	// What each element says on hover: the row itself, or one cell of it (the time
-	// label — "the moment" instead of "which file", see NavHistoryList.fileRow's
+	// label — "the moment" instead of "which file", see RecentFilesList.fileRow's
 	// age). Keyed by ELEMENT rather than by row identity, because the question is
 	// asked by a pointer event, which names an element and nothing else.
 	private tips = new WeakMap<HTMLElement, TipContent>();
@@ -55,7 +55,7 @@ export class NavRowTip {
 	constructor(private list: HTMLElement) {
 		// The list's own document, not the top one: a panel may stand in a popout
 		// window, and a tooltip has to be built and placed in the window the reader is
-		// looking at (see NavHistoryView). Its `defaultView` is that window — the
+		// looking at (see RecentFilesView). Its `defaultView` is that window — the
 		// placement measures against it and the delay is its own clock — and the top
 		// window is the fallback for a document that has none (a test's).
 		this.doc = list.ownerDocument;
@@ -80,7 +80,7 @@ export class NavRowTip {
 		this.tips.set(el, content);
 	}
 
-	// The list is being REBUILT (see NavHistoryList.render): the rows the registered
+	// The list is being REBUILT (see RecentFilesList.render): the rows the registered
 	// tips belong to are gone, so the one on screen — which points at a row of the
 	// previous render — has to go with them. The registry itself needs no clearing: it
 	// is keyed weakly, so the elements the rebuild dropped take their entries with them.

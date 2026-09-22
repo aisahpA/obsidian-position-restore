@@ -1,4 +1,4 @@
-// Guards for the history browser's little print — read out of styles.css, not
+// Guards for the recent-files browser's little print — read out of styles.css, not
 // the DOM, because jsdom never loads a stylesheet and every one of these is a
 // contract no rendering test here could catch.
 //
@@ -38,9 +38,9 @@ const css = readFileSync(resolve(process.cwd(), 'styles.css'), 'utf8');
 
 // Only the browser's own rules: the restore cue above the marker and the
 // db-path modal are different surfaces with their own colour decisions.
-const browser = css.slice(css.indexOf('/* History browser (NavHistoryModal)'));
+const browser = css.slice(css.indexOf('/* Recent-files browser (RecentFilesModal)'));
 
-describe('history browser quiet tiers', () => {
+describe('recent-files browser quiet tiers', () => {
 	it('slices out the browser section', () => {
 		expect(browser).toContain('.position-restore-nav-row');
 		expect(browser.length).toBeGreaterThan(2000);
@@ -66,7 +66,7 @@ describe('history browser quiet tiers', () => {
 	it('lays a note out as its name, and a landing as coordinate + section', () => {
 		// The caret is gone outright, and so is the "+N" that counted what a click would
 		// open: there is no tree to open any more, so a column of every row repeating
-		// that state is a column spent twice (see NavHistoryList.fileRow).
+		// that state is a column spent twice (see RecentFilesList.fileRow).
 		expect(browser).not.toContain('nav-file-caret');
 		expect(browser).not.toContain('nav-row-count');
 		// The note is a GRID and not a flex line: the age is not a fourth thing in the
@@ -108,7 +108,7 @@ describe('history browser quiet tiers', () => {
 
 	// THE TRAVEL ARROW is the row's first thing on screen, but NOT a grid track: it
 	// A ROW IS ONE TARGET: the gutter that held the details control is gone with the
-	// panel it opened (see NavHistoryList), so the row's padding is plain and nothing is
+	// panel it opened (see RecentFilesList), so the row's padding is plain and nothing is
 	// absolutely positioned inside it that could touch the row's height.
 	it('gives a row one plain padding and nothing pinned inside it', () => {
 		expect(browser).toMatch(/\.position-restore-nav-row\s*\{[^}]*padding: 4px 8px;/);
@@ -200,7 +200,7 @@ describe('history browser quiet tiers', () => {
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*overflow: visible/);
 	});
 
-	// THE POSITION is the row the keyboard is on (see NavHistoryList.choose), and the
+	// THE POSITION is the row the keyboard is on (see RecentFilesList.choose), and the
 	// wash has to survive the pointer reaching that very row.
 	it('paints the position, and keeps it under the pointer', () => {
 		expect(browser).toMatch(
@@ -236,7 +236,7 @@ describe('history browser quiet tiers', () => {
 	});
 
 	// The strip carries NO setting of its own: the four choices the gear used to hold
-	// are rows of the plugin's settings tab now (see NavBrowserPrefs), so the panel
+	// are rows of the plugin's settings tab now (see RecentFilesBrowserPrefs), so the panel
 	// has no control surface left to paint — no button, no menu hanging off the strip,
 	// and no ink fought over with a theme on their behalf. The strip is the search
 	// box, which is all a navigator needs.
@@ -381,7 +381,7 @@ describe('history browser quiet tiers', () => {
 
 	// The panel carries no action and no switch of its own: the row's own click opens
 	// the file, and the gutter control is what points the panel (see
-	// NavHistoryList.onClick / disclose). The content switch that used to sit on the
+	// RecentFilesList.onClick / disclose). The content switch that used to sit on the
 	// caption line is gone with the two contents it chose between, so the stylesheet
 	// must not have kept a home for it.
 	it('offers no control of its own — no switch, no travel button', () => {
@@ -411,7 +411,7 @@ describe('history browser quiet tiers', () => {
 		// the box keeps the one line the toolbar has, and takes all of it
 		expect(landscape).toMatch(/input\.position-restore-nav-filter\s*\{[^}]*flex: 1 1 5em/);
 		// …and nothing of the chrome it used to compact is left: the "you are
-		// here" card and the file scope both went (see NavHistoryModal)
+		// here" card and the file scope both went (see RecentFilesModal)
 		expect(browser).not.toContain('position-restore-nav-here');
 		expect(browser).not.toContain('position-restore-nav-scope');
 		expect(browser).not.toContain('position-restore-nav-toggle');
@@ -421,7 +421,7 @@ describe('history browser quiet tiers', () => {
 		expect(landscape).not.toMatch(/nav-preview/);
 	});
 
-	// THE RESIDENT PANE'S OWN HEIGHT (see NavHistoryView): a leaf hands the pane
+	// THE RESIDENT PANE'S OWN HEIGHT (see RecentFilesView): a leaf hands the pane
 	// whatever height the reader has dragged the sidebar to, so the pane has to take
 	// it. The app's own `.view-content` is a scroller with an inset of its own, and
 	// left standing it was a SECOND scroller around the list — two scrollers for the
@@ -429,7 +429,7 @@ describe('history browser quiet tiers', () => {
 	// blank band a phone shows above its on-screen keyboard.
 	//
 	// The rule is written against the pane's CLASS and not the leaf's `data-type`,
-	// which carries NAV_HISTORY_VIEW_TYPE: that constant was renamed with the panel,
+	// which carries RECENT_FILES_VIEW_TYPE: that constant was renamed with the panel,
 	// and the rule went on being written against a string no leaf carries any more —
 	// which no build step and no test could notice, and which is why this test is
 	// here. A class cannot drift: the pane adds it itself, in the same call.
@@ -450,7 +450,7 @@ describe('history browser quiet tiers', () => {
 	});
 
 	// A PHONE SCROLLS THE LIST WITH A FINGER, inside a pane that a finger also drags
-	// sideways to fold away (see NavHistoryView.dismissOnMobile), and the app decides
+	// sideways to fold away (see RecentFilesView.dismissOnMobile), and the app decides
 	// which of the two a drag is by walking up from the element the finger landed on
 	// and looking for something it can scroll. So the list says what it is rather
 	// than leaving itself to be measured: a vertical drag is its own, a horizontal

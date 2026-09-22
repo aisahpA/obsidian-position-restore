@@ -120,9 +120,9 @@ body.is-mobile .position-restore-cue {
 	font-weight: 600;
 }
 
-/* History browser (NavHistoryModal): a list of notes with their landings. TWO shells
+/* Recent-files browser (RecentFilesModal): a list of notes with their landings. TWO shells
    stand around one body (see body.ts): the dialog and the resident sidebar panel
-   (NavHistoryView), and everything they share is written against
+   (RecentFilesView), and everything they share is written against
    .position-restore-nav-panel — the class BOTH roots carry. Only what is genuinely a
    dialog (its width, its pinned height, the compaction a short window needs) is
    written against the modal's own class. */
@@ -227,7 +227,7 @@ body.is-mobile .position-restore-cue {
 
 /* Toolbar above the list: the filter box and the keyboard hint — the strip holds
    nothing else now that the panel's own settings are rows of the plugin's settings
-   tab (see NavBrowserPrefs). A deliberately QUIET strip — the list below is what
+   tab (see RecentFilesBrowserPrefs). A deliberately QUIET strip — the list below is what
    the eye should land on — so the box recedes: the filter is a ruled line the caret
    sits on rather than Obsidian's filled, bordered form field.
    The field is quietened by RETUNING the variables the app's input skin reads
@@ -374,7 +374,7 @@ body.is-mobile .position-restore-cue {
    things to open is read by aiming, and a row that answers nothing until it is hit
    leaves the reader guessing which line the pointer is on.
    It is a TINT and not a MOVE: the position (see .is-selected below) is where the
-   reader IS, and no pointer crossing a row ever changes it (see NavHistoryList's class
+   reader IS, and no pointer crossing a row ever changes it (see RecentFilesList's class
    comment), so the two marks have to be told apart by colour alone — a row may be
    under the pointer while another one is the position.
    The POSITION's own row is left out: its accent wash is the louder statement, and the
@@ -389,7 +389,7 @@ body.is-mobile .position-restore-cue {
 }
 
 /* THE POSITION: the row the reader is on, whichever hand put them there — a click
-   sets it and the arrow keys walk it (see NavHistoryList.choose) — so ONE look has to
+   sets it and the arrow keys walk it (see RecentFilesList.choose) — so ONE look has to
    say "this row, right now". An accent wash, deliberately deeper than the hover tint
    above so that being hovered never disguises it. */
 .position-restore-nav-row.is-selected {
@@ -408,7 +408,7 @@ body.is-mobile .position-restore-cue {
    under it. The row used to lead with a caret that rotated when the note was open, and
    to end with a count of what a click would print; both went with the expansion, and the
    gutter control that replaced the caret went with the details panel it opened (see
-   NavHistoryList). The name is the row.
+   RecentFilesList). The name is the row.
    A GRID, because the row may hold a second thing that is not part of the name: the
    age, in a track of its own at the far end (see is-timed below). ONE track until
    then — an empty second track would still spend its column gap out of the name. */
@@ -425,7 +425,7 @@ body.is-mobile .position-restore-cue {
    happened to have left, and a row whose name and folder filled the line pushed its
    label past the wrap. A track is stated once and the name gives way instead (it
    ellipsizes; see the truncation order below). The class is written by
-   NavHistoryList.fileRow exactly when the label is built, so the row's shape and the
+   RecentFilesList.fileRow exactly when the label is built, so the row's shape and the
    label cannot disagree about whether one exists. */
 .position-restore-nav-row.is-file.is-timed {
 	grid-template-columns: minmax(0, 1fr) auto;
@@ -519,7 +519,7 @@ body.is-mobile .position-restore-cue {
    shrinks and never gives way: the name is what a row is scanned by, and the age is
    what the scan is comparing, so a narrow row trims the NAME and keeps the time —
    the reverse would leave a list of full names and no way to use them. It is a CELL
-   of the row and not a cell of the name (see NavHistoryList.fileRow): it stands in
+   of the row and not a cell of the name (see RecentFilesList.fileRow): it stands in
    the row's own second track, so its labels end on one x down the whole list
    whatever the name and the folder beside it did — that column is the whole point of
    printing it, and nothing here has to align it. */
@@ -760,7 +760,7 @@ body.is-mobile .position-restore-cue {
 	margin-inline-start: auto;
 }
 
-/* THE RESIDENT SIDEBAR PANEL (NavHistoryView): the same body, standing in a
+/* THE RESIDENT SIDEBAR PANEL (RecentFilesView): the same body, standing in a
    workspace leaf. Everything above applies to it unchanged — the rows, the touch
    layout — because the shell carries the same .position-restore-nav-panel class. What
    a dialog never has to say is the HEIGHT: a dialog is given one (is-fixed above), and
@@ -817,7 +817,7 @@ body.is-mobile .position-restore-cue {
 
 /* A phone held sideways has ~370px of height for everything: the dialog's name, the
    filter, the list. (It is wide, so the panel stands beside the list there rather than
-   inside it — see NavHistoryModal.inline — but the height is what everything below is
+   inside it — see RecentFilesModal.inline — but the height is what everything below is
    about.) Two-line rows left two rows visible — so in a short dialog everything that is
    not the list gives way: the NAME goes and the rows go back to one line each, because
    sideways there is width to spare and the coordinate, the section and the pane fit on
@@ -831,7 +831,7 @@ body.is-mobile .position-restore-cue {
 	   absolutely over it — see .modal-header-button), so the way out does not go with the
 	   name; what the button now floats over is the CONTENT, which is what the two rules
 	   below are for. The dialog is still named for assistive tech: the list carries the
-	   same label (see NavHistoryModal.onOpen). */
+	   same label (see RecentFilesModal.onOpen). */
 	.position-restore-nav-modal.is-touch .modal-header {
 		display: none;
 	}

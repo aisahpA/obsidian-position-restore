@@ -15,7 +15,7 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omi
 export type NewNavEntry = DistributiveOmit<NavHistoryEntry, 't'>;
 
 // Shared by every variant: the leaf the entry belongs to, and the wall-clock
-// time it was pushed. `t` is DISPLAY-ONLY — the history browser labels rows
+// time it was pushed. `t` is DISPLAY-ONLY — the recent-files browser labels rows
 // with a relative time, which is how a user actually indexes "where I was"
 // (VSCode-style step counts are not a human unit). Stack ORDER always comes
 // from array position, never from `t`: two entries can share a millisecond,

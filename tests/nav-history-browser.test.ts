@@ -1,4 +1,4 @@
-// Tests for the history browser's pure pieces (src/nav-history/browser/):
+// Tests for the recent-files browser's pure pieces (src/nav-history/browser/):
 // row description, tree grouping/merging, filtering, section chains and pane
 // numbering. The DOM stays untested here; everything whose correctness a reader
 // would doubt is pure.
@@ -108,7 +108,7 @@ describe('groupByFile', () => {
 	const spot = (path: string, i: number, line: number): NavHistoryEntry =>
 		({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
 	// The line each step landed on, resolved the way the browser resolves it (see
-	// NavHistoryList.render). The pure function groups by what it is TOLD: a caller
+	// RecentFilesList.render). The pure function groups by what it is TOLD: a caller
 	// that says nothing about lines is saying every step of a note is the same
 	// place, which is what a file with no coordinates has (see landingKey).
 	const lines = (entries: NavHistoryEntry[]) => (i: number) =>
@@ -328,7 +328,7 @@ describe('groupByFile', () => {
 	});
 
 	// A HELD ORDER: the sequence the list is showing, handed back to it so a
-	// redraw does not re-order what the reader is reading (see NavHistoryList's
+	// redraw does not re-order what the reader is reading (see RecentFilesList's
 	// `order` option). The keys are the groups' identities, not their indices —
 	// indices are what the redraw is about to change.
 	describe('a held order', () => {
@@ -460,7 +460,7 @@ describe('matchesNavFilter', () => {
 
 	it('matches what the row prints: the section chain and the line label', () => {
 		// Derived from the vault's heading cache rather than the entry, so the
-		// caller passes it (see NavHistoryList.render).
+		// caller passes it (see RecentFilesList.render).
 		const e = visit('notes/a.md');
 		expect(matchesNavFilter(e, '架构设计', 'L412 总览 › 架构设计')).toBe(true);
 		expect(matchesNavFilter(e, 'L412', 'L412 总览')).toBe(true);

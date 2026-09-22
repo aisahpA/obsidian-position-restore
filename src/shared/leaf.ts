@@ -3,7 +3,7 @@ import { App, WorkspaceLeaf } from 'obsidian';
 // Workspace-leaf helpers that are not specific to any one feature: the leaf
 // identity used as a map key by both the position state and the nav history,
 // and the "is this leaf part of the main editor area" test shared by the open
-// patches and the history browser. They live here — not in nav-history/entry —
+// patches and the recent-files browser. They live here — not in nav-history/entry —
 // so the position core never has to depend on the navigation feature.
 
 // Only main-area leaves record as navigation entries. Sidebar panels

@@ -73,12 +73,12 @@ interface TabStateRecord {
 
 // How much of one note the history list prints: 'last' keeps the list to one row
 // per note — the note's own row stands for the last spot the reader was at in it
-// (see NavHistoryList.activeRep), and a click points the panel at that spot —
+// (see RecentFilesList.activeRep), and a click points the panel at that spot —
 // while 'all' prints every distinct spot the note was left at under its name.
 //
 // Named here, beside the setting that holds it, because three places speak it: the
 // settings record, the settings tab's row for it and the list's own options (see
-// NavBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
+// RecentFilesBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
 type LandingsMode = 'last' | 'all';
 
 // How much of a row's PATH the history list prints. The two "always" states are
@@ -93,7 +93,7 @@ type LandingsMode = 'last' | 'all';
 //
 // Named here, beside the setting that holds it, because the settings record, the
 // settings tab's row for it and the list's own options all speak it (see
-// NavBrowserPrefs.pathDisplay).
+// RecentFilesBrowserPrefs.pathDisplay).
 type PathDisplayMode = 'smart' | 'before' | 'after';
 
 interface PluginSettings {
@@ -132,7 +132,7 @@ interface PluginSettings {
 	// restores and still be exactly what the reader wants to navigate back to),
 	// while this one answers "which visits are worth listing".
 	navRecentExcludeFolders: string[];
-	// The history browser's own preferences: what a row prints, and how far back the
+	// The recent-files browser's own preferences: what a row prints, and how far back the
 	// list reaches. They are persisted rather than held in the panel because all of
 	// them outlive the panel they are read in — a reader who wants one row per note
 	// wants that of every note — and they are changed in the settings tab, so the

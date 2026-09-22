@@ -188,17 +188,20 @@ export const zh: En = {
 	'recentFiles.age.w': '周',
 	'recentFiles.age.mo': '个月',
 	'recentFiles.age.y': '年',
-	// 行的右键菜单（见 NavHistoryBrowser.contextRow）。菜单本身是 app 的；唯一加进去的那一项
+	// 行的右键菜单（见 RecentFilesBrowser.contextRow）。菜单本身是 app 的；唯一加进去的那一项
 	// 是 app 不可能知道的——这里的行代表的是一个「去处」而不只是一个文件：jump 行承诺的是那个
 	// 落点，所以「在新标签页打开」必须也是打开到那里。因此是两个答案而不是一个：文件，与文件里
 	// 的这一处，是两个不同的承诺。
-	// 文件「另外几个名字」的引导词，挂在行自己的 tooltip 上（见 NavHistoryReads.aliasesFor）。
+	// 文件「另外几个名字」的引导词，挂在行自己的 tooltip 上（见 RecentFilesReads.aliasesFor）。
 	// 它们可被搜索、不占任何格子，所以悬停是读者唯一能看到它们的地方；冒号写进值里，因为
 	// 用不用冒号是各语言自己的事。
 	'recentFiles.aka': '别名：',
 	'recentFiles.menu.openInNewTab': '在新标签页打开',
 	'recentFiles.menu.openHereInNewTab': '在此处打开新标签页',
-	'recentFiles.commands.open': '打开最近文件',
+	// 用「浏览」而不是「打开」：被打开的是那份列表，而「打开最近文件」读起来像打开
+	// 读者上次所在的那个文件。这也是命令 id 里的那个动词（见 main.ts），并且是两条
+	// 命令在命令面板里一眼能分开的地方——另一条是「打开」，那里被打开的确实是面板。
+	'recentFiles.commands.open': '浏览最近文件',
 	// 同一个浏览器的常驻形态：侧栏面板而非弹窗（见 view.ts）。命名强调「放在哪儿」
 	// 而不是「做什么」，因为这正是两者的区别——面板被放下后就留在那里。
 	'recentFiles.commands.openSidebar': '在侧边栏打开最近文件',
@@ -214,7 +217,7 @@ export const zh: En = {
 	// 没有文件的一步（关系图谱）在列表里显示成什么。
 	'recentFiles.graphView': '关系图谱',
 	'recentFiles.searchPlaceholder': '按笔记名或文本过滤…',
-	// 过滤框末尾那个 ×（见 NavHistoryBrowser.toolbar）：app 自己的手势，按「清掉什么」命名。
+	// 过滤框末尾那个 ×（见 RecentFilesBrowser.toolbar）：app 自己的手势，按「清掉什么」命名。
 	// 它同时是按钮的无障碍名字和它的 tooltip，所以写的是动作而不是那个符号。
 	'recentFiles.clearFilter': '清空筛选',
 	'recentFiles.noMatch': '没有匹配的历史。',

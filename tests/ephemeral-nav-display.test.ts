@@ -75,7 +75,7 @@ describe('readEphemeralState — the hot read is position only', () => {
 	});
 });
 
-// WHICH line a capture landed on used to be re-derived by the history browser
+// WHICH line a capture landed on used to be re-derived by the recent-files browser
 // from a stamped view mode plus a cursor-offscreen flag. It is decided here
 // now, once, where the geometry is still observable, and recorded as
 // `contextAt` — so these tests pin the decision itself.

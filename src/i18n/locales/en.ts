@@ -217,19 +217,24 @@ export const en = {
 	'recentFiles.age.w': 'w ago',
 	'recentFiles.age.mo': 'mo ago',
 	'recentFiles.age.y': 'y ago',
-	// The row's right-click menu (see NavHistoryBrowser.contextRow). The menu itself is
+	// The row's right-click menu (see RecentFilesBrowser.contextRow). The menu itself is
 	// the app's; the ONE item added is the one the app cannot know, because a row here
 	// stands for a PLACE and not merely for a file: a jump row promises a landing, and
 	// "open it in a new tab" has to mean opening it THERE. Hence two answers rather than
 	// one — "the file" and "this spot in it" are different promises.
 	// The word a file's OTHER names are introduced by, on the row's own tooltip (see
-	// NavHistoryReads.aliasesFor). They are searchable and occupy no cell, so the hover
+	// RecentFilesReads.aliasesFor). They are searchable and occupy no cell, so the hover
 	// is the only place a reader ever sees them; the colon is part of the value because
 	// whether to draw one is the language's call.
 	'recentFiles.aka': 'aka:',
 	'recentFiles.menu.openInNewTab': 'Open in new tab',
 	'recentFiles.menu.openHereInNewTab': 'Open here in a new tab',
-	'recentFiles.commands.open': 'Open recent files',
+	// "Browse" and not "open": what opens is the LIST, and "open recent files"
+	// reads as opening the one file the reader was last in. It is also the verb the
+	// command's own id carries (see main.ts), and it is what separates the two
+	// commands at a glance in the palette — the other one is "Open …", because
+	// there the thing opened is the panel.
+	'recentFiles.commands.open': 'Browse recent files',
 	// The resident form of the same browser: a sidebar panel instead of a dialog
 	// (see view.ts). Named as a PLACE rather than as an action, because that is
 	// the difference — the panel stays where it is put.
@@ -249,7 +254,7 @@ export const en = {
 	// What a step with no file (the graph) is called in the list.
 	'recentFiles.graphView': 'Graph view',
 	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
-	// The × at the end of the filter box (see NavHistoryBrowser.toolbar): the app's own
+	// The × at the end of the filter box (see RecentFilesBrowser.toolbar): the app's own
 	// gesture, named for what it empties. It is the button's accessible name and its
 	// tooltip, so it is written as the action rather than as the glyph.
 	'recentFiles.clearFilter': 'Clear filter',
