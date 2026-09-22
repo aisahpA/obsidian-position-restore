@@ -16,7 +16,7 @@ import type { PositionState } from '@/position/state';
 import type { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 // leafStates is private on the store; this is the test seam.
-import { leafStatesOf } from './position-store-seam';
+import { leafStatesOf } from './support/position-store-seam';
 
 // Timing is stated as "a beat" and "long after", never as the grace period
 // itself: the mechanism, not the tuning value, is what these tests pin.

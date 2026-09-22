@@ -3,7 +3,7 @@
 // nav-history-stack.test.ts (the stack that reads it).
 //
 // NOT a test file itself — vitest only collects `*.test.ts`. This mirrors
-// tests/position-store-seam.ts: a plain module the suites import.
+// tests/support/position-store-seam.ts: a plain module the suites import.
 
 import { vi } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';

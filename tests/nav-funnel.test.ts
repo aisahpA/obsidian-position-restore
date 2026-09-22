@@ -28,7 +28,7 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
-import { entry, leafWithFile, makeApp, makeNav, pathOf } from './nav-recording-harness';
+import { entry, leafWithFile, makeApp, makeNav, pathOf } from './support/nav-recording-harness';
 
 beforeEach(() => {
 	window.localStorage.clear();

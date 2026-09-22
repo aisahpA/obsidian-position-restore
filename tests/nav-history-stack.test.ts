@@ -19,7 +19,7 @@
 //
 // The FUNNEL's own contract (the shared gates, what each capture point
 // publishes, the broadcasts) and the sampler's teleport capture sit next door
-// in nav-funnel.test.ts. Both suites share nav-recording-harness.ts.
+// in nav-funnel.test.ts. Both suites share support/nav-recording-harness.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
@@ -33,7 +33,7 @@ import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 import {
 	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viaOf,
-} from './nav-recording-harness';
+} from './support/nav-recording-harness';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 

@@ -11,7 +11,7 @@ export default defineConfig({
 			{ find: /^@\//, replacement: fileURLToPath(new URL('./src/', import.meta.url)) },
 			// 'obsidian' is a typings-only package with no runnable entry; point
 			// the whole suite (sources under test included) at a runtime stand-in.
-			{ find: 'obsidian', replacement: fileURLToPath(new URL('./tests/obsidian-stub.ts', import.meta.url)) },
+			{ find: 'obsidian', replacement: fileURLToPath(new URL('./tests/support/obsidian-stub.ts', import.meta.url)) },
 		],
 	},
 	test: {

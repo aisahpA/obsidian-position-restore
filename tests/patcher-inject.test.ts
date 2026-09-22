@@ -23,7 +23,7 @@ import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { TabStateRecord,DEFAULT_SETTINGS } from '@/types';
 // leafStates is private on the store; this is the test seam.
-import { setLeafStates } from './position-store-seam';
+import { setLeafStates } from './support/position-store-seam';
 
 // injectEphemeralStateOnOpen is private; tests drive it through this alias.
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };

@@ -21,7 +21,7 @@ import { App } from 'obsidian';
 import { PositionStore } from '@/position/storage/position-store';
 import { EphemeralState, TabStateRecord } from '@/types';
 // leafStates / loadLeafStates are private on the store; this is the test seam.
-import { leafStatesOf, loadLeafStates, setLeafStates } from './position-store-seam';
+import { leafStatesOf, loadLeafStates, setLeafStates } from './support/position-store-seam';
 
 const APP_STUB = {
 	appId: 'test-vault',

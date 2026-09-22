@@ -20,7 +20,7 @@ import { TIME_REFRESH_MS } from '@/recent-files/browser/constants';
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
 
-// 'obsidian' resolves to tests/obsidian-stub.ts for the RUN TIME of this suite
+// 'obsidian' resolves to tests/support/obsidian-stub.ts for the RUN TIME of this suite
 // (see vitest.config.mts), but tsc reads its types from the real, typings-only
 // package — which declares the two questions the plugin asks (isModEvent /
 // isModifier) and nothing else. The stub's answers are INPUTS a test sets, so
