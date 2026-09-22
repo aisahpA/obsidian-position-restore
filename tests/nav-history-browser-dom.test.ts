@@ -2273,3 +2273,61 @@ describe('NavHistoryModal — touch', () => {
 	});
 
 });
+
+// A FINGER IN THE LIST (see body.ts and tip.ts). Touch delivers the SAME pointer
+// events a mouse does — an over with the press, and an out/leave the moment the
+// browser decides the finger is panning or the app is dragging something — but the
+// leave arrives while the finger is STILL DOWN. A mouse's leave is a fact about
+// attention ("nobody is reading this list any more"); a finger's is a fact about
+// the gesture, and answering it as if it were the mouse's rebuilds every row
+// underneath a touch that is in the middle of becoming a scroll — which is what a
+// phone's list could not be scrolled by, and what left a folded drawer half-open.
+describe('NavHistoryModal — a finger in the list', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	// jsdom has no PointerEvent, and `pointerType` is the one field the panel reads:
+	// a MouseEvent stands in for it, with the kind written on afterwards.
+	const pointer = (type: string, kind: 'mouse' | 'touch') => {
+		const ev = new MouseEvent(type, { bubbles: true });
+		Object.defineProperty(ev, 'pointerType', { value: kind });
+		return ev;
+	};
+
+	it('does not redraw the list when a finger leaves it', () => {
+		const h = harness(entries(), 1, files);
+		const row = h.note('a');
+
+		h.list().dispatchEvent(pointer('pointerover', 'touch'));
+		h.list().dispatchEvent(pointer('pointerleave', 'touch'));
+
+		// The rows are the SAME ELEMENTS as before the finger arrived: nothing was
+		// rebuilt under the touch (see NavHistoryBrowser.thawOrder).
+		expect(h.note('a')).toBe(row);
+	});
+
+	it('redraws it when a MOUSE leaves it, which is what the order is held for', () => {
+		// The same two events from a pointing device are the panel's whole answer to
+		// "is anybody reading this list?" — the order is taken on the way in and the
+		// list catches up on the way out.
+		const h = harness(entries(), 1, files);
+		const row = h.note('a');
+
+		h.list().dispatchEvent(pointer('pointerover', 'mouse'));
+		h.list().dispatchEvent(pointer('pointerleave', 'mouse'));
+
+		expect(h.note('a')).not.toBe(row);
+		expect(h.note('a').querySelector('.nav-row-name')?.textContent).toBe('a');
+	});
+
+	it('says nothing on hover for a finger', () => {
+		// A finger does not hover: it presses, and the press takes the answer away
+		// (see tip.ts). A tooltip raised by a touch's over would appear 400ms after a
+		// finger that has already moved on, over a row the list may have redrawn.
+		const h = harness(entries(), 1, files);
+
+		h.note('a').dispatchEvent(pointer('pointerover', 'touch'));
+		vi.advanceTimersByTime(TIP_DELAY_MS);
+
+		expect(document.querySelector('.position-restore-nav-tip')).toBeNull();
+	});
+});

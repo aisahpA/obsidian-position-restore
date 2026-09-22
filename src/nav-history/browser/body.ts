@@ -217,8 +217,25 @@ export class NavHistoryBrowser {
 		// move inside the list bubbles an over, so the first twitch of the pointer
 		// makes up for it. Taking the order is idempotent (see freezeOrder), so the
 		// repeated events cost nothing.
-		listEl.addEventListener('pointerover', () => this.freezeOrder());
-		listEl.addEventListener('pointerleave', () => this.thawOrder());
+		//
+		// A FINGER IS NOT A POINTER HERE, and hearing it is what breaks a phone's
+		// gestures. Touch delivers the same pair of events — an over with the press,
+		// and an out/leave the moment the browser decides the finger is panning or
+		// that the app is dragging something — and the leave arrives while the finger
+		// is STILL DOWN, so thawOrder's redraw replaced every row underneath a touch
+		// that was in the middle of becoming a scroll: the row the touch had landed
+		// on was gone, and with it the gesture (a scroll that loses its target stops;
+		// the drawer being dragged sideways loses the touchmove that was moving it
+		// and is left standing part-folded). A finger resting on a row is not reading
+		// the list — it is about to tap it — so there is no order to hold for it.
+		listEl.addEventListener('pointerover', (ev) => {
+			if (ev.pointerType !== 'touch')
+				this.freezeOrder();
+		});
+		listEl.addEventListener('pointerleave', (ev) => {
+			if (ev.pointerType !== 'touch')
+				this.thawOrder();
+		});
 		// …and the click the ROWS did not answer. A click bubbles from the row it
 		// landed on, so this sees one only when there was no row element left to be
 		// the target — the row was rebuilt away between the press and the release —

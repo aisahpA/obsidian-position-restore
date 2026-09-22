@@ -102,6 +102,15 @@ export class NavRowTip {
 	// event fires again for every child element of the row it is already on, and
 	// answering those would restart the delay on a hand that has not moved.
 	private onOver = (ev: PointerEvent): void => {
+		// A finger does not hover — it presses, and the press forgets (see the
+		// pointerdown listener, and body.ts on the same rule for the panel's own
+		// hover). Answering a touch's over would raise a tooltip 400ms after a
+		// finger that has already travelled, over a row the list may have redrawn
+		// since; whatever was being hovered is dropped instead.
+		if (ev.pointerType === 'touch') {
+			this.forget();
+			return;
+		}
 		const target = this.subject(ev.target as Node | null);
 		if (target === this.anchor)
 			return;

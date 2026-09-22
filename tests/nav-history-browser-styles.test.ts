@@ -420,4 +420,48 @@ describe('history browser quiet tiers', () => {
 		// …and the details panel needs no rule of its own here: it does not exist
 		expect(landscape).not.toMatch(/nav-preview/);
 	});
+
+	// THE RESIDENT PANE'S OWN HEIGHT (see NavHistoryView): a leaf hands the pane
+	// whatever height the reader has dragged the sidebar to, so the pane has to take
+	// it. The app's own `.view-content` is a scroller with an inset of its own, and
+	// left standing it was a SECOND scroller around the list — two scrollers for the
+	// app to read a finger's drag against — plus an inset whose 32px foot is the
+	// blank band a phone shows above its on-screen keyboard.
+	//
+	// The rule is written against the pane's CLASS and not the leaf's `data-type`,
+	// which carries NAV_HISTORY_VIEW_TYPE: that constant was renamed with the panel,
+	// and the rule went on being written against a string no leaf carries any more —
+	// which no build step and no test could notice, and which is why this test is
+	// here. A class cannot drift: the pane adds it itself, in the same call.
+	it('bounds the resident pane by the pane itself, not by a view-type string', () => {
+		const pane = browser.match(/\.workspace-leaf-content [^{]*position-restore-nav-view\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(pane).not.toBe('');
+		expect(pane).toMatch(/display: flex/);
+		expect(pane).toMatch(/flex-direction: column/);
+		// one scroller, and it is the list
+		expect(pane).toMatch(/overflow: hidden/);
+		// …and no inset of the app's inside a pane that insets its own toolbar and list
+		expect(pane).toMatch(/padding: 0/);
+		// NOTHING in the panel is written against a `data-type` any more: the one that
+		// was — the view type the pane carried before it was renamed — is the reason
+		// this test exists.
+		expect(browser).not.toMatch(/\[data-type=/);
+		expect(browser).not.toContain('position-restore-nav-history');
+	});
+
+	// A PHONE SCROLLS THE LIST WITH A FINGER, inside a pane that a finger also drags
+	// sideways to fold away (see NavHistoryView.dismissOnMobile), and the app decides
+	// which of the two a drag is by walking up from the element the finger landed on
+	// and looking for something it can scroll. So the list says what it is rather
+	// than leaving itself to be measured: a vertical drag is its own, a horizontal
+	// one is not a scroll at all, and a drag that reaches either end stops there
+	// instead of being handed on to whatever scrolls around the pane.
+	it('answers a phone\'s drag as a scroll of the list', () => {
+		// The base rule, not the one the resident pane restates it with: anchored at
+		// the line's start so a longer selector ending in this class cannot match.
+		const list = browser.match(/(?:^|\n)\.position-restore-nav-list \{[^}]*\}/)?.[0] ?? '';
+		expect(list).toMatch(/overflow-y: auto/);
+		expect(list).toMatch(/touch-action: pan-y pinch-zoom/);
+		expect(list).toMatch(/overscroll-behavior: contain/);
+	});
 });

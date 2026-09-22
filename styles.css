@@ -206,6 +206,23 @@ body.is-mobile .position-restore-cue {
 	overflow-y: auto;
 	max-height: 60vh;
 	padding-bottom: 4px;
+	/* A PHONE SCROLLS THIS LIST WITH A FINGER, and the app reads a finger on a
+	   pane by walking up from the element it landed on, looking for something it
+	   can scroll, to decide whether the drag is a scroll or one of its own
+	   gestures (a phone's sidebar is a drawer a finger folds away sideways). So
+	   the list answers that walk itself instead of leaving it to be measured:
+	     - `pan-y` — a vertical drag belongs to THIS scroller, and a horizontal
+	       one is not a scroll at all, so the two gestures cannot be read as each
+	       other;
+	     - `contain` — a drag that reaches either end of the list stops there
+	       instead of being handed on to whatever scrolls around the panel (in a
+	       sidebar that is the drawer's own scroller, which would then move the
+	       whole pane while the reader is still holding a row);
+	     - the momentum flag iOS still wants told about a scroller it owns.
+	   Pinch is left alone: zooming is the reader's business, not the panel's. */
+	touch-action: pan-y pinch-zoom;
+	overscroll-behavior: contain;
+	-webkit-overflow-scrolling: touch;
 }
 
 /* Toolbar above the list: the filter box and the keyboard hint — the strip holds
@@ -753,7 +770,18 @@ body.is-mobile .position-restore-cue {
    The pane's own chrome is untouched: its header, its close button and the layout drag
    all still belong to Obsidian, which is half the reason this is a view rather than a
    floating panel. */
-.workspace-leaf-content[data-type='position-restore-nav-history'] .view-content {
+/* Written against the pane's OWN class and not against the leaf's `data-type`:
+   that attribute carries the view-type constant of view.ts, and the constant was
+   renamed with the panel — after which this rule went on being written against a
+   string no leaf carries, which nothing in the build or the tests could notice.
+   What the pane lost by it is everything below: `overflow: hidden` (so the app's
+   own `.view-content` skin — a scroller of its own — was left standing around
+   the list, and a finger's drag had two scrollers to be read against) and
+   `padding: 0` (so the app's inset — 12px of side, a 32px foot — stood inside a
+   pane that insets its own toolbar and list, and the foot was the blank band a
+   phone shows above its on-screen keyboard). A class cannot drift: it is added
+   by the same call that builds the pane. */
+.workspace-leaf-content .view-content.position-restore-nav-view {
 	display: flex;
 	flex-direction: column;
 	/* The leaf's scroll would fight the list's: one scroller, and it is the list
