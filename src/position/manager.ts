@@ -326,11 +326,20 @@ export class PositionManager {
 	}
 
 	// Every setting in `before` that differs from the current one has its
-	// derived consequence applied — the same dispatch as SettingTab's
-	// setControlValue, keyed on a diff instead of on the key that was touched.
-	// `before` is what main.ts copied off the settings object immediately
-	// before overwriting it in place; an external write names no keys, so
-	// comparing is the only way to know what to re-apply.
+	// derived consequence applied. This IS the dispatch — there is one copy of
+	// it. A write from the settings tab arrives here too, carrying the snapshot
+	// the tab took before it wrote (see SettingTab.setControlValue), so the list
+	// of consequences does not have to be repeated per caller. `before` is a
+	// copy taken off the settings object immediately before it was overwritten
+	// in place, which is also the only form an EXTERNAL write can arrive in:
+	// data.json names no keys, so comparing is the one thing both callers have
+	// in common.
+	//
+	// Repainting an open recent-files panel is deliberately NOT in here. It is
+	// not state these stores hold — every panel reads its preferences live (see
+	// browserPrefs), so nothing needs recomputing — it is a view asked to draw
+	// again, and only the settings tab knows a reader just changed one of those
+	// preferences in front of a panel (see its BROWSER_PREF_KEYS).
 	applyChangedSettings(before: PluginSettings): void {
 		if (this.settings.navStackCap !== before.navStackCap)
 			this.applyNavStackCap();

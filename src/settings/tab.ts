@@ -1,0 +1,110 @@
+import { App, PluginSettingTab, SettingDefinitionItem } from 'obsidian';
+import type PositionRestorePlugin from '@/main';
+import { positionSettingsPage } from '@/position/settings-page';
+import { navHistorySettingsPage } from '@/nav-history/settings-page';
+import { recentFilesSettingsPage } from '@/recent-files/settings-page';
+import { SettingsPageContext } from './page';
+import { t } from '@/i18n';
+
+// THE SETTINGS SURFACE — everything about this plugin's settings that is not one
+// of the three pages. The pages live beside the features they configure
+// (position/, nav-history/, recent-files/); what is left here is the tab the
+// framework knows, and the row builders and pickers those pages share
+// (page.ts, pickers.ts).
+//
+// This file is an ASSEMBLER, and it cannot help being one:
+// getSettingDefinitions, getControlValue and setControlValue are overrides of
+// PluginSettingTab (@since 1.13.0), so the app calls them on an instance of this
+// class and they can never move elsewhere. Splitting the pages out did not
+// remove the hub — it took the bulk out of it. What remains names all three
+// pages and knows nothing about what is inside them.
+//
+// The name is `settings/`, not `ui/`: the old folder claimed to be a LAYER, and
+// that was false — position/ui, recent-files/browser and the resident panel are
+// UI too, and a reader who went to `ui/` looking for the restore indicator found
+// this file instead. This folder is about one SUBJECT (the settings surface), so
+// it is named after that subject, as every other folder in src is.
+
+// The preferences a standing panel DRAWS BY (see RecentFilesBrowserPrefs). A
+// change to one of them owes no derived state — panels read these live, so the
+// new answer is in force on the next draw — but a panel open beside this page
+// was drawn with the old one and has to be asked to draw again. That is why the
+// list stands here instead of inside the manager's diff table: that table
+// re-applies state the stores hold in memory, while this asks a view to draw.
+const BROWSER_PREF_KEYS = new Set(['navLandings', 'navPathDisplay', 'navRowTime']);
+
+export class SettingTab extends PluginSettingTab {
+	plugin: PositionRestorePlugin;
+
+	constructor(app: App, plugin: PositionRestorePlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	getControlValue(key: string): unknown {
+		return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+	}
+
+	// THE ONE WRITE PATH, and the only place that knows what a written key owes
+	// in consequence — which is a diff, not a lookup table. It used to be a
+	// lookup table, keyed on the setting that was touched, and PositionManager
+	// held a second copy of it keyed on a diff (for the writes that name no key:
+	// data.json edited by hand, a sync landing). Two tables, one meaning, and
+	// both of their comments said so. Now the tab snapshots, writes, and hands
+	// the snapshot over; the manager's table decides what to re-apply, and there
+	// is only one of it.
+	//
+	// The snapshot is shallow on purpose. Nothing here mutates an array in
+	// place — a folder list is always replaced whole — so the pre-write arrays
+	// keep their identity and the manager's element-wise comparison stays a
+	// comparison of VALUES, which is what it has to be for the arrays a fresh
+	// JSON.parse builds on an external write (see PositionManager.sameList).
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		const before = { ...this.plugin.settings };
+		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+		this.plugin.manager.applyChangedSettings(before);
+		if (BROWSER_PREF_KEYS.has(key))
+			this.plugin.manager.refreshNavPanels();
+		await this.plugin.saveSettings();
+	}
+
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		const ctx = this.pageContext();
+		return [
+			{
+				type: 'page',
+				name: t('lastPosition.heading'),
+				items: positionSettingsPage(ctx),
+			},
+			{
+				type: 'page',
+				name: t('navHistory.heading'),
+				items: navHistorySettingsPage(ctx),
+			},
+			{
+				type: 'page',
+				name: t('recentFiles.name'),
+				items: recentFilesSettingsPage(ctx),
+			},
+		] as SettingDefinitionItem[];
+	}
+
+	// What a page is handed. Rebuilt per call rather than held as a field: it is
+	// a set of readers plus two methods that already exist on this class, so
+	// there is no state in it to keep — and a field would have to be created in
+	// the constructor, before PluginSettingTab is done with its own.
+	private pageContext(): SettingsPageContext {
+		return {
+			app: this.app,
+			plugin: this.plugin,
+			// setControlValue already applies the key's consequence; all a page
+			// adds is the redraw, because the list it just edited is on the page
+			// it is looking at.
+			setValue: async (key, value) => {
+				await this.setControlValue(key, value);
+				this.update();
+			},
+			refresh: () => this.update(),
+		};
+	}
+}

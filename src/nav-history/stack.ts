@@ -85,7 +85,7 @@ export class NavStack implements NavFunnelSink {
 	private app: App;
 	private state: PositionState;
 	private modes: RestoreModes;
-	// Shared settings object (main.ts assigns once, settings-tab mutates in
+	// Shared settings object (main.ts assigns once, the settings tab mutates in
 	// place): recording toggles and the stack cap stay live.
 	private settings: PluginSettings;
 	// The recording funnel this stack listens to, and whose bracket a traversal

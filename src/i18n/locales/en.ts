@@ -2,7 +2,7 @@ export const en = {
 	// ── Feature 1 · Saved positions: what is recorded, how it comes back,
 	//    and where the records live ─────────────────────────────────────
 	'lastPosition.heading': 'Last position',
-	// WHAT THE PAGE IS ABOUT, once at the top (see settings-tab's intro row):
+	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
 	// what is remembered, and for whom. Both halves are things no row below can
 	// say — none of them is about the cursor being remembered, and none of them
 	// knows there is more than one tab — and together they are why those rows
@@ -118,7 +118,7 @@ export const en = {
 	// ── Shared · what a hotkey row says, on either page that binds one ──
 	// A hotkey row is named for what it HOLDS, not for the page it stands on:
 	// the same word heads the back/forward page's two commands and the
-	// recent-files page's two (see settings-tab), and a reader looking for one
+	// recent-files page's two (see settings/page), and a reader looking for one
 	// of them is looking for the key, not for the page.
 	'hotkeys.name': 'Hotkeys',
 	'hotkeys.unbound': 'Not bound — click the button to set it up',
@@ -126,7 +126,7 @@ export const en = {
 
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',
-	// WHAT THE PAGE IS ABOUT, said once at the top (see settings-tab's intro
+	// WHAT THE PAGE IS ABOUT, said once at the top (see settings/page's intro
 	// row). What a step is, and where the stack lives — the two things none of
 	// the rows below can say for themselves, and the reason those rows can be
 	// short: a toggle here only has to say whether its own kind of step counts.
@@ -134,7 +134,7 @@ export const en = {
 	// named for that already.
 	'navHistory.intro':
 		'VSCode-style "navigate back" / "navigate forward": a step is a file switch or an in-file jump — a link, the outline, a search result, a far cursor move — and the two switches below decide which of those count. Switches inside one tab ride Obsidian\'s own per-tab history, so PDF, canvas and other views are travelled too. The stack is kept on this device and survives restarts.',
-	// The two commands that walk it (see settings-tab's hotkeys row). Nothing
+	// The two commands that walk it (see settings/page's hotkeys row). Nothing
 	// here repeats the sentence above: the row is named for the keys it holds,
 	// and what back and forward mean has already been said on this page.
 	'navHistory.hotkeys.desc':
@@ -157,7 +157,7 @@ export const en = {
 	// and only one of them is a history of travel.
 	'recentFiles.name': 'Recent files',
 
-	// WHAT THE PAGE IS ABOUT, once at the top (see settings-tab's intro row):
+	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
 	// what one ROW stands for, and what this list is not. The second half is
 	// the half worth saying — the reader arrives here from the page named
 	// "Back and forward", and the two stores answer different questions while
@@ -240,7 +240,7 @@ export const en = {
 	// the difference — the panel stays where it is put.
 	'recentFiles.commands.openSidebar': 'Open recent files in sidebar',
 	// The two commands above, as the settings row that binds them (see
-	// settings-tab). Their keys stand on the recent files page and NOT beside the
+	// settings/page). Their keys stand on the recent files page and NOT beside the
 	// back/forward ones: the two pages answer different questions, and a reader
 	// looking for the key that opens the LIST should not have to know that it
 	// lives under a heading about travel.

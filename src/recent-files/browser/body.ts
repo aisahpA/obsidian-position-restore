@@ -45,8 +45,8 @@ let browserSeq = 0;
 // the next redraw instead of being frozen into the panel that happened to be open.
 //
 // Readers and nothing else, because none of them is CHOSEN here any more: all four
-// are rows of the plugin's settings tab (see ui/settings-tab.ts), which is where a
-// reader reaches for a setting anyway. The copy the toolbar's gear used to carry is
+// are rows of the plugin's settings tab (see recent-files/settings-page.ts),
+// which is where a reader reaches for a setting anyway. The copy the toolbar's gear used to carry is
 // gone with the gear — two places to change one value is one place to forget.
 export interface RecentFilesBrowserPrefs {
 	// How much of one note the list prints (see LandingsMode).

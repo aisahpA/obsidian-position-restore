@@ -1,5 +1,5 @@
 import { Platform, Plugin } from 'obsidian';
-import { SettingTab } from './ui/settings-tab';
+import { SettingTab } from './settings/tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
@@ -147,7 +147,8 @@ export default class PositionRestorePlugin extends Plugin {
 		// the one action that throws the reader's own history away — which belongs on
 		// the command palette, where they asked for it by name, and not one stray click
 		// from the rows they came here to use. No confirmation: the list is disposable
-		// (see places-store.ts) and the note being read is put back on the spot (see
+		// (see places-store.ts), and it comes back EMPTY rather than being refilled
+		// with the note being read — the next navigation starts filling it again (see
 		// PositionManager.clearRecentPlaces).
 		this.addCommand({
 			id: 'clear-recent-files',

@@ -47,7 +47,7 @@ body.is-phone .position-restore-db-path-row.is-pickers > button {
 	margin: 4px 0 0 1.4em;
 }
 
-/* A page's opening sentence (see SettingTab.intro): help text for the PAGE
+/* A page's opening sentence (see settings/page.ts's intro): help text for the PAGE
    rather than for one row, so it carries no control and no name. The app still
    prints the name element above the description — empty here, and left in place
    rather than removed from the DOM because the row is re-rendered from its
