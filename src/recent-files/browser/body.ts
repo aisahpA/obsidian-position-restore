@@ -18,11 +18,13 @@
 // places-store.ts beside this directory), over the shared entry vocabulary in
 // nav/entry.ts, which this panel only reads and never writes.
 //
-// READ-ONLY, and that is what makes a RESIDENT panel possible at all: the body draws
-// whatever the place list holds at the moment render() is called. The list's own snapshot
-// is refreshed from the places on every render (see render), so a shell that lives for
-// hours shows the history as it stands rather than as it stood when the panel opened — and
-// one that lives for a second (the modal) is not asked for anything more.
+// READ-ONLY BUT FOR TWO THINGS, and that is what makes a RESIDENT panel possible at all: the
+// body draws whatever the place list holds at the moment render() is called, and the only
+// things it ever says back are the two a row can be asked for — go there (see jump), and go
+// away (see forgetRow). Everything else here is drawing — the list's own snapshot is
+// refreshed from the places on every render (see render), so a shell that lives for hours
+// shows the history as it stands rather than as it stood when the panel opened, and one that
+// lives for a second (the modal) is not asked for anything more.
 
 import { App, Menu, TFile, setIcon, Keymap } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
@@ -491,21 +493,27 @@ export class RecentFilesBrowser {
 			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
 	}
 
-	// A row was right-clicked: raise the APP's own menu for the file behind it.
+	// A row was right-clicked: raise the APP's own menu for the file behind it, with
+	// the two entries of our own on top.
 	//
 	// The menu is the app's and not ours, and that is deliberate: what a reader can do
 	// with a file (open it beside, copy a link, reveal it, rename it, whatever the
 	// app's own version of this menu holds) is the app's business, and a second list of
-	// those commands written here would be a stale copy of it. The ONE thing added is
-	// the thing the app cannot know: a row of PLACES promises a specific landing, so a
-	// jump row gets its own "open here in a new tab" (see the two locale keys).
+	// those commands written here would be a stale copy of it. What is added is what the
+	// app cannot know: this row stands for a PLACE, and this list is a list the app does
+	// not have — the landing the row promises (see the two locale keys), and the row's
+	// own removal.
 	//
 	// The context asked for is the LINK one, not the file explorer's: a row here is a
 	// pointer at a file rather than the file in its own tree, and the file-managing
 	// actions (rename, move, delete) do not belong to a reader who came here to go
-	// somewhere. The panel's read-only promise is intact either way: nothing in this
-	// handler writes anything, and whatever the reader picks from the menu is something
-	// they asked the APP to do.
+	// somewhere. THAT is what the panel leaves to the app. The one thing the browser ever
+	// asks of the list on its OWN account is the removal below — travel is already the
+	// row's click, and it rides the pipeline every navigation rides (see NavPlaces.travel)
+	// — and that removal touches the list and nothing else: not the file, not the position
+	// records (see NavPlaces.forget). It is asked for HERE, from a menu the reader opened
+	// on purpose, rather than from a control sitting under the pointer: a row is one
+	// target (see list.ts).
 	private contextRow(rep: number, ev: MouseEvent): void {
 		const entry = this.opts.places.entries[rep];
 		// A pathless view (the graph) has no file: a file menu has nothing to be about.
@@ -515,10 +523,10 @@ export class RecentFilesBrowser {
 		if (!(file instanceof TFile))
 			return;
 		const menu = new Menu();
-		// Our own item goes FIRST (section 'action', which the app sorts ahead of its
-		// own sections), because it is the one entry the reader cannot get anywhere
-		// else for THIS row: core's menu can offer "open in a new tab" for the file, but
-		// only this list knows the landing the row stands for.
+		// Our own items go FIRST (section 'action', which the app sorts ahead of its
+		// own sections), because neither is anything the app can offer for THIS row:
+		// core's menu can offer "open in a new tab" for the file, but only this list
+		// knows the landing the row stands for — and only this list exists.
 		menu.addItem(item => item
 			.setSection('action')
 			.setTitle(t(entry.kind === 'jump'
@@ -526,8 +534,31 @@ export class RecentFilesBrowser {
 				: 'recentFiles.menu.openInNewTab'))
 			.setIcon('file-plus')
 			.onClick(() => this.jump(rep, 'tab')));
+		// …and the row itself, gone. The PATH is taken from the entry the menu was
+		// raised for rather than from the index: the click arrives when the reader
+		// chooses, and by then the list may have moved under it (a place visited in
+		// between, a trim) — the entry is the identity, and the store resolves it.
+		menu.addItem(item => item
+			.setSection('action')
+			.setTitle(t('recentFiles.menu.forget'))
+			.setIcon('x')
+			.onClick(() => this.forgetRow(entry.path)));
 		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
 		menu.showAtMouseEvent(ev);
+	}
+
+	// The reader asked for a file's places to go: the store drops them, and the list is
+	// drawn again so that the row goes with them.
+	//
+	// The redraw is asked for HERE rather than left to the shells. The resident panel
+	// hears the store and redraws itself (see RecentFilesView.onOpen), but a DIALOG does
+	// not subscribe — it draws once and answers only its own filter from then on (see
+	// modal.ts) — so a removal would otherwise leave the row standing until the dialog
+	// was reopened. A second, identical redraw in the sidebar is one pass over a list
+	// the reader cannot see change.
+	private forgetRow(path: string): void {
+		this.opts.places.forget(path);
+		this.render();
 	}
 
 	// Run the shell's own reaction to a travel, and let NOTHING it does stop the journey

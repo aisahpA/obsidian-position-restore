@@ -271,9 +271,9 @@ describe('NavPlaces — the current place', () => {
 
 	it('never invents a place for the note being read — "here" is not a place', () => {
 		// A workspace restored at startup opens its file through a path nothing
-		// recorded. The list stays TRULY empty in that case (see NavPlaces.clear):
-		// "you are here" has nothing to stand on until the reader goes somewhere —
-		// the list does not put the note being sat in back on itself.
+		// recorded. The list stays TRULY empty in that case: "you are here" has nothing
+		// to stand on until the reader goes somewhere — the list does not put the note
+		// being sat in back on itself, and nothing fills a place in (see forget below).
 		const { places } = makePlaces();
 		places.markCurrent(visit('restored.md'));
 
@@ -325,26 +325,38 @@ describe('NavPlaces — travel goes the way its record says', () => {
 	});
 });
 
-describe('NavPlaces — starting over', () => {
-	it('throws every place away, and stands nowhere', () => {
-		// The list is disposable by design (see places-store.ts): an empty one fills up
-		// again with use, so clearing it needs no confirmation and no migration — and it
-		// deliberately does NOT touch the position records, which are a different store
-		// keyed by path (see the module comment).
+describe('NavPlaces — forgetting a file', () => {
+	it('drops the file record and every jump made inside it', () => {
+		// What a reader means by "I do not want to see this note here" is the FILE: one
+		// row per note is the list's own shape (see list.ts), so a removal that left the
+		// landings behind would leave the row behind with them.
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
-		places.remember(jump('a.md', 'outline:## T'));
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+		places.remember(visit('b.md'));
+
+		places.forget('a.md');
+
+		expect(paths(places)).toEqual(['b.md']);
+	});
+
+	it('leaves every other file, and a pathless view, standing', () => {
+		// A view has no path, so no path names it: the removal is about a FILE, and the
+		// graph is not one (see places.ts's forget).
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
 		places.remember(view('graph'));
-		places.markCurrent(visit('a.md'));
-		expect(places.entries).toHaveLength(3);
-		expect(places.index).toBe(0);
+		places.remember(jump('b.md', 'outline:## T'));
 
-		places.clear();
+		places.forget('a.md');
 
-		expect(places.entries).toEqual([]);
-		// "Here" goes with it: an index into a list that is gone would name the note
-		// that arrives next.
-		expect(places.index).toBe(-1);
+		// Named through placeKey rather than spelled out: what is pinned here is which
+		// places SURVIVED, and a key is the store's own way of naming one (see placeKey).
+		expect(paths(places)).toEqual([
+			placeKey(view('graph')),
+			placeKey(jump('b.md', 'outline:## T')),
+		]);
 	});
 
 	it('tells the panel, so the rows go while the reader is looking at them', () => {
@@ -353,22 +365,50 @@ describe('NavPlaces — starting over', () => {
 		const seen = vi.fn();
 		places.subscribe(seen);
 
-		places.clear();
+		places.forget('a.md');
 
 		expect(seen).toHaveBeenCalledTimes(1);
 	});
 
-	it('starts empty rather than merely looking empty', () => {
-		// "Clear" is a real clear (see NavPlaces.clear): the note being read goes with
-		// the rest, and nothing puts it back — an empty list is the whole of what was
-		// asked, and the next navigation refills it. This checks the absence of any
-		// such backfill, which the caller used to do.
+	it('stands nowhere when the place it forgot was the one being read', () => {
+		// "Here" is an index into the list: a place that is gone must not leave one
+		// behind, or the note that arrives next would be named as where the reader is.
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
-		places.clear();
+		places.markCurrent(visit('a.md'));
+		expect(places.index).toBe(0);
 
-		expect(places.knownPaths()).toEqual([]);
-		expect(places.entries.some(e => e.kind !== 'view')).toBe(false);
+		places.forget('a.md');
+
+		expect(places.entries).toEqual([]);
+		expect(places.index).toBe(-1);
+	});
+
+	it('keeps standing on the same place when another file is forgotten', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.markCurrent(visit('b.md'));
+		expect(places.index).toBe(1);
+
+		places.forget('a.md');
+
+		// The index is re-found by IDENTITY and not by arithmetic (see dropPlaces): the
+		// place that slid down one slot is the same place.
+		expect(paths(places)).toEqual(['b.md']);
+		expect(places.index).toBe(0);
+	});
+
+	it('says nothing at all for a path the list does not hold', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.forget('nowhere.md');
+
+		expect(paths(places)).toEqual(['a.md']);
+		expect(seen).not.toHaveBeenCalled();
 	});
 });
 

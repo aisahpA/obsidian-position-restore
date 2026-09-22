@@ -59,6 +59,15 @@ import { NavRowTip, TipContent } from './tip';
 // The keyboard does the same thing without a pointer: ↑↓ step through the rows on
 // screen, Enter opens.
 //
+// ONE TARGET, AND STILL TWO THINGS A READER CAN DO WITH A ROW: a click opens it, and
+// the row's own menu can drop it from the list (see onContextMenu). The second is
+// deliberately NOT a second hotspot in the row — a × drawn under the pointer would
+// re-open the very question the gutter answered wrong, it would have to stand
+// permanently on a device that has no hover (and a phone is where the list is most
+// crowded), and the two targets would then be one stray pixel apart on the one
+// gesture a reader makes a thousand times. A menu is a deliberate act, and it is the
+// same act on a mouse and on a finger.
+//
 // NOTHING MOVES ON HOVER, which is the whole of the rule this list is built on: the
 // pointer used to drive the position directly — a mouse crossing the list moved it and
 // the panel beside it followed. A list that lurches under a passing mouse points at a
@@ -148,7 +157,10 @@ export interface RecentFilesListOptions {
 	// the app's own file menu over it (see body.ts's contextRow). The list does not
 	// build the menu because it does not hold the app, and a row here is a row of
 	// PLACES, not of files: which of them has a file behind it is the browser's
-	// question (a pathless view has none).
+	// question (a pathless view has none). What the menu holds — the app's actions,
+	// and the one item that is the panel's own — is not this list's business either:
+	// the row is handed over, and the browser draws again if the places changed (see
+	// body.ts's forgetRow). Nothing in this file writes.
 	onContextRow: (rep: number, ev: MouseEvent) => void;
 	// How much of a note the list prints (see shownLandings): one row per note — the
 	// plugin's default, the row standing for the last spot the note was left at — or
@@ -618,10 +630,12 @@ export class RecentFilesList {
 	// WebView's selection callout, and a menu with a text-selection callout over it is
 	// worse than either alone.
 	//
-	// What the menu may do is not this list's business — the panel writes nothing
-	// itself, and every action in there is one the reader asked the APP for (see
-	// body.ts's contextRow: it asks for the LINK context, so no file-managing action
-	// is among them).
+	// What the menu may do is not this list's business, and this list still writes
+	// nothing itself: the row is handed over, and the browser asks the APP for the app's
+	// own menu and adds the two entries of its own (see body.ts's contextRow — the LINK
+	// context is what is asked for, so no file-managing action is among the app's). One
+	// of those two takes the row off the list, and the redraw that follows is the
+	// browser's, not this file's (see forgetRow).
 	private onContextMenu(ev: MouseEvent, ref: RowRef): void {
 		ev.preventDefault();
 		const rep = this.activeRep(ref);

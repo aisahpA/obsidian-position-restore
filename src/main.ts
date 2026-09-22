@@ -141,21 +141,6 @@ export default class PositionRestorePlugin extends Plugin {
 			icon: 'panel-right',
 			callback: () => this.manager.openRecentFilesSidebar(),
 		});
-		// Start the recent-files list over. A COMMAND and not a button in the panel's
-		// gear: that panel is a navigator (a row is a place to go, not a row to act on),
-		// its gear holds what a row prints rather than what the list does, and this is
-		// the one action that throws the reader's own history away — which belongs on
-		// the command palette, where they asked for it by name, and not one stray click
-		// from the rows they came here to use. No confirmation: the list is disposable
-		// (see places-store.ts), and it comes back EMPTY rather than being refilled
-		// with the note being read — the next navigation starts filling it again (see
-		// PositionManager.clearRecentPlaces).
-		this.addCommand({
-			id: 'clear-recent-files',
-			name: t('recentFiles.commands.clear'),
-			icon: 'trash-2',
-			callback: () => this.manager.clearRecentPlaces(),
-		});
 		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
 		// and the toolbar only exists while editing, so one tap (the mobile
 		// navbar exposes the ribbon) is the only way in. On desktop the icon

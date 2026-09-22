@@ -308,14 +308,6 @@ export class PositionManager {
 			this.places.applyCap();
 	}
 
-	// Throw the recent-files list away (main.ts's "clear recent files"
-	// command). The panel follows through its subscription: the rows go, and
-	// nothing is put back — an empty list is the whole of what was asked, and
-	// the next navigation refills it (see NavPlaces.clear).
-	clearRecentPlaces(): void {
-		this.places.clear();
-	}
-
 	// The recent-files list's ceiling changed: the list in memory is trimmed at
 	// once, so the reader sees the ceiling they just set rather than discovering
 	// it on the next open. Called by the settings tab and by an external write

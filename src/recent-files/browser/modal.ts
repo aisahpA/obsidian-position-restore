@@ -58,6 +58,13 @@ import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
 // WHAT MAKES IT A MODAL, and nothing else does: it is a dialog (a shell of its own
 // lifetime, closed the moment a row is travelled to, with the filter box focused on
 // open). See view.ts for the resident panel that shares the same body.
+//
+// It is also the one shell that does NOT subscribe to the places (see view.ts's
+// subscription): a dialog is a question asked and answered, and the only change its list
+// can see is one its own reader made from a row's menu — which the body redraws for
+// itself (see RecentFilesBrowser.forgetRow). A panel that stays up is the opposite case
+// and the reason the subscription exists: it must follow a history that moves while the
+// reader works.
 export class RecentFilesModal extends Modal {
 	// The panel itself: the toolbar, the rows and the keyboard (see body.ts).
 	private browser!: RecentFilesBrowser;
@@ -86,8 +93,10 @@ export class RecentFilesModal extends Modal {
 		// touch layout.
 		this.modalEl.addClass('position-restore-nav-panel');
 		// The device's own ergonomics, and nothing else: the classes are per DEVICE, and
-		// the dialog's height is pinned once, here — the list it holds is a snapshot, so
-		// neither can change while the dialog is up.
+		// the dialog's height is pinned once, here. A row can still leave while the
+		// dialog is up — the reader may take one off the list from its own menu (see
+		// RecentFilesBrowser.forgetRow) — and that is the one change the pinned height
+		// does not have to care about: the list simply comes out a row shorter.
 		this.modalEl.toggleClass('is-touch', this.mobile);
 		this.modalEl.toggleClass('is-fixed', this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
 		this.titleEl.setText(t('recentFiles.name'));

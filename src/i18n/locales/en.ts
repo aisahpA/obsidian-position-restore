@@ -229,6 +229,12 @@ export const en = {
 	'recentFiles.aka': 'aka:',
 	'recentFiles.menu.openInNewTab': 'Open in new tab',
 	'recentFiles.menu.openHereInNewTab': 'Open here in a new tab',
+	// The one item in the row's menu that is the PANEL's rather than the app's: take this
+	// file off the list — its own file record and the jumps made inside it go together
+	// (see NavPlaces.forget). "Remove" and not "delete": what goes is the record, while
+	// the file and the position database are untouched, and visiting the file again puts
+	// a place back.
+	'recentFiles.menu.forget': 'Remove from recent files',
 	// "Browse" and not "open": what opens is the LIST, and "open recent files"
 	// reads as opening the one file the reader was last in. It is also the verb the
 	// command's own id carries (see main.ts), and it is what separates the two
@@ -246,10 +252,6 @@ export const en = {
 	// lives under a heading about travel.
 	'recentFiles.hotkeys.desc':
 		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
-	// The one destructive command: it throws the reader's own recent list away. Named
-	// for what it empties rather than for "reset" or "clear history", because the
-	// back/forward stack is a different store and is NOT what this touches.
-	'recentFiles.commands.clear': 'Clear recent files',
 
 	// What a step with no file (the graph) is called in the list.
 	'recentFiles.graphView': 'Graph view',

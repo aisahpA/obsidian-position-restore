@@ -286,11 +286,28 @@ function harness(
 	// long, so the tap semantics are decided the way a real device would.
 	const previous = Platform.isMobile;
 	Platform.isMobile = mobile;
+	// The list's own removal (see body.ts's forgetRow): the panel hands the store a PATH
+	// and nothing else. The fixture answers it the way the store does — a file's record and
+	// the landings inside it go together, and the pointer is re-found rather than left
+	// naming a slot that moved (see NavPlaces.forget / dropPlaces) — so that a test can
+	// watch the row leave the screen rather than only the call being made. The list is a
+	// fixture here (see above); the store's own rules are pinned in
+	// recent-files-places.test.ts, and what this suite watches is the panel.
+	const forget = vi.fn((path: string) => {
+		const current = entries[index];
+		for (let i = entries.length - 1; i >= 0; i--) {
+			// Held in a local so the kind narrows: NavEntry is a union and a view has no
+			// path at all (see nav/entry.ts).
+			const e = entries[i];
+			if (e.kind !== 'view' && e.path === path)
+				entries.splice(i, 1);
+		}
+		places.index = current && entries.includes(current) ? entries.indexOf(current) : -1;
+	});
+	const places = { entries, index, travel: jumpTo, subscribe: () => () => {}, forget };
 	let modal: RecentFilesModal;
 	try {
-		modal = new RecentFilesModal(app as never, {
-			entries, index, travel: jumpTo, subscribe: () => () => {},
-		} as never, undefined, browserPrefs);
+		modal = new RecentFilesModal(app as never, places as never, undefined, browserPrefs);
 	} finally {
 		Platform.isMobile = previous;
 	}
@@ -400,7 +417,7 @@ function harness(
 		modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-clear')!;
 	const clearFilter = () => clickRow(clearButton());
 	return {
-		modal, jumpTo, cachedRead, el: modal.contentEl, entries, list,
+		modal, jumpTo, forget, cachedRead, el: modal.contentEl, entries, list,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter,
@@ -1879,19 +1896,23 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('hands the app a menu for a file row, with its own item on top', () => {
+	it('hands the app a menu for a file row, with its own two items on top', () => {
 		// The menu is the app's — what a reader can do with a file is not this plugin's
-		// business — and the ONE item added is the one the app cannot know: this row
-		// stands for a PLACE, so "open in a new tab" here means this file.
+		// business — and the TWO items added are the ones the app cannot know: this row stands
+		// for a PLACE, so "open in a new tab" here means this note; and this list is the
+		// plugin's own, so taking the note off it is nobody else's gesture.
 		const h = harness(entries(), 1, files);
 		const ev = h.rightClick(h.note('a'));
 
 		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
 		const menu = menuOf(h.trigger);
-		expect(menu.items).toHaveLength(1);
+		expect(menu.items).toHaveLength(2);
 		expect(menu.items[0].title).toBe(t('recentFiles.menu.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
 		expect(menu.items[0].icon).toBe('file-plus');
+		expect(menu.items[1].title).toBe(t('recentFiles.menu.forget'));
+		expect(menu.items[1].section).toBe('action');
+		expect(menu.items[1].icon).toBe('x');
 		// The context asked for is a LINK's, not the file explorer's: the app decides
 		// what belongs there, and the file-managing actions do not (see contextRow).
 		expect(h.trigger).toHaveBeenCalledWith(
@@ -1902,6 +1923,25 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		// place a plain click opens.
 		menu.items[0].click!();
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
+	});
+
+	it('takes the row off the list from that menu, and draws it away', () => {
+		// The one write the panel makes (see body.ts's forgetRow), and it goes to the list
+		// and no further: the file itself, and the position database, are untouched (see
+		// NavPlaces.forget). The row has to leave the screen as it goes — a dialog that went
+		// on showing it would read as the menu item having done nothing.
+		const h = harness(entries(), 1, files);
+		const names = () => h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+		expect(names()).toContain('a');
+
+		h.rightClick(h.note('a'));
+		menuOf(h.trigger).items[1].click!();
+
+		expect(h.forget).toHaveBeenCalledWith('a.md');
+		// …and only that row: the note removed is the one that was NOT current, so the list
+		// is one note shorter and the position is still on b.md.
+		expect(names()).not.toContain('a');
+		expect(names()).toEqual(['b']);
 	});
 
 	it('says WHICH place its own item opens, on a row that stands for a landing', () => {

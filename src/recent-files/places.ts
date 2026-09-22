@@ -15,8 +15,11 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 //     TRUNCATING — a fresh jump discards the forward part, because that is what
 //     back/forward means. A list of places drawn from it therefore lost a whole
 //     chunk of itself the moment the reader went back and then somewhere else.
-//   - this list is a PLACE store: unordered, never truncated, and deduped by
-//     place. Going back and branching adds a place; it removes nothing.
+//   - this list is a PLACE store: unordered, never truncated by a jump, and
+//     deduped by place. Going back and branching adds a place; it removes
+//     nothing. (A place can still leave it — the reader may take a file off the
+//     list by hand, see forget — but nothing about GOING anywhere removes one,
+//     and nothing fills one back in.)
 //
 // WHAT IS IN IT. Two kinds of place, and no more:
 //   - one FILE record per path (`kind: 'visit'`), holding no position of its
@@ -63,6 +66,13 @@ export interface PlaceList {
 	// than the tab the file is already in (see PaneTarget); absent means the
 	// ordinary open, which is what the row's own click is.
 	travel(index: number, target?: PaneTarget): Promise<void>;
+	// Drop every place a file holds — its own file record and each jump made
+	// inside it, which is what a reader means by "I do not want to see this note
+	// here" (the panel's own menu item: see RecentFilesBrowser.contextRow). The
+	// file is untouched, and so are the position records: this list is a record
+	// of where the reader has BEEN, and a place that comes back the next time
+	// they visit is not a bug (see NavPlaces.forget).
+	forget(path: string): void;
 	// Something a browser would have to redraw for.
 	subscribe(fn: () => void): () => void;
 }
@@ -226,7 +236,8 @@ export class NavPlaces implements PlaceList {
 	// "Here" is a live fact about the workspace, so it is NOT persisted and NOT
 	// invented: a list that came up empty stays empty until the reader goes
 	// somewhere, and nothing here puts the note they happen to be reading back on
-	// their own list (see clear).
+	// their own list — a place leaves only when something asks it to (see forget
+	// and deleteFile above), and nothing fills one back in.
 	markCurrent(entry?: NewNavEntry): void {
 		const at = this.indexFor(entry);
 		if (at === this.index)
@@ -256,6 +267,30 @@ export class NavPlaces implements PlaceList {
 	// jump made inside it. The panel's rows for them would otherwise be dead
 	// names that hold slots in a capped list.
 	deleteFile(path: string): void {
+		this.dropPlaces(path);
+	}
+
+	// The reader asked for a file's places to go: the panel's own menu item (see
+	// RecentFilesBrowser.contextRow). The same removal as a vault delete, by the
+	// same rule — a file is ONE row, so a file that goes takes its landings with
+	// it, or the row would survive as the landings left under it — and a second
+	// name rather than the bookkeeper's entry point reused, because the two
+	// answer different questions: that one is the VAULT saying the file is gone,
+	// this one is the reader saying they do not want to see it.
+	//
+	// What it does NOT touch is why this list can be edited at all: the file
+	// itself, and the position records — a different store, keyed by path (see
+	// the module comment). A file visited again takes its place back, by design:
+	// this is a record of where the reader has been, not a rule about where they
+	// may go. A reader who never wants a file listed wants the folder rule
+	// instead (see recordable), which is a policy rather than a one-off.
+	forget(path: string): void {
+		this.dropPlaces(path);
+	}
+
+	// The one removal both names above stand for. A pathless place (a view) is
+	// never what a path names, which is why the filter leaves it standing.
+	private dropPlaces(path: string): void {
 		const current = this.entries[this.index];
 		const kept = this.entries.filter(e => e.kind === 'view' || e.path !== path);
 		if (kept.length === this.entries.length)
@@ -321,22 +356,6 @@ export class NavPlaces implements PlaceList {
 			return;
 		}
 		await this.open.openFile(entry.path, entry.leafId, target);
-	}
-
-	// Throw the whole list away. The list is DISPOSABLE by design (see
-	// places-store.ts): an empty one fills up again with use, and nothing else in
-	// the plugin reads it — the position records are a different store, keyed by
-	// path, and are deliberately untouched by this. So there is nothing to confirm
-	// and nothing to migrate; the reader who wants to start over starts over.
-	//
-	// TRULY empty, and that is the reading of the command: the note they are
-	// looking at goes with the rest. Nothing backfills it — a list with one
-	// unexplained row in it would be a worse answer to "clear this" than an empty
-	// one, and the next navigation puts a place back.
-	clear(): void {
-		this.entries = [];
-		this.index = -1;
-		this.changed();
 	}
 
 	// The ceiling changed (the settings tab): trim NOW rather than on the next

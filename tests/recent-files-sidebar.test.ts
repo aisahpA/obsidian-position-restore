@@ -113,6 +113,16 @@ class FakeNav {
 		};
 	}
 
+	// The reader took a file off the list (the row's own menu — see
+	// RecentFilesBrowser.contextRow): the real store drops the file's record and the
+	// landings made inside it together (see NavPlaces.forget), and tells its listeners,
+	// exactly as it does for a change made anywhere else.
+	forget(path: string): void {
+		this.entries = this.entries.filter(e => e.kind === 'view' || e.path !== path);
+		for (const fn of this.listeners)
+			fn();
+	}
+
 	// A step the reader made elsewhere: every browser on screen is told (see
 	// NavPlaces.changed).
 	moved(index: number): void {
