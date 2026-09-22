@@ -2,7 +2,7 @@
 // a reader cannot verify by reading a pure function: what a bare Enter does,
 // which rows are selectable at all, the landing panel that describes a row, and
 // the search box that is now the toolbar's only control.
-// The pure pieces (describe/group/merge/filter/time/panes) are covered in
+// The pure pieces (describe/group/merge/filter/time) are covered in
 // nav-history-browser.test.ts.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -73,10 +73,9 @@ function harnessAll(
 	live: Record<string, string> = {},
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
 	mobile = false,
-	layout: { leafId: string; path: string }[] = [],
 	mtimes: Record<string, number> = {},
 ): ReturnType<typeof harness> {
-	return harness(entries, index, files, deleted, live, headingMap, mobile, layout, mtimes,
+	return harness(entries, index, files, deleted, live, headingMap, mobile, mtimes,
 		prefs({ landings: 'all' }).browser);
 }
 
@@ -169,7 +168,9 @@ function harness(
 	deleted: string[] = [],
 	// paths held open in an editor: the panel describes a place from the ENTRY it
 	// was recorded in and never from a live editor, so nothing here is ever read
-	// for the panel — the fake app exposes the editors only for the pane marker.
+	// for the panel. The fake app exposes them anyway, because a fixture that
+	// could not show a leaf holding a note would not be the app the browser was
+	// written against.
 	live: Record<string, string> = {},
 	// parsed headings per path, as metadataCache would report them
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
@@ -179,12 +180,6 @@ function harness(
 	// touch ergonomics: the ×'s target under a finger, and the filter box left
 	// unfocused.
 	mobile = false,
-	// The main area's current layout: which tab (leaf id) shows which path, in
-	// layout order. The pane marker is derived from THIS rather than from the
-	// entries' own leafIds (see paneInfo), so a test that wants a marker has to
-	// say which tabs are open now. Without it the `live` editors stand in as one
-	// tab per path — which is never ambiguous, as in a real vault.
-	layout: { leafId: string; path: string }[] = [],
 	// mtimes for the files above, as the vault would report them now: the
 	// browser compares them with the mtime an entry recorded.
 	mtimes: Record<string, number> = {},
@@ -201,17 +196,17 @@ function harness(
 	// what it always asked: "this is the place the row took the reader to".
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
-	// The main root split, with one element per leaf inside it: isMainAreaLeaf
-	// asks whether a leaf's element sits in the root's.
+	// The main root split, with one element per leaf inside it. Nothing walks it
+	// any more — the badge that named which live tab held a landing is gone — but
+	// the leaves are still where the editors below stand, so the fake app keeps
+	// the shape it has always had.
 	const rootEl = document.createElement('div');
 	document.body.appendChild(rootEl);
 	// The metadata reads this harness has answered, and the listeners a `changed`
 	// event will reach (see the fake metadataCache below).
 	let cacheReads = 0;
 	const metaListeners = new Set<(file: { path: string }) => void>();
-	const tabs = layout.length
-		? layout
-		: Object.keys(live).map((path) => ({ leafId: `open:${path}`, path }));
+	const tabs = Object.keys(live).map((path) => ({ leafId: `open:${path}`, path }));
 	const app = {
 		vault: {
 			getAbstractFileByPath: (path: string) => {
@@ -1090,7 +1085,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 400 }),
 			visit('b.md', NOW),
-		], 2, files, [], {}, cache, false, [], {}, prefs({ landings: 'all' }).browser);
+		], 2, files, [], {}, cache, false, {}, prefs({ landings: 'all' }).browser);
 
 		const place = h.rows().find(r => r.querySelector('.nav-row-line')?.textContent === 'L401')!;
 		expect(place).toBeDefined();
@@ -1132,7 +1127,7 @@ describe('RecentFilesModal — the list\'s looks belong to the settings tab', ()
 	const files = { 'a.md': '', 'b.md': '' };
 
 	it('draws from the values the plugin holds, and offers nowhere to change them', () => {
-		const h = harness(entries(), 2, files, [], {}, {}, false, [], {},
+		const h = harness(entries(), 2, files, [], {}, {}, false, {},
 			prefs({ landings: 'all' }).browser);
 
 		// No gear in the strip, no menu hanging off it — and no key of its own to put
@@ -1327,7 +1322,7 @@ describe('RecentFilesModal — one note, many landings', () => {
 		const all = prefs({ landings: 'all' });
 		const h = harness([
 			at('x.md', 100, 30), at('x.md', 412, 25), at('x.md', 412, 10), visit('y.md', NOW),
-		], 3, files, [], {}, {}, false, [], {}, all.browser);
+		], 3, files, [], {}, {}, false, {}, all.browser);
 
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L101', 'L413']);
 		expect(h.note('x').querySelector('.nav-row-count')).toBeNull();
@@ -1354,65 +1349,6 @@ describe('RecentFilesModal — one note, many landings', () => {
 
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
 			.toEqual(['z', 'y', 'x']);
-	});
-});
-
-describe('RecentFilesModal — panes', () => {
-	// A landing of a note, taken in one tab: a jump the reader made (see places.ts).
-	const pane = (path: string, leafId: string, stamp: number): NavHistoryEntry =>
-		({ kind: 'jump', path, leafId, key: `outline:${leafId}`, t: stamp, st: { scroll: stamp } });
-
-	it('names the pane on the landing, and only for a note two live tabs hold', () => {
-		// a.md is open in two tabs; b.md in one (and is the current entry).
-		const entries = [pane('a.md', 'left', 100), pane('a.md', 'right', 200), pane('b.md', 'left', NOW)];
-		const h = harnessAll(entries, 2, { 'a.md': '', 'b.md': '' }, [], {}, {}, true, [
-			{ leafId: 'left', path: 'a.md' },
-			{ leafId: 'right', path: 'a.md' },
-		]);
-
-		// The pane marker is a property of a LANDING (two tabs of one note are
-		// otherwise identical landings), so it belongs on the row of a landing — which
-		// the list prints under 'all'. Its landings run down the note: L101 was taken
-		// in the left tab, L201 in the right one, whatever order the visits happened
-		// in.
-		expect(h.rows()).toHaveLength(2);
-
-		// Which of how many, with no word: "2/2" rather than "Pane 2".
-		expect(h.rows()[0].querySelector('.nav-row-pane')?.textContent).toBe(t('recentFiles.pane', 1, 2));
-		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('recentFiles.pane', 2, 2));
-		// ...and it is the note's own name that stays authoritative
-		expect(h.note('a').querySelector('.nav-row-name')?.textContent).toBe('a');
-	});
-
-	it('says nothing about panes when a note lives in one leaf', () => {
-		const entries = [pane('a.md', 'left', 100), pane('b.md', 'left', NOW)];
-		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' }, [], {}, {}, true, [
-			{ leafId: 'left', path: 'a.md' },
-		]);
-
-		// a.md holds ONE landing, so there is no landing row to carry the marker: one
-		// live tab means no number to print, and a note with one place prints no rows.
-		expect(h.rows()).toHaveLength(0);
-		expect(h.note('a').querySelector('.nav-row-pane')).toBeNull();
-	});
-
-	it('drops the number once that tab has moved to another note', () => {
-		// The tab still exists — showing a DIFFERENT note. A number read off the
-		// history kept claiming it as this note's second window; read off the live
-		// layout it is simply not one of them any more, while a tab the history
-		// never saw still counts.
-		const entries = [pane('a.md', 'tab1', 100), pane('a.md', 'tab2', 200), pane('b.md', 'tab1', NOW)];
-		const h = harnessAll(entries, 2, { 'a.md': '', 'b.md': '' }, [], {}, {}, true, [
-			{ leafId: 'tab1', path: 'b.md' }, // walked away from a.md
-			{ leafId: 'tab2', path: 'a.md' },
-			{ leafId: 'tab3', path: 'a.md' }, // a note tab the history never saw
-		]);
-
-		// L101's tab has walked away, so that landing carries no cell at all:
-		// there is no column to reserve any more (the note and its landings align
-		// by their own grid, not by a list-wide strip).
-		expect(h.rows()[0].querySelector('.nav-row-pane')).toBeNull();
-		expect(h.rows()[1].querySelector('.nav-row-pane')?.textContent).toBe(t('recentFiles.pane', 1, 2));
 	});
 });
 
@@ -1584,7 +1520,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		// hover has nothing left to add: a row that prints its folder is a row that says
 		// nothing on hover — the extension alone is not worth a tooltip (see fileRow).
 		// This is the whole of the rule, told in both of its halves.
-		const always = harness(stack(), 5, files, [], {}, {}, false, [], {}, prefs({ path: 'before' }).browser);
+		const always = harness(stack(), 5, files, [], {}, {}, false, {}, prefs({ path: 'before' }).browser);
 		for (const path of ['a/index.md', 'notes.md', 'report.pdf', 'LICENSE', 'board.canvas'])
 			expect(hoverOf(always, path), path).toBeNull();
 
@@ -1601,7 +1537,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		// The names are printed NOWHERE on a row and are searchable, so they are the one
 		// thing a hover still owes a reader whose paths are on screen — the path line goes
 		// and the names' line stays (see fileRow).
-		const h = harness(stack(), 5, files, [], {}, cache, false, [], {}, prefs({ path: 'after' }).browser);
+		const h = harness(stack(), 5, files, [], {}, cache, false, {}, prefs({ path: 'after' }).browser);
 
 		const tip = h.hover(rowFor(h, 'a/index.md'))!;
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
@@ -1625,7 +1561,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 
 	it('prints the folder on every row, on the side the setting asks for', () => {
 		const ctx = (path: 'before' | 'after') =>
-			harness(stack(), 5, files, [], {}, {}, false, [], {}, prefs({ path }).browser);
+			harness(stack(), 5, files, [], {}, {}, false, {}, prefs({ path }).browser);
 		// 'before' is the quick switcher's shape: the whole path laid out in front of
 		// the name, and the NAME is what drops when the row runs out (see styles.css).
 		const before = ctx('before');
@@ -1788,7 +1724,7 @@ describe('RecentFilesModal — the time on a row', () => {
 	});
 
 	it('says the age of each note, from the newest step the note holds', () => {
-		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 
 		// The current note (a/index.md) leads, then notes.md; the graph is LAST
 		// whatever it holds, because a pathless group never competes with the notes for
@@ -1801,7 +1737,7 @@ describe('RecentFilesModal — the time on a row', () => {
 	it('dates the pathless view too, and every row the same way', () => {
 		// The graph is a row like any other and it was visited like any other: what it
 		// has no answer for is a FILE (no path, no type — see badgeOf), not a time.
-		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 
 		expect(graph.querySelector('.nav-row-time')?.textContent).toBe('2h ago');
@@ -1814,7 +1750,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		// is the TIME's tooltip, so the row's own still says which file. The
 		// time is INSIDE the row, so this is the one place the pointer's nearest subject
 		// is not the row itself (see NavRowTip.subject).
-		const h = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 		const label = h.note('notes').querySelector('.nav-row-time')!;
 
 		expect(h.hover(label)?.textContent).toBe(new Date(NOW - 3 * DAY).toLocaleString());
@@ -1829,7 +1765,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		// written WITH the label, so a row cannot claim a track it has nothing to put
 		// in — and the label is a child of the row, because inside the name cell it
 		// would be part of what wraps, which is the column the track exists to keep.
-		const smart = harness(stack(), 2, files, [], {}, {}, false, [], {}, on());
+		const smart = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 		const graph = smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		expect(smart.note('notes').classList.contains('is-timed')).toBe(true);
 		expect(graph.classList.contains('is-timed')).toBe(true);
@@ -1842,7 +1778,7 @@ describe('RecentFilesModal — the time on a row', () => {
 
 		// Under 'always' the root note prints "/", which is a folder on the row like any
 		// other — and it keeps the same far track its age stands in.
-		const always = harness(stack(), 2, files, [], {}, {}, false, [], {}, prefs({ time: true, path: 'before' }).browser);
+		const always = harness(stack(), 2, files, [], {}, {}, false, {}, prefs({ time: true, path: 'before' }).browser);
 		expect(always.note('notes').querySelector('.nav-row-path')?.textContent).toBe('/');
 		expect(always.note('notes').classList.contains('is-timed')).toBe(true);
 		expect(always.note('notes').querySelector('.nav-row-time')!.parentElement)

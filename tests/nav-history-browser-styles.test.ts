@@ -2,7 +2,7 @@
 // the DOM, because jsdom never loads a stylesheet and every one of these is a
 // contract no rendering test here could catch.
 //
-// Two of them:
+// Three of them:
 //
 // 1. The quiet tiers (the section, the coordinate, the age, the toolbar chrome)
 //    must NOT be painted with --text-faint / --text-muted. Those are ordinary
@@ -18,13 +18,12 @@
 //    the folder the row sits in — on one line until it does not fit, and on two
 //    when it does not. Which half drops to the second line is the reader's setting
 //    and is decided by ONE `order` declaration (see PathDisplayMode). The name is
-//    capped (max-width: 20em), NOT measured across rows, and the pane cell is only
-//    there while a row has one (two live tabs hold that note). The AGE is the row's
+//    capped (max-width: 20em), NOT measured across rows. The AGE is the row's
 //    own far track rather than a fourth thing in the name, so the labels end on one
 //    x down the list. A row is set in the app's own nav-list tier.
 //
-// 3. On touch a LANDING gets two lines — the coordinate and the section, then the
-//    pane — while a note's row stays on one, rather than the old rule that hid
+// 3. On touch the rows keep every cell they have — the coordinate and the section on
+//    a landing, the name and the age on a note — rather than the old rule that hid
 //    the coordinate and the age below 480px and left the list saying nothing but
 //    file names.
 
@@ -72,21 +71,21 @@ describe('recent-files browser quiet tiers', () => {
 		// The note is a GRID and not a flex line: the age is not a fourth thing in the
 		// name, it is the row's own second track (see is-timed).
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*display: grid/);
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto/);
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\);/);
 		// the landing steps in under the note it belongs to
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
-		// THE COORDINATE RESERVES NOTHING. Its box is the section's competition for the
-		// row's width — the section's track is the only flexible one (see .is-place) —
-		// so a fixed room for the widest label ("L9999" and the "L412–438" a folded
-		// cluster used to print before that) is blank space spent on every row, and the
-		// rows whose labels are short pay the most for it: the number ends, and up to
-		// three characters of nothing stand between it and the section. What the column
-		// holds is the number and nothing else (see .nav-row-pos), and what the section
-		// stands off it by is the row's OWN column gap — no second start margin on the
-		// section, which is the other half of the same blank.
+		// THE COORDINATE KEEPS A FLOOR, NOT A GUTTER. Every label is set in the same
+		// mono font, but "L1" is not as wide as "L9999" — and a box sized to its own
+		// text would start each row's section at a different x. So the column floors at
+		// the widest ORDINARY label, five characters: "L1" is padded out to the same
+		// five, which is blank space the sections line up on, and a five-digit line
+		// ("L10000") grows the box to its own label rather than losing a digit. That
+		// floor is the whole of the reservation — no fixed gutter, no track — and what
+		// the section stands off it by is the row's OWN column gap, with no second start
+		// margin on the section itself (see .nav-row-pos, .nav-row-trail).
 		const pos = browser.match(/\.position-restore-nav-row \.nav-row-pos\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(pos).not.toBe('');
-		expect(pos).not.toMatch(/min-width/);
+		expect(pos).toMatch(/min-width: 5ch/);
 		const trail = browser.match(/\.position-restore-nav-row \.nav-row-trail\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(trail).not.toBe('');
 		expect(trail).not.toMatch(/margin-inline-start/);
@@ -266,26 +265,20 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('position-restore-nav-body');
 	});
 
-	// A phone gets two lines per row instead of the narrow-screen rule that hid
-	// the coordinate and the age — the list then said nothing but file names.
-	// What is worth pinning is that the touch layout keeps every cell (a hidden
-	// one is information the phone cannot show at all), that the second line
-	// hangs off the ROW rather than the name column (whose width changes from row
-	// to row), and that nothing hides the age or the line number any more.
-	it('gives a phone a two-line LANDING and a one-line note', () => {
-		// A note's row stays one line: two lines for the tree's top level would
-		// push the landings — the reason the list is worth scrolling — off a small
-		// screen. A landing gets the two lines, and its section keeps its row.
-		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas:/,
-		);
-		// …and the arrow is NOT one of those areas: it is out of the flow, in the
-		// row's padding, on every row of both kinds (see the go test above).
-		expect(browser).not.toContain('go name trail');
-		expect(browser).toContain('.position-restore-nav-panel.is-touch .nav-row-trail { grid-area: trail; }');
-		// the pane badge, the one cell that can still be a column, keeps its own
-		// place on that second line
-		expect(browser).toMatch(/\.position-restore-nav-panel\.is-touch \.nav-row-pane\s*\{[^}]*grid-area: meta/);
+	// A phone gets the SAME rows as a desktop — every cell, one line each — instead
+	// of the narrow-screen rule that hid the coordinate and the age and left the list
+	// saying nothing but file names. What is worth pinning is that nothing is hidden
+	// on touch, and that the row is a finger's target.
+	it('gives a phone the desktop rows, one line each and never a hidden cell', () => {
+		const touch = browser.match(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(touch).toMatch(/padding: 6px 8px/);
+		// …and no landing gets a second line of its own: the coordinate and the
+		// section are all a landing has, and they fit the line a phone gives them.
+		expect(browser).not.toMatch(/is-touch \.position-restore-nav-row\.is-place/);
+		expect(browser).not.toContain('grid-area:');
+		expect(browser).not.toContain('nav-row-pane');
 		expect(browser).not.toMatch(/@media \(max-width: 480px\)/);
 	});
 
@@ -317,9 +310,9 @@ describe('recent-files browser quiet tiers', () => {
 	// A ROW'S TOOLTIP is the panel's own (see tip.ts), and it exists because a native
 	// `title` cannot be styled: the path was set in the browser's tooltip type, and the
 	// `/` between two segments — the character the whole tooltip is read by — was the
-	// least visible thing in the string. Both are decided here: the path in a LARGER
-	// type than the app's tooltip uses, and the separators as their own spans with a
-	// weight no font can thin away.
+	// least visible thing in the string. Both are decided here: the path one tier above
+	// the app's own tooltip type (--font-ui-small, where the app's is the smaller one),
+	// and the separators as their own spans with a weight no font can thin away.
 	it('draws the row\'s tooltip in a readable type, with separators of its own', () => {
 		expect(browser).toMatch(
 			/\.position-restore-nav-tip\s*\{[^}]*position: fixed[^}]*pointer-events: none/,
@@ -327,8 +320,10 @@ describe('recent-files browser quiet tiers', () => {
 		const path = browser.match(/\.nav-tip-path\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(path).toMatch(/font-family: var\(--font-monospace\)/);
 		// NOT the app's tooltip tier (--font-ui-smaller): the reader is making out a
-		// folder name, and that is the one job this element has.
-		expect(path).toMatch(/font-size: var\(--font-ui-medium\)/);
+		// folder name, and that is the one job this element has. ONE tier up, not the
+		// two it once was: the tooltip as a whole stepped down when the list's type was
+		// settled, so what has to hold is the STEP and not the tier's name.
+		expect(path).toMatch(/font-size: var\(--font-ui-small\)/);
 		const sep = browser.match(/\.nav-tip-sep\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(sep).toMatch(/font-weight: 700/);
 		expect(sep).toMatch(/padding: 0 0\.12em/);
@@ -336,8 +331,10 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).toMatch(
 			/\.nav-tip-seg\s*\{[^}]*color: color-mix\(in srgb, var\(--text-normal\)/,
 		);
-		// …and the second line (the file's other names) is a notch smaller than the path.
-		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-small\)/);
+		// …and the second line (the file's other names) is a notch smaller than the path,
+		// so it stays a second answer rather than competing with the thing the reader
+		// hovered for.
+		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
 	// The × at the end of the box, and the one rule that makes it a control rather than
@@ -415,8 +412,9 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('position-restore-nav-here');
 		expect(browser).not.toContain('position-restore-nav-scope');
 		expect(browser).not.toContain('position-restore-nav-toggle');
-		// the landing row goes back to one line too (the note's never left one)
-		expect(landscape).toMatch(/is-touch \.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-areas: none/);
+		// …and a landing needs no rule of its own here: it is the one line the desktop
+		// gives it, with the whole width to hold the coordinate and the section.
+		expect(landscape).not.toMatch(/is-touch \.position-restore-nav-row\.is-place/);
 		// …and the details panel needs no rule of its own here: it does not exist
 		expect(landscape).not.toMatch(/nav-preview/);
 	});

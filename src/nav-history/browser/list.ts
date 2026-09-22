@@ -132,8 +132,6 @@ export interface RecentFilesListOptions {
 	// the row, so the search box and the hover are the only two places they exist for a
 	// reader — and a pathless view has none (the browser answers [] for it).
 	aliasesFor: (path: string) => string[];
-	// Which live tab holds a landing's destination, if it needs saying.
-	paneName: (entry: NavHistoryEntry) => string | undefined;
 	// The position moved to another row, or off the list (undefined), by either
 	// hand. The focus never leaves the filter box — typing narrows the list from the
 	// same keys that move through it — so this is what makes the current option
@@ -542,10 +540,10 @@ export class RecentFilesList {
 		return 1;
 	}
 
-	// One PLACE of a note: the coordinate it landed on, the section it sits in, and
-	// the pane holding it. Drawn only under 'all' (see shownLandings), where a note's
-	// places are listed under its name — one row per distinct line, so the row is ONE
-	// destination and nothing about it has to be explained away.
+	// One PLACE of a note: the coordinate it landed on, and the section it sits in.
+	// Drawn only under 'all' (see shownLandings), where a note's places are listed
+	// under its name — one row per distinct line, so the row is ONE destination and
+	// nothing about it has to be explained away.
 	private placeRow(i: number, current: boolean): number {
 		const entry = this.opts.entries[i];
 		const d = this.opts.describe(i);
@@ -587,7 +585,7 @@ export class RecentFilesList {
 
 		// The section the landing sits in, deepest one or two levels: what a
 		// reader recognizes a spot by, so it takes the row's slack. The cell is
-		// created even when empty — later cells would slide a track left.
+		// created even when empty, so its track exists on every landing row.
 		const trail = rowTrail(this.opts.trailFor(entry, d));
 		const crumb = row.createSpan({ cls: 'nav-row-trail' });
 		for (let k = 0; k < trail.length; k++) {
@@ -599,11 +597,6 @@ export class RecentFilesList {
 			});
 		}
 
-		// Which live tab holds this destination, when more than one does: two
-		// tabs of one note are otherwise identical landings.
-		const paneLabel = this.opts.paneName(entry);
-		if (paneLabel)
-			row.createSpan({ text: paneLabel, cls: 'nav-row-pane' });
 		return 1;
 	}
 

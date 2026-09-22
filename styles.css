@@ -431,16 +431,15 @@ body.is-mobile .position-restore-cue {
 	grid-template-columns: minmax(0, 1fr) auto;
 }
 
-/* ONE OF A NOTE'S PLACES: the coordinate, the section it sits in, then the one
-   badge that can still be a column (the pane, which only ever appears for a note two
-   live tabs hold). Its indent is what says it belongs to the note above: the bar is
-   drawn with a shadow rather than a border so the row keeps its own padding box, and
-   the row is clickable across its whole width. */
+/* ONE OF A NOTE'S PLACES: the coordinate, then the section it sits in. Its indent is
+   what says it belongs to the note above: the bar is drawn with a shadow rather than
+   a border so the row keeps its own padding box, and the row is clickable across its
+   whole width. */
 .position-restore-nav-row.is-place {
 	display: grid;
 	/* The coordinate takes the width its own number needs and not a pixel more, so
 	   everything the row has left over is the section's (see .nav-row-pos). */
-	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-columns: auto minmax(0, 1fr);
 	margin-inline-start: 1.5em;
 	box-shadow: inset 2px var(--background-modifier-border);
 	/* …and it does NOT clip: the ● of "you are here" hangs off the coordinate's START
@@ -560,17 +559,6 @@ body.is-mobile .position-restore-cue {
 	margin-inline-end: 0.3em;
 	color: var(--interactive-accent);
 	font-size: var(--font-ui-smaller);
-}
-
-/* Which pane holds the landing: the one badge that is still a COLUMN, because it
-   is what tells two otherwise IDENTICAL landings (one note, one line, two tabs)
-   apart, and it only ever appears for a note that two live tabs hold. */
-.position-restore-nav-row .nav-row-pane {
-	min-width: 4ch;
-	text-align: right;
-	font-family: var(--font-monospace);
-	font-size: var(--font-ui-smaller);
-	color: var(--nav-faint);
 }
 
 /* THE COORDINATE. It holds the number and NOTHING ELSE — no reserved width, no
@@ -742,24 +730,6 @@ body.is-mobile .position-restore-cue {
 	padding: 6px 8px;
 }
 
-/* A LANDING gets the two lines: the coordinate and the section on the first, the
-   pane pushed to the second's right edge. */
-.position-restore-nav-panel.is-touch .position-restore-nav-row.is-place {
-	grid-template-columns: auto minmax(0, 1fr);
-	grid-template-areas:
-		'name trail'
-		'meta meta';
-}
-
-.position-restore-nav-panel.is-touch .nav-row-trail { grid-area: trail; }
-.position-restore-nav-panel.is-touch .nav-row-pane {
-	grid-area: meta;
-	/* Two tabs of one note are otherwise identical landings, so this is the one
-	   badge that must not be the thing that gets clipped — it takes the right
-	   edge of the second line, where there is room for it. */
-	margin-inline-start: auto;
-}
-
 /* THE RESIDENT SIDEBAR PANEL (RecentFilesView): the same body, standing in a
    workspace leaf. Everything above applies to it unchanged — the rows, the touch
    layout — because the shell carries the same .position-restore-nav-panel class. What
@@ -818,10 +788,8 @@ body.is-mobile .position-restore-cue {
 /* A phone held sideways has ~370px of height for everything: the dialog's name, the
    filter, the list. (It is wide, so the panel stands beside the list there rather than
    inside it — see RecentFilesModal.inline — but the height is what everything below is
-   about.) Two-line rows left two rows visible — so in a short dialog everything that is
-   not the list gives way: the NAME goes and the rows go back to one line each, because
-   sideways there is width to spare and the coordinate, the section and the pane fit on
-   one line exactly as they do on the desktop. */
+   about.) So in a short dialog everything that is not the list gives way: the NAME goes,
+   and the list gets its room. */
 @media (max-height: 520px) {
 	/* The dialog's NAME — "Navigation history", centred in the app's own 24px of header
 	   padding, above the row of text it names — is the largest single thing in a 390px-tall
@@ -863,21 +831,4 @@ body.is-mobile .position-restore-cue {
 	.modal.position-restore-nav-modal.is-fixed {
 		height: min(92vh, 800px);
 	}
-
-	/* The two-line LANDING row, undone: sideways the dialog is wide, so the
-	   coordinate, the section and the pane fit on one line exactly as they do on
-	   the desktop. The note row was never two lines. */
-	.position-restore-nav-modal.is-touch .position-restore-nav-row.is-place {
-		grid-template-columns: auto minmax(0, 1fr) auto;
-		grid-template-areas: none;
-		row-gap: 0;
-		padding: 4px 8px;
-	}
-
-	.position-restore-nav-modal.is-touch .nav-row-trail,
-	.position-restore-nav-modal.is-touch .nav-row-pane {
-		grid-area: auto;
-	}
-
-	.position-restore-nav-modal.is-touch .nav-row-pane { margin-inline-start: 0; }
 }

@@ -10,7 +10,7 @@
 //
 // Every other piece is a module beside this one:
 //   - constants.ts                    the tuning numbers
-//   - model.ts / listing.ts / panes.ts   the pure model
+//   - model.ts / listing.ts           the pure model
 //   - reads.ts                        every vault lookup, cached and metadata-only
 //   - list.ts                         the list of notes and the position in it
 // The name says BROWSER because the list itself — which places exist, how they are
@@ -24,14 +24,12 @@
 // shows the history as it stands rather than as it stood when the panel opened — and one
 // that lives for a second (the modal) is not asked for anything more.
 
-import { App, FileView, Menu, TFile, setIcon, Keymap } from 'obsidian';
-import { NavHistoryEntry, RECORDABLE_VIEW_TYPES } from '@/nav-history/entry';
+import { App, Menu, TFile, setIcon, Keymap } from 'obsidian';
+import { NavHistoryEntry } from '@/nav-history/entry';
 import { PaneTarget, PlaceList, placeKey } from '@/nav-history/places';
-import { isMainAreaLeaf, leafIdOf } from '@/shared/leaf';
 import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
 import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
-import { LiveLeaf, PaneInfo, paneInfo, paneLabel, viewDestinationKey } from './panes';
 import { RecentFilesReads } from './reads';
 import { RecentFilesList, RecentFilesListOptions } from './list';
 import { TIME_REFRESH_MS } from './constants';
@@ -119,7 +117,6 @@ export class RecentFilesBrowser {
 	// The search box's text. The list's own query.
 	private filter = '';
 	private filterInput!: HTMLInputElement;
-	private panes: PaneInfo = { live: new Map() };
 	// Every vault lookup the panel makes, cached — all of them metadata-cache
 	// lookups: an entry's display pieces and a file's parsed headings (see
 	// reads.ts).
@@ -198,7 +195,6 @@ export class RecentFilesBrowser {
 			// The file's other names (see RecentFilesReads.aliasesFor): searchable, and
 			// printed nowhere on the row but its tooltip.
 			aliasesFor: path => this.reads.aliasesFor(path),
-			paneName: entry => this.paneName(entry),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
 			// A right-click asks the APP what it can do with this file; the menu is
@@ -284,7 +280,6 @@ export class RecentFilesBrowser {
 		// index means another place the moment the list is re-ordered or trimmed.
 		this.listOpts.entries = this.opts.places.entries;
 		this.listOpts.currentIndex = this.opts.places.index;
-		this.panes = paneInfo(this.liveLeaves());
 		this.list.render();
 	}
 
@@ -479,51 +474,6 @@ export class RecentFilesBrowser {
 		if (entry.kind === 'view' || d.lineIndex === undefined)
 			return [];
 		return headingTrailAtLine(this.reads.headingsFor(entry.path), d.lineIndex);
-	}
-
-	// Which live tab/pane an entry belongs to, or undefined when there is
-	// nothing to disambiguate (see paneLabel). It belongs on the row because two
-	// tabs of one file are otherwise identical rows — and telling those apart is
-	// what decides which row to pick — but it is only ever a claim about what is
-	// open NOW, which is why it is looked up from the workspace rather than read
-	// off the entry.
-	private paneName(entry: NavHistoryEntry): string | undefined {
-		const label = paneLabel(this.panes, entry);
-		if (!label)
-			return undefined;
-		// "2/3" — which of how many, in three characters: the word ("Pane",
-		// "窗格") was the widest thing in the row's quiet zone and said nothing
-		// the two numbers do not.
-		return t('recentFiles.pane', label.n, label.total);
-	}
-
-	// The main area as it stands right now: every main-area leaf, in the
-	// layout order iterateAllLeaves yields, with the destination it currently
-	// shows. This — not the recorded leaf ids — is what the pane marker is
-	// derived from (see paneInfo for why): one tab walks through many notes, and
-	// closing a tab leaves its entries behind, so a history-derived number named
-	// windows the user could not see. Rebuilt per render, so the marker follows
-	// the layout.
-	private liveLeaves(): LiveLeaf[] {
-		const live: LiveLeaf[] = [];
-		this.opts.app.workspace.iterateAllLeaves((leaf) => {
-			// A sidebar panel holding the tracked note is not a second window of
-			// it for this purpose: it is not a tab the reader switches between,
-			// and the history never records it either. This plugin's own sidebar
-			// panel is not even a FileView, so it could not be mistaken for one.
-			if (!isMainAreaLeaf(this.opts.app, leaf))
-				return;
-			const view = leaf.view;
-			if (view instanceof FileView) {
-				if (view.file)
-					live.push({ leafId: leafIdOf(leaf), key: view.file.path });
-				return;
-			}
-			const viewType = view?.getViewType();
-			if (viewType && RECORDABLE_VIEW_TYPES.has(viewType))
-				live.push({ leafId: leafIdOf(leaf), key: viewDestinationKey(viewType) });
-		});
-		return live;
 	}
 
 	private jump(i: number, target?: PaneTarget): void {

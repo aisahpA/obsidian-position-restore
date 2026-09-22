@@ -265,12 +265,6 @@ export const en = {
 	// cost the toolbar a cell and the dialog a piece of state, so both are gone
 	// (see modal.ts).
 	'recentFiles.empty': 'Nowhere to go.',
-
-	// A leaf holding a second tab/pane of the same file: without this the
-	// browser's rows for the two panes are indistinguishable. Rendered as
-	// "which of how many" — two digits and no word, because the word was the
-	// widest thing in the row's quiet zone.
-	'recentFiles.pane': '{0}/{1}',
 };
 
 export type En = typeof en;

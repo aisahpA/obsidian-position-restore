@@ -1,7 +1,6 @@
 // Tests for the recent-files browser's pure pieces (src/nav-history/browser/):
-// row description, tree grouping/merging, filtering, section chains and pane
-// numbering. The DOM stays untested here; everything whose correctness a reader
-// would doubt is pure.
+// row description, tree grouping/merging, filtering and section chains. The DOM
+// stays untested here; everything whose correctness a reader would doubt is pure.
 
 import { describe, it, expect } from 'vitest';
 
@@ -10,7 +9,6 @@ import {
 	ageLabel, ageOf, newestStamp,
 } from '@/nav-history/browser/model';
 import { groupByFile, matchesNavFilter } from '@/nav-history/browser/listing';
-import { destinationKey, paneInfo, paneLabel, LiveLeaf } from '@/nav-history/browser/panes';
 import { revealDelta } from '@/nav-history/browser/list';
 import { t } from '@/i18n';
 import { NavHistoryEntry } from '@/nav-history/entry';
@@ -634,57 +632,6 @@ describe('newestStamp', () => {
 		// A record that is not there contributes nothing (and does not throw): the
 		// anchor and an index can both name a place the list has since dropped.
 		expect(newestStamp([entry(5)], [7, 0], 7)).toBe(5);
-	});
-});
-
-describe('destinationKey', () => {
-	it('keys file entries by path and view entries by view type', () => {
-		expect(destinationKey({ kind: 'visit', path: 'a.md', leafId: 'l', t: 1 } as NavHistoryEntry)).toBe('a.md');
-		expect(destinationKey({ kind: 'view', viewType: 'graph', leafId: 'l', t: 1 } as NavHistoryEntry)).toBe('view:graph');
-	});
-});
-
-// Two tabs (or two panes) holding one file: without a marker, their rows are
-// identical, and telling them apart is what decides which row to pick. The
-// marker is derived from the LIVE layout, not from the history's recorded leaf
-// ids — see paneLabel — so what is fed in here is the main area as it stands.
-describe('paneInfo / paneLabel', () => {
-	const visit = (path: string, leafId: string): NavHistoryEntry =>
-		({ kind: 'visit', path, leafId, t: 1 } as NavHistoryEntry);
-	const graph = (leafId: string): NavHistoryEntry =>
-		({ kind: 'view', viewType: 'graph', leafId, t: 1 } as NavHistoryEntry);
-	const layout = (...leaves: [string, string][]): LiveLeaf[] =>
-		leaves.map(([leafId, key]) => ({ leafId, key }));
-
-	it('numbers the live tabs holding a file, in layout order', () => {
-		const info = paneInfo(layout(['a1', 'a.md'], ['b1', 'b.md'], ['a2', 'a.md']));
-		expect(paneLabel(info, visit('a.md', 'a1'))).toEqual({ n: 1, total: 2 });
-		expect(paneLabel(info, visit('a.md', 'a2'))).toEqual({ n: 2, total: 2 });
-		// b.md lives in a single leaf: a marker would be pure noise
-		expect(paneLabel(info, visit('b.md', 'b1'))).toBeUndefined();
-	});
-
-	it('gives no number to a step whose tab has moved on or been closed', () => {
-		// The bug this replaced: the number came from the history, so a tab that
-		// had since opened another note (or been closed) still claimed a window —
-		// "2/2" for a file only one tab was showing.
-		const info = paneInfo(layout(['a1', 'a.md'], ['a2', 'a.md']));
-		expect(paneLabel(info, visit('a.md', 'closed'))).toBeUndefined();
-	});
-
-	it('says nothing when only one live leaf holds the destination', () => {
-		const info = paneInfo(layout(['a1', 'a.md']));
-		expect(paneLabel(info, visit('a.md', 'a1'))).toBeUndefined();
-	});
-
-	it('numbers graph tabs by view type, the same way', () => {
-		const info = paneInfo(layout(['g1', 'view:graph'], ['g2', 'view:graph']));
-		expect(paneLabel(info, graph('g2'))).toEqual({ n: 2, total: 2 });
-	});
-
-	it('a file reopened twice in the same tab is not ambiguous', () => {
-		const info = paneInfo(layout(['a1', 'a.md']));
-		expect(paneLabel(info, visit('a.md', 'a1'))).toBeUndefined();
 	});
 });
 
