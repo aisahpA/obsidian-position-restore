@@ -4,7 +4,7 @@ import {
 	NavEntry, NavTeleport, NavView, NewNavEntry, DistributiveOmit, isRecordableViewType,
 } from './entry';
 import { PositionState } from '@/position/state';
-import { isMainAreaLeaf, viewLabel as readViewLabel } from '@/shared/leaf';
+import { isMainAreaLeaf, viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState } from '@/shared/leaf';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
 // THE RECORDING FUNNEL — one navigation, several readers.
@@ -141,18 +141,29 @@ export class NavFunnel {
 	recordOpen(
 		path: string | undefined,
 		leafId: string,
-		opts: { key?: string; force?: boolean; viewType?: string; viewLabel?: string; via?: 'switch' | 'link'; viaPath?: string; viaText?: string } = {},
+		opts: {
+			key?: string; force?: boolean; viewType?: string; viewLabel?: string;
+			viewIcon?: string; viewState?: Record<string, unknown>;
+			via?: 'switch' | 'link'; viaPath?: string; viaText?: string;
+		} = {},
 	) {
 		if (!this.isRecording())
 			return;
 		if (opts.viewType) {
-			// A pathless view is reached by activating its leaf. The label rides
-			// along when the caller has one: it is what the row will print (see
-			// NavView.label), and a caller that knows only the type leaves it off —
-			// the browser then answers with its own wording.
+			// A pathless view is reached by activating its leaf. Its name and icon
+			// ride along when the caller has them: they are what the row will print
+			// and draw (see NavView.label / NavView.icon), and a caller that knows
+			// only the type leaves them off — the browser then answers with its own
+			// wording and its own mark. So does its state, which is what the place
+			// is rebuilt with if that leaf is gone by the time the reader returns
+			// (see NavView.state).
 			const record: DistributiveOmit<NavView, 't'> = { kind: 'view', leafId, viewType: opts.viewType };
 			if (opts.viewLabel)
 				record.label = opts.viewLabel;
+			if (opts.viewIcon)
+				record.icon = opts.viewIcon;
+			if (opts.viewState)
+				record.state = opts.viewState;
 			this.publish({ record, cause: 'open' });
 			return;
 		}
@@ -200,8 +211,14 @@ export class NavFunnel {
 		}
 		// A main-area view is a destination in its own right, whatever its type is:
 		// the reader went there, which is what this list records (see
-		// isRecordableViewType for the one type that is not a place). Its own display
-		// name rides along, so the row can say it the way the tab header did.
+		// isRecordableViewType for the one type that is not a place). Three things
+		// about it are read here and nowhere else, because the moment is the only
+		// one they are readable in: its display name (what the tab header said), the
+		// icon beside that name, and its OWN STATE — which is the difference between
+		// "the view" and "the place they went to", and the only thing about a view a
+		// later reader cannot derive (see NavView.state). All three are optional and
+		// a silent failure of any one beats taking the reader's own tab switch down
+		// with it (see shared/leaf.ts).
 		const viewType = view?.getViewType();
 		if (!viewType || !isRecordableViewType(viewType))
 			return;
@@ -209,6 +226,12 @@ export class NavFunnel {
 		const label = readViewLabel(view);
 		if (label)
 			record.label = label;
+		const icon = readViewIcon(view);
+		if (icon)
+			record.icon = icon;
+		const state = readViewState(view);
+		if (state)
+			record.state = state;
 		this.publish({ record, cause: 'tab' });
 	}
 

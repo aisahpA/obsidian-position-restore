@@ -136,7 +136,7 @@ export const zh: En = {
 	'navHistory.stackCap.name': '前进/后退保留步数',
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
-	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史。关闭后仅记录文件打开与文件内跳转（各类视图标签页——关系图谱、Thino 等——的步骤也不再记录）。',
+	'navHistory.recordActivation.desc': '点击其他标签页/面板会往「前进/后退」里推入一条。关闭后历史只记文件打开与文件内跳转——视图标签页（关系图谱、Thino 等）也不再成为历史里的一步。它只管「前进/后退」：最近文件列表照常记录这些视图。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
 	'navHistory.commands.navigateBack': '后退',
@@ -198,11 +198,12 @@ export const zh: En = {
 	'recentFiles.aka': '别名：',
 	'recentFiles.menu.openInNewTab': '在新标签页打开',
 	'recentFiles.menu.openHereInNewTab': '在此处打开新标签页',
-	// 行自己的菜单里，属于本插件的那一项：把这份文件从列表里去掉——它的文件记录和它内部
-	// 的跳跃一起走（见 NavPlaces.forget）。用「移除」而不是「删除」，也因为它是唯一一项
-	// 不向 app 要、而是面板自己去做的：删掉的只是这条记录，文件本身和位置数据库里的落点
+	// 行自己的移除控件，也就是行上的那个 ×（见 RecentFilesBrowser.onForget）。它不再挂在行的
+	// 右键菜单上：那个菜单是 app 的，而只有文件才有这样一份菜单——无路径的视图行（图谱、Thino
+	// 的备忘列表）没有文件可以让它去讲，于是同一个动作只对有文件的行成立，这正是读者会碰上的
+	// 那一种不一致。用「移除」而不是「删除」：走掉的只是这条记录，文件本身和位置数据库里的落点
 	// 都不动，下次再进这个文件它就回来了。
-	'recentFiles.menu.forget': '从最近文件移除',
+	'recentFiles.forget': '从最近文件移除',
 	// 用「浏览」而不是「打开」：被打开的是那份列表，而「打开最近文件」读起来像打开
 	// 读者上次所在的那个文件。这也是命令 id 里的那个动词（见 main.ts），并且是两条
 	// 命令在命令面板里一眼能分开的地方——另一条是「打开」，那里被打开的确实是面板。
@@ -219,6 +220,8 @@ export const zh: En = {
 	// 一个没有自己名字的视图步骤回退成什么（见 browser/model.ts 的 viewName）：关系图谱，列表一直这么叫它。
 	// 其它类型的视图很少走到这里（视图会在记录时带上自己的名字），真没名字就直接印 viewType。
 	'recentFiles.graphView': '关系图谱',
+	// 视图行上那个标记的字面回退（见 list.ts 的 fileRow）：报了图标的视图印它自己的图标，没报图标的印这两个字。
+	'recentFiles.viewBadge': '视图',
 	'recentFiles.searchPlaceholder': '按笔记名或文本过滤…',
 	// 过滤框末尾那个 ×（见 RecentFilesBrowser.toolbar）：app 自己的手势，按「清掉什么」命名。
 	// 它同时是按钮的无障碍名字和它的 tooltip，所以写的是动作而不是那个符号。

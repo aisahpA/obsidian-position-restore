@@ -22,7 +22,7 @@ export const TIME_REFRESH_MS = 5 * 60_000;
 // answered while they are still looking at the row. The native `title` it replaces
 // waited about as long; this is the same promise, said by an element the panel can
 // style.
-export const TIP_DELAY_MS = 400;
+export const TIP_DELAY_MS = 1000;
 
 // How far the tooltip stands off the row it is about, in pixels (see tip.ts).
 export const TIP_GAP_PX = 6;

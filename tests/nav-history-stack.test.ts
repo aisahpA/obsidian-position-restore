@@ -1070,7 +1070,7 @@ describe('NavStack.navigate', () => {
 type HarnessLeaf = { id: string; isDeferred: boolean; containerEl: string; openFile: ReturnType<typeof vi.fn>; setViewState: ReturnType<typeof vi.fn>; detach?: ReturnType<typeof vi.fn>; view?: unknown };
 
 function makeSidebarHarness(opts: {
-	leaves: { id: string; file?: string; markdown?: boolean }[];
+	leaves: { id: string; file?: string; markdown?: boolean; viewType?: string; state?: Record<string, unknown> }[];
 	mostRecentLeafId?: string;
 }) {
 	const app = makeApp();
@@ -1115,6 +1115,15 @@ function makeSidebarHarness(opts: {
 				},
 				setEphemeralState: (st: unknown) => { applied.push(st); },
 			});
+		} else if (spec.viewType) {
+			// A non-file view tab. It reports its type and its OWN state, which is what
+			// the activation refresh re-reads on the way out (see stack.ts's
+			// refreshTopLeafOnActivation).
+			leaf.view = {
+				getViewType: () => spec.viewType,
+				getDisplayText: () => undefined,
+				getState: () => spec.state,
+			};
 		} else if (spec.file) {
 			leaf.view = Object.assign(Object.create(FileView.prototype), { file: { path: spec.file }, leaf, getViewType: () => 'pdf' });
 		}
@@ -1408,6 +1417,90 @@ describe('NavStack view-tab steps', () => {
 		await nav.places.travel(at);
 
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
+	});
+
+	it('a view tab is rebuilt with the state the view had, not at its defaults', async () => {
+		// The reader's own case, one step past the tab being gone: they were in Thino
+		// with a filter set, closed every tab, and came back days later. The place is
+		// rebuilt by TYPE, and the state recorded while they were there is what it is
+		// rebuilt WITH — the whole of the difference between "the view" and "the place
+		// they went to" (see nav/entry's NavView.state).
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const nav = h.nav;
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view', { state: { filter: 'today' } }));
+		const at = nav.places.entries.findIndex(e => e.kind === 'view');
+
+		await nav.places.travel(at);
+
+		expect(h.setViewState).toHaveBeenCalledWith({
+			type: 'thino_view', state: { filter: 'today' }, active: true,
+		});
+	});
+
+	it('leaving a view re-reads its state, and both lists hear it', async () => {
+		// The state a place is rebuilt with has to be the state the reader LEFT it in,
+		// and the moment of leaving is the last one it is readable in (see stack.ts's
+		// refreshTopLeafOnActivation). Both lists hear the same refresh — the stack
+		// through onLanded, the place list through settle — so a view STEP and a view
+		// PLACE cannot disagree about where the reader was.
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-1', file: 'a.md', markdown: true },
+				{ id: 'leaf-t', viewType: 'thino_view', state: { filter: 'today' } },
+			],
+		});
+		const nav = h.nav;
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+		expect(nav.stack.entries[nav.stack.entries.length - 1])
+			.toMatchObject({ kind: 'view', viewType: 'thino_view', state: { filter: 'today' } });
+
+		// The reader works in the view: the filter moves on. Then they switch away.
+		(h.leaves[1].view as { getState: () => unknown }).getState = () => ({ filter: 'week' });
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
+
+		expect(nav.stack.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'week' } });
+		expect(nav.places.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'week' } });
+	});
+
+	it('does not re-read the state of a tab that no longer shows the view', async () => {
+		// A graph node click opens the file OVER the graph in the same tab, so the
+		// entry's leaf can be alive and showing something else: what is readable from it
+		// then is the NOTE's state, and writing that onto the view place would trade a
+		// real snapshot for a wrong one (see the guard in refreshTopLeafOnActivation).
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-1', file: 'a.md', markdown: true },
+				{ id: 'leaf-t', viewType: 'thino_view', state: { filter: 'today' } },
+			],
+		});
+		const nav = h.nav;
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+		// The tab was swapped to a note in the meantime.
+		(h.leaves[1].view as { getViewType: () => string }).getViewType = () => 'markdown';
+		(h.leaves[1].view as { getState: () => unknown }).getState = () => ({ elsewhere: true });
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
+
+		expect(nav.stack.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'today' } });
+	});
+
+	it('does not re-read the state of a deferred leaf', async () => {
+		// A background tab that has been unloaded cannot be asked anything: the view
+		// behind the DeferredView is not there, so an "empty" answer read off it must not
+		// be allowed to erase the snapshot (see refreshTopLeafOnActivation).
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-1', file: 'a.md', markdown: true },
+				{ id: 'leaf-t', viewType: 'thino_view', state: { filter: 'today' } },
+			],
+		});
+		const nav = h.nav;
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+		h.leaves[1].isDeferred = true;
+		(h.leaves[1].view as { getState: () => unknown }).getState = () => ({ filter: 'week' });
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
+
+		expect(nav.stack.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'today' } });
 	});
 
 	it('a view nothing can construct any more leaves no half-open tab behind', async () => {

@@ -174,6 +174,75 @@ describe('NavPlaces — what a place is', () => {
 		expect(places.entries).toHaveLength(1);
 		expect(labelAt(0)).toBe('Memos');
 	});
+
+	it('keeps the view\'s own state and icon, refreshed by every visit', () => {
+		// What a place is REBUILT with when its own tab is gone: the state the view
+		// had while the reader was in it, plus the mark its row wears. Both come off
+		// the recording, like the label above — and the state is the one thing about a
+		// view that cannot be derived later (see NavView.state), so a visit whose read
+		// came back EMPTY keeps the snapshot already recorded instead of erasing it:
+		// one failed read must not cost the reader the place they left.
+		const { places } = makePlaces();
+		const stateAt = (i: number) => {
+			const entry = places.entries[i];
+			return entry.kind === 'view' ? entry.state : undefined;
+		};
+		const iconAt = (i: number) => {
+			const entry = places.entries[i];
+			return entry.kind === 'view' ? entry.icon : undefined;
+		};
+		const thino = (state?: Record<string, unknown>, icon?: string): NavEntry =>
+			({ kind: 'view', viewType: 'thino_view', leafId: 'leaf-1', t: 0, state, icon });
+
+		places.remember(thino({ filter: 'today' }, 'git-fork'));
+		expect(stateAt(0)).toEqual({ filter: 'today' });
+		expect(iconAt(0)).toBe('git-fork');
+
+		// A later visit re-read both.
+		places.remember(thino({ filter: 'week' }, 'calendar'));
+		expect(places.entries).toHaveLength(1); // still one place: the type is the identity
+		expect(stateAt(0)).toEqual({ filter: 'week' });
+		expect(iconAt(0)).toBe('calendar');
+
+		// A visit whose state read came back empty (the view threw, answered with
+		// nothing, or went over the ceiling — see shared/leaf.ts's viewState) keeps
+		// what is there; a view that names no icon simply drops it, and the row falls
+		// back to the word (see list.ts's fileRow).
+		places.remember(thino());
+		expect(stateAt(0)).toEqual({ filter: 'week' });
+		expect(iconAt(0)).toBeUndefined();
+	});
+
+	it('settles a view place in place: its state, and the stamp that goes with it', () => {
+		// The funnel's `onLanded` for a view — the stack re-read the view's state as the
+		// reader left it (see stack.ts's refreshTopLeafOnActivation), and this list has to
+		// hear about it because a ROW is what the reader clicks. Nothing MOVES: the place
+		// keeps its own position in the list and only the facts about it are refreshed,
+		// so a reader travelling down the panel never sees rows shuffle under the pointer.
+		const { places } = makePlaces();
+		places.remember(view('thino_view'));
+		places.remember(visit('a.md'));
+
+		places.settle({
+			kind: 'view', viewType: 'thino_view', leafId: 'leaf-1',
+			state: { filter: 'week' }, label: 'Thino',
+		});
+
+		expect(paths(places)).toEqual(['view:thino_view', 'a.md']);
+		const settled = places.entries[0];
+		expect(settled.kind === 'view' ? settled.state : undefined).toEqual({ filter: 'week' });
+		expect(settled.kind === 'view' ? settled.label : undefined).toBe('Thino');
+	});
+
+	it('ignores a view settle for a place that is not on the list', () => {
+		// Nothing to refresh: the reader removed the row, or the ceiling trimmed it.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+
+		places.settle({ kind: 'view', viewType: 'thino_view', leafId: 'leaf-1', state: { filter: 'week' } });
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
 });
 
 describe('NavPlaces — its own folder rule', () => {
@@ -380,6 +449,23 @@ describe('NavPlaces — forgetting a file', () => {
 			placeKey(view('graph')),
 			placeKey(jump('b.md', 'outline:## T')),
 		]);
+	});
+
+	it('drops a pathless view, which no path could name', () => {
+		// A view is a ROW like any other, so it comes off the list like any other — and the
+		// only thing that can name it is its own TYPE (see nav/entry.ts's navGroupKey).
+		// The filter used to keep every pathless record unconditionally, which left the
+		// graph a row the reader could see and never take away.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(view('graph'));
+		places.remember(view('thino-memo'));
+
+		places.forget('view:graph');
+
+		// Named through placeKey rather than spelled out, as above: what is pinned is which
+		// places SURVIVED.
+		expect(paths(places)).toEqual(['a.md', placeKey(view('thino-memo'))]);
 	});
 
 	it('tells the panel, so the rows go while the reader is looking at them', () => {

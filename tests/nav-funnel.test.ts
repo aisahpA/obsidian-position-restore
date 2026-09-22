@@ -243,6 +243,51 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(visits).toEqual([]);
 		expect(leaves).toHaveLength(1);
 	});
+
+	it('records the state and the icon the view reports, beside its name', () => {
+		// All three are the view's own account of itself (see shared/leaf.ts), and all
+		// three are read at the one moment they are readable. The state is what the
+		// place gets REBUILT with if this tab is gone by the time the reader comes back
+		// (see NavView.state); the icon is the mark its row wears.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', {
+			label: 'Thino', icon: 'git-fork', state: { filter: 'today' },
+		}));
+
+		expect(visits).toEqual([{
+			record: {
+				kind: 'view', leafId: 'leaf-t', viewType: 'thino_view',
+				label: 'Thino', icon: 'git-fork', state: { filter: 'today' },
+			},
+			cause: 'tab',
+		}]);
+	});
+
+	it('a view that throws about itself is still recorded, without the extras', () => {
+		// getDisplayText / getIcon / getState are foreign methods called from a
+		// workspace event handler: a view that throws in one of them must not take the
+		// reader's own tab switch down with it, and the PLACE is worth more than any of
+		// the three (see the guards in shared/leaf.ts).
+		const { funnel, visits } = makeFunnel();
+		const hostile = {
+			id: 'leaf-x',
+			containerEl: 'main',
+			view: {
+				getViewType: () => 'thino_view',
+				getDisplayText: () => { throw new Error('no name'); },
+				getIcon: () => { throw new Error('no icon'); },
+				getState: () => { throw new Error('no state'); },
+			},
+		} as unknown as WorkspaceLeaf;
+
+		funnel.recordActivation(hostile);
+
+		expect(visits).toEqual([{
+			record: { kind: 'view', leafId: 'leaf-x', viewType: 'thino_view' },
+			cause: 'tab',
+		}]);
+	});
 });
 
 describe('NavFunnel — the two kinds of position read', () => {

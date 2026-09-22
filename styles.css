@@ -489,6 +489,23 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 }
 
+/* A view row's mark: the icon the view itself uses, the one its tab header showed
+   (see list.ts's fileRow). It takes the badge's slot and never stands beside one —
+   a view has no path, so it has no type badge. Sized and coloured like the badge's
+   text rather than like a toolbar button: this is an annotation ON the name, and
+   the name is what the reader is scanning. */
+.position-restore-nav-row .nav-row-view-icon {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	color: var(--nav-faint);
+}
+
+.position-restore-nav-row .nav-row-view-icon .svg-icon {
+	width: 1em;
+	height: 1em;
+}
+
 /* The folder a note sits in: the FAINTEST tier, because it is the disambiguator and
    not the identity — a reader scans names, and the folder only decides between two
    of them. It is also the half that ellipsizes when even a line of its own is not
@@ -525,6 +542,64 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-row .nav-row-time {
 	color: var(--nav-faint);
 	font-size: var(--font-ui-smaller);
+}
+
+/* THE ROW'S OWN REMOVAL — the × over the row's far end, and the only control this list
+   draws (see RecentFilesList.fileRow). It is OUT OF THE FLOW, and that is the whole of
+   why it may exist: laid out inside the row, it would take its width from the name and
+   the row would move under the pointer that summoned it — the one thing this list never
+   does (see the hover rule above) — and it would be a second thing the pointer can be
+   aiming at on the gesture a reader makes a thousand times.
+   It says nothing until the pointer is on the row: a reader aiming at a row is not
+   asking what can be done with it.
+   `background: inherit` is what keeps it seamless — the strip under the icon is painted
+   with the row's own wash (the hover tint, or the position's accent), so the × looks
+   like part of the row rather than a patch laid over it. */
+.position-restore-nav-row .nav-row-forget {
+	position: absolute;
+	inset-inline-end: 4px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1px;
+	border-radius: var(--radius-s);
+	background: inherit;
+	color: var(--nav-faint);
+	--icon-size: var(--icon-xs);
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* …and it REPLACES the age rather than standing beside it: both are the row's far end,
+   and a × drawn over a timestamp leaves the two of them half-legible. Only the label's
+   COLOUR goes, so the track it stands in keeps its width and nothing moves as the two
+   swap — which is the same reason the × is absolutely positioned in the first place.
+   Scoped away from touch by the panel's own class, exactly as the hover tint is: a
+   finger's tap leaves `:hover` stuck on the row it last touched. */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-time {
+	color: transparent;
+}
+
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-forget {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+/* A FINGER HAS NO HOVER TO SUMMON IT WITH, so on touch the × simply stands — the row is
+   the only way to drop it there, since a long press raises the app's own file menu and a
+   view row has no file for that menu to be about (see body.ts's contextRow). The age
+   gives way to it for the same reason and by the same means as above: one far end, one
+   thing printed on it. */
+.position-restore-nav-panel.is-touch .position-restore-nav-row .nav-row-forget {
+	opacity: 1;
+	pointer-events: auto;
+	--icon-size: var(--icon-s);
+}
+
+.position-restore-nav-panel.is-touch .position-restore-nav-row .nav-row-time {
+	color: transparent;
 }
 
 /* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing

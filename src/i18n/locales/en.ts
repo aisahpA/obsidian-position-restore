@@ -142,7 +142,7 @@ export const en = {
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
-	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step. Turn off for a jump-only history: only file opens and in-file jumps are recorded (view steps — the graph, the Thino view — stop being recorded too).',
+	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a back/forward step. Turned off, the history keeps only file opens and in-file jumps — a view tab (the graph, the Thino view) stops being a step too. It governs the back/forward history only: the recent-files list records those views either way.',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
 	'navHistory.commands.navigateBack': 'Navigate back',
@@ -229,12 +229,14 @@ export const en = {
 	'recentFiles.aka': 'aka:',
 	'recentFiles.menu.openInNewTab': 'Open in new tab',
 	'recentFiles.menu.openHereInNewTab': 'Open here in a new tab',
-	// The one item in the row's menu that is the PANEL's rather than the app's: take this
-	// file off the list — its own file record and the jumps made inside it go together
-	// (see NavPlaces.forget). "Remove" and not "delete": what goes is the record, while
-	// the file and the position database are untouched, and visiting the file again puts
-	// a place back.
-	'recentFiles.menu.forget': 'Remove from recent files',
+	// The row's own removal, drawn on the row as a × (see RecentFilesBrowser.onForget).
+	// It is NOT in the row's menu any more: that menu is the APP's, and only a file has
+	// one — a pathless view row (the graph, Thino's memo list) has no file for it to be
+	// about, so a removal offered there was a removal those rows never got, which is the
+	// one inconsistency this leaves behind. "Remove" and not "delete": what goes is the
+	// record, while the file and the position database are untouched, and visiting the
+	// file again puts a place back.
+	'recentFiles.forget': 'Remove from recent files',
 	// "Browse" and not "open": what opens is the LIST, and "open recent files"
 	// reads as opening the one file the reader was last in. It is also the verb the
 	// command's own id carries (see main.ts), and it is what separates the two
@@ -257,6 +259,9 @@ export const en = {
 	// viewName): the graph, which this list has always called this. A view with a name
 	// of its own prints that instead; one without prints its bare view type.
 	'recentFiles.graphView': 'Graph view',
+	// What a view row prints in place of an icon when the view named none (see
+	// list.ts's fileRow): a word, and deliberately not a stand-in glyph.
+	'recentFiles.viewBadge': 'View',
 	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
 	// The × at the end of the filter box (see RecentFilesBrowser.toolbar): the app's own
 	// gesture, named for what it empties. It is the button's accessible name and its

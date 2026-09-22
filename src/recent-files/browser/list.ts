@@ -1,4 +1,4 @@
-import { Keymap } from 'obsidian';
+import { Keymap, setIcon } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
@@ -59,14 +59,21 @@ import { NavRowTip, TipContent } from './tip';
 // The keyboard does the same thing without a pointer: ↑↓ step through the rows on
 // screen, Enter opens.
 //
-// ONE TARGET, AND STILL TWO THINGS A READER CAN DO WITH A ROW: a click opens it, and
-// the row's own menu can drop it from the list (see onContextMenu). The second is
-// deliberately NOT a second hotspot in the row — a × drawn under the pointer would
-// re-open the very question the gutter answered wrong, it would have to stand
-// permanently on a device that has no hover (and a phone is where the list is most
-// crowded), and the two targets would then be one stray pixel apart on the one
-// gesture a reader makes a thousand times. A menu is a deliberate act, and it is the
-// same act on a mouse and on a finger.
+// ONE TARGET, AND TWO THINGS A READER CAN DO WITH A ROW: a click opens it, and the ×
+// at its far end drops it from the list (see fileRow's own note). The × is deliberately
+// not laid out INSIDE the row. A row whose text gave up width to a control would move
+// under the pointer that summoned it — the one thing this list may never do (see
+// NOTHING MOVES ON HOVER below) — and a control standing in the row's own flow is a
+// second thing the pointer can be aiming at on the one gesture a reader makes a
+// thousand times. Laid out OF the flow, absolutely, over the row's far end, it costs
+// the row nothing until it is asked for: nothing moves when it appears, and every pixel
+// a reader can see the row on still opens the row.
+//
+// The removal belongs to the ROW and not to the file or the spot: what the list drew a
+// row for is a note, or a view, and that is what goes — the store drops every record the
+// row was drawn from (see onForget). One act, the same on a note and on the graph, which
+// is exactly why it cannot live in the row's menu: that menu is the app's file menu, and
+// only a file has one (see onContextMenu).
 //
 // NOTHING MOVES ON HOVER, which is the whole of the rule this list is built on: the
 // pointer used to drive the position directly — a mouse crossing the list moved it and
@@ -157,11 +164,23 @@ export interface RecentFilesListOptions {
 	// the app's own file menu over it (see body.ts's contextRow). The list does not
 	// build the menu because it does not hold the app, and a row here is a row of
 	// PLACES, not of files: which of them has a file behind it is the browser's
-	// question (a pathless view has none). What the menu holds — the app's actions,
-	// and the one item that is the panel's own — is not this list's business either:
-	// the row is handed over, and the browser draws again if the places changed (see
-	// body.ts's forgetRow). Nothing in this file writes.
+	// question (a pathless view has none). What the menu holds is not this list's
+	// business either — it is the app's actions plus the panel's own, and the app
+	// decides both — so the row is handed over, and nothing is drawn again here.
+	// Nothing in this file writes.
 	onContextRow: (rep: number, ev: MouseEvent) => void;
+	// The reader took a row off the list, from the × the row carries: WHICH row, by
+	// its identity — the group KEY, which is what a row is here (see
+	// NavFileGroup.key, and nav/entry.ts's navGroupKey). This is the list's one way
+	// of writing anything at all, and it writes nothing itself: the store is the
+	// browser's, and so is the redraw (see body.ts's onForget).
+	//
+	// A row and not a place, because a row is the thing the × was drawn on and the
+	// thing the reader pointed at. The two differ wherever a note holds several
+	// spots: what goes is the NOTE, with every spot in it. A removal that took only
+	// the spot under the pointer is not a gesture this list offers — there is no × on
+	// a landing row at all (see fileRow).
+	onForget: (key: string) => void;
 	// How much of a note the list prints (see shownLandings): one row per note — the
 	// plugin's default, the row standing for the last spot the note was left at — or
 	// every distinct spot under the name, one row each.
@@ -440,8 +459,9 @@ export class RecentFilesList {
 	// where the reader asked for it, stands the AGE (see the rowTime option): a track
 	// of the row rather than a fourth thing in the name, so the times end on one x
 	// down the whole list whichever half of the name wrapped. A pathless view row (the
-	// graph, Thino's memo list) prints no folder and no badge: it is one view, not a note
-	// with spots in it, and it has no file on disk to have a type.
+	// graph, Thino's memo list) prints no folder and no type badge: it is one view, not a
+	// note with spots in it, and it has no file on disk to have a type — its own ICON
+	// takes that slot instead (see below).
 	//
 	// The row is its NAME and nothing else. The caret that used to lead it opened a
 	// sublist of the note's landings and carried a "+N" count of what was hidden; both
@@ -487,8 +507,30 @@ export class RecentFilesList {
 		// of and prints nothing (see badgeOf). It sits beside the name and BEFORE the
 		// folder, so it stays with the name whichever half wraps.
 		const badge = badgeOf(group.path);
-		if (badge)
+		if (badge) {
 			file.createSpan({ text: badge, cls: 'nav-row-badge' });
+		} else {
+			// A PATHLESS VIEW takes this slot (the two never both apply — a view has
+			// no path, so it has no extension for badgeOf to report): a view is not a
+			// note, and the row has to say so or the list reads as a list of notes
+			// with a couple of odd names in it. The mark is the view's OWN icon, the
+			// one its tab header showed (see shared/leaf.ts's viewIcon), so the reader
+			// recognizes the row as the thing they clicked into. A view that named no
+			// icon gets the WORD instead, and not a stand-in glyph: an icon id the
+			// app's build does not know draws an empty slot, and an empty slot says
+			// less than a word does (the same reasoning as the badge above).
+			const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
+			if (repEntry?.kind === 'view') {
+				const label = t('recentFiles.viewBadge');
+				if (repEntry.icon) {
+					const mark = file.createSpan({ cls: 'nav-row-view-icon' });
+					setIcon(mark, repEntry.icon);
+					mark.setAttr('aria-label', label);
+				} else {
+					file.createSpan({ text: label, cls: 'nav-row-badge' });
+				}
+			}
+		}
 		// Which folder this note is in: 'smart' prints it only where its name is
 		// another note's name too — the one case where the folder is not the same
 		// answer for every row — and the two "always" modes print it everywhere. The
@@ -542,13 +584,46 @@ export class RecentFilesList {
 			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
 		if (tip.path || tip.text)
 			this.tip.attach(row, tip);
-		// NO "you are here" dot on the note's name: the current note is pinned first
-		// (see groupByFile) and carries `is-current`, so the dot could only ever sit on
-		// row one, saying what the row already says. It survives where it tells
-		// something apart — on the LANDING that holds the current entry (a jump the
-		// reader is standing on), whose note has other rows beside it (see placeRow).
-		// A reader who is in the note but on no jump has no landing to mark, and the
-		// row's own `is-current` is what says where they are.
+		// THE ROW'S OWN REMOVAL: the × at the row's far end, and the only control this
+		// list draws. It is HERE rather than in the row's menu because that menu is the
+		// APP's and only a file has one — a pathless view row (the graph, Thino's memo
+		// list) has no file for a file menu to be about, so a removal offered there is a
+		// removal those rows never get. Drawn on THIS row, both kinds get it from one
+		// line. (See RecentFilesBrowser.onForget for what the click asks for.)
+		//
+		// It is not the second TARGET the class comment refuses — the × that put a
+		// control a stray pixel from the row's own click. It is laid out OUT of the
+		// flow, absolutely, over the row's far end (see styles.css): the row's click
+		// still lands on the row over every pixel a reader can see a row on, and the
+		// control arriving under the pointer moves nothing.
+		//
+		// Its own events are STOPPED rather than left to bubble, and that is the whole
+		// of what keeps the two acts apart: with the press let through, reaching for the
+		// × would record the row as pressed (see onPress) and the click would open the
+		// note (see onClick) — a reader asking to drop a row would get the file.
+		const forget = row.createDiv({ cls: 'nav-row-forget clickable-icon' });
+		forget.setAttr('role', 'button');
+		// Deliberately outside the tab order: this list's keyboard is the position and
+		// the arrow keys (see move), with the focus never leaving the filter box, and a
+		// button that could be tabbed to would be a second keyboard model standing in
+		// the middle of that one.
+		forget.setAttr('tabindex', '-1');
+		forget.setAttr('aria-label', t('recentFiles.forget'));
+		setIcon(forget, 'x');
+		forget.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+		forget.addEventListener('click', (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			this.opts.onForget(group.key);
+		});
+		// NO "you are here" dot on the note's name: the row carries `is-current` for
+		// that, and the list is in recency order whatever the reader is standing in (see
+		// groupByFile), so a dot on the name would only repeat what the row already
+		// says, wherever it happens to sit. The dot survives where it tells something
+		// apart — on the LANDING that holds the current entry (a jump the reader is
+		// standing on), whose note has other rows beside it (see placeRow). A reader who
+		// is in the note but on no jump has no landing to mark, and the row's own
+		// `is-current` is what says where they are.
 		return 1;
 	}
 
@@ -630,13 +705,14 @@ export class RecentFilesList {
 	// WebView's selection callout, and a menu with a text-selection callout over it is
 	// worse than either alone.
 	//
-	// What the menu may do is not this list's business, and this list still writes
-	// nothing itself: the row is handed over, and the browser asks the APP for the app's
-	// own menu and adds the two entries of its own (see body.ts's contextRow — the LINK
-	// context is what is asked for, so no file-managing action is among the app's). One
-	// of those two takes the row off the list, and the redraw that follows is the
-	// browser's, not this file's (see forgetRow).
-	private onContextMenu(ev: MouseEvent, ref: RowRef): void {
+// What the menu may do is not this list's business, and this list still writes
+// nothing itself: the row is handed over, and the browser asks the APP for the app's
+// own menu and adds the one entry of its own (see body.ts's contextRow — the LINK
+// context is what is asked for, so no file-managing action is among the app's). Taking
+// the row off the list is NOT among them any more: that is the row's own ×, and it
+// asks through onForget rather than through this. (Nor is it for a pathless view,
+// which raises no menu at all — see contextRow.)
+private onContextMenu(ev: MouseEvent, ref: RowRef): void {
 		ev.preventDefault();
 		const rep = this.activeRep(ref);
 		if (rep >= 0)

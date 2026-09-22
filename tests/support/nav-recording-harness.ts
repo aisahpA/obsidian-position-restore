@@ -93,14 +93,16 @@ export function leafWithFile(id: string, file?: string, containerEl: unknown = '
 }
 
 // A leaf holding a non-file view — the graph, Thino's memo list, a main-area
-// search. `label` is the name the view gives itself (what its own tab header
-// prints), which is what a row standing for it says; a view that never named
-// itself leaves it off and the browser answers with its own wording (see
-// shared/leaf.ts's viewLabel).
+// search. Everything it reports is what the view says about ITSELF: `label` and
+// `icon` are the name and mark its tab header shows (what a row standing for it
+// prints and draws), and `state` is what it answers getState with — the state a
+// place is REBUILT with when its own tab is gone (see nav/entry's NavView). All
+// three are optional: the global graph names no icon and has no state, and a view
+// that reports nothing is the ordinary case rather than the broken one.
 export function viewLeaf(
 	id: string,
 	viewType: string,
-	opts: { label?: string; containerEl?: unknown } = {},
+	opts: { label?: string; icon?: string; state?: Record<string, unknown>; containerEl?: unknown } = {},
 ): WorkspaceLeaf {
 	return {
 		id,
@@ -108,6 +110,8 @@ export function viewLeaf(
 		view: {
 			getViewType: () => viewType,
 			getDisplayText: () => opts.label,
+			getIcon: () => opts.icon,
+			getState: () => opts.state,
 		},
 	} as unknown as WorkspaceLeaf;
 }

@@ -2,7 +2,7 @@
 // which ones the search box keeps. No DOM — the search box is testable through
 // these predicates alone.
 
-import { NavEntry } from '@/nav/entry';
+import { NavEntry, navGroupKey } from '@/nav/entry';
 import { baseName, viewName } from './model';
 
 // One FILE on the list: the note, and the steps that landed in it (by line,
@@ -32,7 +32,8 @@ export interface NavFileGroup {
 	// The note's path. NO_PATH for a pathless group, which also cannot collide
 	// with a real path (a vault path is never empty).
 	path: string;
-	// The group's IDENTITY (see groupKey): its path, or the view type for a
+	// The group's IDENTITY (see nav/entry.ts's navGroupKey): its path, or the view
+	// type for a
 	// pathless one. Carried on the group because the key a pathless group is
 	// named by cannot be recovered from `path` — NO_PATH says a group is
 	// pathless, never WHICH view it is; what such a group PRINTS is the view's own
@@ -77,15 +78,6 @@ export type { LandingsMode } from '@/types';
 // view step is not a place in a note: it has no path to group by, and giving it
 // one would let it merge with a note of the same name.
 export const NO_PATH = '';
-
-// The key a group is identified by: its path, or the view type for a pathless
-// view step — two graph steps are two landings of the same "file" (the graph
-// tab), not two files. The view TYPE is the identity even though the row prints
-// the view's own label: two Thino tabs are one destination, whatever either of
-// them is called (see model.ts's viewName).
-function groupKey(entry: NavEntry): string {
-	return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
-}
 
 // The key that makes two steps ONE landing: the line they landed on. How the
 // step was made (a link, the outline, a tab switch, a scroll that settled) is
@@ -164,7 +156,7 @@ export function groupByFile(
 	// first, which is the order the step standing for each line is chosen in.
 	const found = new Map<string, { line: number | undefined; index: number }[]>();
 	const open = (entry: NavEntry): NavFileGroup => {
-		const key = groupKey(entry);
+		const key = navGroupKey(entry);
 		let group = groups.get(key);
 		if (!group) {
 			group = {
@@ -189,7 +181,7 @@ export function groupByFile(
 		if (!keep(i))
 			continue;
 		const entry = entries[i];
-		const key = groupKey(entry);
+		const key = navGroupKey(entry);
 		const group = open(entry);
 		// The note's own record names the FILE rather than a spot inside it, so it
 		// becomes the group's ANCHOR (see `anchor`) and adds NO landing. What is
@@ -258,7 +250,7 @@ export function groupByFile(
 	// opened here is flagged current only: it takes the place its recency gives
 	// it, like every other group.
 	const current = entries[currentIndex];
-	if (current && keep(currentIndex) && !groups.has(groupKey(current)))
+	if (current && keep(currentIndex) && !groups.has(navGroupKey(current)))
 		open(current).current = true;
 	const out = Array.from(groups.values());
 	// Reaching this line `out` is ALREADY the recency order, and nothing else is

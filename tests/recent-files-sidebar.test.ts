@@ -12,7 +12,7 @@ import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
-import type { NavEntry } from '@/nav/entry';
+import { navGroupKey, type NavEntry } from '@/nav/entry';
 import type { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
 import { TIME_REFRESH_MS } from '@/recent-files/browser/constants';
@@ -113,12 +113,12 @@ class FakeNav {
 		};
 	}
 
-	// The reader took a file off the list (the row's own menu — see
-	// RecentFilesBrowser.contextRow): the real store drops the file's record and the
-	// landings made inside it together (see NavPlaces.forget), and tells its listeners,
-	// exactly as it does for a change made anywhere else.
-	forget(path: string): void {
-		this.entries = this.entries.filter(e => e.kind === 'view' || e.path !== path);
+	// The reader took a row off the list (the × on the row itself — see
+	// RecentFilesBrowser.onForget): the real store drops every record the row was drawn
+	// from, by the row's own key (see NavPlaces.forget), and tells its listeners, exactly
+	// as it does for a change made anywhere else.
+	forget(key: string): void {
+		this.entries = this.entries.filter(e => navGroupKey(e) !== key);
 		for (const fn of this.listeners)
 			fn();
 	}

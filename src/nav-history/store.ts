@@ -1,5 +1,5 @@
 import { App } from 'obsidian';
-import { NavEntry } from '@/nav/entry';
+import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 
 // Device-local, per-vault navigation-history persistence (mirrors the position
 // overlay): the startup read, the debounced write, and the per-entry shape
@@ -38,6 +38,15 @@ export function loadNavHistory(app: App): { entries: NavEntry[]; index: number }
 		const entries = Array.isArray(parsed.entries)
 			? parsed.entries.filter((e): e is NavEntry => isNavEntry(e))
 			: [];
+		// What a view entry CLAIMS about itself — its state, its name, its icon — is
+		// read back out into a replay and into the DOM, and this blob is device-local
+		// storage that a hand edit, a sync or a truncation can put anything in (see
+		// pruneViewSnapshot). Fields that are not what they claim to be are dropped
+		// here, while the ENTRY stays: all three have a working fallback — the view
+		// is rebuilt at its defaults and the row prints its own view type — so a bad
+		// field costs a detail, never the place.
+		for (const entry of entries)
+			pruneViewSnapshot(entry);
 		const index = typeof parsed.index === 'number'
 			&& parsed.index >= -1 && parsed.index < entries.length
 			? parsed.index

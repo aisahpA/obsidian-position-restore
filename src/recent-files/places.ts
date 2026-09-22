@@ -1,6 +1,6 @@
 import { App } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
-import { NavEntry, NewNavEntry } from '@/nav/entry';
+import { NavEntry, NewNavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { normAnchor } from '@/position/capture/ephemeral';
 import { loadNavPlaces, persistNavPlaces } from './places-store';
@@ -67,13 +67,24 @@ export interface PlaceList {
 	// than the tab the file is already in (see PaneTarget); absent means the
 	// ordinary open, which is what the row's own click is.
 	travel(index: number, target?: PaneTarget): Promise<void>;
-	// Drop every place a file holds — its own file record and each jump made
-	// inside it, which is what a reader means by "I do not want to see this note
-	// here" (the panel's own menu item: see RecentFilesBrowser.contextRow). The
-	// file is untouched, and so are the position records: this list is a record
-	// of where the reader has BEEN, and a place that comes back the next time
-	// they visit is not a bug (see NavPlaces.forget).
-	forget(path: string): void;
+	// Drop every place ONE ROW of the panel stands for: a note's own record and each
+	// jump made inside it, or the single record a pathless view holds. `key` is the
+	// row's identity (see nav/entry.ts's navGroupKey), and a ROW is deliberately what
+	// this is about rather than a place: a note is one row however many spots it
+	// holds, so taking the note off the list takes them with it — and the reader who
+	// asked did it from the row, which is the thing they were looking at.
+	//
+	// The row's own identity rather than a path, because a path cannot name a
+	// pathless view: the graph and Thino's memo list are rows like any other, and a
+	// removal nothing can name is a row nothing can take away (see dropPlaces).
+	//
+	// What it does NOT touch is why this list can be edited at all: the file
+	// itself, and the position records — a different store, keyed by path (see the
+	// module comment). A file visited again takes its place back, by design: this is
+	// a record of where the reader has been, not a rule about where they may go. A
+	// reader who never wants a file listed wants the folder rule instead (see
+	// recordable), which is a policy rather than a one-off.
+	forget(key: string): void;
 	// Something a browser would have to redraw for.
 	subscribe(fn: () => void): () => void;
 }
@@ -92,7 +103,9 @@ export interface PlaceOpeners {
 	// Open the file a jump was made in and land on the jump's recorded spot.
 	openJump(entry: NavEntry, target?: PaneTarget): Promise<void>;
 	// Show a pathless view (a view tab — the graph, Thino's memo list): in the leaf
-	// that already holds it, or in a new tab when it is nowhere.
+	// that already holds it, or in a new tab when it is nowhere. The entry arrives
+	// WHOLE, so a tab that has to be built is built as the place the reader left
+	// (see NavView.state).
 	openView(entry: NavEntry, target?: PaneTarget): Promise<void>;
 }
 
@@ -205,11 +218,38 @@ export class NavPlaces implements PlaceList {
 		this.changed();
 	}
 
-	// The jump's landing settled (or was re-read): keep the place's own position
-	// fresh. Only keyed jumps have one — a file record carries none by design.
-	// The funnel's `onLanded`: the stack fills the landing in when the jump
-	// settles (after upgrading the key), and this list has to hear about it.
+	// A detail of a place that ALREADY exists became known — the funnel's
+	// `onLanded`. The stack fills a jump's landing in when it settles (after
+	// upgrading the key), and it re-reads a VIEW's own state as the reader leaves
+	// it; this list has to hear about both, because a row is what the reader
+	// clicks and what comes back has to be the place they left.
+	//
+	// Only a keyed jump carries a POSITION: a file record carries none by design,
+	// and a view has no position at all (see the class comment).
 	settle(entry: NewNavEntry): void {
+		if (entry.kind === 'view') {
+			// The view the reader just left, re-read. Its state is the one thing about
+			// a view that cannot be derived later (see NavView.state); the name and
+			// the icon come along because a view that renamed or re-iconed itself
+			// during that visit should be listed under what the reader just read.
+			// The stamp moves with them: "last time you were here" is NOW.
+			if (!entry.state)
+				return;
+			const at = this.indexOf(placeKey(entry));
+			if (at < 0)
+				return;
+			const place = this.entries[at];
+			if (place.kind !== 'view')
+				return;
+			place.state = entry.state;
+			if (entry.label !== undefined)
+				place.label = entry.label;
+			if (entry.icon !== undefined)
+				place.icon = entry.icon;
+			place.t = Date.now();
+			this.changed();
+			return;
+		}
 		if (entry.kind !== 'jump' || !entry.st)
 			return;
 		const at = this.indexOf(placeKey(entry));
@@ -268,33 +308,35 @@ export class NavPlaces implements PlaceList {
 	// A real vault delete drops the file's places — its file record and every
 	// jump made inside it. The panel's rows for them would otherwise be dead
 	// names that hold slots in a capped list.
+	//
+	// The KEY handed on is the path, and that is not a shortcut: a file's row
+	// identity IS its path (see navGroupKey) — the one case the row and the path
+	// agree on, and the only thing a vault delete could name.
 	deleteFile(path: string): void {
 		this.dropPlaces(path);
 	}
 
-	// The reader asked for a file's places to go: the panel's own menu item (see
-	// RecentFilesBrowser.contextRow). The same removal as a vault delete, by the
-	// same rule — a file is ONE row, so a file that goes takes its landings with
-	// it, or the row would survive as the landings left under it — and a second
-	// name rather than the bookkeeper's entry point reused, because the two
-	// answer different questions: that one is the VAULT saying the file is gone,
-	// this one is the reader saying they do not want to see it.
-	//
-	// What it does NOT touch is why this list can be edited at all: the file
-	// itself, and the position records — a different store, keyed by path (see
-	// the module comment). A file visited again takes its place back, by design:
-	// this is a record of where the reader has been, not a rule about where they
-	// may go. A reader who never wants a file listed wants the folder rule
-	// instead (see recordable), which is a policy rather than a one-off.
-	forget(path: string): void {
-		this.dropPlaces(path);
+	// The reader asked for a row to go: the × on the row itself (see
+	// RecentFilesBrowser.onForget). The same removal as a vault delete, by the same
+	// rule — a row is ONE thing and goes as one — and a second name rather than the
+	// bookkeeper's entry point reused, because the two answer different questions:
+	// that one is the VAULT saying the file is gone, this one is the reader saying
+	// they do not want to see it. (The interface's own note says what the removal
+	// leaves untouched.)
+	forget(key: string): void {
+		this.dropPlaces(key);
 	}
 
-	// The one removal both names above stand for. A pathless place (a view) is
-	// never what a path names, which is why the filter leaves it standing.
-	private dropPlaces(path: string): void {
+	// The one removal both names above stand for, keyed by ROW (see navGroupKey):
+	// every record the row is drawn from goes at once. It takes a row rather than a
+	// path because a view has no path — and it has to be able to say WHICH view, since
+	// a path-keyed filter can only ever leave every view standing. That is exactly
+	// what this did while a view was not yet a row: the filter kept every pathless
+	// record unconditionally, so the graph could be drawn on the list and never taken
+	// off it.
+	private dropPlaces(key: string): void {
 		const current = this.entries[this.index];
-		const kept = this.entries.filter(e => e.kind === 'view' || e.path !== path);
+		const kept = this.entries.filter(e => navGroupKey(e) !== key);
 		if (kept.length === this.entries.length)
 			return;
 		this.entries = kept;
@@ -341,7 +383,10 @@ export class NavPlaces implements PlaceList {
 	//     carries its own landing and lands on it.
 	//   - a view record is answered by a leaf SHOWING that view: the one it came
 	//     from, any other one, or a new tab opened on it when the view is nowhere
-	//     (a place outlives the tab it happened in — see stack.ts's openViewPlace).
+	//     (a place outlives the tab it happened in). A tab built for it is built
+	//     with the state the view had while the reader was there (see
+	//     NavView.state), so the place they get back is the place they left —
+	//     see stack.ts's openViewPlace.
 	// `target` decides WHERE all three of them open, when the reader held a
 	// modifier down (see PaneTarget): a place is opened exactly the same way, one
 	// tab over. Absent — the ordinary click — the record's own leaf is the answer,
@@ -497,11 +542,26 @@ function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 				st: entry.st ?? kept?.st,
 			};
 		}
-		case 'view':
-			// The label is taken from the recording, so it is refreshed by every
-			// visit: a view that renamed itself (or a plugin updated under it) is
-			// named by what it says NOW — the name the reader just read on its tab.
-			return { kind: 'view', leafId: entry.leafId, viewType: entry.viewType, label: entry.label, t };
+		case 'view': {
+			// The label and the icon are taken from the recording, so they are refreshed
+			// by every visit: a view that renamed itself (or a plugin updated under it)
+			// is named and marked by what it says NOW — what the reader just saw on its
+			// tab. A read that came back empty simply drops them, and the row falls
+			// back to this list's own wording and to a word instead of a mark.
+			//
+			// The STATE is the exception, and deliberately: a visit whose state read
+			// came back empty (the view threw, answered with nothing, or went over the
+			// ceiling — see shared/leaf.ts's viewState) KEEPS the snapshot already
+			// recorded instead of erasing it. One failed read must not cost the reader
+			// the place they left, and what stands is the last state that was actually
+			// readable.
+			const kept = prev?.kind === 'view' ? prev : undefined;
+			return {
+				kind: 'view', leafId: entry.leafId, viewType: entry.viewType, t,
+				label: entry.label, icon: entry.icon,
+				state: entry.state ?? kept?.state,
+			};
+		}
 		default:
 			// Unreachable: remember() refuses teleports. Typed as a visit so a
 			// future variant fails the type check here rather than silently.

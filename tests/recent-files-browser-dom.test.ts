@@ -12,7 +12,7 @@ import { RecentFilesModal } from '@/recent-files/browser/modal';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
-import type { NavEntry } from '@/nav/entry';
+import { navGroupKey, type NavEntry } from '@/nav/entry';
 import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
@@ -286,20 +286,18 @@ function harness(
 	// long, so the tap semantics are decided the way a real device would.
 	const previous = Platform.isMobile;
 	Platform.isMobile = mobile;
-	// The list's own removal (see body.ts's forgetRow): the panel hands the store a PATH
-	// and nothing else. The fixture answers it the way the store does — a file's record and
-	// the landings inside it go together, and the pointer is re-found rather than left
-	// naming a slot that moved (see NavPlaces.forget / dropPlaces) — so that a test can
-	// watch the row leave the screen rather than only the call being made. The list is a
-	// fixture here (see above); the store's own rules are pinned in
+	// The list's own removal (see body.ts's forgetRow): the panel hands the store a ROW's
+	// identity and nothing else — the group key, which is a note's path or a view's type
+	// (see nav/entry.ts's navGroupKey). The fixture answers it the way the store does —
+	// every record the row was drawn from goes together, and the pointer is re-found
+	// rather than left naming a slot that moved (see NavPlaces.forget / dropPlaces) — so
+	// that a test can watch the row leave the screen rather than only the call being made.
+	// The list is a fixture here (see above); the store's own rules are pinned in
 	// recent-files-places.test.ts, and what this suite watches is the panel.
-	const forget = vi.fn((path: string) => {
+	const forget = vi.fn((key: string) => {
 		const current = entries[index];
 		for (let i = entries.length - 1; i >= 0; i--) {
-			// Held in a local so the kind narrows: NavEntry is a union and a view has no
-			// path at all (see nav/entry.ts).
-			const e = entries[i];
-			if (e.kind !== 'view' && e.path === path)
+			if (navGroupKey(entries[i]) === key)
 				entries.splice(i, 1);
 		}
 		places.index = current && entries.includes(current) ? entries.indexOf(current) : -1;
@@ -416,11 +414,17 @@ function harness(
 	const clearButton = () =>
 		modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-clear')!;
 	const clearFilter = () => clickRow(clearButton());
+	// THE × A ROW CARRIES (see RecentFilesList.fileRow): the one control the list draws,
+	// and the only way a reader takes a row off it. It is laid out OF the row's flow, so a
+	// test finds it by its own class rather than by where it stands — jsdom lays nothing
+	// out, and where it stands is the stylesheet's business (asserted in the styles suite).
+	const forgetButton = (row: HTMLElement) =>
+		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
 		modal, jumpTo, forget, cachedRead, el: modal.contentEl, entries, list,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
-		key, hover, unhover, clearButton, clearFilter,
+		key, hover, unhover, clearButton, clearFilter, forgetButton,
 	};
 }
 
@@ -1574,10 +1578,12 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
 	});
 
-	it('says nothing about a pathless view: no badge, no folder, no tooltip', () => {
+	it('marks a pathless view, and says nothing else about it', () => {
 		// The graph is a view and not a file: it has no type to mark and no path to
 		// print or to hover — its name is the view's own label, or this list's wording
-		// for a view that has none (see model.ts's viewName).
+		// for a view that has none (see model.ts's viewName). What the row DOES print
+		// is the mark that tells a view from a note (see list.ts's fileRow), and a view
+		// that named no icon is marked with a WORD rather than a stand-in glyph.
 		const h = harness([
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
 			...stack(),
@@ -1585,8 +1591,29 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		expect(graph).toBeDefined();
-		expect(attr(graph)).toEqual({ name: t('recentFiles.graphView'), badge: undefined, path: undefined });
+		expect(attr(graph)).toEqual({ name: t('recentFiles.graphView'), badge: t('recentFiles.viewBadge'), path: undefined });
+		expect(graph.querySelector('.nav-row-view-icon')).toBeNull();
 		expect(h.hover(graph)).toBeNull();
+	});
+
+	it('draws the icon a view named for itself, in place of the word', () => {
+		// A view is asked for its icon the way it is asked for its name (see
+		// shared/leaf.ts's viewIcon): the row then wears the same mark the reader saw
+		// on that view's tab, without this plugin knowing which plugin it was. The
+		// word is what that mark REPLACES — the two never stand together.
+		const h = harness([
+			{ kind: 'view', viewType: 'thino_view', label: 'Thino', icon: 'git-fork', leafId: 'leaf-1', t: NOW } as NavEntry,
+			...stack(),
+		], 6, files);
+
+		const row = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === 'Thino')!;
+		expect(row).toBeDefined();
+		expect(attr(row).badge).toBeUndefined();
+		const mark = row.querySelector('.nav-row-view-icon')!;
+		expect(mark.querySelector('svg')?.getAttribute('data-icon')).toBe('git-fork');
+		// Named for the reader who cannot see the glyph: the icon stands for the same
+		// word the fallback would have printed.
+		expect(mark.getAttribute('aria-label')).toBe(t('recentFiles.viewBadge'));
 	});
 
 	it('prints the folder on every row, on the side the setting asks for', () => {
@@ -1896,23 +1923,21 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('hands the app a menu for a file row, with its own two items on top', () => {
+	it('hands the app a menu for a file row, with its own one item on top', () => {
 		// The menu is the app's — what a reader can do with a file is not this plugin's
-		// business — and the TWO items added are the ones the app cannot know: this row stands
-		// for a PLACE, so "open in a new tab" here means this note; and this list is the
-		// plugin's own, so taking the note off it is nobody else's gesture.
+		// business — and the ONE item added is the one the app cannot know: this row stands
+		// for a PLACE, so "open in a new tab" here means this note, at the spot the row
+		// stands for. Taking the row off the list is no longer in here: that is the × the
+		// row carries, which needs no file to be about (see the two tests below).
 		const h = harness(entries(), 1, files);
 		const ev = h.rightClick(h.note('a'));
 
 		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
 		const menu = menuOf(h.trigger);
-		expect(menu.items).toHaveLength(2);
+		expect(menu.items).toHaveLength(1);
 		expect(menu.items[0].title).toBe(t('recentFiles.menu.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
 		expect(menu.items[0].icon).toBe('file-plus');
-		expect(menu.items[1].title).toBe(t('recentFiles.menu.forget'));
-		expect(menu.items[1].section).toBe('action');
-		expect(menu.items[1].icon).toBe('x');
 		// The context asked for is a LINK's, not the file explorer's: the app decides
 		// what belongs there, and the file-managing actions do not (see contextRow).
 		expect(h.trigger).toHaveBeenCalledWith(
@@ -1925,23 +1950,40 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('takes the row off the list from that menu, and draws it away', () => {
+	it('takes the row off the list from the × on it', () => {
 		// The one write the panel makes (see body.ts's forgetRow), and it goes to the list
 		// and no further: the file itself, and the position database, are untouched (see
-		// NavPlaces.forget). The row has to leave the screen as it goes — a dialog that went
-		// on showing it would read as the menu item having done nothing.
+		// NavPlaces.forget). The row has to leave the screen as it goes — a × that left it
+		// standing would read as having done nothing.
 		const h = harness(entries(), 1, files);
 		const names = () => h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
 		expect(names()).toContain('a');
 
-		h.rightClick(h.note('a'));
-		menuOf(h.trigger).items[1].click!();
+		h.clickRow(h.forgetButton(h.note('a')));
 
+		// …and that click OPENED nothing: the × answers it and the row does not (see
+		// RecentFilesList.fileRow — the two gestures are one row apart).
+		expect(h.jumpTo).not.toHaveBeenCalled();
 		expect(h.forget).toHaveBeenCalledWith('a.md');
 		// …and only that row: the note removed is the one that was NOT current, so the list
 		// is one note shorter and the position is still on b.md.
 		expect(names()).not.toContain('a');
 		expect(names()).toEqual(['b']);
+	});
+
+	it('does not open the note when the reader reaches for the ×', () => {
+		// The press and the click are stopped AT the × rather than left to bubble (see
+		// RecentFilesList.fileRow): with the press let through, the row would be recorded as
+		// pressed and the release would open the file the reader was trying to drop — the
+		// one outcome the × exists to be told apart from.
+		const h = harness(entries(), 1, files);
+		const button = h.forgetButton(h.note('a'));
+
+		h.pressRow(button);
+		h.clickRow(button);
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(h.forget).toHaveBeenCalledWith('a.md');
 	});
 
 	it('says WHICH place its own item opens, on a row that stands for a landing', () => {
@@ -1969,6 +2011,23 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 
 		expect(ev.defaultPrevented).toBe(true);
 		expect(h.trigger).not.toHaveBeenCalled();
+	});
+
+	it('gives a pathless view the same × a note gets, since its row is a row', () => {
+		// The graph is refused a FILE menu — there is no file for one to be about — and
+		// while the removal lived in that menu, the refusal left it no way off the list at
+		// all. The × needs no file, so every row carries one (see RecentFilesList.fileRow).
+		const h = harness([
+			visit('a.md', NOW - MINUTE),
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
+		], 1, files);
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
+
+		h.clickRow(h.forgetButton(graph));
+
+		// The store hears the row's own identity: a view is named by its TYPE, which is
+		// exactly what a path cannot say (see nav/entry.ts's navGroupKey).
+		expect(h.forget).toHaveBeenCalledWith('view:graph');
 	});
 
 	it('raises no menu when the file behind the row is gone', () => {

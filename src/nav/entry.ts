@@ -83,8 +83,8 @@ export interface NavVisit extends NavEntryBase {
 // A non-file main-area view destination: the global graph, Thino's memo list,
 // a main-area search or local graph — anything the reader opened that is a place
 // in the workspace rather than a place in a note. A pathless entry: traversal
-// reactivates the leaf, or re-asserts the bare view type when the tab was swapped
-// to a file in the meantime.
+// finds a leaf SHOWING that view, or builds one when it is nowhere (see
+// nav-history/stack.ts's openViewPlace).
 export interface NavView extends NavEntryBase {
 	kind: 'view';
 	viewType: string;
@@ -95,6 +95,22 @@ export interface NavView extends NavEntryBase {
 	// third-party view's name cannot be derived from its type — the type is what
 	// identity is (see places.ts's placeKey), the name is what the reader reads.
 	label?: string;
+	// The icon the view gives itself, for the mark the row prints (see
+	// shared/leaf.ts's viewIcon). DISPLAY-ONLY too, and optional for the same
+	// reason: the row says "view" in words when the view offered none.
+	icon?: string;
+	// The view's own state as it stood while the reader was there (see
+	// shared/leaf.ts's viewState): what a place is REBUILT with when its own tab
+	// is gone or was swapped to another view — the local graph's file, a search's
+	// query, a plugin view's filters. Optional: the global graph has no state to
+	// speak of, and being rebuilt at the empty one is exactly right for it.
+	//
+	// It is a SNAPSHOT, not a live reference, and it is refreshed the same way the
+	// label is: on every visit, and once more as the reader leaves the view (see
+	// nav-history/stack.ts's refreshTopLeafOnActivation). Identity stays viewType
+	// — two Thino tabs are one place with one state between them, whatever either
+	// tab happened to be showing.
+	state?: Record<string, unknown>;
 }
 
 // An INFERRED same-file cursor jump (large move, go-to-line, vim jump — the
@@ -125,20 +141,66 @@ export interface NavTeleport extends NavEntryBase {
 // is not a main-area leaf at all (see isMainAreaLeaf), so the outline, backlinks
 // and a sidebar-resident Thino never reach this filter.
 //
-// Accepted with the widening, and why it is acceptable: a view entry carries no
-// state, so it is answered by a leaf that SHOWS that view — the entry's own, any
-// other one, or one opened in a new tab when the view is nowhere (see
-// nav-history/stack.ts's openViewPlace) — constructed with the empty state the
-// app's own `graph:open` passes. A local graph reached that way is the local
-// graph of whatever file is active then, which reads as "the view, on another
-// note", never as a wrong note opened. (Its view state is what used to keep
-// localgraph off the list entirely.)
+// Accepted with the widening, and why it is acceptable: a view entry is answered
+// by a leaf that SHOWS that view — the entry's own, any other one, or one opened
+// in a new tab when the view is nowhere (see nav-history/stack.ts's openViewPlace)
+// — and is rebuilt with the state the view HAD while the reader was there (see
+// NavView.state), so a local graph comes back on the note it was showing rather
+// than on whatever is active at the time and a plugin view keeps its filters.
+// Only a view that never had a state to record (the global graph) is rebuilt at
+// the empty one, which is what its own `graph:open` passes too.
 export const NON_DESTINATION_VIEW_TYPES = new Set(['empty']);
 
 // Is this view type a place the recent-files list may hold? The one test, shared
 // by the capture points that see a view only as a type (see nav/funnel.ts).
 export function isRecordableViewType(viewType: string | undefined): boolean {
 	return !!viewType && !NON_DESTINATION_VIEW_TYPES.has(viewType);
+}
+
+// Which LIST ROW a navigation belongs to: the note's path, or a pathless view's
+// view TYPE. Two readers ask this and have to get the same answer, which is why it
+// lives in the shared vocabulary rather than in either of them: the browser groups
+// its rows by it (see listing.ts's groupByFile), and the places store drops a whole
+// row by it (see NavPlaces.forget). Written once because a rule written twice is a
+// rule that can drift — and a panel whose rows and a store whose removals disagree
+// about what one row is would delete places the reader never pointed at.
+//
+// It is NOT a place's identity (see places.ts's placeKey). A note's own record and
+// every jump made inside it are ONE row here and as many places there: what a reader
+// takes off the list is the NOTE — the thing the list drew a row for — and a removal
+// that left the jumps behind would leave the row behind with them. A view is the one
+// case the two agree on, being one place and one row.
+//
+// A pathless entry is named by its view TYPE, and that type is its identity even
+// though the row prints the view's own LABEL: two Thino tabs are one destination
+// whatever either of them happens to be called, and two graph steps are two landings
+// of one row rather than two rows (see model.ts's viewName for the name a row prints,
+// which is a display fact and a separate one).
+export function navGroupKey(entry: NewNavEntry): string {
+	return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
+}
+
+// What a stored view entry may NOT keep. The blob is device-local storage the
+// reader (or a sync, or a truncation) can put anything into, and these three
+// fields are the ones read straight back out into a REPLAY (`setViewState`) or
+// into the DOM, so they are pruned to what they claim to be — while the ENTRY is
+// kept. Dropping the whole entry would lose the place over a field that has a
+// perfectly good fallback: no state replays the view at its defaults, no icon
+// makes the row say "view" in words, no label makes it print its view type.
+//
+// In place, on the freshly parsed object, because that is what the loaders hold
+// and nothing else has seen it yet.
+export function pruneViewSnapshot(entry: NavEntry): void {
+	if (entry.kind !== 'view')
+		return;
+	const view = entry as NavView & { state?: unknown; icon?: unknown; label?: unknown };
+	if (view.state !== undefined
+		&& (!view.state || typeof view.state !== 'object' || Array.isArray(view.state)))
+		delete view.state;
+	if (view.icon !== undefined && !(typeof view.icon === 'string' && view.icon))
+		delete view.icon;
+	if (view.label !== undefined && !(typeof view.label === 'string' && view.label))
+		delete view.label;
 }
 
 // Both lists' STORAGE versions live with their stores, not here: this module is

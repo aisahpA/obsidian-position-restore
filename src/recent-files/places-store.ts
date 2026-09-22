@@ -1,5 +1,5 @@
 import { App } from 'obsidian';
-import { NavEntry } from '@/nav/entry';
+import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 
 // Device-local, per-vault persistence for the RECENT FILES list (see places.ts) —
 // the same shape of module as the stack's store.ts, deliberately kept separate
@@ -34,9 +34,16 @@ export function loadNavPlaces(app: App): NavEntry[] {
 		// so no legacy format is migrated.
 		if (parsed.v !== RECENT_PLACES_VERSION)
 			return [];
-		return Array.isArray(parsed.places)
+		const places = Array.isArray(parsed.places)
 			? parsed.places.filter((e): e is NavEntry => isPlaceEntry(e))
 			: [];
+		// A view place's own snapshot (state / label / icon) is replayed and drawn,
+		// and this is storage anything could have written: fields that are not what
+		// they claim to be go, the place itself stays (see pruneViewSnapshot — it
+		// has the reasoning for why the field is what is dropped, not the entry).
+		for (const place of places)
+			pruneViewSnapshot(place);
+		return places;
 	} catch (e) {
 		console.error('Position Restore: can not read the recent files list:', e);
 		return [];

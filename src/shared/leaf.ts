@@ -49,3 +49,74 @@ export function viewLabel(view: View | undefined): string | undefined {
 		return undefined;
 	}
 }
+
+// The ICON a view gives itself, for the mark a row standing for it prints
+// (see recent-files/browser/list.ts's fileRow). Same channel and same guards as
+// the label above, for the same reasons: it is what the reader saw on the tab
+// they clicked, it names a third-party view without this plugin knowing that
+// plugin, and it is a foreign method called from an event handler.
+//
+// Absent is NO ICON, not a default one: a view that never named an icon leaves
+// the row to say "view" in WORDS instead, which is deliberate — an icon id the
+// app's build does not know draws an empty slot, and an empty slot says less
+// than a word does (the same reasoning as the type badge, see the stylesheet's
+// nav-row-badge note).
+export function viewIcon(view: View | undefined): string | undefined {
+	if (!view)
+		return undefined;
+	try {
+		const icon = view.getIcon();
+		return typeof icon === 'string' && icon ? icon : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+// The most a single view's state may take in this plugin's storage. Counted as
+// the serialized length (UTF-16 units) — the same number as bytes for the ASCII
+// such states are nearly always made of, and close enough either way for a
+// ceiling whose job is catching an order-of-magnitude mistake rather than
+// metering. The blob it shares storage with is a whole list of places (see
+// recent-files/places-store.ts), so a plugin that decides to keep its cache in
+// its own view state must not be able to take the list's budget with it.
+const VIEW_STATE_MAX_BYTES = 2048;
+
+// The STATE a view had while the reader was there — what a place is rebuilt with
+// when its own tab is gone (`setViewState({ type, state })`: the local graph's
+// file, a search's query, a plugin view's filters). This is the difference
+// between "the view" and "the place you went to", and it is the one thing about
+// a view that cannot be re-derived later, which is why it is recorded rather
+// than looked up (see nav/entry's NavView.state).
+//
+// Optional, and three gates decide that — each one a real way this can fail:
+//   - it throws: no state (see the guards above);
+//   - it is not a plain object, or serializes to nothing at all (every field
+//     undefined): no state, because only an object can be replayed;
+//   - it is over the ceiling above: no state. A place is still a place without
+//     one — the row keeps its name and the view is rebuilt at its defaults —
+//     and losing the whole list to one fat state is not a trade worth making.
+//
+// The JSON round-trip does two jobs, and the second is the one that is easy to
+// miss: it rejects what cannot be stored at all (a cyclic reference throws), and
+// it keeps a COPY. A view goes on mutating its own state object after the
+// recording; a row holding a reference to it would drift along with the view —
+// and replaying a place would then take the reader to wherever the view happens
+// to be NOW, which is the opposite of what a recorded place is for.
+export function viewState(view: View | undefined): Record<string, unknown> | undefined {
+	if (!view)
+		return undefined;
+	try {
+		const raw = view.getState();
+		if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+			return undefined;
+		const json = JSON.stringify(raw);
+		if (!json || json === '{}' || json.length > VIEW_STATE_MAX_BYTES)
+			return undefined;
+		const copy = JSON.parse(json) as unknown;
+		return copy && typeof copy === 'object' && !Array.isArray(copy)
+			? copy as Record<string, unknown>
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}

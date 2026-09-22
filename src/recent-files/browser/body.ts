@@ -203,6 +203,9 @@ export class RecentFilesBrowser {
 			// A right-click asks the APP what it can do with this file; the menu is
 			// built here because the list does not hold the app (see contextRow).
 			onContextRow: (rep, ev) => this.contextRow(rep, ev),
+			// A row's own ×: the removal the list asks for and cannot make itself,
+			// because the PLACES are here and not there (see forgetRow).
+			onForget: key => this.forgetRow(key),
 		};
 		this.list = new RecentFilesList(this.listOpts);
 		// The pointer is how the body knows the reader is USING this list, which is
@@ -494,40 +497,45 @@ export class RecentFilesBrowser {
 	}
 
 	// A row was right-clicked: raise the APP's own menu for the file behind it, with
-	// the two entries of our own on top.
+	// OUR one entry on top.
 	//
 	// The menu is the app's and not ours, and that is deliberate: what a reader can do
 	// with a file (open it beside, copy a link, reveal it, rename it, whatever the
 	// app's own version of this menu holds) is the app's business, and a second list of
 	// those commands written here would be a stale copy of it. What is added is what the
 	// app cannot know: this row stands for a PLACE, and this list is a list the app does
-	// not have — the landing the row promises (see the two locale keys), and the row's
-	// own removal.
+	// not have — so "open in a new tab" here promises the landing this row stands for
+	// (see the two locale keys), which core's own item for the same file cannot.
 	//
 	// The context asked for is the LINK one, not the file explorer's: a row here is a
 	// pointer at a file rather than the file in its own tree, and the file-managing
 	// actions (rename, move, delete) do not belong to a reader who came here to go
-	// somewhere. THAT is what the panel leaves to the app. The one thing the browser ever
-	// asks of the list on its OWN account is the removal below — travel is already the
-	// row's click, and it rides the pipeline every navigation rides (see NavPlaces.travel)
-	// — and that removal touches the list and nothing else: not the file, not the position
-	// records (see NavPlaces.forget). It is asked for HERE, from a menu the reader opened
-	// on purpose, rather than from a control sitting under the pointer: a row is one
-	// target (see list.ts).
+	// somewhere. THAT is what the panel leaves to the app.
+	//
+	// A PATHLESS VIEW raises nothing, and the app's rule is only half of why: a file menu
+	// has no file to be about, and a page built for a view out of our own entry alone would
+	// hold one item the row already answers — a click opens it, and a modifier-click opens
+	// it one tab over (see the list's onClick). A menu there is a third gesture offered for
+	// something two gestures already do.
+	//
+	// Taking a row off the list is NOT in here any more, and the rows that are not files are
+	// the reason for that too: the removal lived in this menu, so the graph and Thino's memo
+	// list — rows this panel draws like any other — could never be taken off the list at
+	// all. It is the × on the row instead, which every row carries (see list.ts's fileRow,
+	// and onForget below).
 	private contextRow(rep: number, ev: MouseEvent): void {
 		const entry = this.opts.places.entries[rep];
-		// A pathless view (the graph, Thino's memo list) has no file: a file menu has
-		// nothing to be about.
+		// A pathless view has no file: the app's own menu for one has no subject.
 		if (!entry || entry.kind === 'view')
 			return;
 		const file = this.opts.app.vault.getAbstractFileByPath(entry.path);
 		if (!(file instanceof TFile))
 			return;
 		const menu = new Menu();
-		// Our own items go FIRST (section 'action', which the app sorts ahead of its
-		// own sections), because neither is anything the app can offer for THIS row:
-		// core's menu can offer "open in a new tab" for the file, but only this list
-		// knows the landing the row stands for — and only this list exists.
+		// Our own item goes FIRST (section 'action', which the app sorts ahead of its
+		// own sections), because it is nothing the app can offer for THIS row: core's
+		// menu can offer "open in a new tab" for the file, but only this list knows the
+		// landing the row stands for — and only this list exists.
 		menu.addItem(item => item
 			.setSection('action')
 			.setTitle(t(entry.kind === 'jump'
@@ -535,21 +543,20 @@ export class RecentFilesBrowser {
 				: 'recentFiles.menu.openInNewTab'))
 			.setIcon('file-plus')
 			.onClick(() => this.jump(rep, 'tab')));
-		// …and the row itself, gone. The PATH is taken from the entry the menu was
-		// raised for rather than from the index: the click arrives when the reader
-		// chooses, and by then the list may have moved under it (a place visited in
-		// between, a trim) — the entry is the identity, and the store resolves it.
-		menu.addItem(item => item
-			.setSection('action')
-			.setTitle(t('recentFiles.menu.forget'))
-			.setIcon('x')
-			.onClick(() => this.forgetRow(entry.path)));
 		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
 		menu.showAtMouseEvent(ev);
 	}
 
-	// The reader asked for a file's places to go: the store drops them, and the list is
-	// drawn again so that the row goes with them.
+	// The reader asked for a row to go, from the × on it (see the list's onForget): the
+	// store drops what that row was drawn from, and the list is drawn again so the row
+	// goes with it.
+	//
+	// The KEY is the row's own and it arrives WITH the × rather than being worked out
+	// here: the control was built by the render that drew the row, so it carries the
+	// identity of the row it was drawn on and not an index that something may have moved
+	// under (see list.ts's fileRow — the key is the group's, which is what survives a
+	// list rebuilt between the two). What it names is a note or a view, and the store
+	// drops the whole of whichever it is (see NavPlaces.forget).
 	//
 	// The redraw is asked for HERE rather than left to the shells. The resident panel
 	// hears the store and redraws itself (see RecentFilesView.onOpen), but a DIALOG does
@@ -557,8 +564,8 @@ export class RecentFilesBrowser {
 	// modal.ts) — so a removal would otherwise leave the row standing until the dialog
 	// was reopened. A second, identical redraw in the sidebar is one pass over a list
 	// the reader cannot see change.
-	private forgetRow(path: string): void {
-		this.opts.places.forget(path);
+	private forgetRow(key: string): void {
+		this.opts.places.forget(key);
 		this.render();
 	}
 

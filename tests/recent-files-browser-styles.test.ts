@@ -2,7 +2,7 @@
 // the DOM, because jsdom never loads a stylesheet and every one of these is a
 // contract no rendering test here could catch.
 //
-// Three of them:
+// Four of them:
 //
 // 1. The quiet tiers (the section, the coordinate, the age, the toolbar chrome)
 //    must NOT be painted with --text-faint / --text-muted. Those are ordinary
@@ -26,6 +26,11 @@
 //    a landing, the name and the age on a note — rather than the old rule that hid
 //    the coordinate and the age below 480px and left the list saying nothing but
 //    file names.
+//
+// 4. The × that takes a row off the list FLOATS over the row's far end, out of the
+//    row's own flow, so summoning it moves nothing — and what gives way when the two
+//    trade places is the age's colour, not the track it stands in. On touch there is
+//    no hover to summon it with, so it stands there instead.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -178,6 +183,46 @@ describe('recent-files browser quiet tiers', () => {
 			/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
 		);
 		expect(browser).not.toMatch(/\.nav-row-time\s*\{[^}]*margin-inline-start: auto/);
+	});
+
+	// …and the × that takes the row off the list rides in that SAME far end, out of the
+	// row's own flow (see list.ts's fileRow). Being absolutely positioned is the
+	// load-bearing part: laid out inside the row it would take its width from the name,
+	// and the row would move under the pointer that summoned it — the one thing this list
+	// never does (see the hover tint below). The age gives up its COLOUR and not its
+	// track when the two trade places, so nothing moves there either.
+	it('floats the row\'s × over that far end, and moves nothing to show it', () => {
+		const forget =
+			browser.match(/\.position-restore-nav-row \.nav-row-forget\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(forget).not.toBe('');
+		expect(forget).toMatch(/position: absolute/);
+		expect(forget).toMatch(/inset-inline-end: 4px/);
+		// Painted with the ROW's own wash rather than a colour of this file's, so the strip
+		// under the icon is the row it stands on — the hover tint, or the position's accent.
+		expect(forget).toMatch(/background: inherit/);
+		// …and it says nothing until the pointer is on the row.
+		expect(forget).toMatch(/opacity: 0/);
+		expect(forget).toMatch(/pointer-events: none/);
+
+		// The age keeps its track and gives up only its colour…
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-time\s*\{[^}]*color: transparent/,
+		);
+		// …the × arrives on the very same terms, scoped away from touch exactly as the
+		// hover tint is (a finger's tap leaves `:hover` stuck on the row it touched)…
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-forget\s*\{[^}]*opacity: 1/,
+		);
+		// …and on touch it simply STANDS there instead, with the age giving way to it: a
+		// finger has no hover to summon it with, and the row is the only way to drop it
+		// there — a long press raises the app's own file menu, and a view row has no file
+		// for that menu to be about (see body.ts's contextRow).
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row \.nav-row-forget\s*\{[^}]*opacity: 1/,
+		);
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row \.nav-row-time\s*\{[^}]*color: transparent/,
+		);
 	});
 
 	// "You are here" is a dot on the note and on the landing the current entry
