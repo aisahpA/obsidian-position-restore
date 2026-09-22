@@ -142,7 +142,7 @@ export const en = {
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
-	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a back/forward step. Turned off, the history keeps only file opens and in-file jumps — a view tab (the graph, the Thino view) stops being a step too. It governs the back/forward history only: the recent-files list records those views either way.',
+	'navHistory.recordActivation.desc': 'Clicking another tab pushes a back/forward step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps — except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note. It governs the back/forward history only: the recent-files list records those views either way.',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
 	'navHistory.commands.navigateBack': 'Navigate back',
@@ -164,7 +164,7 @@ export const en = {
 	// looking like two views of one history. Everything else the rows say
 	// about themselves.
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, the headings and blocks you jumped to inside them, and the non-file views of the main area (the graph, the Thino view) — each of them one row, and a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. This list is kept on this device and survives restarts.',
+		'A list of places you have been: notes opened recently, the headings and blocks you jumped to inside them, and the main area\'s file-less views (the graph above all) — each of them one row, and a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. This list is kept on this device and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
 	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.

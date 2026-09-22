@@ -36,8 +36,10 @@ import { loadNavHistory, persistNavHistory } from './store';
 // outline panel, active-leaf-change) write what they saw, the funnel applies the
 // SHARED gates — a traversal's own opens and the startup rebuild are not
 // navigations for anybody — and publishes. This class then applies ITS OWN gates
-// and keeps its own kind of record: whether a tab switch is worth a step
-// (navRecordActivation), whether an inferred cursor jump is (navRecordTeleport),
+// and keeps its own kind of record: whether the focus moving between FILE tabs is
+// worth a step (navRecordActivation — a view's activation always is: a view is a
+// place the reader went to, and one this class has to know they are standing in;
+// see onVisit), whether an inferred cursor jump is (navRecordTeleport),
 // the same-location dedup, and the ceiling. The funnel's other listener keeps a
 // place list instead of steps; neither list knows the other exists, and this one
 // no longer reports on the other's behalf.
@@ -133,8 +135,23 @@ export class NavStack implements NavFunnelSink {
 	// decides: whether a tab switch or an inferred cursor jump is worth a STEP is
 	// a question about this list, and the place list next door answers it
 	// differently (it keeps both, teleports excepted).
+	//
+	// "Record tab switches" answers about FILE tabs, and the record's KIND is
+	// part of the question rather than a detail of how it arrived. A view (the
+	// graph, Thino's memo list) is only ever entered by activating its leaf, so
+	// cause 'tab' is the ONLY way a view record can exist — nothing else makes
+	// one (see funnel.ts's recordOpen: the open patch calls it for files alone).
+	// Gating the cause alone therefore never said "stop recording the focus
+	// moving between my file tabs"; it said "views stop being steps at all",
+	// which the setting does not mean and cannot be made to mean, because a view
+	// IS a place the reader went to and the stack has to know it is where they
+	// are standing. Left as it was, standing in a view made the next back step
+	// off the last FILE entry instead of returning to it: a.md → b.md → the
+	// graph put back on a.md, b.md skipped — and with a single step recorded,
+	// back was unavailable outright.
 	onVisit(recording: NavRecording) {
-		if (recording.cause === 'tab' && !this.settings.navRecordActivation)
+		if (recording.cause === 'tab' && recording.record.kind !== 'view'
+			&& !this.settings.navRecordActivation)
 			return;
 		if (recording.cause === 'teleport' && !this.settings.navRecordTeleport)
 			return;

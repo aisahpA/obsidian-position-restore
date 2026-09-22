@@ -41,7 +41,9 @@ import { installOutlineCapture as installOutlineCaptureHook } from './outline-ca
 
 // How a navigation got here — the only thing a reader cannot read off the record
 // itself, and the reason two readers can apply different gates to the same fact
-// (the stack's "record tab switches" / "record large cursor jumps" are keyed on it).
+// (the stack's "record tab switches" is keyed on it PLUS the record's kind: a view
+// can only ever arrive this way, so its own gate would swallow the whole kind — see
+// stack.ts's onVisit. "Record large cursor jumps" is keyed on the cause alone.)
 //   open     — an ordinary file open (the setViewState patch)
 //   jump     — a keyed jump: an outline item, an anchor link, a search/backlink target
 //   tab      — a tab/pane activation (VSCode records active-editor changes the same way)
@@ -196,6 +198,10 @@ export class NavFunnel {
 	// Tab/pane activation as navigation (VSCode records active-editor changes the
 	// same way). Sidebar panels are excluded — they track the active file in their
 	// own view state, and recording one would make a phantom step out of the panel.
+	// A VIEW activation is published the same way as a file tab's, and it is a step
+	// whatever the stack's tab-switch setting says: activating the leaf is the only
+	// way a view can ever be entered, so this is where every view record in the
+	// whole plugin is born (see stack.ts's onVisit).
 	recordActivation(leaf: WorkspaceLeaf | null) {
 		if (!leaf || !isMainAreaLeaf(this.app, leaf) || !this.isRecording())
 			return;

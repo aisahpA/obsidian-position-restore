@@ -118,7 +118,7 @@ interface PluginSettings {
 	recordBaseScroll: boolean;
 	// Navigation history (VSCode-style back/forward) tuning.
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
-	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
+	navRecordActivation: boolean; // a FILE tab's activation records as a navigation entry (a view tab's always does — see nav-history/stack.ts's onVisit)
 	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
 	// The recent-files list's own storage. It is a DIFFERENT thing from the
 	// back/forward stack above (and from the position records): what it holds is

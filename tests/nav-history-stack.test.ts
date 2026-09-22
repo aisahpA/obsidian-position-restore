@@ -424,11 +424,36 @@ describe('NavStack recording settings', () => {
 		expect(nav.stack.index).toBe(1);
 	});
 
-	it('navRecordActivation off: tab (and graph) activation records nothing', () => {
-		const nav = makeNav(makeApp(), { navRecordActivation: false });
-		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+	it('navRecordActivation off: a file tab switch is no step, a view tab still is', async () => {
+		const h = makeSidebarHarness({
+			leaves: [
+				{ id: 'leaf-a', file: 'a.md', markdown: true },
+				{ id: 'leaf-b', file: 'b.md', markdown: true },
+			],
+		});
+		const nav = h.nav;
+		// The gate is read off the object the settings panel mutates (see setCap).
+		(nav.stack as unknown as { settings: PluginSettings }).settings.navRecordActivation = false;
+
+		nav.funnel.recordOpen('a.md', 'leaf-a');
+		nav.funnel.recordOpen('b.md', 'leaf-b');
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf); // back to a.md's tab
+		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'b.md']);
+
+		// The graph can ONLY be entered by activating its leaf, so the gate must
+		// not reach it: reading the cause alone would take the whole kind out of
+		// the history, which is not what "record tab switches" says.
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
-		expect(nav.stack.entries.length).toBe(0);
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[2]).toEqual({ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) });
+		expect(nav.stack.index).toBe(2);
+
+		// That step is what keeps the stack honest about where the reader
+		// stands: unrecorded, back from the graph landed on a.md and skipped
+		// b.md, the note they had just left.
+		await nav.stack.navigate(-1);
+		expect(nav.stack.index).toBe(1);
+		expect(pathOf(nav.stack.entries[nav.stack.index])).toBe('b.md');
 	});
 
 	it('navRecordTeleport off: cursor jumps record nothing', () => {
