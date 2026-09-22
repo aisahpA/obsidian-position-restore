@@ -3,7 +3,7 @@ import { SettingTab } from './ui/settings-tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
-import { RECENT_FILES_VIEW_TYPE } from './nav-history/browser/view';
+import { RECENT_FILES_VIEW_TYPE } from './recent-files/browser/view';
 import { t } from './i18n';
 
 

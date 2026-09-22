@@ -78,6 +78,20 @@ function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownV
 	return view;
 }
 
+// A spy funnel: the sampler and the patcher are pure CAPTURE points — they write
+// to the funnel and never read a reader — so spies over its whole surface are
+// all either of them needs.
+function spyFunnel() {
+	return {
+		recordOpen: vi.fn(),
+		recordTeleport: vi.fn(),
+		recordActivation: vi.fn(),
+		leave: vi.fn(),
+		settled: vi.fn(),
+		landing: vi.fn(),
+	};
+}
+
 function makePollHarness() {
 	const containerEl = document.createElement('div');
 	const view = makeFakeMarkdownView('a.md', containerEl);
@@ -88,11 +102,11 @@ function makePollHarness() {
 	};
 	const settings = DEFAULT_SETTINGS as PluginSettings;
 	const state = new PositionState(settings);
-	const nav = { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() };
+	const funnel = spyFunnel();
 	const store = new PositionStore(app as never, database as never);
-	const sampler = new Sampler(app as never, store, settings, state, nav as never);
+	const sampler = new Sampler(app as never, store, settings, state, funnel as never);
 	state.lastLoadedFilePath = 'a.md';
-	return { sampler, state, database, view, refreshTop: nav.refreshTop };
+	return { sampler, state, database, view, leave: funnel.leave, settled: funnel.settled };
 }
 
 function setCursor(view: MarkdownView, line: number, ch: number) {
@@ -106,7 +120,7 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
 		const store = new PositionStore(app, { db: {} } as never);
-		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
+		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, spyFunnel() as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
 		// Search-result clicks pass eState.match (verified against core's
@@ -128,7 +142,7 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
 		const store = new PositionStore(app, { db: { 'a.md': { scroll: 5 } } } as never);
-		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never, { flushOnLeave: vi.fn() } as never);
+		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, spyFunnel() as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
 		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
@@ -165,7 +179,7 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 	});
 
 	it('expires the finite absorb early once the view stops moving and captures the landing', () => {
-		const { sampler, state, refreshTop } = makePollHarness();
+		const { sampler, state, settled } = makePollHarness();
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
 		// Seed the baseline (prev undefined on tick 1).
@@ -178,13 +192,13 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 		sampler.sampleActiveView();
 		sampler.sampleActiveView();
 		expect(state.searchAnchorUntil).toBeLessThanOrEqual(Date.now());
-		// The 4th argument says this read IS the landing (the recent-files list only
-		// takes a place's position from here, never from a leave — see
-		// NavHistory.refreshTop).
-		expect(refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
+		// The SETTLE broadcast (distinct from a leave) says this read IS the
+		// landing: the recent-files list only takes a place's position from here,
+		// never from a leave — see NavFunnel.settled.
+		expect(settled).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 42,
 			cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } },
-		}, { landing: true });
+		});
 	});
 });
 
@@ -205,7 +219,7 @@ describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', (
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
 		const store = new PositionStore({} as never, database as never);
-		const sampler = new Sampler({} as never, store, DEFAULT_SETTINGS, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
+		const sampler = new Sampler({} as never, store, DEFAULT_SETTINGS, state, spyFunnel() as never);
 		sampler.installSearchAnchor((fn) => cleanups.push(fn));
 		return { sampler, state };
 	}

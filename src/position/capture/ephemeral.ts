@@ -213,7 +213,7 @@ function navDisplayFields(
 // Nav read — LOW frequency only (the leave-refresh on a file switch, the
 // outline pre-click read, the leave-refresh before back/forward, the
 // landing settle-capture, the teleport landing): the hot read plus the
-// display fields a NavHistory entry carries. Never a drop-in for
+// display fields a nav entry carries. Never a drop-in for
 // readEphemeralState on hot paths: the visibility check forces layout per
 // call.
 export function readNavEntryState(view: MarkdownView): NavEntryState | undefined {
@@ -315,7 +315,7 @@ export function remapAnchoredState(
 //
 // Shared on purpose by the two consumers that must agree on the shift: an
 // in-file history jump (RestoreModes.historyJumpApply) and the landing a
-// cross-file traversal hands to the open pipeline (NavHistory.landingFor,
+// cross-file traversal hands to the open pipeline (NavStack.landingFor,
 // which cannot run the text remap — the target editor does not exist yet).
 export function shiftNavState(st: NavEntryState, delta: number): NavEntryState {
 	if (delta === 0)

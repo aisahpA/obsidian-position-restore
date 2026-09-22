@@ -3,7 +3,7 @@
 // sidebar panel that shares it).
 
 import { App, Modal, Platform } from 'obsidian';
-import { PlaceList } from '@/nav-history/places';
+import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';

@@ -14,7 +14,7 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
-import { NavJump, NavTeleport, NavVisit } from '@/nav-history/entry';
+import { NavJump, NavTeleport, NavVisit } from '@/nav/entry';
 
 // The harness only ever builds pathful entries; excluding NavView (which has
 // neither path nor st) keeps `.path`/`.st` readable without casts.
@@ -33,10 +33,12 @@ function makeFakeMarkdownView(path: string): MarkdownView {
 	return view;
 }
 
-// Builds the sampler with a functional nav stub: recordTeleport actually
-// pushes (and fills the landing position from its 4th argument), and
-// refreshTop mirrors the real rules — path+leaf guard, keyed entries keep/
-// backfill their landing, keyless entries are overwritten.
+// Builds the sampler over a spy FUNNEL that also plays the stack's half of each
+// broadcast, so the entries the tests read are the ones the real stack would
+// build: recordTeleport pushes (filling the landing from its 4th argument), leave
+// refreshes the top — path+leaf guarded, keyed entries keep/backfill their
+// landing, keyless ones overwritten — and landing replaces the top teleport's
+// landing, exactly as the stack's onLanded does.
 function makeHarness(options?: { entries?: TestEntry[] }) {
 	const view = makeFakeMarkdownView('a.md');
 	const app = {
@@ -48,11 +50,11 @@ function makeHarness(options?: { entries?: TestEntry[] }) {
 	const state = new PositionState(settings);
 	state.lastLoadedFilePath = 'a.md';
 	const entries = options?.entries ?? [];
-	const nav = {
-		entries,
-		index: entries.length - 1,
-		refreshTop: vi.fn((path: string, leafId: string, st: EphemeralState) => {
-			const top = entries[nav.index];
+	// The stack's pointer, boxed so the live getter below can expose it.
+	const index = { value: entries.length - 1 };
+	const funnel = {
+		leave: vi.fn((path: string, leafId: string, st: EphemeralState) => {
+			const top = entries[index.value];
 			if (top && top.path === path && top.leafId === leafId) {
 				if (top.kind === 'jump' || top.kind === 'teleport') {
 					if (!top.st)
@@ -63,12 +65,21 @@ function makeHarness(options?: { entries?: TestEntry[] }) {
 			}
 		}),
 		recordTeleport: vi.fn((path: string, leafId: string, line: number, landing?: EphemeralState) => {
-			entries.length = nav.index + 1;
+			entries.length = index.value + 1;
 			entries.push({ kind: 'teleport', path, leafId, line, t: Date.now() });
-			nav.index = entries.length - 1;
-			const top = entries[nav.index];
+			index.value = entries.length - 1;
+			const top = entries[index.value];
 			if (landing && !top.st)
 				top.st = landing;
+		}),
+		// The stack's onLanded: a late landing only reaches a teleport still on top.
+		landing: vi.fn((entry: { kind: string; path: string; leafId: string; line: number; st?: EphemeralState }) => {
+			const top = entries[index.value];
+			if (!top || top.kind !== 'teleport' || top.path !== entry.path
+				|| top.leafId !== entry.leafId || top.line !== entry.line)
+				return;
+			if (entry.st)
+				top.st = entry.st;
 		}),
 	};
 	const store = new PositionStore(
@@ -80,14 +91,17 @@ function makeHarness(options?: { entries?: TestEntry[] }) {
 		store,
 		settings,
 		state,
-		nav as never,
+		funnel as never,
 	);
 	const onSelection = (sampler as unknown as { onEditorSelection: (editor: unknown) => void }).onEditorSelection;
 	// The handler runs against this editor; the cursor is mutated per step.
 	const cursor = { line: 3, ch: 0 };
 	const editor = { getCursor: () => ({ ...cursor }) };
 	view.editor = editor as never;
-	return { sampler, state, nav, view, onSelection, cursor, editor, entries };
+	return {
+		sampler, state, funnel, view, onSelection, cursor, editor, entries,
+		get index() { return index.value; },
+	};
 }
 
 describe('Sampler.onEditorSelection — per-event teleport detection', () => {
@@ -100,11 +114,11 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
-		expect(h.nav.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 500, {
+		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 500, {
 			scroll: 42,
 			cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 		});
-		expect(h.nav.refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', pollRead);
+		expect(h.funnel.leave).toHaveBeenCalledWith('a.md', 'leaf-1', pollRead);
 	});
 
 	it('never pushes for held-key small moves, but keeps the baseline rolling', () => {
@@ -114,13 +128,13 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.onSelection(h.editor);
 		h.cursor.line = 7;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
 		// A later far jump compares against the rolled baseline (7), not the
 		// initial one (3).
 		h.cursor.line = 20;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 20, expect.anything());
+		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 20, expect.anything());
 	});
 
 	it('resets the baseline on a file switch, then records jumps in the new file', () => {
@@ -129,17 +143,17 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.onSelection(h.editor); // baseline: line 3 in a.md
 		h.cursor.line = 600;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 600, expect.anything());
+		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 600, expect.anything());
 
 		(h.view as { file: { path: string } }).file = { path: 'b.md' };
 		h.state.lastLoadedFilePath = 'b.md';
 		h.cursor.line = 2;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).toHaveBeenCalledTimes(1); // switch absorbed
+		expect(h.funnel.recordTeleport).toHaveBeenCalledTimes(1); // switch absorbed
 
 		h.cursor.line = 900;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).toHaveBeenLastCalledWith('b.md', 'leaf-1', 900, expect.anything());
+		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('b.md', 'leaf-1', 900, expect.anything());
 	});
 
 	it('skips the file the plugin has not loaded', () => {
@@ -148,7 +162,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 
 		h.cursor.line = 600;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 	});
 
 	it('search-anchored hops re-baseline silently so the post-anchor move is clean', () => {
@@ -159,18 +173,18 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 
 		h.cursor.line = 800;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
 		// Anchor expired: the first deliberate move is small and must NOT
 		// read as a jump against the stale pre-search line.
 		h.state.searchAnchorUntil = 0;
 		h.cursor.line = 802;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
 		h.cursor.line = 900;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 900, expect.anything());
+		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 900, expect.anything());
 	});
 
 	it('resets the baseline on a restore re-anchor even within the same file', () => {
@@ -182,12 +196,12 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 805;
 		h.onSelection(h.editor);
 		// 805 vs the stale baseline 3 would read as a jump without the epoch reset.
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
 		h.cursor.line = 900;
 		h.onSelection(h.editor);
 		// Baseline rolled to 805: a 95-line move from there is a real jump.
-		expect(h.nav.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 900, expect.anything());
+		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 900, expect.anything());
 	});
 
 	it('restores in flight absorb but re-baseline for the next move', () => {
@@ -198,12 +212,12 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 
 		h.cursor.line = 800;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
 		h.state.restoreEnded();
 		h.cursor.line = 805;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled(); // 5-line move, baseline rolled to 800
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled(); // 5-line move, baseline rolled to 800
 	});
 
 	it('ignores editors that are not the active view\'s editor', () => {
@@ -212,12 +226,12 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 
 		const embedEditor = { getCursor: () => ({ line: 900, ch: 0 }) };
 		h.onSelection(embedEditor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
 		// The baseline must be untouched: a 1-line real move is not a jump.
 		h.cursor.line = 4;
 		h.onSelection(h.editor);
-		expect(h.nav.recordTeleport).not.toHaveBeenCalled();
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 	});
 
 	it('lands a left entry on the viewport when its cursor sat outside it', () => {
@@ -245,7 +259,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
-		expect(h.nav.refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
+		expect(h.funnel.leave).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 10,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 			anchor: 'line 10',
@@ -268,14 +282,14 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 900; // jump 2: the teleport top must not be overwritten
 		h.onSelection(h.editor);
 
-		const first = h.entries[h.nav.index - 1];
+		const first = h.entries[h.index - 1];
 		expect((first as { line?: number }).line).toBe(500);
 		expect(first.st).toEqual({
 			scroll: 42,
 			cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 		});
-		expect((h.entries[h.nav.index] as { line?: number }).line).toBe(900);
-		expect(h.entries[h.nav.index].st).toEqual({
+		expect((h.entries[h.index] as { line?: number }).line).toBe(900);
+		expect(h.entries[h.index].st).toEqual({
 			scroll: 42,
 			cursor: { from: { line: 900, ch: 0 }, to: { line: 900, ch: 0 } },
 		});
@@ -293,7 +307,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 			h.onSelection(h.editor);
 
 			// Push-time landing: cursor at the target, scroll still the origin's.
-			expect(h.entries[h.nav.index].st).toEqual({
+			expect(h.entries[h.index].st).toEqual({
 				scroll: 42,
 				cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 			});
@@ -301,7 +315,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 			// The jump scroll lands; the frame correction replaces the landing.
 			(h.view as unknown as { currentMode: { getScroll: () => number } }).currentMode.getScroll = () => 480.4;
 			rafCbs.forEach((cb) => cb(0));
-			expect(h.entries[h.nav.index].st).toEqual({
+			expect(h.entries[h.index].st).toEqual({
 				scroll: 480,
 				cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 			});
@@ -326,11 +340,11 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 			// The 500 entry keeps its push-time landing (its cursor guard fails:
 			// the cursor is at 900, and it is no longer the top entry); the 900
 			// entry gets its own correction.
-			expect(h.entries[h.nav.index - 1].st).toEqual({
+			expect(h.entries[h.index - 1].st).toEqual({
 				scroll: 42,
 				cursor: { from: { line: 500, ch: 0 }, to: { line: 500, ch: 0 } },
 			});
-			expect(h.entries[h.nav.index].st).toEqual({
+			expect(h.entries[h.index].st).toEqual({
 				scroll: 480,
 				cursor: { from: { line: 900, ch: 0 }, to: { line: 900, ch: 0 } },
 			});
@@ -347,7 +361,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
-		expect((h.entries[h.nav.index] as { line?: number }).line).toBe(500);
-		expect(h.entries[h.nav.index].st).toBeUndefined();
+		expect((h.entries[h.index] as { line?: number }).line).toBe(500);
+		expect(h.entries[h.index].st).toBeUndefined();
 	});
 });

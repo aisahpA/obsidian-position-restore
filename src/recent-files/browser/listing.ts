@@ -2,7 +2,7 @@
 // which ones the search box keeps. No DOM — the search box is testable through
 // these predicates alone.
 
-import { NavHistoryEntry } from '@/nav-history/entry';
+import { NavEntry } from '@/nav/entry';
 import { t } from '@/i18n';
 import { baseName } from './model';
 
@@ -78,7 +78,7 @@ export const NO_PATH = '';
 // The key a group is identified by: its path, or the view type for a pathless
 // view step — two graph steps are two landings of the same "file" (the graph
 // tab), not two files.
-function groupKey(entry: NavHistoryEntry): string {
+function groupKey(entry: NavEntry): string {
 	return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
 }
 
@@ -101,7 +101,7 @@ function groupKey(entry: NavHistoryEntry): string {
 // of identical graph steps.
 const NO_LINE = 'none';
 
-function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
+function landingKey(entry: NavEntry, line: number | undefined): string {
 	if (entry.kind === 'view')
 		return 'view';
 	return line === undefined ? NO_LINE : `L${line}`;
@@ -131,7 +131,7 @@ function landingKey(entry: NavHistoryEntry, line: number | undefined): string {
 // because this function's group order is derived afresh every time, while a key
 // names the same note before and after the places move under it.
 export function groupByFile(
-	entries: NavHistoryEntry[],
+	entries: NavEntry[],
 	currentIndex: number,
 	keep: (index: number) => boolean = () => true,
 	lineOf: (index: number) => number | undefined = () => undefined,
@@ -150,7 +150,7 @@ export function groupByFile(
 	// The distinct landings of a note as the reverse scan meets them — newest step
 	// first, which is the order the step standing for each line is chosen in.
 	const found = new Map<string, { line: number | undefined; index: number }[]>();
-	const open = (entry: NavHistoryEntry): NavFileGroup => {
+	const open = (entry: NavEntry): NavFileGroup => {
 		const key = groupKey(entry);
 		let group = groups.get(key);
 		if (!group) {
@@ -298,7 +298,7 @@ export function groupByFile(
 // which is what the extra sources have in common. An alias is the clearest case of
 // that — it is another name for the file, and finding a note by a name the reader
 // half-remembers is the whole reason a search box is here.
-export function matchesNavFilter(entry: NavHistoryEntry, query: string, extra?: string): boolean {
+export function matchesNavFilter(entry: NavEntry, query: string, extra?: string): boolean {
 	const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
 	if (tokens.length === 0)
 		return true;
@@ -312,7 +312,7 @@ export function matchesNavFilter(entry: NavHistoryEntry, query: string, extra?: 
 // part that says what the step WAS, the lines the user was looking at when they
 // left, while the name and path only say where; all of it is joined into one
 // haystack, so the order of the parts carries nothing.
-export function navSearchText(entry: NavHistoryEntry): string {
+export function navSearchText(entry: NavEntry): string {
 	if (entry.kind === 'view')
 		return `${entry.viewType} ${t('recentFiles.graphView')}`;
 	const parts = [baseName(entry.path), entry.path];

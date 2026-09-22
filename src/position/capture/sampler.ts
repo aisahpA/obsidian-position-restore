@@ -6,7 +6,7 @@ import { isEphemeralStatesEquals, isCursorStatesEqual } from '@/shared/ephemeral
 import { ExclusionChecker } from '@/position/policy/exclusion';
 import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
 import { PositionState } from '@/position/state';
-import type { NavHistory } from '@/nav-history/history';
+import type { NavFunnel } from '@/nav/funnel';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
 // and the position store. Two inputs feed the store:
@@ -30,7 +30,7 @@ export class Sampler {
 	private exclusions: ExclusionChecker;
 	private state: PositionState;
 	private settings: PluginSettings;
-	private nav: NavHistory;
+	private funnel: NavFunnel;
 
 	private readonly STORE_INTERVAL = 97;
 
@@ -82,7 +82,7 @@ export class Sampler {
 	private readonly SCROLL_SETTLE_GUARD_MS = 4000;
 
 	// Mobile poll path only: minimum anchor-line delta within one poll tick
-	// for the movement to read as an in-file navigation jump (NavHistory
+	// for the movement to read as an in-file navigation jump (the stack's
 	// teleport record) rather than typing or held-key movement. Held keys
 	// move ~5-10 lines/tick; a deliberate far jump is dozens. Desktop detects
 	// teleports per selection event instead (TELEPORT_MIN_LINES_EVENT) —
@@ -109,13 +109,13 @@ export class Sampler {
 	private teleportFromPath: string | undefined;
 	private teleportAnchorAt = 0;
 
-	constructor(app: App, store: PositionStore, settings: PluginSettings, state: PositionState, nav: NavHistory) {
+	constructor(app: App, store: PositionStore, settings: PluginSettings, state: PositionState, funnel: NavFunnel) {
 		this.app = app;
 		this.store = store;
 		this.settings = settings;
 		this.exclusions = new ExclusionChecker(app, settings);
 		this.state = state;
-		this.nav = nav;
+		this.funnel = funnel;
 	}
 
 	sampleActiveView() {
@@ -187,7 +187,7 @@ export class Sampler {
 				// other caller hands over the reader's LEAVE, which the place must
 				// not mistake for the jump's own spot). Nav read (low frequency):
 				// the landing entry carries the display fields.
-				this.nav.refreshTop(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st, { landing: true });
+				this.funnel.settled(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st);
 				}
 			} else {
 				this.searchSettledTicks = 0;
@@ -234,20 +234,20 @@ export class Sampler {
 
 			if (write) {
 				// Mobile keeps the poll's coarse per-tick jump detection (see
-				// teleportLines): refreshTop hands the pre-jump read (prev) to
-				// the entry being left — open/activation entries only, a
-				// teleport top keeps its landing inside refreshTop — and the
-				// pushed entry carries the post-jump read as its precise
-				// landing. Gated by navRecordTeleport: both calls serve the
-				// teleport entry (see onEditorSelection) — dead when off.
+				// teleportLines): the leave-read hands the pre-jump state (prev)
+				// to the entry being left — open/activation entries only, a
+				// teleport top keeps its landing — and the pushed entry carries
+				// the post-jump read as its precise landing. Gated by
+				// navRecordTeleport: both calls serve the teleport entry (see
+				// onEditorSelection) — dead when off.
 				if (this.settings.navRecordTeleport && Platform.isMobileApp) {
 					const jumpLines = this.teleportLines(prev, write);
 					if (jumpLines !== null && !this.state.isSearchAnchored()) {
 						// The pre-jump state cannot be re-read (the cursor has
 						// already jumped): withNavDisplay rebuilds the entry
 						// display around the baseline's position.
-						this.nav.refreshTop(filePath, this.state.leafId(view.leaf), withNavDisplay(view, prev));
-						this.nav.recordTeleport(filePath, this.state.leafId(view.leaf), write.cursor!.from.line, readNavEntryState(view) ?? write);
+						this.funnel.leave(filePath, this.state.leafId(view.leaf), withNavDisplay(view, prev));
+						this.funnel.recordTeleport(filePath, this.state.leafId(view.leaf), write.cursor!.from.line, readNavEntryState(view) ?? write);
 					}
 				}
 				if (!skipRecording) {
@@ -433,7 +433,7 @@ export class Sampler {
 	// 50 and swallowing paragraph-scale jumps (vim {/}, half-page motions);
 	// selection events arrive one per user action — 1 line for a held key —
 	// so TELEPORT_MIN_LINES_EVENT applies and those jumps reach the nav
-	// stack. NavHistory only: position records still come from the poll and
+	// stack. The nav stack only: position records still come from the poll and
 	// the scroll capture.
 	//
 	// One workspace-level listener covers every markdown editor; embedded
@@ -504,25 +504,27 @@ export class Sampler {
 		// tops get the poll's latest read — the pre-jump position as of the
 		// last poll tick (the event fires before the next tick can
 		// re-baseline; at most one tick stale, per withNavDisplay's doc).
-		// Keyed tops (a teleport top included) are skipped inside refreshTop:
-		// they keep the landing they were pushed with.
+		// Keyed tops (a teleport top included) are skipped by the stack: they
+		// keep the landing they were pushed with.
 		// withNavDisplay rebuilds the display fields around that baseline (the
 		// pre-jump state cannot be re-read; CM applies the jump's
 		// scrollIntoView after this event, so the visibility check still sees
 		// the pre-jump viewport).
 		if (this.state.lastEphemeralState)
-			this.nav.refreshTop(filePath, leafId, withNavDisplay(view, this.state.lastEphemeralState));
+			this.funnel.leave(filePath, leafId, withNavDisplay(view, this.state.lastEphemeralState));
 		// The pushed entry carries the jump's landing: the post-jump live
 		// read (cursor already at the target).
-		this.nav.recordTeleport(filePath, leafId, from.line, readNavEntryState(view));
+		this.funnel.recordTeleport(filePath, leafId, from.line, readNavEntryState(view));
 		// The scroll, though, lands AFTER this event fires — CM applies the
 		// jump's scrollIntoView in its measure phase (observed 2026-09: an
 		// outline jump to line 323 saved the origin scroll 232), so the
 		// push-time read above carries the origin scroll. Re-read one frame
-		// later and replace the landing while the jump is still the last
-		// thing that happened. ponytail: one rAF covers the deferred-measure
-		// case (CM's own measure rAF is registered first); a still-stale
-		// read after that is not corrected.
+		// later and BROADCAST the corrected landing; the stack takes it only
+		// while this teleport is still its top step (see its onLanded), so a
+		// hop in between leaves the entry the user actually moved past alone.
+		// ponytail: one rAF covers the deferred-measure case (CM's own
+		// measure rAF is registered first); a still-stale read after that is
+		// not corrected.
 		window.requestAnimationFrame(() => {
 			if (this.app.workspace.getActiveViewOfType(MarkdownView) !== view)
 				return;
@@ -532,14 +534,9 @@ export class Sampler {
 			// not the jump's landing.
 			if (editor.getCursor('anchor').line !== from.line)
 				return;
-			const top = this.nav.entries[this.nav.index];
-			if (!top || top.kind !== 'teleport'
-				|| top.path !== filePath || top.leafId !== leafId
-				|| top.line !== from.line)
-				return;
 			const settled = readNavEntryState(view);
 			if (settled)
-				top.st = settled;
+				this.funnel.landing({ kind: 'teleport', path: filePath, leafId, line: from.line, st: settled });
 		});
 	};
 

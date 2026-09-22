@@ -1,4 +1,4 @@
-// Tests for the RECENT FILES list (nav-history/places.ts + places-store.ts): the
+// Tests for the RECENT FILES list (recent-files/places.ts + places-store.ts): the
 // store the panel draws and travels through, and which the stack feeds.
 //
 // What is being pinned here is the separation the feature is built on: a place is
@@ -10,8 +10,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { App, TFile } from 'obsidian';
 
-import { NavPlaces, placeKey } from '@/nav-history/places';
-import { RECENT_PLACES_VERSION, NavHistoryEntry, NavJump, NavTeleport, NavVisit } from '@/nav-history/entry';
+import { NavPlaces, placeKey } from '@/recent-files/places';
+import { RECENT_PLACES_VERSION } from '@/recent-files/places-store';
+import { NavEntry, NavJump, NavTeleport, NavVisit } from '@/nav/entry';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-recent:test-vault';
@@ -38,8 +39,8 @@ function openers() {
 		calls,
 		open: {
 			openFile: async (path: string, leafId: string) => { calls.push(`file:${path}@${leafId}`); },
-			openJump: async (entry: NavHistoryEntry) => { calls.push(`jump:${placeKey(entry)}`); },
-			openView: async (entry: NavHistoryEntry) => { calls.push(`view:${placeKey(entry)}`); },
+			openJump: async (entry: NavEntry) => { calls.push(`jump:${placeKey(entry)}`); },
+			openView: async (entry: NavEntry) => { calls.push(`view:${placeKey(entry)}`); },
 		},
 	};
 }
@@ -57,7 +58,7 @@ const jump = (path: string, key: string, leafId = 'leaf-1'): NavJump =>
 	({ kind: 'jump', path, leafId, key, t: 0 });
 const teleport = (path: string, line: number, leafId = 'leaf-1'): NavTeleport =>
 	({ kind: 'teleport', path, leafId, line, t: 0 });
-const view = (viewType = 'graph', leafId = 'leaf-1'): NavHistoryEntry =>
+const view = (viewType = 'graph', leafId = 'leaf-1'): NavEntry =>
 	({ kind: 'view', leafId, viewType, t: 0 });
 
 const paths = (places: NavPlaces) => places.entries.map(e => placeKey(e));
@@ -268,14 +269,16 @@ describe('NavPlaces — the current place', () => {
 		expect(places.index).toBe(0);
 	});
 
-	it('ensures the note being read has a place at all', () => {
-		// A workspace restored at startup opens its file through a path the history
-		// does not record: without this the panel would open on nothing.
+	it('never invents a place for the note being read — "here" is not a place', () => {
+		// A workspace restored at startup opens its file through a path nothing
+		// recorded. The list stays TRULY empty in that case (see NavPlaces.clear):
+		// "you are here" has nothing to stand on until the reader goes somewhere —
+		// the list does not put the note being sat in back on itself.
 		const { places } = makePlaces();
-		places.ensureCurrent(visit('restored.md'));
+		places.markCurrent(visit('restored.md'));
 
-		expect(paths(places)).toEqual(['restored.md']);
-		expect(places.index).toBe(0);
+		expect(paths(places)).toEqual([]);
+		expect(places.index).toBe(-1);
 	});
 });
 
@@ -356,11 +359,10 @@ describe('NavPlaces — starting over', () => {
 	});
 
 	it('starts empty rather than merely looking empty', () => {
-		// The reader's own note is put back by the caller (main.ts's command goes
-		// through NavHistory.syncCurrentPosition): the panel must be able to say "here
-		// you are" about the note being read, and it does that by there being a PLACE
-		// for it — which this test leaves to the caller and therefore checks the
-		// absence of.
+		// "Clear" is a real clear (see NavPlaces.clear): the note being read goes with
+		// the rest, and nothing puts it back — an empty list is the whole of what was
+		// asked, and the next navigation refills it. This checks the absence of any
+		// such backfill, which the caller used to do.
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.clear();
@@ -461,7 +463,7 @@ describe('NavPlaces — persistence', () => {
 // The signal a RESIDENT panel lives on (see NavPlaces.subscribe): the dialog is
 // opened, read and closed inside one render and needs none of this, but a sidebar
 // panel is on screen for hours and has no other way to learn that the list moved
-// under it. It used to come from the stack (see history.ts) — the panel draws
+// under it. It used to come from the stack (see nav-history/stack.ts) — the panel draws
 // places now, so the place list is what has to say so.
 describe('NavPlaces — change notification', () => {
 	it('tells a subscriber about a place, and stops when it unsubscribes', () => {

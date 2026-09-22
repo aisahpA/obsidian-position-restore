@@ -1,21 +1,21 @@
 // The recent-files browser's RESIDENT shell (browser/view.ts): what makes it a
 // sidebar panel rather than a dialog — the pane's own lifetime around the body,
-// the pane's own width deciding the presentation, and the history being heard
-// while it is up (see NavHistory.subscribe). The body itself — the tree, the
+// the pane's own width deciding the presentation, and the place list being heard
+// while it is up (see NavPlaces.subscribe). The body itself — the tree, the
 // landing panel, the keyboard, the travel — is covered in
 // nav-history-browser-dom.test.ts, where it is driven through the modal.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
 
-import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/nav-history/browser/view';
-import type { RecentFilesBrowserPrefs } from '@/nav-history/browser/body';
-import type { LandingsMode } from '@/nav-history/browser/listing';
+import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
-import type { NavHistoryEntry } from '@/nav-history/entry';
-import type { PaneTarget } from '@/nav-history/places';
+import type { NavEntry } from '@/nav/entry';
+import type { PaneTarget } from '@/recent-files/places';
 import { t } from '@/i18n';
-import { TIME_REFRESH_MS } from '@/nav-history/browser/constants';
+import { TIME_REFRESH_MS } from '@/recent-files/browser/constants';
 
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
@@ -56,14 +56,14 @@ function browserPrefs(
 const MINUTE = 60_000;
 const NOW = Date.now();
 
-const visit = (path: string, stamp: number): NavHistoryEntry =>
+const visit = (path: string, stamp: number): NavEntry =>
 	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp });
 
 // A PLACE of a note: a jump the reader made. A note's own record (`visit`) is the
 // note's ROW and carries no position at all (see places.ts), so a fixture that
 // means "a spot in this note" builds the jump — a positioned visit is a shape the
 // list never holds.
-const place = (path: string, stamp: number, line: number): NavHistoryEntry =>
+const place = (path: string, stamp: number, line: number): NavEntry =>
 	({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:L${line}@${stamp}`, t: stamp, st: { scroll: line } });
 
 // The place list as the view sees it: entries, the pointer, travel and subscribe
@@ -71,7 +71,7 @@ const place = (path: string, stamp: number, line: number): NavHistoryEntry =>
 // surface in nav-places.test.ts; here the point is the SHELL, so the list is a
 // fixture that can be moved by hand.
 class FakeNav {
-	entries: NavHistoryEntry[] = [];
+	entries: NavEntry[] = [];
 	index = -1;
 	readonly jumped: number[] = [];
 	private listeners = new Set<() => void>();
@@ -102,7 +102,7 @@ class FakeNav {
 	}
 
 	// A step the reader made elsewhere: every browser on screen is told (see
-	// NavHistory.changed).
+	// NavPlaces.changed).
 	moved(index: number): void {
 		this.index = index;
 		for (const fn of this.listeners)
@@ -138,7 +138,7 @@ function makeApp(paths: string[] = []) {
 }
 
 async function mount(
-	entries: NavHistoryEntry[],
+	entries: NavEntry[],
 	index: number,
 	prefs: RecentFilesBrowserPrefs = browserPrefs(),
 	// Paths the VAULT holds that no entry names yet: a test that appends a step to the
@@ -310,7 +310,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// to draw itself again.
 	it('redraws a standing list when a preference it draws by is changed', async () => {
 		const prefs = browserPrefs('last');
-		const entries: NavHistoryEntry[] = [
+		const entries: NavEntry[] = [
 			place('a.md', NOW - 2 * MINUTE, 10),
 			place('a.md', NOW - MINUTE, 40),
 			visit('b.md', NOW),
@@ -402,14 +402,14 @@ describe('RecentFilesView — the resident panel', () => {
 
 describe('RecentFilesView — the pointer is driven by clicks only', () => {
 	// A note with several spots, so there is a landing row to click once the list is
-	// asked to print them (see groupByFile / LandingsMode). The stack runs OLDEST FIRST,
-	// which is the order a real history is built in (see NavHistory.push): the newest
+	// asked to print them (see groupByFile / LandingsMode). The list runs OLDEST FIRST,
+	// which is the order a real history is built in (see NavStack.push): the newest
 	// thing the reader did in a.md is the second step, not the first.
 	const stack = () => [
 		place('a.md', NOW - 2 * MINUTE, 10),
 		place('a.md', NOW - MINUTE, 40),
 		place('b.md', NOW, 0),
-	] as NavHistoryEntry[];
+	] as NavEntry[];
 
 	const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	// The RIGHT button, and a finger's lingering press (the same event with the left
@@ -544,7 +544,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 			place('c.md', NOW - 2 * MINUTE, 7),
 			place('c.md', NOW - MINUTE, 30),
 			place('d.md', NOW, 1),
-		] as NavHistoryEntry[];
+		] as NavEntry[];
 		// The list as it stands: d (current) first, then c, b, a. c is the note below the
 		// top one, and its older landing is the index the jump is about to give to b.
 		const { el, nav } = await mount(entries, 5, browserPrefs('all'));

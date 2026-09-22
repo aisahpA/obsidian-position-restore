@@ -22,7 +22,7 @@
 // the pane's own menu offers, and `revealLeaf` brings it back.
 
 import { App, ItemView, Platform, WorkspaceLeaf } from 'obsidian';
-import { PlaceList } from '@/nav-history/places';
+import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';

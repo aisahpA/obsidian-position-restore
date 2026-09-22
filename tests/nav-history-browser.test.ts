@@ -1,4 +1,4 @@
-// Tests for the recent-files browser's pure pieces (src/nav-history/browser/):
+// Tests for the recent-files browser's pure pieces (src/recent-files/browser/):
 // row description, tree grouping/merging, filtering and section chains. The DOM
 // stays untested here; everything whose correctness a reader would doubt is pure.
 
@@ -7,11 +7,11 @@ import { describe, it, expect } from 'vitest';
 import {
 	describeNavEntry, headingTrailAtLine, rowTrail, baseName, badgeOf, displayName, duplicateNames, folderOf,
 	ageLabel, ageOf, newestStamp,
-} from '@/nav-history/browser/model';
-import { groupByFile, matchesNavFilter } from '@/nav-history/browser/listing';
-import { revealDelta } from '@/nav-history/browser/list';
+} from '@/recent-files/browser/model';
+import { groupByFile, matchesNavFilter } from '@/recent-files/browser/listing';
+import { revealDelta } from '@/recent-files/browser/list';
 import { t } from '@/i18n';
-import { NavHistoryEntry } from '@/nav-history/entry';
+import { NavEntry } from '@/nav/entry';
 import { NavEntryState } from '@/types';
 
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
@@ -27,7 +27,7 @@ describe('describeNavEntry', () => {
 		// "meeting-notes.md" is the note "meeting-notes": the suffix is not part of
 		// what a reader calls it, and a vault of markdown would print the same two
 		// characters on every row (see displayName).
-		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavHistoryEntry);
+		const d = describeNavEntry({ kind: 'visit', path: 'notes/project/a.md', leafId: 'leaf-1' } as NavEntry);
 		expect(d.name).toBe('a');
 		expect(d.line).toBeUndefined();
 		expect(d.lineIndex).toBeUndefined();
@@ -37,7 +37,7 @@ describe('describeNavEntry', () => {
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'cursor line', 'z'], 2) },
-		} as NavHistoryEntry);
+		} as NavEntry);
 		// the landing line, not the viewport top and not the cursor
 		expect(edit.line).toBe('L3');
 		// the same landing as a 0-based index: what the list keys a spot by, and what
@@ -48,7 +48,7 @@ describe('describeNavEntry', () => {
 	it('a teleport whose landing never settled falls back to the recorded target line', () => {
 		const d = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-		} as NavHistoryEntry);
+		} as NavEntry);
 		expect(d.line).toBe('L42');
 	});
 
@@ -59,7 +59,7 @@ describe('describeNavEntry', () => {
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, cursor: line(3), anchor: 'viewport top' },
-		} as NavHistoryEntry);
+		} as NavEntry);
 		expect(d.line).toBe('L42');
 		expect(d.lineIndex).toBe(41);
 	});
@@ -68,12 +68,12 @@ describe('describeNavEntry', () => {
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, anchor: 'viewport top' },
-		} as NavHistoryEntry);
+		} as NavEntry);
 		expect(d.line).toBe('L42');
 	});
 
 	it('a pathless entry is the graph, and has no coordinate', () => {
-		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavHistoryEntry);
+		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavEntry);
 		expect(graph.name).toBe(t('recentFiles.graphView'));
 		expect(graph.line).toBeUndefined();
 		expect(graph.lineIndex).toBeUndefined();
@@ -81,7 +81,7 @@ describe('describeNavEntry', () => {
 
 	it('an entry with no recorded position falls back to the file saved record', () => {
 		const d = describeNavEntry(
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry,
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavEntry,
 			() => ({ scroll: 41, cursor: line(99) }),
 		);
 		// the saved cursor line is the spot a reopen restores
@@ -90,7 +90,7 @@ describe('describeNavEntry', () => {
 
 	it('falls back to the saved scroll when the record has no cursor', () => {
 		const d = describeNavEntry(
-			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavHistoryEntry,
+			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavEntry,
 			() => ({ scroll: 7 }),
 		);
 		expect(d.line).toBe('L8');
@@ -103,13 +103,13 @@ describe('groupByFile', () => {
 	// made. A note's own record (the `visit`) is the group's anchor and adds no
 	// landing at all (see listing.ts) — a row standing for it would open the file
 	// the reader is already in, which is the row that visibly does nothing.
-	const spot = (path: string, i: number, line: number): NavHistoryEntry =>
+	const spot = (path: string, i: number, line: number): NavEntry =>
 		({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
 	// The line each step landed on, resolved the way the browser resolves it (see
 	// RecentFilesList.render). The pure function groups by what it is TOLD: a caller
 	// that says nothing about lines is saying every step of a note is the same
 	// place, which is what a file with no coordinates has (see landingKey).
-	const lines = (entries: NavHistoryEntry[]) => (i: number) =>
+	const lines = (entries: NavEntry[]) => (i: number) =>
 		entries[i].kind === 'view' ? undefined : entries[i].st?.scroll;
 
 	it('groups one note\'s steps together, newest first, and keeps the notes in recency order', () => {
@@ -149,7 +149,7 @@ describe('groupByFile', () => {
 
 	it('sorts the pathless view step (the graph) last, whatever its recency', () => {
 		const entries = [
-			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavHistoryEntry,
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 			spot('a.md', 0, 10),
 		];
 		const groups = groupByFile(entries, 0);
@@ -164,9 +164,9 @@ describe('groupByFile', () => {
 	// "you are here" dot could sit on a row whose line was not where the reader was.
 	// 'all' is the reader asking for every place in the note (see NavFileGroup).
 	describe('every landing is a row of its own', () => {
-		const at = (path: string, i: number, line: number): NavHistoryEntry =>
+		const at = (path: string, i: number, line: number): NavEntry =>
 			({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
-		const lineOf = (entries: NavHistoryEntry[]) => (i: number) => {
+		const lineOf = (entries: NavEntry[]) => (i: number) => {
 			const entry = entries[i];
 			return entry.kind === 'view' ? undefined : entry.st?.scroll;
 		};
@@ -202,7 +202,7 @@ describe('groupByFile', () => {
 			// record is not a landing, so a reader who is in the note without having jumped
 			// in it has no row to mark (see NavFileGroup.currentRep).
 			const entries = [
-				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 500 } as NavHistoryEntry,
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 500 } as NavEntry,
 				at('a.md', 1, 18),
 			];
 
@@ -221,7 +221,7 @@ describe('groupByFile', () => {
 			// cannot be near anything — there is no number to be near.
 			const entries = [
 				at('a.md', 0, 400),
-				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:H1', t: 1400, st: {} } as NavHistoryEntry,
+				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:H1', t: 1400, st: {} } as NavEntry,
 			];
 			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
@@ -234,9 +234,9 @@ describe('groupByFile', () => {
 	// resolver because the line a row prints is not always the entry's own (a
 	// step with no recorded block falls back to the file's saved position).
 	describe('one landing, however many steps reached it', () => {
-		const at = (path: string, i: number, line: number): NavHistoryEntry =>
+		const at = (path: string, i: number, line: number): NavEntry =>
 			({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
-		const lineOf = (entries: NavHistoryEntry[]) => (i: number) => {
+		const lineOf = (entries: NavEntry[]) => (i: number) => {
 			const entry = entries[i];
 			return entry.kind === 'view' ? undefined : entry.st?.scroll;
 		};
@@ -273,9 +273,9 @@ describe('groupByFile', () => {
 			// it is the one landing a file without coordinates has (see landingKey).
 			const entries = [
 				at('a.md', 0, 10),
-				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B1', t: 1000 } as NavHistoryEntry,
+				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B1', t: 1000 } as NavEntry,
 				at('a.md', 2, 400),
-				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B3', t: 1200 } as NavHistoryEntry,
+				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B3', t: 1200 } as NavEntry,
 			];
 			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
@@ -289,8 +289,8 @@ describe('groupByFile', () => {
 			// used to keep every such step as its own row, which printed one identical
 			// "—" line per visit).
 			const entries = [
-				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B1', t: 1000 } as NavHistoryEntry,
-				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B2', t: 1100 } as NavHistoryEntry,
+				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B1', t: 1000 } as NavEntry,
+				{ kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:B2', t: 1100 } as NavEntry,
 			];
 			const groups = groupByFile(entries, 1, undefined, () => undefined);
 
@@ -303,8 +303,8 @@ describe('groupByFile', () => {
 			// A pathless view step is not a place in a note: the group is the graph
 			// tab, and however often it was switched to it is one destination.
 			const entries = [
-				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 900 } as NavHistoryEntry,
-				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1000 } as NavHistoryEntry,
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 900 } as NavEntry,
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1000 } as NavEntry,
 			];
 			const groups = groupByFile(entries, 1, undefined, () => undefined);
 
@@ -336,7 +336,7 @@ describe('groupByFile', () => {
 
 		it('gives every group the key it is held by', () => {
 			const entries = [
-				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavHistoryEntry,
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 				...three,
 			];
 			const groups = groupByFile(entries, 0);
@@ -380,7 +380,7 @@ describe('groupByFile', () => {
 
 		it('still puts the pathless group last, held or not', () => {
 			const entries = [
-				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavHistoryEntry,
+				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 				...three,
 			];
 			// The order asks for the graph FIRST. The invariant overrides it: a view
@@ -410,8 +410,8 @@ describe('groupByFile', () => {
 // chain and the line label), handed in by the caller. No DOM, and no
 // describeNavEntry: the predicate is testable on its own.
 describe('matchesNavFilter', () => {
-	const visit = (path: string, st?: NavEntryState): NavHistoryEntry =>
-		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavHistoryEntry);
+	const visit = (path: string, st?: NavEntryState): NavEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
 
 	it('an empty or whitespace query matches everything', () => {
 		expect(matchesNavFilter(visit('notes/a.md'), '')).toBe(true);
@@ -433,7 +433,7 @@ describe('matchesNavFilter', () => {
 	});
 
 	it('matches a pathless view entry by its view type / graph label', () => {
-		const e = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavHistoryEntry;
+		const e = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavEntry;
 		expect(matchesNavFilter(e, 'graph')).toBe(true);
 		expect(matchesNavFilter(e, t('recentFiles.graphView'))).toBe(true);
 		expect(matchesNavFilter(e, 'canvas')).toBe(false);
@@ -466,9 +466,9 @@ describe('matchesNavFilter', () => {
 	});
 
 	it("matches a jump's own key: the heading, or the anchor the user picked", () => {
-		const outline = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## 架构设计' } as NavHistoryEntry;
+		const outline = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## 架构设计' } as NavEntry;
 		expect(matchesNavFilter(outline, '架构设计')).toBe(true);
-		const link = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'b.md#安装步骤' } as NavHistoryEntry;
+		const link = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'b.md#安装步骤' } as NavEntry;
 		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
 	});
 
@@ -476,7 +476,7 @@ describe('matchesNavFilter', () => {
 		// Caller-target jumps (a search-result click) are keyed `caller:<ms>`
 		// purely to take the keyed landing regime — there is nothing in there
 		// a user wrote.
-		const e = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'caller:1730000000000' } as NavHistoryEntry;
+		const e = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'caller:1730000000000' } as NavEntry;
 		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
 	});
 
@@ -484,7 +484,7 @@ describe('matchesNavFilter', () => {
 		const e = {
 			kind: 'visit', path: 'b.md', leafId: 'l', t: 0,
 			via: 'link', viaPath: 'notes/来源笔记.md', viaText: 'b|另见',
-		} as NavHistoryEntry;
+		} as NavEntry;
 		expect(matchesNavFilter(e, '来源笔记')).toBe(true);
 		expect(matchesNavFilter(e, '另见')).toBe(true);
 		expect(matchesNavFilter(e, '别的笔记')).toBe(false);
@@ -611,7 +611,7 @@ describe('ageOf / ageLabel', () => {
 });
 
 describe('newestStamp', () => {
-	const entry = (stamp?: number) => ({ kind: 'visit', path: 'a.md', leafId: 'l', t: stamp } as NavHistoryEntry);
+	const entry = (stamp?: number) => ({ kind: 'visit', path: 'a.md', leafId: 'l', t: stamp } as NavEntry);
 
 	it('is the newest stamp the group holds, wherever it sits', () => {
 		// The anchor is usually the note's last visit, but it can have been evicted

@@ -1,6 +1,6 @@
 import { Keymap } from 'obsidian';
-import { NavHistoryEntry } from '@/nav-history/entry';
-import { PaneTarget } from '@/nav-history/places';
+import { NavEntry } from '@/nav/entry';
+import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
 import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
 import { PathDisplayMode } from '@/types';
@@ -103,7 +103,7 @@ export interface RecentFilesListOptions {
 	// The list element, created by the browser.
 	list: HTMLElement;
 	// The history the rows are drawn from, as one snapshot.
-	entries: NavHistoryEntry[];
+	entries: NavEntry[];
 	// The stack index of the current entry: its note is pinned first, and — where the
 	// setting prints a note's landings — the landing that holds it carries the "you are
 	// here" marker (see placeRow).
@@ -126,7 +126,7 @@ export interface RecentFilesListOptions {
 	// rules elsewhere refuse to draw.
 	noteExists: (path: string) => boolean;
 	// The heading chain an entry's landing sits in.
-	trailFor: (entry: NavHistoryEntry, d: NavEntryDescription) => string[];
+	trailFor: (entry: NavEntry, d: NavEntryDescription) => string[];
 	// The OTHER names the file goes by (see reads.ts's aliasesFor), which the query
 	// matches on and the row's own tooltip prints (see tip.ts). They take up no cell on
 	// the row, so the search box and the hover are the only two places they exist for a
@@ -775,7 +775,7 @@ export class RecentFilesList {
 	// they are is not a step", but a row is an OPEN and not a step: a reader clicking
 	// the row they are on is asking for the FILE — the tab they just closed, or the
 	// landing re-applied after a scroll — and jumpTo already answers exactly that
-	// (the entry is not pushed again, it is re-landed; see NavHistory.jumpTo).
+	// (the entry is not pushed again, it is re-landed; see NavStack.travelTo).
 	// Refusing it here made the first row of the list — the current note, pinned
 	// first — the one row that answered nothing, and it is the row a reader whose
 	// every tab is closed reaches for first.

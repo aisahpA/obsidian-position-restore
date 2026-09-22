@@ -1,18 +1,21 @@
 import { NavEntryState } from '@/types';
 
-// One stack entry, four kinds — a discriminated union TAGGED by `kind`
-// ('jump' | 'visit' | 'view' | 'teleport'). Every consumer reads the tag, never field
-// presence: a malformed shape fails the type check and the load filter
-// instead of slipping through a property coincidence, and a new variant
-// flags every unexhausted switch. st (NavEntryState): its context block,
-// mtime and anchor come from the low-frequency nav reads only.
-export type NavHistoryEntry = NavJump | NavVisit | NavView | NavTeleport;
+// One navigation, as the shared vocabulary describes it — four kinds, a
+// discriminated union TAGGED by `kind` ('jump' | 'visit' | 'view' | 'teleport').
+// Deliberately named after neither reader: the funnel publishes this shape (see
+// nav/funnel.ts) and BOTH stores keep it — the stack as steps, the recent-files
+// list as places. Every consumer reads the tag, never field presence: a
+// malformed shape fails the type check and the load filter instead of slipping
+// through a property coincidence, and a new variant flags every unexhausted
+// switch. st (NavEntryState): its context block, mtime and anchor come from the
+// low-frequency nav reads only.
+export type NavEntry = NavJump | NavVisit | NavView | NavTeleport;
 
 // What a recorder constructs: a variant without its timestamp. `t` is added
-// by NavHistory.push — the single entry funnel — so no construction site can
+// by the stack's push — the single entry funnel — so no construction site can
 // forget it and no caller can fake it.
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-export type NewNavEntry = DistributiveOmit<NavHistoryEntry, 't'>;
+export type NewNavEntry = DistributiveOmit<NavEntry, 't'>;
 
 // Shared by every variant: the leaf the entry belongs to, and the wall-clock
 // time it was pushed. `t` is DISPLAY-ONLY — the recent-files browser labels rows
@@ -106,16 +109,8 @@ export interface NavTeleport extends NavEntryBase {
 // tracked file, which a pathless entry cannot restore).
 export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
 
-// Persisted nav-history format version: a mismatched stored blob is
-// dropped whole on load — the history is disposable, no migrations.
-// v3 added the recorded context block / mtime / link origin (see NavEntryState
-// and NavVisit). It also added a line count, dropped again afterwards without a
-// bump: the field was optional, nothing but the details panel ever read it, and a
-// stored v3 blob that still carries one loads fine.
-export const NAV_HISTORY_VERSION = 3;
-
-// The recent-files list's own format version (see places.ts / places-store.ts).
-// A separate blob and a separate version from the stack's: the two lists are
-// different things written at different cadences, and one must be droppable
-// without the other.
-export const RECENT_PLACES_VERSION = 1;
+// Both lists' STORAGE versions live with their stores, not here: this module is
+// the shared VOCABULARY (what one navigation looks like), and a format version
+// is a fact about one store's blob. The stack's is in nav-history/store.ts, the
+// recent-files list's in recent-files/places-store.ts — each droppable without
+// the other.

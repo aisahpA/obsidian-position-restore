@@ -3,10 +3,11 @@ import { NavEntryState } from '@/types';
 import { PositionState, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
 
-// The recording surface the outline capture needs from NavHistory.
+// The recording surface the outline capture needs — the funnel's own two calls
+// (see funnel.ts), stated here so this module depends on nothing else.
 export interface OutlineCaptureHost {
 	state: PositionState;
-	refreshTop(path: string, leafId: string, st: NavEntryState): void;
+	leave(path: string, leafId: string, st: NavEntryState): void;
 	recordOpen(path: string, leafId: string, opts: { key: string }): void;
 }
 
@@ -91,7 +92,7 @@ export function installOutlineCapture(
 		const leafId = host.state.leafId(view.leaf);
 		const fromSt = readNavEntryState(view);
 		if (fromSt)
-			host.refreshTop(view.file.path, leafId, fromSt);
+			host.leave(view.file.path, leafId, fromSt);
 		// Key = heading text (core renders the heading as the item's inner
 		// text): repeated clicks to one heading dedup, different headings
 		// push — the anchor-link key semantics. No text → no key → skip

@@ -1,6 +1,7 @@
-import { App, PaneType } from 'obsidian';
+import { App } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
-import { NavHistoryEntry } from './entry';
+import { NavEntry, NewNavEntry } from '@/nav/entry';
+import { PaneTarget } from '@/nav/pane';
 import { normAnchor } from '@/position/capture/ephemeral';
 import { loadNavPlaces, persistNavPlaces } from './places-store';
 
@@ -8,7 +9,7 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 //
 // It answers one question: which files has the reader been in, and which
 // headings or anchors did they jump to inside them. It is NOT the back/forward
-// stack (history.ts), and the two are deliberately separate stores:
+// stack (nav-history/stack.ts), and the two are deliberately separate stores:
 //
 //   - the stack is a TRAVERSAL device: ordered, cursor-bound, capped small, and
 //     TRUNCATING — a fresh jump discards the forward part, because that is what
@@ -42,22 +43,17 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 // an index as a clock (list.ts's activeRep: the highest index among a note's
 // landings is its newest), so a re-touched place MUST move — an in-place update
 // would leave it looking older than it is.
-// WHERE a travel opens its file, when the reader asked for somewhere other than
-// where the file already lives: a new tab, a split, a new window — or a plain
-// boolean, which is the same question asked by the app's own `getLeaf(true)`.
 //
-// It is `PaneType | boolean` rather than a flag of ours because that is the
-// app's own vocabulary and there is no reason to translate it twice: the value
-// comes from `Keymap.isModEvent` (see list.ts) and goes straight to
-// `workspace.getLeaf`, both of which are Obsidian's. A local enum in the middle
-// could only ever be a lossy copy of this one.
-export type PaneTarget = PaneType | boolean;
+// WHO FEEDS IT. Nobody here reaches for anything: the composition root subscribes
+// this store to the recording funnel (see nav/funnel.ts) and it hears the same
+// navigations the back/forward stack does — the two lists keep different things
+// from one recording, which is exactly why they are two stores.
 
 export interface PlaceList {
-	// The places, oldest first. Read as a plain NavHistoryEntry list: every
+	// The places, oldest first. Read as a plain NavEntry list: every
 	// consumer in the browser (describeNavEntry, groupByFile, the search box,
 	// the landing panel) takes that shape and is unchanged by this store.
-	entries: NavHistoryEntry[];
+	entries: NavEntry[];
 	// The place the reader is in NOW, or -1. Not persisted: "here" is a live
 	// fact about the workspace, not something a restart can restore.
 	index: number;
@@ -72,7 +68,7 @@ export interface PlaceList {
 }
 
 // What the store needs from the rest of the plugin to travel. Injected (and
-// implemented by NavHistory, which owns the open pipeline) rather than reached
+// implemented by NavStack, which owns the open pipeline) rather than reached
 // for, so this module stays a pure list: it can be built and tested without a
 // workspace, and the panel can hold it without holding the traversal machinery.
 export interface PlaceOpeners {
@@ -80,12 +76,12 @@ export interface PlaceOpeners {
 	// it, or open it there. NO injected landing — the position database decides
 	// where it lands. With a `target`, the file is opened in a leaf the app picks
 	// for that target instead (a new tab, a split, a window) and the landing rule
-	// is unchanged: the two opens land in the same place (see history.ts).
+	// is unchanged: the two opens land in the same place (see stack.ts).
 	openFile(path: string, leafId: string, target?: PaneTarget): Promise<void>;
 	// Open the file a jump was made in and land on the jump's recorded spot.
-	openJump(entry: NavHistoryEntry, target?: PaneTarget): Promise<void>;
+	openJump(entry: NavEntry, target?: PaneTarget): Promise<void>;
 	// Reactivate a pathless view (the graph tab).
-	openView(entry: NavHistoryEntry, target?: PaneTarget): Promise<void>;
+	openView(entry: NavEntry, target?: PaneTarget): Promise<void>;
 }
 
 // The no-op opener: a store built without a workspace (a test, or a plugin
@@ -98,7 +94,7 @@ const NO_OPENERS: PlaceOpeners = {
 };
 
 export class NavPlaces implements PlaceList {
-	entries: NavHistoryEntry[] = [];
+	entries: NavEntry[] = [];
 	index = -1;
 
 	private listeners = new Set<() => void>();
@@ -115,10 +111,10 @@ export class NavPlaces implements PlaceList {
 		this.entries = loadNavPlaces(app);
 	}
 
-	// The rest of the plugin hands in the open pipeline once it exists (see
-	// NavHistory's constructor). Separate from construction because the two
-	// objects need each other: the history records into this store, and this
-	// store travels through the history's open path.
+	// The composition root hands in the open pipeline once it exists (see
+	// position/manager.ts). Separate from construction because the two objects
+	// need each other: the funnel feeds this list its recordings, and a click
+	// here travels out through the stack's open path.
 	attach(open: PlaceOpeners): void {
 		this.open = open;
 	}
@@ -174,12 +170,14 @@ export class NavPlaces implements PlaceList {
 
 	// ===== Writing =====
 
-	// A place was visited. Called from the revision funnel in history.ts for
-	// every record it pushes EXCEPT teleports (see the class comment). A place
-	// already on the list is moved to the end and re-stamped — never duplicated:
-	// that is what makes a file opened ten times one row, and what keeps the
-	// list's order the order of last visit.
-	remember(entry: NavHistoryEntry): void {
+	// A place was visited — the funnel's `onVisit`, for every navigation the
+	// reader made, teleports excepted (see the class comment). Called BEFORE the
+	// stack decides whether the step is worth keeping: a place being sat in again
+	// is a fact about THIS list, and the stack's dedup or its settings must not be
+	// able to hide it. A place already on the list is moved to the end and
+	// re-stamped — never duplicated: that is what makes a file opened ten times one
+	// row, and what keeps the list's order the order of last visit.
+	remember(entry: NewNavEntry): void {
 		if (entry.kind === 'teleport')
 			return;
 		if (entry.kind !== 'view' && !this.recordable(entry.path))
@@ -197,9 +195,9 @@ export class NavPlaces implements PlaceList {
 
 	// The jump's landing settled (or was re-read): keep the place's own position
 	// fresh. Only keyed jumps have one — a file record carries none by design.
-	// Public because history.ts is its one caller: the stack fills the landing in
-	// when the jump settles, and this list has to hear about it.
-	settle(entry: NavHistoryEntry): void {
+	// The funnel's `onLanded`: the stack fills the landing in when the jump
+	// settles (after upgrading the key), and this list has to hear about it.
+	settle(entry: NewNavEntry): void {
 		if (entry.kind !== 'jump' || !entry.st)
 			return;
 		const at = this.indexOf(placeKey(entry));
@@ -224,25 +222,17 @@ export class NavPlaces implements PlaceList {
 	// Which place the reader is in. The stack's current record maps to a place
 	// by identity; an inferred step (a teleport) maps to its FILE, because the
 	// reader is in that file however they got there.
-	markCurrent(entry?: NavHistoryEntry): void {
+	//
+	// "Here" is a live fact about the workspace, so it is NOT persisted and NOT
+	// invented: a list that came up empty stays empty until the reader goes
+	// somewhere, and nothing here puts the note they happen to be reading back on
+	// their own list (see clear).
+	markCurrent(entry?: NewNavEntry): void {
 		const at = this.indexFor(entry);
 		if (at === this.index)
 			return;
 		this.index = at;
 		this.changed();
-	}
-
-	// Make sure the file the reader is in HAS a place, and stand on it. The
-	// panel's own entry point (NavHistory.syncCurrentPosition): a workspace
-	// restored at startup opens its file through a path the history does not
-	// record, so without this the panel would open with nothing marked "here"
-	// and no row for the note being read.
-	ensureCurrent(entry: NavHistoryEntry): void {
-		if (entry.kind === 'teleport')
-			return;
-		if (this.indexOf(placeKey(entry)) < 0)
-			this.remember(entry);
-		this.markCurrent(entry);
 	}
 
 	// ===== Bookkeeping =====
@@ -339,10 +329,10 @@ export class NavPlaces implements PlaceList {
 	// path, and are deliberately untouched by this. So there is nothing to confirm
 	// and nothing to migrate; the reader who wants to start over starts over.
 	//
-	// The caller is expected to put the note they are in back (see
-	// NavHistory.syncCurrentPosition, which main.ts's command calls next): a list
-	// that came back empty while the reader is reading a note would say there is
-	// nowhere to go, about the note they are looking at.
+	// TRULY empty, and that is the reading of the command: the note they are
+	// looking at goes with the rest. Nothing backfills it — a list with one
+	// unexplained row in it would be a worse answer to "clear this" than an empty
+	// one, and the next navigation puts a place back.
 	clear(): void {
 		this.entries = [];
 		this.index = -1;
@@ -383,7 +373,7 @@ export class NavPlaces implements PlaceList {
 	// here" marker needs: an inferred step stands on its file, and a jump whose
 	// own place is gone (evicted, or never recorded) stands on its file too —
 	// the reader is in that note either way.
-	private indexFor(entry?: NavHistoryEntry): number {
+	private indexFor(entry?: NewNavEntry): number {
 		if (!entry)
 			return -1;
 		if (entry.kind !== 'teleport') {
@@ -407,7 +397,7 @@ export class NavPlaces implements PlaceList {
 		const over = this.entries.length - this.cap();
 		if (over <= 0)
 			return 0;
-		const kept: NavHistoryEntry[] = [];
+		const kept: NavEntry[] = [];
 		let dropped = 0;
 		for (let i = 0; i < this.entries.length; i++) {
 			if (dropped < over && i !== this.index) {
@@ -432,12 +422,14 @@ export class NavPlaces implements PlaceList {
 //     the per-tab split is the position database's business, and the panel has
 //     always drawn one row per note.
 //   - a JUMP is its heading/anchor KEY, normalized. The key is what survives an
-//     edit that moves the heading (see history.ts's upgradeKeyLine and
+//     edit that moves the heading (see nav-history/stack.ts's upgradeKeyLine and
 //     resolveAnchorShift), and normalizing is what makes the rendered form
 //     ("outline:T") and the authoritative source form ("outline:## T") ONE
 //     place rather than two — the same normalization the stack's own dedup uses.
 //   - a VIEW is its view type, as in the panel's grouping.
-export function placeKey(entry: NavHistoryEntry): string {
+// Typed on NewNavEntry: both a stored record and a recording heard from the funnel
+// answer to it (a record is a recording with the stamp added).
+export function placeKey(entry: NewNavEntry): string {
 	switch (entry.kind) {
 		case 'view':
 			return `view:${entry.viewType}`;
@@ -463,7 +455,7 @@ function normalizeJumpKey(key: string): string {
 // The record a place stores for a visit. A FILE place keeps no position (see
 // the class comment), and its link origin is display-only data the panel's head
 // shows — carried along, since a place is what most recently stood for it.
-function placeRecord(entry: NavHistoryEntry, prev?: NavHistoryEntry): NavHistoryEntry {
+function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 	const t = Date.now();
 	switch (entry.kind) {
 		case 'visit':

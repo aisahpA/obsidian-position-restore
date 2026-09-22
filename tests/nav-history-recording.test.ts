@@ -1,5 +1,5 @@
-// Tests for the VSCode-style navigation history (nav-history/history.ts) and its
-// integration points:
+// Tests for the VSCode-style navigation stack (nav-history/stack.ts), the
+// recording funnel it listens to (nav/funnel.ts) and their integration points:
 //  - stack logic: every jump pushes, a fresh jump truncates the forward part,
 //    dedup drops repeated same-file jumps (key match), force wins;
 //  - gates: the setting, and the startup window (layout not ready);
@@ -20,8 +20,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { App, FileView, MarkdownView, TFile } from 'obsidian';
-import { NavHistory } from '@/nav-history/history';
-import { NAV_HISTORY_VERSION, NavHistoryEntry, NavJump, NavVisit } from '@/nav-history/entry';
+import { NavFunnel } from '@/nav/funnel';
+import { NavStack } from '@/nav-history/stack';
+import { NavPlaces } from '@/recent-files/places';
+import { NAV_HISTORY_VERSION } from '@/nav-history/store';
+import { NavEntry, NavJump, NavVisit } from '@/nav/entry';
 import { OpenPatcher } from '@/position/restore/patcher';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
@@ -52,37 +55,54 @@ function makeApp(
 	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
 }
 
+// The two navigation readers, wired as the composition root wires them (see
+// position/manager.ts): the CAPTURE points (the record* calls below) write to
+// the funnel, and the funnel publishes to the stack and the place list. The
+// harness hands all three back by name, so a test says which side it means —
+// `funnel.` for a capture, `stack.` for the stack's own state and traversal,
+// `places.` for the recent-files list.
 function makeNav(
 	app = makeApp(),
 	settings: Partial<PluginSettings> = {},
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ) {
-	return new NavHistory(
-		app,
-		{ ...DEFAULT_SETTINGS, ...settings } as PluginSettings,
-		new PositionState({ ...DEFAULT_SETTINGS, ...settings } as PluginSettings),
-		savedPosition,
-	);
+	const resolved = { ...DEFAULT_SETTINGS, ...settings } as PluginSettings;
+	const state = new PositionState(resolved);
+	const funnel = new NavFunnel(app, state);
+	const stack = new NavStack(app, resolved, state, funnel, savedPosition);
+	const places = new NavPlaces(app, resolved);
+	funnel.subscribe(stack);
+	funnel.subscribe({
+		onVisit: (recording) => places.remember(recording.record),
+		onLanded: (entry) => places.settle(entry),
+		onHere: (entry) => places.markCurrent(entry),
+	});
+	places.attach({
+		openFile: (path, leafId, target) => stack.openFilePlain(path, leafId, target),
+		openJump: (entry, target) => stack.travelTo(entry, target),
+		openView: (entry, target) => stack.openViewPlace(entry, target),
+	});
+	return { funnel, stack, places };
 }
 
-function entry(path: string, leafId = 'leaf-1'): NavHistoryEntry {
+function entry(path: string, leafId = 'leaf-1'): NavEntry {
 	return { kind: 'visit', path, leafId, t: 1 };
 }
 
-// The settings panel mutates the settings object the history was handed (they
-// share one instance, see NavHistory.settings) — this is that mutation, without
+// The settings panel mutates the settings object the stack was handed (they
+// share one instance, see NavStack.settings) — this is that mutation, without
 // going through the whole settings tab.
 function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
-	(nav as unknown as { settings: PluginSettings }).settings.navStackCap = cap;
+	(nav.stack as unknown as { settings: PluginSettings }).settings.navStackCap = cap;
 }
 
 // These tests build file-only stacks (a graph entry appears in exactly one
 // full-object equality assertion); the helpers narrow the file kinds so the
 // per-index reads stay terse.
-const pathOf = (e: NavHistoryEntry) => (e.kind !== 'view' ? e.path : undefined);
-const keyOf = (e: NavHistoryEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
-const stOf = (e: NavHistoryEntry) => (e.kind !== 'view' ? e.st : undefined);
-const viaOf = (e: NavHistoryEntry) => (e.kind === 'visit' ? e.via : undefined);
+const pathOf = (e: NavEntry) => (e.kind !== 'view' ? e.path : undefined);
+const keyOf = (e: NavEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
+const stOf = (e: NavEntry) => (e.kind !== 'view' ? e.st : undefined);
+const viaOf = (e: NavEntry) => (e.kind === 'visit' ? e.via : undefined);
 
 function leafWithFile(id: string, file?: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	return {
@@ -98,71 +118,71 @@ beforeEach(() => {
 	window.localStorage.clear();
 });
 
-describe('NavHistory stack logic', () => {
+describe('NavStack stack logic', () => {
 	it('records jumps and truncates the forward part on a fresh jump', () => {
 		const app = makeApp();
 		(app.workspace as unknown as {
 			iterateAllLeaves: (cb: (l: WorkspaceLeaf) => void) => void;
 		}).iterateAllLeaves = (cb) => cb(leafWithFile('leaf-1', 'a.md'));
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		(nav as unknown as { index: number }).index = 0; // simulate having gone back
-		nav.recordOpen('c.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		nav.funnel.recordOpen('c.md', 'leaf-1');
 
-		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'c.md']);
-		expect(nav.index).toBe(1);
-		expect(nav.canNavigate(-1)).toBe(true);
-		expect(nav.canNavigate(1)).toBe(false);
+		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'c.md']);
+		expect(nav.stack.index).toBe(1);
+		expect(nav.stack.canNavigate(-1)).toBe(true);
+		expect(nav.stack.canNavigate(1)).toBe(false);
 	});
 
 	it('dedups: same file without a key or with the same key is not pushed', () => {
 		const nav = makeNav();
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1'); // plain re-open: not a jump
-		expect(nav.entries.length).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // plain re-open: not a jump
+		expect(nav.stack.entries.length).toBe(1);
 
-		nav.recordTeleport('a.md', 'leaf-1', 42); // keyed by target line
-		expect(nav.entries.length).toBe(2);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // keyed by target line
+		expect(nav.stack.entries.length).toBe(2);
 
-		nav.recordTeleport('a.md', 'leaf-1', 42); // same line again: same jump
-		expect(nav.entries.length).toBe(2);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // same line again: same jump
+		expect(nav.stack.entries.length).toBe(2);
 
-		nav.recordTeleport('a.md', 'leaf-1', 300); // different target line
-		expect(nav.entries.length).toBe(3);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 300); // different target line
+		expect(nav.stack.entries.length).toBe(3);
 
 		// A teleport is its own kind: a keyed jump carrying the same
 		// teleport key does NOT dedup against it.
-		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:42' });
-		expect(nav.entries.length).toBe(4);
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'teleport:42' });
+		expect(nav.stack.entries.length).toBe(4);
 
-		nav.recordOpen('a.md', 'leaf-1', { key: '#other' }); // different anchor target
-		expect(nav.entries.length).toBe(5);
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: '#other' }); // different anchor target
+		expect(nav.stack.entries.length).toBe(5);
 
-		nav.recordOpen('a.md', 'leaf-1', { force: true }); // search match: always
-		expect(nav.entries.length).toBe(6);
-		expect(nav.index).toBe(5);
+		nav.funnel.recordOpen('a.md', 'leaf-1', { force: true }); // search match: always
+		expect(nav.stack.entries.length).toBe(6);
+		expect(nav.stack.index).toBe(5);
 	});
 
 	it('gates: pre-layout startup does not record', () => {
 		const app = makeApp();
 		(app.workspace as unknown as { layoutReady: boolean }).layoutReady = false;
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
-		expect(nav.entries.length).toBe(0);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		expect(nav.stack.entries.length).toBe(0);
 	});
 
 	it('recordTeleport fills the landing on a fresh push and keeps it on a deduped repeat', () => {
 		const nav = makeNav();
 		const landing: NavEntryState = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
-		nav.recordTeleport('a.md', 'leaf-1', 42, landing);
-		expect(keyOf(nav.entries[0])).toBe('teleport:42');
-		expect(stOf(nav.entries[0])).toBe(landing);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42, landing);
+		expect(keyOf(nav.stack.entries[0])).toBe('teleport:42');
+		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
 		// Same line again (deduped): the original landing survives.
-		nav.recordTeleport('a.md', 'leaf-1', 42, { scroll: 9, cursor: { from: { line: 42, ch: 3 }, to: { line: 42, ch: 3 } } });
-		expect(nav.entries.length).toBe(1);
-		expect(stOf(nav.entries[0])).toBe(landing);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42, { scroll: 9, cursor: { from: { line: 42, ch: 3 }, to: { line: 42, ch: 3 } } });
+		expect(nav.stack.entries.length).toBe(1);
+		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
 		// A gated call (traversal executing) pushes nothing and fills nothing.
 	});
@@ -170,42 +190,42 @@ describe('NavHistory stack logic', () => {
 	it('refreshTop never overwrites a keyed landing; it backfills only an empty one', () => {
 		const nav = makeNav();
 		const landing: NavEntryState = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
-		nav.recordTeleport('a.md', 'leaf-1', 42, landing);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42, landing);
 
 		// The user drifted after landing; a leave must not touch the landing.
 		const drifted: NavEntryState = { scroll: 99, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
-		nav.refreshTop('a.md', 'leaf-1', drifted);
-		expect(stOf(nav.entries[0])).toBe(landing);
+		nav.funnel.leave('a.md', 'leaf-1', drifted);
+		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
 		// Outline/anchor entries follow the same keyed rule: backfill when
 		// empty (the settle-capture or the first leave), never overwrite.
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo', force: true });
-		nav.refreshTop('a.md', 'leaf-1', drifted);
-		expect(stOf(nav.entries[1])).toBe(drifted);
-		nav.refreshTop('a.md', 'leaf-1', landing);
-		expect(stOf(nav.entries[1])).toBe(drifted);
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo', force: true });
+		nav.funnel.leave('a.md', 'leaf-1', drifted);
+		expect(stOf(nav.stack.entries[1])).toBe(drifted);
+		nav.funnel.leave('a.md', 'leaf-1', landing);
+		expect(stOf(nav.stack.entries[1])).toBe(drifted);
 
 		// Legacy persisted entry without a landing: backfilled once.
 		const legacy = makeNav();
-		legacy.recordTeleport('a.md', 'leaf-1', 42);
-		expect(stOf(legacy.entries[0])).toBeUndefined();
-		legacy.refreshTop('a.md', 'leaf-1', drifted);
-		expect(stOf(legacy.entries[0])).toBe(drifted);
+		legacy.funnel.recordTeleport('a.md', 'leaf-1', 42);
+		expect(stOf(legacy.stack.entries[0])).toBeUndefined();
+		legacy.funnel.leave('a.md', 'leaf-1', drifted);
+		expect(stOf(legacy.stack.entries[0])).toBe(drifted);
 
 		// Keyless open entries still take every leave read.
-		legacy.recordOpen('a.md', 'leaf-1', { force: true });
+		legacy.funnel.recordOpen('a.md', 'leaf-1', { force: true });
 		const leave: NavEntryState = { scroll: 3, cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } } };
-		legacy.refreshTop('a.md', 'leaf-1', leave);
-		expect(stOf(legacy.entries[1])).toBe(leave);
-		legacy.refreshTop('a.md', 'leaf-1', landing);
-		expect(stOf(legacy.entries[1])).toBe(landing);
+		legacy.funnel.leave('a.md', 'leaf-1', leave);
+		expect(stOf(legacy.stack.entries[1])).toBe(leave);
+		legacy.funnel.leave('a.md', 'leaf-1', landing);
+		expect(stOf(legacy.stack.entries[1])).toBe(landing);
 	});
 
 	it('upgrades an outline key from the cache with its record-time line', () => {
 		const nav = makeNav(makeApp([
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
 		]));
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
 		// Source mode: the settled cursor sits on the heading; the upgrade
 		// itself draws from the CACHE (authoritative source + level + line),
 		// the st view line only breaks same-text ties.
@@ -213,121 +233,121 @@ describe('NavHistory stack logic', () => {
 			scroll: 14,
 			cursor: { from: { line: 20, ch: 0 }, to: { line: 20, ch: 3 } },
 		};
-		nav.refreshTop('a.md', 'leaf-1', settle);
-		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
-		expect((nav.entries[0] as NavJump).keyLine).toBe(20);
+		nav.funnel.leave('a.md', 'leaf-1', settle);
+		expect(keyOf(nav.stack.entries[0])).toBe('outline:## **Bold** Title');
+		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(20);
 
 		// Preview mode: the viewport line only breaks ties; line comes from
 		// the cache.
 		const nav2 = makeNav(makeApp([
 			{ heading: 'Heading', level: 3, position: { start: { line: 5 } } },
 		]));
-		nav2.recordOpen('a.md', 'leaf-1', { key: 'outline:Heading', force: true });
-		nav2.refreshTop('a.md', 'leaf-1', { scroll: 5, anchor: '### Heading' });
-		expect(keyOf(nav2.entries[0])).toBe('outline:### Heading');
-		expect((nav2.entries[0] as NavJump).keyLine).toBe(5);
+		nav2.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Heading', force: true });
+		nav2.funnel.leave('a.md', 'leaf-1', { scroll: 5, anchor: '### Heading' });
+		expect(keyOf(nav2.stack.entries[0])).toBe('outline:### Heading');
+		expect((nav2.stack.entries[0] as NavJump).keyLine).toBe(5);
 	});
 
 	it('upgrades an anchor-link key with its record-time line (key untouched)', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'My Heading', level: 2, position: { start: { line: 12 } } },
 		]));
-		nav.recordOpen('a.md', 'leaf-1', { key: 'a.md#my-heading', force: true });
-		nav.refreshTop('a.md', 'leaf-1', { scroll: 12, anchor: '## My Heading' });
-		expect(keyOf(nav.entries[0])).toBe('a.md#my-heading');
-		expect((nav.entries[0] as NavJump).keyLine).toBe(12);
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'a.md#my-heading', force: true });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 12, anchor: '## My Heading' });
+		expect(keyOf(nav.stack.entries[0])).toBe('a.md#my-heading');
+		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(12);
 	});
 
 	it('keeps the recorded key when no cache heading matches (remap fallback)', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'Other', level: 1, position: { start: { line: 1 } } },
 		]));
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Real', force: true });
-		nav.refreshTop('a.md', 'leaf-1', {
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Real', force: true });
+		nav.funnel.leave('a.md', 'leaf-1', {
 			scroll: 1,
 			cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
 		});
-		expect(keyOf(nav.entries[0])).toBe('outline:Real');
-		expect((nav.entries[0] as NavJump).keyLine).toBeUndefined();
+		expect(keyOf(nav.stack.entries[0])).toBe('outline:Real');
+		expect((nav.stack.entries[0] as NavJump).keyLine).toBeUndefined();
 	});
 
 	it('dedups a re-click against an upgraded key (normalized outline keys)', () => {
 		const nav = makeNav(makeApp([
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
 		]));
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
-		nav.refreshTop('a.md', 'leaf-1', { scroll: 20, anchor: '## **Bold** Title' });
-		expect(keyOf(nav.entries[0])).toBe('outline:## **Bold** Title');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 20, anchor: '## **Bold** Title' });
+		expect(keyOf(nav.stack.entries[0])).toBe('outline:## **Bold** Title');
 		// The user clicks the same outline item again: the new record carries
 		// the rendered text, which normalizes equal to the upgraded source
 		// key (# strips) — one jump, no duplicate entry.
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title' });
-		expect(nav.entries.length).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title' });
+		expect(nav.stack.entries.length).toBe(1);
 	});
 
 	it('rename migrates entries; delete drops them and keeps the index in range', () => {
 		const nav = makeNav();
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		nav.recordOpen('c.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		nav.funnel.recordOpen('c.md', 'leaf-1');
 
-		nav.renameFile('b.md', 'renamed.md');
-		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'renamed.md', 'c.md']);
+		nav.stack.renameFile('b.md', 'renamed.md');
+		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'renamed.md', 'c.md']);
 
-		(nav as unknown as { index: number }).index = 2; // sitting at c.md
-		nav.deleteFile('c.md');
-		expect(nav.entries.map(pathOf)).toEqual(['a.md', 'renamed.md']);
-		expect(nav.index).toBe(1);
+		(nav.stack as unknown as { index: number }).index = 2; // sitting at c.md
+		nav.stack.deleteFile('c.md');
+		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'renamed.md']);
+		expect(nav.stack.index).toBe(1);
 
-		nav.deleteFile('a.md');
-		nav.deleteFile('renamed.md');
-		expect(nav.entries.length).toBe(0);
-		expect(nav.index).toBe(-1);
+		nav.stack.deleteFile('a.md');
+		nav.stack.deleteFile('renamed.md');
+		expect(nav.stack.entries.length).toBe(0);
+		expect(nav.stack.index).toBe(-1);
 	});
 });
 
-describe('NavHistory activation recording', () => {
+describe('NavStack activation recording', () => {
 	it('a same-file activation of another tab is a real step; toggling back records again', () => {
 		const nav = makeNav();
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		nav.recordActivation(leafWithFile('leaf-2', 'a.md'));
-		expect(nav.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		nav.funnel.recordActivation(leafWithFile('leaf-2', 'a.md'));
+		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
 		// Activation steps carry the switch badge (open steps have no via).
-		expect(nav.entries.map(viaOf)).toEqual(['switch', 'switch']);
+		expect(nav.stack.entries.map(viaOf)).toEqual(['switch', 'switch']);
 
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		expect(nav.entries.length).toBe(3);
-		expect(nav.index).toBe(2);
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.index).toBe(2);
 	});
 
 	it('re-activating the same tab of the same file does not record', () => {
 		const nav = makeNav();
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		expect(nav.entries.length).toBe(1);
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		expect(nav.stack.entries.length).toBe(1);
 	});
 
 	it('an activation that follows an open of the same file in the same leaf merges', () => {
 		const nav = makeNav();
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		expect(nav.entries.length).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		expect(nav.stack.entries.length).toBe(1);
 		// The merged step keeps the open's identity: no switch badge.
-		expect(nav.entries.map(viaOf)).toEqual([undefined]);
+		expect(nav.stack.entries.map(viaOf)).toEqual([undefined]);
 	});
 
 	it('a non-file view activation or a null leaf does not record', () => {
 		const nav = makeNav();
-		nav.recordActivation(leafWithFile('leaf-1'));
-		nav.recordActivation(null);
-		expect(nav.entries.length).toBe(0);
+		nav.funnel.recordActivation(leafWithFile('leaf-1'));
+		nav.funnel.recordActivation(null);
+		expect(nav.stack.entries.length).toBe(0);
 	});
 
 	it('a sidebar panel (outline) activation does not record', () => {
 		const nav = makeNav();
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		nav.recordActivation(leafWithFile('outline-leaf', 'a.md', 'sidebar'));
-		expect(nav.entries.map((e) => e.leafId)).toEqual(['leaf-1']);
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		nav.funnel.recordActivation(leafWithFile('outline-leaf', 'a.md', 'sidebar'));
+		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1']);
 	});
 
 	it('a sidebar activation does not notify browsers — it would eat the press', () => {
@@ -354,21 +374,21 @@ describe('NavHistory activation recording', () => {
 		}).iterateAllLeaves = (cb) => { cb(fileLeaf); cb(sidebarLeaf); };
 
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1');
 
-		nav.recordActivation(sidebarLeaf);
+		nav.funnel.recordActivation(sidebarLeaf);
 
 		// The entry was not re-stamped from the file view, and no step was added:
 		// a sidebar taking the focus is not a tab/pane switch the list records.
-		expect(nav.entries[0].st).toBeUndefined();
-		expect(nav.entries).toHaveLength(1);
+		expect(nav.stack.entries[0].st).toBeUndefined();
+		expect(nav.stack.entries).toHaveLength(1);
 	});
 
 	it('a keyed jump with the same key in another tab records its own step', () => {
 		const nav = makeNav();
-		nav.recordTeleport('a.md', 'leaf-1', 42);
-		nav.recordTeleport('a.md', 'leaf-2', 42);
-		expect(nav.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42);
+		nav.funnel.recordTeleport('a.md', 'leaf-2', 42);
+		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
 	});
 
 	it('switching tabs captures the position of the file being left onto its entry', () => {
@@ -382,64 +402,52 @@ describe('NavHistory activation recording', () => {
 			],
 		});
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
 
-		const left = nav.entries.find((e) => pathOf(e) === 'a.md')!;
+		const left = nav.stack.entries.find((e) => pathOf(e) === 'a.md')!;
 		expect(stOf(left)).toMatchObject({ scroll: 42, cursor: { from: { line: 3 } } });
-	});
-
-	it('syncCurrentPosition fills the current entry from the live active view', () => {
-		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
-		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
-		expect(stOf(nav.entries[0])).toBeUndefined();
-
-		h.ws.setActiveLeaf(h.leaves[0]);
-		nav.syncCurrentPosition();
-
-		expect(stOf(nav.entries[0])).toMatchObject({ scroll: 42 });
 	});
 });
 
-describe('NavHistory recording settings', () => {
+describe('NavStack recording settings', () => {
 	it('navStackCap caps the stack, oldest entries drop, index stays at the top', () => {
 		const nav = makeNav(makeApp(), { navStackCap: 2 });
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		nav.recordOpen('c.md', 'leaf-1');
-		expect(nav.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
-		expect(nav.index).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		nav.funnel.recordOpen('c.md', 'leaf-1');
+		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
+		expect(nav.stack.index).toBe(1);
 	});
 
 	it('a hand-edited navStackCap below 1 clamps to 1', () => {
 		const nav = makeNav(makeApp(), { navStackCap: 0 });
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		expect(nav.entries.map(pathOf)).toEqual(['b.md']);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md']);
 	});
 
 	it('a cap that is not a number at all falls back to the default', () => {
 		// "abc" would make every `length > cap` comparison false and disable the
 		// ceiling entirely; null would collapse it to 1.
 		const nav = makeNav(makeApp(), { navStackCap: 'abc' as unknown as number });
-		expect(nav.stackCap()).toBe(DEFAULT_SETTINGS.navStackCap);
+		expect(nav.stack.stackCap()).toBe(DEFAULT_SETTINGS.navStackCap);
 	});
 
 	it('lowering the cap trims the stack at once, keeping the pointer on the top', () => {
 		const nav = makeNav();
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
-			nav.recordOpen(p, 'leaf-1');
-		expect(nav.entries.length).toBe(5);
+			nav.funnel.recordOpen(p, 'leaf-1');
+		expect(nav.stack.entries.length).toBe(5);
 
 		// The settings panel mutates the settings object the history holds.
 		setCap(nav, 2);
-		expect(nav.applyStackCap()).toBe(3);
+		expect(nav.stack.applyStackCap()).toBe(3);
 
-		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
-		expect(nav.index).toBe(1);
+		expect(nav.stack.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
+		expect(nav.stack.index).toBe(1);
 		// ...and nothing more is dropped on a second call.
-		expect(nav.applyStackCap()).toBe(0);
+		expect(nav.stack.applyStackCap()).toBe(0);
 	});
 
 	it('a cap that falls below the current depth stops the pointer on the oldest survivor', () => {
@@ -456,19 +464,19 @@ describe('NavHistory recording settings', () => {
 
 		const nav = makeNav(app);
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
-			nav.recordOpen(p, 'leaf-1');
-		(nav as unknown as { index: number }).index = 1; // two steps back
+			nav.funnel.recordOpen(p, 'leaf-1');
+		(nav.stack as unknown as { index: number }).index = 1; // two steps back
 		setCap(nav, 2);
 
-		nav.applyStackCap();
+		nav.stack.applyStackCap();
 
 		// The entry "now" was on is gone. The pointer has to land somewhere
 		// valid: the oldest survivor, so forward still walks what is left
 		// instead of traversal being disabled outright.
-		expect(nav.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
-		expect(nav.index).toBe(0);
-		expect(nav.canNavigate(-1)).toBe(false);
-		expect(nav.canNavigate(1)).toBe(true);
+		expect(nav.stack.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
+		expect(nav.stack.index).toBe(0);
+		expect(nav.stack.canNavigate(-1)).toBe(false);
+		expect(nav.stack.canNavigate(1)).toBe(true);
 	});
 
 	it('a stored stack over the ceiling is trimmed on load', () => {
@@ -482,42 +490,42 @@ describe('NavHistory recording settings', () => {
 
 		const nav = makeNav(makeApp(), { navStackCap: 2 });
 
-		expect(nav.entries.map(pathOf)).toEqual(['c.md', 'd.md']);
-		expect(nav.index).toBe(1);
+		expect(nav.stack.entries.map(pathOf)).toEqual(['c.md', 'd.md']);
+		expect(nav.stack.index).toBe(1);
 	});
 
 	it('navRecordActivation off: tab (and graph) activation records nothing', () => {
 		const nav = makeNav(makeApp(), { navRecordActivation: false });
-		nav.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		nav.recordActivation(graphLeaf('leaf-g'));
-		expect(nav.entries.length).toBe(0);
+		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		nav.funnel.recordActivation(graphLeaf('leaf-g'));
+		expect(nav.stack.entries.length).toBe(0);
 	});
 
 	it('navRecordTeleport off: cursor jumps record nothing', () => {
 		const nav = makeNav(makeApp(), { navRecordTeleport: false });
-		nav.recordTeleport('a.md', 'leaf-1', 42);
-		nav.recordTeleport('a.md', 'leaf-1', 300);
-		expect(nav.entries.length).toBe(0);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42);
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 300);
+		expect(nav.stack.entries.length).toBe(0);
 	});
 });
 
-describe('NavHistory persistence', () => {
+describe('NavStack persistence', () => {
 	it('round-trips entries and index through localStorage', () => {
 		const nav = makeNav();
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-2', { key: '#x' });
-		nav.persist();
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-2', { key: '#x' });
+		nav.stack.persist();
 
 		const restored = makeNav();
-		expect(restored.entries).toEqual(nav.entries);
-		expect(restored.index).toBe(nav.index);
+		expect(restored.stack.entries).toEqual(nav.stack.entries);
+		expect(restored.stack.index).toBe(nav.stack.index);
 	});
 
 	it('corrupt storage degrades to empty; a stale index clamps into range', () => {
 		window.localStorage.setItem(STORAGE_KEY, '{not json');
 		const empty = makeNav();
-		expect(empty.entries.length).toBe(0);
-		expect(empty.index).toBe(-1);
+		expect(empty.stack.entries.length).toBe(0);
+		expect(empty.stack.index).toBe(-1);
 
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			v: NAV_HISTORY_VERSION,
@@ -525,8 +533,8 @@ describe('NavHistory persistence', () => {
 			index: 99,
 		}));
 		const clamped = makeNav();
-		expect(clamped.entries.length).toBe(2);
-		expect(clamped.index).toBe(1);
+		expect(clamped.stack.entries.length).toBe(2);
+		expect(clamped.stack.index).toBe(1);
 	});
 
 	it('a foreign-format blob (missing or other version) is dropped whole', () => {
@@ -535,8 +543,8 @@ describe('NavHistory persistence', () => {
 			index: 0,
 		}));
 		const nav = makeNav();
-		expect(nav.entries.length).toBe(0);
-		expect(nav.index).toBe(-1);
+		expect(nav.stack.entries.length).toBe(0);
+		expect(nav.stack.index).toBe(-1);
 	});
 
 	it('malformed entries are dropped, valid ones survive the load filter', () => {
@@ -553,8 +561,8 @@ describe('NavHistory persistence', () => {
 			index: 1,
 		}));
 		const nav = makeNav();
-		expect(nav.entries.length).toBe(2);
-		expect(nav.index).toBe(1);
+		expect(nav.stack.entries.length).toBe(2);
+		expect(nav.stack.index).toBe(1);
 	});
 
 	it('the write dedup belongs to the instance, not to the module', () => {
@@ -563,19 +571,19 @@ describe('NavHistory persistence', () => {
 		// disk is its own and skip a write it owes.
 		const setItem = vi.spyOn(Storage.prototype, 'setItem');
 		// Counted per KEY: persist() now writes two blobs (the stack and the
-		// recent-files list, see NavHistory.persist), and the dedup under test is the
+		// recent-files list, see NavStack.persist), and the dedup under test is the
 		// stack's.
 		const writes = () => setItem.mock.calls.filter(c => c[0] === STORAGE_KEY).length;
 		try {
 			const first = makeNav();
-			first.recordOpen('a.md', 'leaf-1');
-			first.persist();
+			first.funnel.recordOpen('a.md', 'leaf-1');
+			first.stack.persist();
 			expect(writes()).toBe(1);
-			first.persist(); // unchanged: deduped
+			first.stack.persist(); // unchanged: deduped
 			expect(writes()).toBe(1);
 
 			const second = makeNav();
-			second.persist();
+			second.stack.persist();
 			expect(writes()).toBe(2);
 		} finally {
 			setItem.mockRestore();
@@ -608,14 +616,14 @@ function makeCrossTabHarness(app = makeApp(), targetLeafView: unknown = { file: 
 	return { app, targetLeaf, view };
 }
 
-describe('NavHistory.navigate', () => {
+describe('NavStack.navigate', () => {
 	it('never leaves the stack bounds', async () => {
 		const nav = makeNav();
-		await nav.navigate(-1);
-		expect(nav.index).toBe(-1);
-		nav.recordOpen('a.md', 'leaf-1');
-		await nav.navigate(-1); // nothing before the first entry
-		expect(nav.index).toBe(0);
+		await nav.stack.navigate(-1);
+		expect(nav.stack.index).toBe(-1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		await nav.stack.navigate(-1); // nothing before the first entry
+		expect(nav.stack.index).toBe(0);
 	});
 
 	it('watchdog releases the traversal bracket when an open hangs forever', async () => {
@@ -623,9 +631,9 @@ describe('NavHistory.navigate', () => {
 		try {
 			const app = makeApp();
 			const nav = makeNav(app);
-			nav.recordOpen('a.md', 'leaf-1');
-			nav.recordOpen('b.md', 'leaf-1');
-			(nav as unknown as { index: number }).index = 0;
+			nav.funnel.recordOpen('a.md', 'leaf-1');
+			nav.funnel.recordOpen('b.md', 'leaf-1');
+			(nav.stack as unknown as { index: number }).index = 0;
 			// Forward step b.md on the same leaf lands in openInLeaf →
 			// leaf.openFile, stubbed to never resolve.
 			const activeLeaf = { id: 'leaf-1', containerEl: 'main' } as unknown as WorkspaceLeaf;
@@ -639,15 +647,15 @@ describe('NavHistory.navigate', () => {
 			(app.workspace as unknown as { getActiveViewOfType: () => unknown })
 				.getActiveViewOfType = () => activeView;
 
-			void nav.navigate(1); // hangs inside openFile
-			expect(nav.canNavigate(-1)).toBe(false); // bracket up: traversal gated
+			void nav.stack.navigate(1); // hangs inside openFile
+			expect(nav.stack.canNavigate(-1)).toBe(false); // bracket up: traversal gated
 
 			await vi.advanceTimersByTimeAsync(5000); // watchdog fires
 
 			// Bracket released: a new traversal is no longer blocked.
-			expect(nav.canNavigate(-1)).toBe(true);
-			await nav.navigate(-1);
-			expect(nav.index).toBe(0);
+			expect(nav.stack.canNavigate(-1)).toBe(true);
+			await nav.stack.navigate(-1);
+			expect(nav.stack.index).toBe(0);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -683,18 +691,18 @@ describe('NavHistory.navigate', () => {
 		}).iterateAllLeaves = (cb) => cb(leaf);
 
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:60' });
-		(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
-		expect(nav.index).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'teleport:60' });
+		(nav.stack.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		expect(nav.stack.index).toBe(1);
 
-		await nav.navigate(-1);
+		await nav.stack.navigate(-1);
 
-		expect(nav.index).toBe(0);
+		expect(nav.stack.index).toBe(0);
 		// applied the target entry's position (cursor + quantized scroll)
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		// the entry left behind was refreshed with the live read
-		expect(stOf(nav.entries[1])).toMatchObject({ scroll: 42 });
+		expect(stOf(nav.stack.entries[1])).toMatchObject({ scroll: 42 });
 	});
 
 	// The two travel paths of the recent-files list (see places.ts): a JUMP place
@@ -702,7 +710,7 @@ describe('NavHistory.navigate', () => {
 	// reader is — so back returns to the origin. The place index a test travels to is
 	// found by IDENTITY rather than hard-coded: teleports are not places, so the
 	// list's indices do not line up with the stack's.
-	const placeOf = (nav: ReturnType<typeof makeNav>, pred: (e: NavHistoryEntry) => boolean): number =>
+	const placeOf = (nav: ReturnType<typeof makeNav>, pred: (e: NavEntry) => boolean): number =>
 		nav.places.entries.findIndex(pred);
 	// A markdown leaf whose own view reports a position, plus the wiring that makes
 	// it the active (or most recent) file view. Every case below is about what the
@@ -737,14 +745,14 @@ describe('NavHistory.navigate', () => {
 		// navigation moment), not replay the recorded place's t.
 		const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
 		try {
-			nav.recordOpen('a.md', 'leaf-1');
-			nav.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
-			nav.recordOpen('a.md', 'leaf-1', { key: 'outline:## Two' });
+			nav.funnel.recordOpen('a.md', 'leaf-1');
+			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
+			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## Two' });
 			const at = placeOf(nav, e => e.kind === 'jump' && e.key === 'outline:## One');
 			// The landing the jump settled on, as the store keeps it.
 			(nav.places.entries[at] as NavJump).st =
 				{ scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
-			expect(nav.index).toBe(2);
+			expect(nav.stack.index).toBe(2);
 
 			nowSpy.mockReturnValue(2000);
 			await nav.places.travel(at);
@@ -753,27 +761,27 @@ describe('NavHistory.navigate', () => {
 		}
 
 		// the target is re-pushed on top of the current entry (branch semantics)
-		expect(nav.index).toBe(3);
-		expect(nav.entries.map(keyOf)).toEqual([
+		expect(nav.stack.index).toBe(3);
+		expect(nav.stack.entries.map(keyOf)).toEqual([
 			undefined, 'outline:## One', 'outline:## Two', 'outline:## One',
 		]);
 		// the pushed entry is a copy — the original place keeps its own position
-		expect(nav.entries[3]).not.toBe(nav.entries[1]);
+		expect(nav.stack.entries[3]).not.toBe(nav.stack.entries[1]);
 		// ...and its own (fresh) timestamp
-		expect(nav.entries[1].t).toBe(1000);
-		expect(nav.entries[3].t).toBe(2000);
+		expect(nav.stack.entries[1].t).toBe(1000);
+		expect(nav.stack.entries[3].t).toBe(2000);
 		// applied the chosen place's recorded position
 		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		// the origin is the entry right below — back one step returns to it
-		expect(nav.canNavigate(-1)).toBe(true);
-		expect(nav.canNavigate(1)).toBe(false);
+		expect(nav.stack.canNavigate(-1)).toBe(true);
+		expect(nav.stack.canNavigate(1)).toBe(false);
 
-		await nav.navigate(-1);
-		expect(nav.index).toBe(2);
+		await nav.stack.navigate(-1);
+		expect(nav.stack.index).toBe(2);
 		expect(h.applied[1]).toMatchObject({ scroll: 42 });
 		// the landing cue is suppressed for the traversal (armed at the travel and
 		// again at the same-file apply)
-		const state = (nav as unknown as { state: PositionState }).state;
+		const state = (nav.stack as unknown as { state: PositionState }).state;
 		expect(state.cueSuppressUntil).toBeGreaterThan(Date.now());
 	});
 
@@ -787,14 +795,14 @@ describe('NavHistory.navigate', () => {
 			.getActiveViewOfType = () => h.view;
 
 		const nav = makeNav(h.app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
-		expect(nav.index).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
+		expect(nav.stack.index).toBe(1);
 
 		await nav.places.travel(placeOf(nav, e => e.kind === 'jump'));
 
-		expect(nav.index).toBe(1);
-		expect(nav.entries.map(keyOf)).toEqual([undefined, 'outline:## One']);
+		expect(nav.stack.index).toBe(1);
+		expect(nav.stack.entries.map(keyOf)).toEqual([undefined, 'outline:## One']);
 	});
 
 	it('lands an unsettled teleport on the line it recorded, not nowhere', async () => {
@@ -806,12 +814,12 @@ describe('NavHistory.navigate', () => {
 			.getActiveViewOfType = () => h.view;
 
 		const nav = makeNav(h.app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordTeleport('a.md', 'leaf-1', 60); // recorded with no landing read
-		nav.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
-		expect(nav.entries[1].st).toBeUndefined();
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 60); // recorded with no landing read
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
+		expect(nav.stack.entries[1].st).toBeUndefined();
 
-		await nav.navigate(-1);
+		await nav.stack.navigate(-1);
 
 		// the line the entry itself recorded is the landing the traversal applies
 		expect(h.applied[0]).toMatchObject({ scroll: 60 });
@@ -826,9 +834,9 @@ describe('NavHistory.navigate', () => {
 			.getActiveViewOfType = () => h.view;
 
 		const nav = makeNav(h.app, {}, (path) => (path === 'a.md' ? { scroll: 41 } : undefined));
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // no landing ever settled
-		nav.recordOpen('b.md', 'leaf-1'); // step away
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // no landing ever settled
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away
 		const at = placeOf(nav, e => e.kind === 'jump');
 		expect(nav.places.entries[at].st).toBeUndefined();
 
@@ -849,13 +857,13 @@ describe('NavHistory.navigate', () => {
 		(h.app.workspace as unknown as { getMostRecentLeaf: () => unknown }).getMostRecentLeaf = () => h.leaf;
 
 		const nav = makeNav(h.app, {}, (path) => (path === 'a.md' ? { scroll: 41 } : undefined));
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
-		nav.recordOpen('b.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1'); // the note the reader is in, keyless
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // the note the reader is in, keyless
 		const at = placeOf(nav, e => e.kind === 'jump');
 		expect(at).toBeGreaterThanOrEqual(0);
-		const origin = nav.index;
+		const origin = nav.stack.index;
 
 		await nav.places.travel(at);
 
@@ -865,9 +873,9 @@ describe('NavHistory.navigate', () => {
 		// "back" returns to where the reader actually was (see
 		// refreshTopFromActiveView): with a sidebar focused there is no active file view
 		// to read it from.
-		const branch = nav.entries.findIndex((e, i) => i > origin && keyOf(e) === 'outline:## One');
+		const branch = nav.stack.entries.findIndex((e, i) => i > origin && keyOf(e) === 'outline:## One');
 		expect(branch).toBeGreaterThan(0);
-		expect(stOf(nav.entries[branch - 1])).toMatchObject({ scroll: 90 });
+		expect(stOf(nav.stack.entries[branch - 1])).toMatchObject({ scroll: 90 });
 	});
 
 	it('takes a jump place\'s landing from the settle, never from the leave', () => {
@@ -877,17 +885,17 @@ describe('NavHistory.navigate', () => {
 		// then switched files must not find that heading's recorded place moved to
 		// wherever they happened to drift to.
 		const settled = makeNav();
-		settled.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
+		settled.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
 		const a = settled.places.entries.findIndex(e => e.kind === 'jump');
-		settled.refreshTop('a.md', 'leaf-1', { scroll: 152 }, { landing: true });
+		settled.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
 		expect(settled.places.entries[a].st).toEqual({ scroll: 152 });
 
 		const left = makeNav();
-		left.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
+		left.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
 		const b = left.places.entries.findIndex(e => e.kind === 'jump');
-		left.refreshTop('a.md', 'leaf-1', { scroll: 900 });
+		left.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		// the stack kept the drift (back needs a position) …
-		expect(left.entries[left.index].st).toEqual({ scroll: 900 });
+		expect(left.stack.entries[left.stack.index].st).toEqual({ scroll: 900 });
 		// …and the place kept none: its row falls back to the file's own record
 		// rather than freezing the drift as the heading's spot.
 		expect(left.places.entries[b].st).toBeUndefined();
@@ -915,9 +923,9 @@ describe('NavHistory.navigate', () => {
 		ws.iterateAllLeaves = (cb) => { cb(activeLeaf); cb(targetLeaf); };
 
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-2');
-		nav.recordOpen('c.md', 'leaf-1');
-		await nav.navigate(-1);
+		nav.funnel.recordOpen('a.md', 'leaf-2');
+		nav.funnel.recordOpen('c.md', 'leaf-1');
+		await nav.stack.navigate(-1);
 
 		expect(ws.setActiveLeaf).toHaveBeenCalledWith(targetLeaf, { focus: true });
 		expect(targetLeaf.openFile).toHaveBeenCalledTimes(1);
@@ -952,15 +960,15 @@ describe('NavHistory.navigate', () => {
 			ws.iterateAllLeaves = (cb) => { cb(activeLeaf); cb(targetLeaf); };
 
 			const nav = makeNav(app);
-			const state = (nav as unknown as { state: PositionState }).state;
+			const state = (nav.stack as unknown as { state: PositionState }).state;
 			let armedDuringOpen: boolean | undefined;
 			targetLeaf.openFile.mockImplementation(() => {
 				armedDuringOpen = state.pendingHistoryNav;
 				return Promise.resolve();
 			});
-			nav.recordOpen('a.md', 'leaf-2');
-			nav.recordOpen('c.md', 'leaf-1');
-			await nav.navigate(-1);
+			nav.funnel.recordOpen('a.md', 'leaf-2');
+			nav.funnel.recordOpen('c.md', 'leaf-1');
+			await nav.stack.navigate(-1);
 
 			expect(armedDuringOpen).toBe(true);
 			vi.advanceTimersByTime(1000);
@@ -977,15 +985,15 @@ describe('NavHistory.navigate', () => {
 		try {
 			const { app } = makeCrossTabHarness();
 			const nav = makeNav(app);
-			const state = (nav as unknown as { state: PositionState }).state;
-			nav.recordOpen('a.md', 'leaf-2');
-			(nav.entries[0] as NavVisit).st = {
+			const state = (nav.stack as unknown as { state: PositionState }).state;
+			nav.funnel.recordOpen('a.md', 'leaf-2');
+			(nav.stack.entries[0] as NavVisit).st = {
 				scroll: 42,
 				cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } },
 			};
-			nav.recordOpen('c.md', 'leaf-1');
+			nav.funnel.recordOpen('c.md', 'leaf-1');
 
-			await nav.navigate(-1);
+			await nav.stack.navigate(-1);
 
 			// The entry's OWN position rides along to the open pipeline (the
 			// file record is only the fallback), so the line the browser row
@@ -1012,14 +1020,14 @@ describe('NavHistory.navigate', () => {
 		const app = makeApp([{ heading: 'T', level: 2, position: { start: { line: 100 } } }]);
 		makeCrossTabHarness(app);
 		const nav = makeNav(app);
-		const state = (nav as unknown as { state: PositionState }).state;
-		nav.recordOpen('a.md', 'leaf-2', { key: 'outline:## T' });
-		const jump = nav.entries[0] as NavJump;
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		nav.funnel.recordOpen('a.md', 'leaf-2', { key: 'outline:## T' });
+		const jump = nav.stack.entries[0] as NavJump;
 		jump.keyLine = 40;
 		jump.st = { scroll: 45, anchor: 'T' };
-		nav.recordOpen('c.md', 'leaf-1');
+		nav.funnel.recordOpen('c.md', 'leaf-1');
 
-		await nav.navigate(-1);
+		await nav.stack.navigate(-1);
 
 		expect(state.pendingHistoryNavState).toMatchObject({ scroll: 105 });
 	});
@@ -1041,14 +1049,14 @@ describe('NavHistory.navigate', () => {
 		});
 		const { app } = makeCrossTabHarness(makeApp(), targetLeaf.view);
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-2');
-		(nav.entries[0] as NavVisit).st = {
+		nav.funnel.recordOpen('a.md', 'leaf-2');
+		(nav.stack.entries[0] as NavVisit).st = {
 			scroll: 42,
 			cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } },
 		};
-		nav.recordOpen('c.md', 'leaf-1');
+		nav.funnel.recordOpen('c.md', 'leaf-1');
 
-		await nav.navigate(-1);
+		await nav.stack.navigate(-1);
 
 		expect(applied[0]).toMatchObject({ scroll: 42 });
 	});
@@ -1081,9 +1089,9 @@ describe('NavHistory.navigate', () => {
 		});
 
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		await nav.navigate(-1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		await nav.stack.navigate(-1);
 
 		expect(app.commands.executeCommandById).toHaveBeenCalledWith('app:go-back');
 		expect(leaf.openFile).not.toHaveBeenCalled();
@@ -1114,9 +1122,9 @@ describe('NavHistory.navigate', () => {
 		ws.iterateAllLeaves = (cb) => cb(leaf);
 
 		const nav = makeNav(app);
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		await nav.navigate(-1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		await nav.stack.navigate(-1);
 
 		expect(app.commands.executeCommandById).not.toHaveBeenCalled();
 		expect(leaf.openFile).toHaveBeenCalledTimes(1);
@@ -1124,7 +1132,7 @@ describe('NavHistory.navigate', () => {
 	});
 });
 
-// ===== NavHistory.navigate from sidebar focus =====
+// ===== NavStack.navigate from sidebar focus =====
 
 // A sidebar (file explorer, search, outline…) holds focus: getActiveViewOfType
 // is null until the traversal's setActiveLeaf reactivates a file tab — the
@@ -1189,19 +1197,19 @@ function makeSidebarHarness(opts: {
 	return { ws, nav: makeNav(app), openFile, setViewState, applied, leaves, newLeaf };
 }
 
-describe('NavHistory.navigate from sidebar focus', () => {
+describe('NavStack.navigate from sidebar focus', () => {
 	it('a same-file back reactivates the tab and applies the entry position', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('a.md', 'leaf-1', { key: 'teleport:60' });
-		(nav.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
-		expect(nav.index).toBe(1);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'teleport:60' });
+		(nav.stack.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		expect(nav.stack.index).toBe(1);
 
-		await nav.navigate(-1);
+		await nav.stack.navigate(-1);
 
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.leaves[0], { focus: true });
-		expect(nav.index).toBe(0);
+		expect(nav.stack.index).toBe(0);
 		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
@@ -1212,9 +1220,9 @@ describe('NavHistory.navigate from sidebar focus', () => {
 			mostRecentLeafId: 'leaf-2',
 		});
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1'); // leaf-1 has since been closed
-		nav.recordOpen('b.md', 'leaf-1');
-		await nav.navigate(-1);
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // leaf-1 has since been closed
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		await nav.stack.navigate(-1);
 
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.leaves[0], { focus: true });
 		expect(h.openFile).toHaveBeenCalledTimes(1);
@@ -1224,27 +1232,27 @@ describe('NavHistory.navigate from sidebar focus', () => {
 	it('canNavigate follows the same fallbacks as navigate', () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md' }] });
 		const nav = h.nav;
-		expect(nav.canNavigate(-1)).toBe(false); // empty stack
-		nav.recordOpen('a.md', 'leaf-1');
-		expect(nav.canNavigate(-1)).toBe(false); // bottom of the stack
-		nav.recordOpen('b.md', 'leaf-1');
-		expect(nav.canNavigate(-1)).toBe(true); // sidebar focused, tab resolvable
-		expect(nav.canNavigate(1)).toBe(false);
+		expect(nav.stack.canNavigate(-1)).toBe(false); // empty stack
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		expect(nav.stack.canNavigate(-1)).toBe(false); // bottom of the stack
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		expect(nav.stack.canNavigate(-1)).toBe(true); // sidebar focused, tab resolvable
+		expect(nav.stack.canNavigate(1)).toBe(false);
 
 		h.ws.setActiveLeaf(h.leaves[0]); // user focuses the file tab again
-		expect(nav.canNavigate(-1)).toBe(true);
+		expect(nav.stack.canNavigate(-1)).toBe(true);
 	});
 
 	it('canNavigate is false with sidebar focus and nothing resolvable', () => {
 		const h = makeSidebarHarness({ leaves: [] });
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		expect(nav.canNavigate(-1)).toBe(false);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		expect(nav.stack.canNavigate(-1)).toBe(false);
 	});
 });
 
-// ===== NavHistory: graph tab steps =====
+// ===== NavStack: graph tab steps =====
 
 function graphLeaf(id: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	return {
@@ -1254,45 +1262,45 @@ function graphLeaf(id: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	} as unknown as WorkspaceLeaf;
 }
 
-describe('NavHistory entry timestamps', () => {
+describe('NavStack entry timestamps', () => {
 	it('stamps every pushed entry with the push time', () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date('2025-09-12T10:00:00Z'));
 			const nav = makeNav();
-			nav.recordOpen('a.md', 'leaf-1');
-			expect(nav.entries[0].t).toBe(Date.parse('2025-09-12T10:00:00Z'));
+			nav.funnel.recordOpen('a.md', 'leaf-1');
+			expect(nav.stack.entries[0].t).toBe(Date.parse('2025-09-12T10:00:00Z'));
 			vi.setSystemTime(new Date('2025-09-12T10:05:00Z'));
-			nav.recordOpen('b.md', 'leaf-1');
-			expect(nav.entries[1].t).toBe(Date.parse('2025-09-12T10:05:00Z'));
+			nav.funnel.recordOpen('b.md', 'leaf-1');
+			expect(nav.stack.entries[1].t).toBe(Date.parse('2025-09-12T10:05:00Z'));
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 });
 
-describe('NavHistory graph view steps', () => {
+describe('NavStack graph view steps', () => {
 	it('graph activation records a pathless view entry and dedups; sidebar does not record', () => {
 		const nav = makeNav();
-		nav.recordActivation(graphLeaf('leaf-g'));
-		nav.recordActivation(graphLeaf('leaf-g')); // re-click same tab: dedup
-		expect(nav.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) }]);
+		nav.funnel.recordActivation(graphLeaf('leaf-g'));
+		nav.funnel.recordActivation(graphLeaf('leaf-g')); // re-click same tab: dedup
+		expect(nav.stack.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) }]);
 
-		nav.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
-		expect(nav.entries.length).toBe(1);
+		nav.funnel.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
+		expect(nav.stack.entries.length).toBe(1);
 	});
 
 	it('back from the graph tab reactivates the previous file tab without reopening', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1');
 		h.leaves.push(graphLeaf('leaf-g') as never);
-		nav.recordActivation(graphLeaf('leaf-g'));
-		expect(nav.index).toBe(1);
+		nav.funnel.recordActivation(graphLeaf('leaf-g'));
+		expect(nav.stack.index).toBe(1);
 
-		await nav.navigate(-1); // graph active (no FileView): current entry is the graph step
+		await nav.stack.navigate(-1); // graph active (no FileView): current entry is the graph step
 
-		expect(nav.index).toBe(0);
+		expect(nav.stack.index).toBe(0);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.leaves[0], { focus: true });
 		expect(h.openFile).not.toHaveBeenCalled(); // a.md already in that tab
 	});
@@ -1300,15 +1308,15 @@ describe('NavHistory graph view steps', () => {
 	it('forward from a file tab reactivates the graph tab without opening', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1');
 		const gLeaf = graphLeaf('leaf-g');
 		h.leaves.push(gLeaf as never);
-		nav.recordActivation(gLeaf);
-		(nav as unknown as { index: number }).index = 0; // simulate having gone back
+		nav.funnel.recordActivation(gLeaf);
+		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
 
-		await nav.navigate(1);
+		await nav.stack.navigate(1);
 
-		expect(nav.index).toBe(1);
+		expect(nav.stack.index).toBe(1);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(gLeaf, { focus: true });
 		expect(h.setViewState).not.toHaveBeenCalled(); // the graph is already showing
 		expect(h.openFile).not.toHaveBeenCalled();
@@ -1319,13 +1327,13 @@ describe('NavHistory graph view steps', () => {
 		// graph out of its own leaf, so the graph entry shares the leaf id.
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
-		(nav as unknown as { index: number }).index = 0; // simulate having gone back
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
+		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
 
-		await nav.navigate(1);
+		await nav.stack.navigate(1);
 
-		expect(nav.index).toBe(1);
+		expect(nav.stack.index).toBe(1);
 		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
@@ -1363,11 +1371,11 @@ describe('NavHistory graph view steps', () => {
 
 		const nav = makeNav(app);
 		// file → graph (one leaf, swapped) → node click opened the file again
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
-		nav.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
+		nav.funnel.recordOpen('a.md', 'leaf-1');
 
-		await nav.navigate(-1); // back to the graph step
+		await nav.stack.navigate(-1); // back to the graph step
 
 		expect(app.commands.executeCommandById).toHaveBeenCalledWith('app:go-back');
 		expect(leaf.setViewState).not.toHaveBeenCalled();
@@ -1377,27 +1385,27 @@ describe('NavHistory graph view steps', () => {
 	it('a closed graph leaf is a no-op, never a swap over the active file', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordOpen('b.md', 'leaf-1');
-		nav.recordOpen(undefined, 'leaf-gone', { viewType: 'graph' }); // leaf since closed
-		(nav as unknown as { index: number }).index = 1; // simulate having gone back once
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		nav.funnel.recordOpen(undefined, 'leaf-gone', { viewType: 'graph' }); // leaf since closed
+		(nav.stack as unknown as { index: number }).index = 1; // simulate having gone back once
 
-		await nav.navigate(1);
+		await nav.stack.navigate(1);
 
-		expect(nav.index).toBe(2);
+		expect(nav.stack.index).toBe(2);
 		expect(h.setViewState).not.toHaveBeenCalled();
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
 	it('a persisted graph entry survives the load filter', () => {
 		const nav = makeNav();
-		nav.recordOpen('a.md', 'leaf-1');
-		nav.recordActivation(graphLeaf('leaf-g'));
-		nav.persist();
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordActivation(graphLeaf('leaf-g'));
+		nav.stack.persist();
 
 		const restored = makeNav();
-		expect(restored.entries).toEqual(nav.entries);
-		expect(restored.index).toBe(1);
+		expect(restored.stack.entries).toEqual(nav.stack.entries);
+		expect(restored.stack.index).toBe(1);
 	});
 });
 
@@ -1429,42 +1437,46 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 	};
 	const fullSettings = { ...DEFAULT_SETTINGS, ...settings } as PluginSettings;
 	const state = new PositionState(fullSettings);
-	const refreshTop = vi.fn();
+	const leave = vi.fn();
 	const recordTeleport = vi.fn();
 	const store = new PositionStore(app as never, database as never);
-	const sampler = new Sampler(app as never, store, fullSettings, state, {
-		entries: [] as NavHistoryEntry[],
-		index: -1,
+	// The funnel the sampler writes to. The sampler is purely a CAPTURE point —
+	// it never reads the stack — so a spy funnel is the whole of what it needs.
+	const funnel = {
 		recordOpen: vi.fn(),
 		recordTeleport,
-		refreshTop,
-	} as never);
+		recordActivation: vi.fn(),
+		leave,
+		settled: vi.fn(),
+		landing: vi.fn(),
+	};
+	const sampler = new Sampler(app as never, store, fullSettings, state, funnel as never);
 	state.lastLoadedFilePath = 'a.md';
 	state.lastEphemeralState = { scroll: 0, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 	const onSelection = (sampler as unknown as { onEditorSelection: (editor: unknown) => void }).onEditorSelection;
-	return { sampler, state, recordTeleport, refreshTop, database, view, cursor, onSelection };
+	return { sampler, state, recordTeleport, leave, database, view, cursor, onSelection };
 }
 
 // A travel the reader asked to happen SOMEWHERE ELSE — the modifier-click, the
 // middle button, the keyboard's Cmd/Ctrl+Enter (see PaneTarget / list.ts). It is a
 // different question from every other branch of the open pipeline, which exists to go
 // BACK to a place: here the place's own tab must not move.
-describe('NavHistory — a travel asked for elsewhere', () => {
+describe('NavStack — a travel asked for elsewhere', () => {
 	// The arming flag the setViewState patch consumes: the landing a traversal injects
 	// over the native entry's cursor-only state (see armHistoryNav).
 	const armed = (nav: ReturnType<typeof makeNav>) =>
-		(nav as unknown as {
+		(nav.stack as unknown as {
 			state: { pendingHistoryNav: boolean; pendingHistoryNavState?: unknown; pendingHistoryNavPath?: string };
 		}).state;
 
 	it('opens a JUMP place in the leaf the app picks, with the same landing armed', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
-		const place: NavHistoryEntry = {
+		const place: NavEntry = {
 			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
 			st: { scroll: 30 },
 		};
 
-		await h.nav.travelTo(place, 'tab');
+		await h.nav.stack.travelTo(place, 'tab');
 
 		// The app's own answer decides the leaf (see Keymap.isModEvent): the plugin only
 		// passes it on.
@@ -1484,7 +1496,7 @@ describe('NavHistory — a travel asked for elsewhere', () => {
 		// database decides where it lands, in a new tab exactly as in the old one.
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 
-		await h.nav.openFilePlain('b.md', 'leaf-1', 'tab');
+		await h.nav.stack.openFilePlain('b.md', 'leaf-1', 'tab');
 
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 		expect(h.openFile.mock.contexts[0]).toBe(h.newLeaf);
@@ -1496,7 +1508,7 @@ describe('NavHistory — a travel asked for elsewhere', () => {
 		// `active` is what brings it to the front.
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 
-		await h.nav.openViewPlace({ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1 }, 'tab');
+		await h.nav.stack.openViewPlace({ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1 }, 'tab');
 
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
@@ -1517,7 +1529,7 @@ describe('Sampler in-file teleport detection', () => {
 		}]);
 		// the entry being left got the poll's read (harness baseline:
 		// scroll 0, cursor line 3)
-		expect(h.refreshTop).toHaveBeenCalledWith('a.md', 'leaf-1', {
+		expect(h.leave).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 0,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 		});
@@ -1543,7 +1555,7 @@ describe('Sampler in-file teleport detection', () => {
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor); // 57-line jump, setting off
 		expect(h.recordTeleport).not.toHaveBeenCalled();
-		expect(h.refreshTop).not.toHaveBeenCalled();
+		expect(h.leave).not.toHaveBeenCalled();
 	});
 
 	it('flushOnLeave writes the exact leaving state; recording rules still gate it', () => {
@@ -1606,11 +1618,21 @@ function makePatcherHarness(db: Record<string, unknown> = {}) {
 		},
 	} as never;
 	const store = new PositionStore(app, { db } as never);
-	const nav = { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() };
-	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, nav as never, { flushOnLeave: vi.fn() } as never);
+	// The funnel the patcher writes to. Like the sampler, the patcher is purely a
+	// CAPTURE point — it records the open and the leave-read, never reads the
+	// stack — so a spy funnel stands in for it.
+	const funnel = {
+		recordOpen: vi.fn(),
+		recordTeleport: vi.fn(),
+		recordActivation: vi.fn(),
+		leave: vi.fn(),
+		settled: vi.fn(),
+		landing: vi.fn(),
+	};
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, funnel as never, { flushOnLeave: vi.fn() } as never);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
-	return { state, leaf, inject, nav };
+	return { state, leaf, inject, funnel };
 }
 
 afterEach(() => {
@@ -1619,16 +1641,16 @@ afterEach(() => {
 });
 
 describe('OpenPatcher navigation integration', () => {	it('every file-changing open records a jump entry', () => {
-		const { leaf, inject, nav } = makePatcherHarness({});
+		const { leaf, inject, funnel } = makePatcherHarness({});
 		inject(leaf, SOURCE_OPEN_A('a.md'), undefined);
-		expect(nav.recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
+		expect(funnel.recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
 
 	it('a same-file caller target (match) records with force and a unique caller key', () => {
-		const { state, leaf, inject, nav } = makePatcherHarness({});
+		const { state, leaf, inject, funnel } = makePatcherHarness({});
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		inject(leaf, SOURCE_OPEN_A(), { match: {} });
-		expect(nav.recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', {
+		expect(funnel.recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			key: expect.stringMatching(/^caller:/),
 			force: true,
 		});

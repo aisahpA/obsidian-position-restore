@@ -14,19 +14,20 @@
 //   - reads.ts                        every vault lookup, cached and metadata-only
 //   - list.ts                         the list of notes and the position in it
 // The name says BROWSER because the list itself — which places exist, how they are
-// recorded, persisted and travelled to — is the rest of nav-history/ (places.ts,
-// places-store.ts, plus the recording funnel in history.ts and the entry vocabulary in
-// entry.ts), which this panel only reads and never writes.
+// recorded, persisted and travelled to — is the rest of recent-files/ (places.ts and
+// places-store.ts beside this directory), over the shared entry vocabulary in
+// nav/entry.ts, which this panel only reads and never writes.
 //
 // READ-ONLY, and that is what makes a RESIDENT panel possible at all: the body draws
-// whatever the stack holds at the moment render() is called. The list's own snapshot is
-// refreshed from the stack on every render (see render), so a shell that lives for hours
-// shows the history as it stands rather than as it stood when the panel opened — and one
-// that lives for a second (the modal) is not asked for anything more.
+// whatever the place list holds at the moment render() is called. The list's own snapshot
+// is refreshed from the places on every render (see render), so a shell that lives for
+// hours shows the history as it stands rather than as it stood when the panel opened — and
+// one that lives for a second (the modal) is not asked for anything more.
 
 import { App, Menu, TFile, setIcon, Keymap } from 'obsidian';
-import { NavHistoryEntry } from '@/nav-history/entry';
-import { PaneTarget, PlaceList, placeKey } from '@/nav-history/places';
+import { NavEntry } from '@/nav/entry';
+import { PaneTarget } from '@/nav/pane';
+import { PlaceList, placeKey } from '@/recent-files/places';
 import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
 import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
@@ -470,7 +471,7 @@ export class RecentFilesBrowser {
 
 	// The heading chain the entry's landing sits in. Empty for a view entry or an
 	// entry with no recorded line.
-	private trailFor(entry: NavHistoryEntry, d: NavEntryDescription): string[] {
+	private trailFor(entry: NavEntry, d: NavEntryDescription): string[] {
 		if (entry.kind === 'view' || d.lineIndex === undefined)
 			return [];
 		return headingTrailAtLine(this.reads.headingsFor(entry.path), d.lineIndex);

@@ -3,7 +3,7 @@
 // can answer — the file's saved position, and its mtime now — coming in as
 // predicates. No DOM and no `this`: every function here is testable on its own.
 
-import { NavHistoryEntry } from '@/nav-history/entry';
+import { NavEntry } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 
@@ -121,7 +121,7 @@ export interface NavEntryDescription {
 // This is what "the SAME landing" means anywhere the browser tells two steps apart
 // without a DOM: the list collapses the steps that landed on one line into one spot
 // (see groupByFile), and the row prints the number it returns.
-export function landedLine(entry: NavHistoryEntry): number | undefined {
+export function landedLine(entry: NavEntry): number | undefined {
 	if (entry.kind === 'view')
 		return undefined;
 	const st = entry.st;
@@ -134,7 +134,7 @@ export function landedLine(entry: NavHistoryEntry): number | undefined {
 // through the nav read: the file's saved position below, or a teleport whose landing
 // never settled.
 export function describeNavEntry(
-	entry: NavHistoryEntry,
+	entry: NavEntry,
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ): NavEntryDescription {
 	if (entry.kind === 'view')
@@ -245,7 +245,7 @@ export function ageLabel(at: number, now: number): string {
 // question about all of them. Undefined for a group with no stamp at all, which
 // the rows then print nothing for.
 export function newestStamp(
-	entries: NavHistoryEntry[],
+	entries: NavEntry[],
 	indices: number[],
 	anchor?: number,
 ): number | undefined {

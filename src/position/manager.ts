@@ -7,15 +7,17 @@ import { BackgroundSettler } from './restore/background-settle';
 import { Restorer } from './restore/restorer';
 import { OpenPatcher } from './restore/patcher';
 import { Sampler } from './capture/sampler';
-import { NavHistory } from '@/nav-history/history';
-import { RecentFilesModal } from '@/nav-history/browser/modal';
-import type { RecentFilesBrowserPrefs } from '@/nav-history/browser/body';
+import { NavFunnel } from '@/nav/funnel';
+import { NavStack } from '@/nav-history/stack';
+import { NavPlaces } from '@/recent-files/places';
+import { RecentFilesModal } from '@/recent-files/browser/modal';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import {
 	RECENT_FILES_VIEW_TYPE,
 	RecentFilesView,
 	activateRecentFilesView,
 	createRecentFilesView,
-} from '@/nav-history/browser/view';
+} from '@/recent-files/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 
 // Thin facade over the collaborating pieces, owned by the plugin:
@@ -24,15 +26,23 @@ import { PathBookkeeper } from './path-bookkeeping';
 //  - Sampler: the polling-loop observer plus scroll listener that persists
 //    position changes (see capture/sampler.ts).
 //  - Restorer: restores a saved position after an open.
-//  - NavHistory: the VSCode-style back/forward stack (records via the patch
-//    and the poll, executes through the native per-tab history).
+//  - NavFunnel: the neutral recording funnel (one navigation, several readers)
+//    — the capture points write to it: the setViewState patch, the poll, the
+//    outline panel, active-leaf-change.
+//  - NavStack: the VSCode-style back/forward stack (executes through the native
+//    per-tab history) — one of the funnel's listeners, and the open pipeline
+//    the recent-files list travels through.
+//  - NavPlaces: the recent-files list — the funnel's other listener, keeping a
+//    list of PLACES instead of steps.
 //  - PathBookkeeper: the path-keyed bookkeeping for the vault's rename/delete
 //    events — which records move, which are dropped, and why a delete has to be
 //    deferred before it can be dropped (see path-bookkeeping.ts).
 // All cross-phase coordination flags live in the shared PositionState, so the
 // collaborators never desync. main.ts only talks to this class. Nothing here
 // owns state of its own beyond the collaborators: a method dispatches to the
-// piece that owns the concern.
+// piece that owns the concern. This is also the ONE place that knows both
+// navigation stores — it wires the funnel to each and hands the place list the
+// stack's open pipeline — so neither store has to import the other.
 export class PositionManager {
 	private app: App;
 	private database: CursorPositionDatabase;
@@ -42,7 +52,9 @@ export class PositionManager {
 	private patcher: OpenPatcher;
 	private sampler: Sampler;
 	private backgroundSettler: BackgroundSettler;
-	private nav: NavHistory;
+	private funnel: NavFunnel;
+	private stack: NavStack;
+	private places: NavPlaces;
 	private bookkeeper: PathBookkeeper;
 
 	constructor(
@@ -56,13 +68,37 @@ export class PositionManager {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
-		this.nav = new NavHistory(app, settings, this.state, (path) => this.database.db[path]);
+		// The recording funnel first: both readers below need it. The capture
+		// points write to it (the setViewState patch and the poll through their
+		// owners, the outline panel and active-leaf-change through the funnel's
+		// own API); the stack and the place list subscribe.
+		this.funnel = new NavFunnel(app, this.state);
+		this.stack = new NavStack(app, settings, this.state, this.funnel, (path) => this.database.db[path]);
+		this.places = new NavPlaces(app, settings);
+		// The funnel's two listeners. The stack IS one (it keeps steps); the
+		// place list keeps its own vocabulary (remember/settle/markCurrent —
+		// places, not steps), so the port translation lives HERE, in the one
+		// place that knows both. Neither store imports the other.
+		this.funnel.subscribe(this.stack);
+		this.funnel.subscribe({
+			onVisit: (recording) => this.places.remember(recording.record),
+			onLanded: (entry) => this.places.settle(entry),
+			onHere: (entry) => this.places.markCurrent(entry),
+		});
+		// The place list travels through the stack's open pipeline, but the two
+		// speak different words (openJump/openView/openFile vs travelTo/
+		// openViewPlace/openFilePlain), so this adapter is written here too.
+		this.places.attach({
+			openFile: (path, leafId, target) => this.stack.openFilePlain(path, leafId, target),
+			openJump: (entry, target) => this.stack.travelTo(entry, target),
+			openView: (entry, target) => this.stack.openViewPlace(entry, target),
+		});
 		this.store = new PositionStore(app, database);
 		this.restorer = new Restorer(app, settings, this.store, this.state);
-		this.sampler = new Sampler(app, this.store, settings, this.state, this.nav);
-		this.patcher = new OpenPatcher(app, settings, this.store, this.state, this.nav, this.sampler);
+		this.sampler = new Sampler(app, this.store, settings, this.state, this.funnel);
+		this.patcher = new OpenPatcher(app, settings, this.store, this.state, this.funnel, this.sampler);
 		this.backgroundSettler = new BackgroundSettler(app, settings, this.store, this.state);
-		this.bookkeeper = new PathBookkeeper(app, this.store, this.nav, this.state);
+		this.bookkeeper = new PathBookkeeper(app, this.store, [this.stack, this.places], this.state);
 	}
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
@@ -70,7 +106,7 @@ export class PositionManager {
 		// Outline panel clicks as in-file nav jumps (reading mode — the one
 		// jump path the patches and the poll cannot see). Silent no-op when
 		// the outline DOM can't be resolved.
-		this.nav.installOutlineCapture(registerCleanup);
+		this.funnel.installOutlineCapture(registerCleanup);
 		// Search anchor: armed by focus on a search input (editor find,
 		// switcher, search panel) so search-driven jumps don't overwrite the
 		// saved position — see Sampler.installSearchAnchor. Platform-neutral:
@@ -136,58 +172,53 @@ export class PositionManager {
 		// writes against the last blob, so an unchanged round is one stringify.
 		this.store.persist();
 
-		// Navigation history rides the same persist points (dirty-checked
-		// against the last written snapshot, so unchanged rounds cost one
-		// stringify).
-		this.nav.persist();
+		// Navigation stores ride the same persist points (each dirty-checked
+		// against its own last written snapshot, so an unchanged round costs one
+		// stringify). Two independent calls: the stack keeps steps, the list
+		// keeps places, and neither writes on the other's behalf.
+		this.stack.persist();
+		this.places.persist();
 
 		void this.database.writeDb();
 	}
 
 	// Navigate back/forward through the recorded jump history (VSCode-style).
 	navigateBack() {
-		void this.nav.navigate(-1)
+		void this.stack.navigate(-1)
 			.catch(e => console.error('Position Restore: navigate back failed:', e));
 	}
 
 	navigateForward() {
-		void this.nav.navigate(1)
+		void this.stack.navigate(1)
 			.catch(e => console.error('Position Restore: navigate forward failed:', e));
 	}
 
 	// Command availability for back/forward (checkCallback). True also when a
 	// sidebar holds focus but the last file tab can be reactivated — see
-	// NavHistory.canNavigate.
+	// NavStack.canNavigate.
 	canNavigate(dir: -1 | 1): boolean {
-		return this.nav.canNavigate(dir);
+		return this.stack.canNavigate(dir);
 	}
 
 	// The "Open recent files" modal (main.ts command) — see
-	// RecentFilesModal / NavHistory.jumpTo.
+	// RecentFilesModal / NavStack.travelTo.
 	openRecentFilesModal() {
-		// The file you are sitting in has had no leave-refresh yet — fill its
-		// position, and make sure it has a place on the list, before the browser
-		// renders.
-		this.nav.syncCurrentPosition();
-		new RecentFilesModal(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs()).open();
+		new RecentFilesModal(this.app, this.places, (path) => this.database.db[path], this.browserPrefs()).open();
 	}
 
 	// The resident form of the same browser (main.ts command) — see
-	// RecentFilesView. Same history, same rows, standing in a sidebar instead of
+	// RecentFilesView. Same list, same rows, standing in a sidebar instead of
 	// asked and dismissed.
 	openRecentFilesSidebar() {
-		// Same reason as the modal's: the panel draws the list as it stands, and
-		// the note being sat in may have no place on it yet.
-		this.nav.syncCurrentPosition();
-		void activateRecentFilesView(this.app, this.nav.places, (path) => this.database.db[path], this.browserPrefs());
+		void activateRecentFilesView(this.app, this.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
 	// The factory main.ts hands to Plugin.registerView: the view needs the
-	// history, the saved positions and the browser's own preferences, all of
+	// place list, the saved positions and the browser's own preferences, all of
 	// which this facade owns, so the wiring is handed out here rather than reached
 	// for through it.
 	recentFilesViewCreator(): (leaf: WorkspaceLeaf) => RecentFilesView {
-		return createRecentFilesView(this.nav.places, (path) => this.database.db[path], this.browserPrefs());
+		return createRecentFilesView(this.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
 	// The preferences the recent-files browser draws by (see types.ts): read LIVE off the
@@ -227,9 +258,9 @@ export class PositionManager {
 	}
 
 	// Tab/pane activation records a nav entry (VSCode semantics) — see
-	// NavHistory.recordActivation.
+	// NavFunnel.recordActivation.
 	recordActivation(leaf: WorkspaceLeaf | null): void {
-		this.nav.recordActivation(leaf);
+		this.funnel.recordActivation(leaf);
 	}
 
 	// True while a search session is live (a search input holds, or just
@@ -252,19 +283,20 @@ export class PositionManager {
 		this.bookkeeper.deleteFile(file);
 	}
 
-	// Startup sweep for navigation history: files deleted while Obsidian was
-	// closed fire no 'delete' event, so their entries would sit in the browser
-	// as dead rows (holding slots in the capped stack) for good. History only —
-	// the position records are deliberately left alone (see PathBookkeeper).
+	// Startup sweep for the navigation stores: files deleted while Obsidian was
+	// closed fire no 'delete' event, so their entries would sit in the stack and
+	// the recent-files list as dead rows (holding slots in their caps) for good.
+	// The navigation stores only — the position records are deliberately left
+	// alone (see PathBookkeeper).
 	sweepMissingHistory() {
 		this.bookkeeper.sweepMissingHistory();
 	}
 
 	// The history stack's ceiling changed in the settings: apply it to the
 	// stack already in memory instead of waiting for the next navigation to
-	// drop a large chunk at once (see NavHistory.applyStackCap).
+	// drop a large chunk at once (see NavStack.applyStackCap).
 	applyNavStackCap(): void {
-		this.nav.applyStackCap();
+		this.stack.applyStackCap();
 	}
 
 	// The recent-files list's own folder rule changed: drop the places the new
@@ -272,17 +304,16 @@ export class PositionManager {
 	// slot in a capped list until they happen to revisit it — and the drop has to
 	// happen while they are looking at the setting they just changed.
 	applyNavRecentFolders(): void {
-		if (this.nav.places.pruneExcluded() > 0)
-			this.nav.places.applyCap();
+		if (this.places.pruneExcluded() > 0)
+			this.places.applyCap();
 	}
 
-	// Throw the recent-files list away, and stand it up again on the note being read
-	// (main.ts's "clear recent files" command). The panel follows both halves through
-	// its subscription: the rows go, and the one note the reader is actually in comes
-	// back as the first of them.
+	// Throw the recent-files list away (main.ts's "clear recent files"
+	// command). The panel follows through its subscription: the rows go, and
+	// nothing is put back — an empty list is the whole of what was asked, and
+	// the next navigation refills it (see NavPlaces.clear).
 	clearRecentPlaces(): void {
-		this.nav.places.clear();
-		this.nav.syncCurrentPosition();
+		this.places.clear();
 	}
 
 	// The recent-files list's ceiling changed: the list in memory is trimmed at
@@ -291,7 +322,7 @@ export class PositionManager {
 	// (data.json edited by hand, a sync landing) — the panel no longer carries a
 	// second copy of the knob, so every writer comes through here.
 	applyNavRecentCap(): void {
-		this.nav.places.applyCap();
+		this.places.applyCap();
 	}
 
 	// Every setting in `before` that differs from the current one has its

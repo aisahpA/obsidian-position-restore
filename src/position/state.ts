@@ -172,7 +172,7 @@ export class PositionState {
 	pendingViaPath: string | undefined;
 	pendingViaText: string | undefined;
 
-	// One-shot flag armed by NavHistory right before it invokes the native
+	// One-shot flag armed by NavStack right before it invokes the native
 	// app:go-back / app:go-forward command: the resulting setViewState must
 	// inject THIS plugin's saved position over the native entry's eState
 	// (which carries only the cursor, never the scroll). Consumed by the
@@ -182,7 +182,7 @@ export class PositionState {
 	pendingHistoryNavTimeout = 0;
 
 	// The landing the pending traversal's open must be given, when the target
-	// entry carries its own recorded position (see NavHistory.landingFor): the
+	// entry carries its own recorded position (see NavStack.landingFor): the
 	// setViewState patch injects THIS over the file record, and the injected
 	// restore settles to the same value. undefined = the traversal has no
 	// entry landing of its own, and the file record ("where the user actually
@@ -209,7 +209,7 @@ export class PositionState {
 	// dropped with the injected marker for closed leaves.
 	injectedLeafStates: Map<string, EphemeralState> = new Map();
 
-	// Deadline until which a restore's landing cue is suppressed: NavHistory
+	// Deadline until which a restore's landing cue is suppressed: NavStack
 	// arms it at each moment a traversal triggers a restore (same-file
 	// historyJumpApply, delegateNative, openInLeaf), so back/forward hops
 	// land without the "position restored" chip — the user chose the

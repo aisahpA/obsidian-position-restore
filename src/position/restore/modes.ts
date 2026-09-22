@@ -195,8 +195,8 @@ export class RestoreModes {
 	// wait for. Apply the entry position, run the source pixel correction
 	// (the same estimate-drift a fresh open suffers, minus the fresh open),
 	// then the shared anchor (baseline re-anchor + drift loop + cue). Runs
-	// inside NavHistory's restore bracket, so the poll cannot record the
-	// applies as user movement.
+	// inside the funnel's restore bracket (NavFunnel.runBracketed), so the poll
+	// cannot record the applies as user movement.
 	async historyJumpApply(view: MarkdownView, st: NavEntryState, isCurrent: () => boolean, shift?: number) {
 		// The entry's lines predate any in-file edits made after it was
 		// recorded (inserts/deletes above shift every line below). Two ways
@@ -351,7 +351,7 @@ export class RestoreModes {
 			this.state.lastAnchorAt = Date.now();
 			// Every real restore path ends here (masked/glide/injected/default
 			// jumps); dedup, link jumps, and native-default opens don't, so the
-			// cue only fires after an actual restore landed. NavHistory
+			// cue only fires after an actual restore landed. NavStack
 			// traversals (back/forward) arm cueSuppressUntil — the user chose
 			// the destination, no chip.
 			if (Date.now() >= this.state.cueSuppressUntil)

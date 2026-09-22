@@ -26,7 +26,7 @@ interface NavContextLine {
 	text: string,
 }
 
-// What a NavHistory entry carries beyond the position: the nav-display
+// What a nav entry carries beyond the position: the nav-display
 // fields, produced ONLY by the low-frequency nav reads (readNavEntryState /
 // withNavDisplay) at the moment a navigation entry is saved — never by the
 // hot read. EphemeralState is structurally assignable, so baseline-fed

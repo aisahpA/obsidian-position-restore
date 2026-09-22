@@ -6,45 +6,41 @@ import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture
 import { resolveAnchorLine, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
-	NavHistoryEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
-	RECORDABLE_VIEW_TYPES,
-} from './entry';
+	NavEntry, NavJump, NavVisit, NavTeleport, NewNavEntry,
+} from '@/nav/entry';
+import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
+import { PaneTarget } from '@/nav/pane';
 import { isMainAreaLeaf } from '@/shared/leaf';
 import { loadNavHistory, persistNavHistory } from './store';
-import { NavPlaces, PaneTarget } from './places';
-import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
-// VSCode-style back/forward navigation, and the recording funnel for the
-// recent-files list.
-//
-// TWO LISTS, TWO QUESTIONS, ONE SET OF RECORDING POINTS. This class owns the
-// back/forward STACK (below). The panel draws the PLACE list instead, which is
-// its own store (places.ts) — it is fed from here, at push and at the landing
-// settle, because a navigation is one event with two readers, but what the two
-// keep differs: the stack holds steps (ordered, capped, truncated, teleports
-// included), the place list holds places (deduped, never truncated, teleports
-// dropped, no position at all for a file). A traversal travels through
-// navigate(); a panel row travels through places.travel, which decides from the
-// record itself: a FILE opens the plain way and lets the position database land
-// it, a JUMP carries its own landing (see travelTo).
+// VSCode-style BACK/FORWARD, and the open pipeline a place is travelled through.
 //
 // THE STACK. One global array of entries (NavJump | NavTeleport | NavVisit |
-// NavView) with a current index. Every recorded jump (any file switch, tab/pane
-// activation, in-file anchor/search/large cursor jumps) pushes; back/forward
-// move the index; a fresh jump truncates the forward part — that IS back/forward
-// semantics, and it is why the panel does not draw this list. Two position
-// regimes:
-// keyed entries (outline:<heading>, anchor linktext) and teleports carry
-// the jump's precise landing — written at push time (teleport) or when the
-// landing settles (outline/anchor) — and are never overwritten afterwards
-// (back/forward must return to the jump target itself); keyless open/
-// activation entries carry no position of their own — their st slot is
-// refreshed on every leave ("where the user actually was"). st feeds BOTH
-// the same-file direct apply (execute) and the cross-file open: a traversal
-// hands the target's own landing to the open pipeline (landingFor), so the
-// line a row shows is the line the open lands on. Only an entry with no
-// recorded position of its own falls back to the per-file records
-// (database + the per-leaf overlay) — "where the user actually was".
+// NavView) with a current index. Every navigation the reader makes pushes a step;
+// back/forward move the index; a fresh jump truncates the forward part — that IS
+// back/forward semantics, and it is why the panel next door does not draw this
+// list. Two position regimes: keyed entries (outline:<heading>, anchor linktext)
+// and teleports carry the jump's precise landing — written at push time
+// (teleport) or when the landing settles (outline/anchor) — and are never
+// overwritten afterwards (back/forward must return to the jump target itself);
+// keyless open/activation entries carry no position of their own — their st slot
+// is refreshed on every leave ("where the user actually was"). st feeds BOTH the
+// same-file direct apply (execute) and the cross-file open: a traversal hands the
+// target's own landing to the open pipeline (landingFor), so the line a row shows
+// is the line the open lands on. Only an entry with no recorded position of its
+// own falls back to the per-file records (database + the per-leaf overlay) —
+// "where the user actually was".
+//
+// RECORDING DOES NOT LIVE HERE. This class is a LISTENER on the recording funnel
+// (nav/funnel.ts): the capture points (the setViewState patch, the poll, the
+// outline panel, active-leaf-change) write what they saw, the funnel applies the
+// SHARED gates — a traversal's own opens and the startup rebuild are not
+// navigations for anybody — and publishes. This class then applies ITS OWN gates
+// and keeps its own kind of record: whether a tab switch is worth a step
+// (navRecordActivation), whether an inferred cursor jump is (navRecordTeleport),
+// the same-location dedup, and the ceiling. The funnel's other listener keeps a
+// place list instead of steps; neither list knows the other exists, and this one
+// no longer reports on the other's behalf.
 //
 // Same-tab file switches EXECUTE through Obsidian's native per-tab history
 // (leaf.history + app:go-back/go-forward): that covers PDF/canvas and every
@@ -54,9 +50,9 @@ import { installOutlineCapture as installOutlineCaptureHook } from './outline-ca
 // Cross-tab traversals reactivate the original leaf (leafId); a closed leaf
 // falls back to the active one. Non-file main-area views (the graph tabs)
 // are recorded too: their entries have no path, only a viewType — traversal
-// just reactivates the leaf. The entry vocabulary (NavHistoryEntry and its
+// just reactivates the leaf. The entry vocabulary (NavEntry and its
 // variants, isMainAreaLeaf, the recordable view whitelist) lives in
-// entry.ts.
+// nav/entry.ts.
 //
 // Native per-tab history entry (internal, untyped): { state: { type, state:
 // { file, ... } }, eState: ... } — only the fields read for target
@@ -85,57 +81,36 @@ const HISTORY_NAV_TIMEOUT_MS = 1000;
 // shows its own cue again.
 const NAV_CUE_SUPPRESS_MS = 3000;
 
-// Watchdog releasing the navigate() bracket if a traversal await hangs
-// (openFile / loadIfDeferred never resolve): without it `executing` would
-// stay up forever and permanently disable back/forward. Sits above the
-// legit apply ceiling (SETTLE_MAX_MS 800 + RELAND_MAX_MS 3000 + anchor
-// delays), so slow-but-progressing traversals are never cut off.
-const NAV_WATCHDOG_MS = 5000;
-
-export class NavHistory {
+export class NavStack implements NavFunnelSink {
 	private app: App;
 	private state: PositionState;
 	private modes: RestoreModes;
 	// Shared settings object (main.ts assigns once, settings-tab mutates in
 	// place): recording toggles and the stack cap stay live.
 	private settings: PluginSettings;
+	// The recording funnel this stack listens to, and whose bracket a traversal
+	// runs inside.
+	private funnel: NavFunnel;
 
-	entries: NavHistoryEntry[] = [];
+	entries: NavEntry[] = [];
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
-
-	// THE RECENT FILES LIST (see places.ts) — a store of its own, not a view of
-	// the stack above. The panel draws ITS records and travels through ITS
-	// travel(); the stack stays the traversal device (ordered, capped small, and
-	// truncating on a fresh jump) and is what the two commands walk.
-	//
-	// The two are fed from the same recording points (this class's push and
-	// refreshTop), because a navigation is one event with two readers: the
-	// traversal wants it as a step, the panel wants it as a place. What they
-	// store is not the same — the panel's file records carry no position (the
-	// position database owns "where I left this file") and its inferred steps
-	// are dropped — which is exactly why they are two stores and not one list
-	// read twice.
-	readonly places: NavPlaces;
-
-	// True while a back/forward traversal is executing: the opens it triggers
-	// (openFile, native go-back) are the traversal itself, not new jumps.
-	private executing = false;
 
 	constructor(
 		app: App,
 		settings: PluginSettings,
 		state: PositionState,
+		funnel: NavFunnel,
 		// The file's saved record, for a step that recorded no position of its own:
-		// the browser draws such a row's line from it (see describeNavEntry), and a
-		// same-file jump applies it so the row's line is still the line it opens (see
-		// appliedLanding). A cross-file open needs no such help — the open pipeline
-		// already falls back to the record.
+		// a same-file jump applies it so the row's line is still the line it opens
+		// (see appliedLanding). A cross-file open needs no such help — the open
+		// pipeline already falls back to the record.
 		private savedPosition?: (path: string) => EphemeralState | undefined,
 	) {
 		this.app = app;
 		this.state = state;
 		this.settings = settings;
+		this.funnel = funnel;
 		const restored = loadNavHistory(app);
 		this.entries = restored.entries;
 		this.index = restored.index;
@@ -145,17 +120,52 @@ export class NavHistory {
 		// first render rather than after the next navigation.
 		this.applyStackCap();
 		this.modes = new RestoreModes(settings, state);
-		// The recent-files list, fed by this class's recording points and
-		// travelled through its open pipeline. Built here (rather than injected)
-		// so the two stores can never be wired to different settings objects;
-		// the openers are handed over immediately after, once `this` is usable.
-		this.places = new NavPlaces(app, settings);
-		this.places.attach({
-			openFile: (path, leafId, target) => this.openFilePlain(path, leafId, target),
-			openJump: (entry, target) => this.travelTo(entry, target),
-			openView: (entry, target) => this.openViewPlace(entry, target),
-		});
 	}
+
+	// ===== The funnel's reader side =====
+
+	// One navigation, already past the funnel's shared gates. The stack's own
+	// gates are here, and they are the reason the funnel publishes rather than
+	// decides: whether a tab switch or an inferred cursor jump is worth a STEP is
+	// a question about this list, and the place list next door answers it
+	// differently (it keeps both, teleports excepted).
+	onVisit(recording: NavRecording) {
+		if (recording.cause === 'tab' && !this.settings.navRecordActivation)
+			return;
+		if (recording.cause === 'teleport' && !this.settings.navRecordTeleport)
+			return;
+		this.pushIfNew(recording.record, recording.forced);
+	}
+
+	// A position read. The stack takes every one of them — a keyed entry keeps the
+	// landing it was pushed with, a keyless one is simply overwritten — because it
+	// needs *some* position to return to. (A place list does not: it takes only the
+	// settle. See funnel.ts's NavLeave.)
+	onLeave(leave: NavLeave) {
+		if (leave.cause === 'tab') {
+			this.refreshTopLeafOnActivation(leave.leaf);
+			return;
+		}
+		this.refreshTop(leave.path, leave.leafId, leave.st, { landing: leave.cause === 'settled' });
+	}
+
+	// A landing became known from outside this class: a teleport's scroll, re-read
+	// one frame after the jump event (the sampler sees it first). A keyed jump's
+	// landing is this class's own business — it publishes that one itself, after
+	// upgrading the key (see refreshTop).
+	onLanded(entry: NewNavEntry) {
+		if (entry.kind !== 'teleport' || !entry.st)
+			return;
+		const top = this.entries[this.index];
+		if (!top || top.kind !== 'teleport' || top.path !== entry.path
+			|| top.leafId !== entry.leafId || top.line !== entry.line)
+			return;
+		top.st = entry.st;
+	}
+
+	// (No onHere: the step at `index` IS this class's "here", so there is nothing
+	// for this listener to do with that fact. Its own pointer moves are broadcast
+	// to the other listeners by navigate/travelTo.)
 
 	// The stack ceiling in force: the setting, clamped, with a fallback for a
 	// value that is not a number at all (a hand-edited data.json would
@@ -191,129 +201,130 @@ export class NavHistory {
 		return removed;
 	}
 
-	// Every distinct file path the stack OR the recent-files list still names
-	// (view entries name none). The caller pairs this with a vault check — the
-	// startup sweep for files deleted while Obsidian was closed (see
-	// PathBookkeeper.sweepMissingHistory). Both lists are swept: a place whose
-	// file is gone is as dead as a step whose file is gone, and it holds a slot
-	// in a capped list.
+	// Every distinct file path the stack still names (view entries name none).
+	// The caller pairs this with a vault check — the startup sweep for files
+	// deleted while Obsidian was closed (see PathBookkeeper.sweepMissingHistory).
 	knownPaths(): string[] {
-		const seen = new Set<string>(this.places.knownPaths());
+		const seen = new Set<string>();
 		for (const entry of this.entries)
 			if (entry.kind !== 'view')
 				seen.add(entry.path);
 		return Array.from(seen);
 	}
 
-	// ===== Recording =====
+	// ===== Recording (this class's own decisions, applied to funnel records) =====
 
-	// A file open (setViewState patch), an in-file jump marker, or a graph
-	// activation (pathless, opts.viewType). Gates shared with the jump
-	// pushers live here so every caller is uniform.
-	// Gates shared by every pusher, so all callers are uniform: a
-	// traversal's own opens are the traversal, not new jumps, and startup
-	// rebuild / workspace-restore setViewStates are not user navigation.
-	private canRecord(): boolean {
-		return !this.executing && this.app.workspace.layoutReady;
-	}
-
-	recordOpen(
-		path: string | undefined,
-		leafId: string,
-		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' | 'link'; viaPath?: string; viaText?: string } = {},
-	) {
-		if (!this.canRecord())
-			return;
-		// The single entry construction site: the kind tag is written here
-		// and never mutated, so every downstream switch on it is exact.
-		if (opts.viewType) {
-			this.pushIfNew({ kind: 'view', leafId, viewType: opts.viewType }, opts.force);
-			return;
-		}
-		// A pathless, typeless call has nothing to restore — no entry.
-		if (!path)
-			return;
-		this.pushIfNew(
-			opts.key
-				? { kind: 'jump', path, leafId, key: opts.key }
-				: { kind: 'visit', path, leafId, via: opts.via, viaPath: opts.viaPath, viaText: opts.viaText },
-			opts.force,
-		);
-	}
-
-	// Large same-file cursor jump (go-to-line, vim jump, far mouse click):
-	// per selection event on desktop (Sampler.onEditorSelection, 10-line
-	// threshold), per poll tick on mobile (Sampler.teleportLines, 50-line
-	// threshold). Search/anchor-jump landings are excluded by the sampler
-	// via the search-anchor gate. An INFERRED move, not a deliberate jump —
-	// its own entry kind (NavTeleport), gated by navRecordTeleport and
-	// deduped by target line: repeated jumps to the same line (re-clicking
-	// the same spot) dedup, jumps to different lines are distinct entries.
-	// The pushed entry carries the jump's LANDING position (`landing`, the
-	// post-jump read) — precise-return semantics: returning to this entry
-	// lands on the jump target itself, never on where the user had drifted
-	// by leave time.
-	recordTeleport(path: string, leafId: string, line: number, landing?: NavEntryState) {
-		if (!this.settings.navRecordTeleport || !this.canRecord())
-			return;
-		this.pushIfNew({ kind: 'teleport', path, leafId, line });
-		// Fill a fresh entry only: the top must be this exact teleport
-		// (a gated call pushed nothing; a deduped repeat and a different
-		// line keep what they have).
+	// Same-location dedup, then push. The dedup is a question about the STACK —
+	// "did the top step change?" — while the reader having been somewhere is a
+	// question about the place list, which the funnel already asked and answered
+	// before this ran (see funnel.ts's publish).
+	private pushIfNew(entry: NewNavEntry, force?: boolean) {
 		const top = this.entries[this.index];
-		if (landing && top && top.kind === 'teleport'
-			&& top.path === path && top.line === line && !top.st)
-			top.st = landing;
+		// Same location = same file in the SAME tab (+ same jump key). Two
+		// tabs of one file hold independent positions (the leaf records are per-leaf),
+		// so a leaf switch between them is a real entry (VSCode records editor
+		// identity, group included).
+		if (!force && top && this.sameLocation(top, entry))
+			return;
+		this.push(entry);
 	}
 
-	// Tab/pane activation as navigation (VSCode records active editor changes
-	// the same way): a user clicking another tab is a "where I was" entry.
-	// Gates and dedup are recordOpen's; keyless, so an activation that
-	// follows an open of the same file in the same leaf is absorbed by it.
-	// via: 'switch' only marks the browser badge. Non-file main-area views
-	// (graph) are entries too; sidebar panels are excluded above.
-	recordActivation(leaf: WorkspaceLeaf | null) {
-		// "Update on leave" for tab/pane switches: the setViewState patch
-		// does this for same-tab file switches, but focusing another tab
-		// fires no setViewState — without this the entry for the file being
-		// left would never get a position (the browser would show only its
-		// type badge).
-		this.refreshTopLeafOnActivation(leaf);
-		const view = leaf?.view;
-		if (!leaf || !isMainAreaLeaf(this.app, leaf))
+	// Same-location across kinds: view entries match view entries (same leaf
+	// view type), keyed jumps only the identical jump, and a keyless visit
+	// absorbs into any file entry of the same file+leaf — its st is
+	// refreshed on leave either way. An outline jump's key compares
+	// normalized: the entry's key may have been upgraded to the heading's
+	// source line ("outline:## T") while a re-click records the rendered
+	// text ("outline:T") — `#` strips in normAnchor, so both forms mean the
+	// same heading and dedup as one jump.
+	private sameLocation(top: NavEntry, entry: NewNavEntry): boolean {
+		if (top.leafId !== entry.leafId)
+			return false;
+		switch (entry.kind) {
+			case 'view':
+				return top.kind === 'view' && top.viewType === entry.viewType;
+			case 'jump':
+				return top.kind === 'jump' && top.path === entry.path
+					&& (top.key === entry.key
+						|| (top.key.startsWith('outline:') && entry.key.startsWith('outline:')
+							&& normAnchor(top.key.slice('outline:'.length)) === normAnchor(entry.key.slice('outline:'.length))));
+			case 'teleport':
+				return top.kind === 'teleport' && top.path === entry.path && top.line === entry.line;
+			case 'visit':
+				return top.kind !== 'view' && top.path === entry.path;
+		}
+	}
+
+	// The single entry funnel: every push is stamped here, so `t` can never be
+	// missing on a live entry. (A travel's copy arrives with the place's own
+	// stamp and gets a FRESH one — the travel is a new navigation moment, not a
+	// replay of the old one.)
+	private push(entry: NewNavEntry) {
+		// A fresh jump discards the forward part (VSCode semantics).
+		this.entries.length = this.index + 1;
+		this.entries.push({ ...entry, t: Date.now() });
+		// The pushed entry is the current location BEFORE the ceiling is
+		// applied, so the trim moves the pointer relative to the TOP that was
+		// just established, not to the entry the push replaced.
+		this.index = this.entries.length - 1;
+		this.applyStackCap();
+	}
+
+	// "Update on leave": refreshes the top entry's position from the view
+	// the jump is leaving (called by the setViewState patch, the traversal,
+	// the outline capture, and the samplers' settle-capture). Keyed entries
+	// (teleport/outline/anchor) keep the precise landing of the jump they
+	// were pushed for — a leave must not overwrite it with where the user
+	// had drifted; only an entry that never received a landing (legacy
+	// persisted entries, a landing that never settled) gets a backfill.
+	// Keyless open/activation entries are overwritten on every leave.
+	// Guarded by path+leaf: the top entry must still describe this view's
+	// leaf+file.
+	private refreshTop(path: string, leafId: string, st: NavEntryState, opts: { landing?: boolean } = {}) {
+		const top = this.entries[this.index];
+		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
-		// Recent files are independent of the nav stack: they track "which
-		// files did I open" regardless of whether tab switches push a
-		// back/forward entry.
-		if (view instanceof FileView && view.file)
-			this.places.remember({ kind: 'visit', path: view.file.path, leafId: this.state.leafId(leaf), t: Date.now() });
-		if (!this.settings.navRecordActivation)
-			return;
-		if (view instanceof FileView && view.file) {
-			this.recordOpen(view.file.path, this.state.leafId(leaf), { via: 'switch' });
+		if (top.kind === 'jump') {
+			if (!top.st) {
+				top.st = st;
+				this.upgradeKeyLine(top, st);
+				// A PLACE is only told about a real LANDING (`opts.landing`), never
+				// about the leave-read that backfills the stack: the stack wants
+				// *some* position to return to, while the place's row PROMISES the
+				// jump's own spot — and a reader who clicked a heading, read on and
+				// then switched files must not find that heading's recorded place
+				// moved to wherever they happened to be when they left.
+				if (opts.landing)
+					this.funnel.landing(top);
+			}
 			return;
 		}
-		const viewType = view?.getViewType();
-		if (viewType && RECORDABLE_VIEW_TYPES.has(viewType))
-			this.recordOpen(undefined, this.state.leafId(leaf), { viewType });
+		if (top.kind === 'teleport') {
+			if (!top.st) {
+				top.st = st;
+			}
+			return;
+		}
+		top.st = st;
 	}
 
 	// Capture the position of the file being switched away from onto the top
 	// entry (the one that describes it). refreshTop guards the path+leaf
-	// match and keeps keyed landings; canRecord skips our own traversals and
-	// startup. A no-op when no leaf holds the top entry (e.g. it was closed).
+	// match and keeps keyed landings; the funnel's shared gate skips our own
+	// traversals and startup. A no-op when no leaf holds the top entry (e.g. it
+	// was closed).
 	private refreshTopLeafOnActivation(next: WorkspaceLeaf | null) {
-		if (!next || !this.canRecord())
+		if (!next || !this.funnel.isRecording())
 			return;
 		// A SIDEBAR (or any other non-main-area pane) taking the focus is not a
-		// tab/pane switch the history records — recordActivation refuses those leaves
-		// itself — so the entry being left is not going anywhere. Refreshing it here
-		// also NOTIFIED every browser on screen (refreshTop → changed), so clicking
-		// into the resident panel rebuilt its rows while the reader's press was still
+		// tab/pane switch the history records — the funnel's activation refuses those
+		// leaves itself — so the entry being left is not going anywhere. Refreshing it
+		// here also NOTIFIED every panel on screen, so clicking into the resident
+		// recent-files panel rebuilt its rows while the reader's press was still
 		// in flight: the click was lost and the same row had to be clicked a second
-		// time. The entry's position is still captured where it matters — on open
-		// (syncCurrentPosition), on a jump (refreshTopFromActiveView), and on the
-		// sampler's own leave reads.
+		// time. The entry's position is still captured where it matters — on the
+		// funnel's leave-reads (the patcher's at open, the sampler's on movement)
+		// and on a jump (refreshTopFromActiveView).
 		if (!isMainAreaLeaf(this.app, next))
 			return;
 		const top = this.entries[this.index];
@@ -328,44 +339,6 @@ export class NavHistory {
 			if (st)
 				this.refreshTop(top.path, top.leafId, st);
 		}
-	}
-
-	// "Update on leave": refreshes the top entry's position from the view
-	// the jump is leaving (called by the setViewState patch, the traversal,
-	// the outline capture, and the samplers' settle-capture). Keyed entries
-	// (teleport/outline/anchor) keep the precise landing of the jump they
-	// were pushed for — a leave must not overwrite it with where the user
-	// had drifted; only an entry that never received a landing (legacy
-	// persisted entries, a landing that never settled) gets a backfill.
-	// Keyless open/activation entries are overwritten on every leave.
-	// Guarded by path+leaf: the top entry must still describe this view's
-	// leaf+file.
-	refreshTop(path: string, leafId: string, st: NavEntryState, opts: { landing?: boolean } = {}) {
-		const top = this.entries[this.index];
-		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
-			return;
-		if (top.kind === 'jump') {
-			if (!top.st) {
-				top.st = st;		
-				this.upgradeKeyLine(top, st);
-				// A PLACE is only told about a real LANDING (`opts.landing`), never
-				// about the leave-read that backfills the stack: the stack wants
-				// *some* position to return to, while the place's row PROMISES the
-				// jump's own spot — and a reader who clicked a heading, read on and
-				// then switched files must not find that heading's recorded place
-				// moved to wherever they happened to be when they left.
-				if (opts.landing)
-					this.places.settle(top);
-			}
-			return;
-		}
-		if (top.kind === 'teleport') {
-			if (!top.st) {
-				top.st = st;
-			}
-			return;
-		}
-		top.st = st;
 	}
 
 	// Upgrade a keyed jump with the anchor's RECORD-TIME line from
@@ -403,74 +376,6 @@ export class NavHistory {
 			top.keyLine = hit.line;
 	}
 
-	// Reading-mode outline clicks are invisible to every other recording
-	// path; the capture hook lives in outline-capture.ts — it needs only
-	// this class's refreshTop/recordOpen plus the shared position state.
-	installOutlineCapture(registerCleanup: (fn: () => void) => void) {
-		installOutlineCaptureHook(this.app, {
-			state: this.state,
-			refreshTop: (path, leafId, st) => this.refreshTop(path, leafId, st),
-			recordOpen: (path, leafId, opts) => this.recordOpen(path, leafId, opts),
-		}, registerCleanup);
-	}
-
-	private pushIfNew(entry: NewNavEntry, force?: boolean) {
-		const top = this.entries[this.index];
-		// Same location = same file in the SAME tab (+ same jump key). Two
-		// tabs of one file hold independent positions (the leaf records are per-leaf),
-		// so a leaf switch between them is a real entry (VSCode records editor
-		// identity, group included).
-		if (!force && top && this.sameLocation(top, entry))
-			return;
-		this.push(entry);
-	}
-
-	// Same-location across kinds: view entries match view entries (same leaf
-	// view type), keyed jumps only the identical jump, and a keyless visit
-	// absorbs into any file entry of the same file+leaf — its st is
-	// refreshed on leave either way. An outline jump's key compares
-	// normalized: the entry's key may have been upgraded to the heading's
-	// source line ("outline:## T") while a re-click records the rendered
-	// text ("outline:T") — `#` strips in normAnchor, so both forms mean the
-	// same heading and dedup as one jump.
-	private sameLocation(top: NavHistoryEntry, entry: NewNavEntry): boolean {
-		if (top.leafId !== entry.leafId)
-			return false;
-		switch (entry.kind) {
-			case 'view':
-				return top.kind === 'view' && top.viewType === entry.viewType;
-			case 'jump':
-				return top.kind === 'jump' && top.path === entry.path
-					&& (top.key === entry.key
-						|| (top.key.startsWith('outline:') && entry.key.startsWith('outline:')
-							&& normAnchor(top.key.slice('outline:'.length)) === normAnchor(entry.key.slice('outline:'.length))));
-			case 'teleport':
-				return top.kind === 'teleport' && top.path === entry.path && top.line === entry.line;
-			case 'visit':
-				return top.kind !== 'view' && top.path === entry.path;
-		}
-	}
-
-	// The single entry funnel: every push is stamped here, so `t` (the
-	// recent-files browser's relative-time label) can never be missing on a live
-	// entry. A jumpTo copy arrives unstamped too and gets a FRESH stamp —
-	// the picker jump is a new navigation moment, not a replay of the old
-	// one, and it is what the row's "刚刚" label should report.
-	private push(entry: NewNavEntry) {
-		// A fresh jump discards the forward part (VSCode semantics).
-		this.entries.length = this.index + 1;
-		this.entries.push({ ...entry, t: Date.now() });
-		// The pushed entry is the current location BEFORE the ceiling is
-		// applied, so the trim moves the pointer relative to the TOP that was
-		// just established, not to the entry the push replaced.
-		this.index = this.entries.length - 1;
-		this.applyStackCap();
-		// …and the same event as a PLACE on the recent-files list: no truncation
-		// there, and an inferred step is not a place at all (see places.ts).
-		this.places.remember(this.entries[this.index]);
-		this.places.markCurrent(this.entries[this.index]);
-	}
-
 	// ===== Traversal =====
 
 	// Stack-bound check: back needs an entry below, forward an entry above.
@@ -482,7 +387,7 @@ export class NavHistory {
 	// start; when a sidebar holds focus, traversal can still start from the
 	// last file tab (see startLeaf).
 	canNavigate(dir: -1 | 1): boolean {
-		if (this.executing)
+		if (this.funnel.isMoving())
 			return false;
 		if (!this.canStep(dir))
 			return false;
@@ -500,11 +405,11 @@ export class NavHistory {
 	async navigate(dir: -1 | 1): Promise<void> {
 		if (!this.canStep(dir))
 			return;
-		await this.runBracketed(() => this.traverse(dir));
+		await this.funnel.runBracketed(() => this.traverse(dir));
 		// The pointer moved even where no step was pushed (a traversal that only
 		// reactivates a tab), and "you are here" moved with it — on the stack and
 		// on the recent-files list alike.
-		this.places.markCurrent(this.entries[this.index]);
+		this.funnel.here(this.entries[this.index]);
 	}
 
 	// Time travel to a PLACE (the recent-files list). A place is an explicit
@@ -516,30 +421,35 @@ export class NavHistory {
 	//
 	// The place the reader is already standing on is not pushed again: the
 	// traversal top IS that location, and a second press has to re-land it, not
-	// grow a duplicate step (the same rule jumpTo used for the adjacent row).
-	async travelTo(place: NavHistoryEntry, target?: PaneTarget): Promise<void> {
+	// grow a duplicate step (the place list's own rule, restated by the dedup
+	// below).
+	async travelTo(place: NavEntry, target?: PaneTarget): Promise<void> {
 		if (place.kind === 'teleport')
 			return;
-		await this.runBracketed(async () => {
+		await this.funnel.runBracketed(async () => {
 			// Capture where we are leaving first, so the entry below keeps the
 			// exact position a later back must return to.
 			this.refreshTopFromActiveView();
-			const top = this.entries[this.index];
-			if (!top || !this.sameLocation(top, place))
-				this.push({ ...place });
+			// The stack decided this one is a real navigation, so it hands the
+			// funnel the record itself: the shared gate is for CAPTURE points,
+			// and inside a traversal it would (correctly) refuse everything.
+			this.funnel.visit({
+				record: { ...place },
+				cause: place.kind === 'jump' ? 'jump' : 'open',
+			});
 			// The target's own landing is injected; the direction only feeds the
 			// native-delegation check, and a place knows no stack position — so
 			// both directions are offered to it (see execute's `tryBoth`).
 			await this.execute(this.entries[this.index], -1, true, target);
 		});
-		this.places.markCurrent(this.entries[this.index]);
+		this.funnel.here(this.entries[this.index]);
 	}
 
 	// A FILE place: open it the way Obsidian's own file explorer does, with no
 	// landing injected. The panel's file rows carry no position of their own
-	// (see places.ts), so the position database decides where this lands — which
-	// is what keeps "open it from the panel" and "open it from the file
-	// explorer" the same act, exclusion rules and all. The open records itself
+	// (see recent-files/places.ts), so the position database decides where this
+	// lands — which is what keeps "open it from the panel" and "open it from the
+	// file explorer" the same act, exclusion rules and all. The open records itself
 	// through the ordinary patch, so the visit still reaches both stores.
 	async openFilePlain(path: string, leafId: string, target?: PaneTarget): Promise<void> {
 		// With a target, the file is opened ONE TAB OVER instead of in the leaf it
@@ -575,47 +485,13 @@ export class NavHistory {
 	// A pathless view place (the graph tab): reactivate its leaf, or re-assert
 	// the view when the tab was swapped to a file in the meantime — execute()'s
 	// view branch, which needs nothing from the stack.
-	async openViewPlace(place: NavHistoryEntry, target?: PaneTarget): Promise<void> {
+	async openViewPlace(place: NavEntry, target?: PaneTarget): Promise<void> {
 		if (place.kind !== 'view')
 			return;
 		await this.execute(place, 1, false, target);
 	}
 
-	// The bracket shared by navigate/jumpTo: one position change, not new
-	// jumps. It must cover the startLeaf activation too: its
-	// active-leaf-change fires recordActivation, and when the top entry's
-	// leafId is stale (closed-leaf fallback, ids restored from storage)
-	// the dedup misses — the command itself would push a "current
-	// location" entry before any gate was up. The bracket also stops the
-	// poll/scroll capture from recording the programmatic applies as
-	// user movement (the restores this open triggers run their own
-	// brackets inside).
-	private async runBracketed(step: () => Promise<void>): Promise<void> {
-		if (this.executing)
-			return;
-		this.executing = true;
-		this.state.restoreStarted();
-		// Watchdog and the finally share one settle: exactly one restoreEnded
-		// per restoreStarted (restoreStarted/Ended keep a shared counter), and
-		// a hung traversal releases `executing` so back/forward stay usable.
-		// A late completion after the watchdog fired simply no-ops here.
-		let settled = false;
-		const settle = () => {
-			if (settled) return;
-			settled = true;
-			window.clearTimeout(watchdog);
-			this.state.restoreEnded();
-			this.executing = false;
-		};
-		const watchdog = window.setTimeout(settle, NAV_WATCHDOG_MS);
-		try {
-			await step();
-		} finally {
-			settle();
-		}
-	}
-
-	private async traverse(dir: -1 | 1): Promise<void> {
+	async traverse(dir: -1 | 1): Promise<void> {
 		let activeView = this.app.workspace.getActiveViewOfType(FileView);
 		if (!activeView?.file) {
 			// The stack's current entry is a view entry (graph active): the
@@ -681,26 +557,7 @@ export class NavHistory {
 		}
 	}
 
-	// Fill the current (top) entry's position from the live active view — the
-	// panel's entry point. The entry you are sitting in has had no leave-refresh
-	// yet, so its stack record would otherwise show no position.
-	//
-	// For the recent-files list the same call answers a different need: the file
-	// being read must HAVE a place and be marked "here". A workspace restored at
-	// startup opens its file through a path the history does not record (the
-	// layoutReady gate), so without this the panel would open showing neither the
-	// note being read nor where the reader is.
-	syncCurrentPosition() {
-		this.refreshTopFromActiveView();
-		const view = this.app.workspace.getActiveViewOfType(FileView);
-		if (view?.file)
-			this.places.ensureCurrent({
-				kind: 'visit', path: view.file.path,
-				leafId: this.state.leafId(view.leaf), t: Date.now(),
-			});
-	}
-
-	private async execute(target: NavHistoryEntry, dir: -1 | 1, tryBoth = false, modTarget?: PaneTarget) {
+	private async execute(target: NavEntry, dir: -1 | 1, tryBoth = false, modTarget?: PaneTarget) {
 		// A modifier was held: the place is opened in a leaf the APP picks for that
 		// target — a new tab, a split, a new window — rather than in the leaf the entry
 		// came from. That is a different question from everything below, which exists to
@@ -785,7 +642,7 @@ export class NavHistory {
 		if (curFile?.path === target.path) {
 			// In-file jump: no open, apply the entry's position directly. The view to
 			// apply it to is THIS leaf's, not the workspace's ACTIVE view: with a
-			// sidebar holding the focus (the resident history panel included) there is
+			// sidebar holding the focus (the resident panel included) there is
 			// no active file view at all, while the leaf still shows the file — and the
 			// branch then applied nothing, so a jump to a place in the note already on
 			// screen did nothing. That is the sidebar's "sometimes it jumps, sometimes
@@ -831,8 +688,8 @@ export class NavHistory {
 
 	// The landing a SAME-FILE jump applies. What the entry itself recorded comes
 	// first (see landingOf); a step that recorded none falls back to the file's saved
-	// record — the very source the browser borrowed that row's line from (see
-	// describeNavEntry) — so the line on the row is still the line the click lands on.
+	// record — the very source the browser borrowed that row's line from — so the line
+	// on the row is still the line the click lands on.
 	// Without this, such a row named a line and the jump applied nothing at all in the
 	// same file. It is deliberately NOT part of landingFor: a cross-file open already
 	// falls back to that record, so naming it there would only duplicate what the open
@@ -844,12 +701,12 @@ export class NavHistory {
 	// The landing an entry can actually restore: its own recorded state, or — for a
 	// teleport whose landing never settled (the post-jump read never arrived, so the
 	// entry kept only the line it aimed at) — that target line as the viewport top.
-	// The browser prints exactly that line on the row (see describeNavEntry), so
-	// honouring it is what keeps the row from promising a place the jump then does
-	// not take the reader to. undefined for an entry that recorded no position of its
-	// own (a legacy entry, a tab activation before its leave-refresh): a same-file
-	// jump falls back to the file's saved record (see appliedLanding), and a
-	// cross-file open falls back to it by itself.
+	// The browser prints exactly that line on the row, so honouring it is what keeps
+	// the row from promising a place the jump then does not take the reader to.
+	// undefined for an entry that recorded no position of its own (a legacy entry, a
+	// tab activation before its leave-refresh): a same-file jump falls back to the
+	// file's saved record (see appliedLanding), and a cross-file open falls back to it
+	// by itself.
 	private landingOf(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
 		if (target.st)
 			return target.st;
@@ -996,7 +853,7 @@ export class NavHistory {
 	// Entries without a keyLine (never settled, pre-upgrade, ^block keys)
 	// return undefined — historyJumpApply falls back to the text-snippet
 	// remap, whose base and target share the viewport-line semantics.
-	private resolveAnchorShift(target: NavHistoryEntry): number | undefined {
+	private resolveAnchorShift(target: NavEntry): number | undefined {
 		if (target.kind !== 'jump' || !target.key || typeof target.keyLine !== 'number')
 			return undefined;
 		const file = this.app.vault.getAbstractFileByPath(target.path);
@@ -1006,27 +863,21 @@ export class NavHistory {
 		return line === undefined ? undefined : line - target.keyLine;
 	}
 
-	// ===== Bookkeeping =====
+	// ===== Bookkeeping (this stack's own records — see PathBookkeeper) =====
 
 	renameFile(oldPath: string, newPath: string) {
 		for (const entry of this.entries)
 			if (entry.kind !== 'view' && entry.path === oldPath)
 				entry.path = newPath;
-		// The recent-files list re-keys its own records (a place's identity is
-		// recomputed from the path, so nothing has to be rewritten there).
-		this.places.renameFile(oldPath, newPath);
 	}
 
-	// A real vault delete drops the file's steps AND its places (see
-	// places.ts's deleteFile) — a dead name holds a slot in a capped list just as
-	// it holds a step in a capped stack. NOT called straight off the vault
-	// 'delete' event: PathBookkeeper schedules the prune and re-checks the vault
-	// before it commits, because a sync plugin replaces a changed file by removing
-	// it and renaming the download over it — a delete that is undone a moment
-	// later (see position/path-bookkeeping.ts).
+	// A real vault delete drops the file's steps. NOT called straight off the
+	// vault 'delete' event: PathBookkeeper schedules the prune and re-checks the
+	// vault before it commits, because a sync plugin replaces a changed file by
+	// removing it and renaming the download over it — a delete that is undone a
+	// moment later (see position/path-bookkeeping.ts).
 	deleteFile(path: string) {
-		this.places.deleteFile(path);
-		const kept: NavHistoryEntry[] = [];
+		const kept: NavEntry[] = [];
 		let removedBefore = 0;
 		for (let i = 0; i < this.entries.length; i++) {
 			const entry = this.entries[i];
@@ -1058,13 +909,8 @@ export class NavHistory {
 	// write it owes.
 	private lastPersisted = '';
 
-	// Write BOTH lists out: they are separate blobs (a place list is written
-	// rarely and is large; the stack is written often and is small), but every
-	// existing flush point means "the navigation state changed", and the caller
-	// that owns the list should not have to know there are two.
 	persist() {
 		this.lastPersisted = persistNavHistory(
 			this.app, this.entries, this.index, this.lastPersisted);
-		this.places.persist();
 	}
 }

@@ -8,16 +8,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
 
-import { RecentFilesModal } from '@/nav-history/browser/modal';
-import type { RecentFilesBrowserPrefs } from '@/nav-history/browser/body';
-import type { LandingsMode } from '@/nav-history/browser/listing';
+import { RecentFilesModal } from '@/recent-files/browser/modal';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
-import type { NavHistoryEntry } from '@/nav-history/entry';
+import type { NavEntry } from '@/nav/entry';
 import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
-import { TIP_DELAY_MS } from '@/nav-history/browser/constants';
+import { TIP_DELAY_MS } from '@/recent-files/browser/constants';
 
 // jsdom implements no layout at all, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
@@ -66,7 +66,7 @@ function defaultPrefs(): RecentFilesBrowserPrefs {
 // positional arguments and the row tests otherwise repeat six empty defaults to
 // reach it.
 function harnessAll(
-	entries: NavHistoryEntry[],
+	entries: NavEntry[],
 	index: number,
 	files: Record<string, string> = {},
 	deleted: string[] = [],
@@ -85,11 +85,11 @@ function harnessAll(
 // record, which is the note's row rather than a landing under it. A file record
 // with a position is a shape the list never holds (the position database owns
 // "where I left this file"), which is why this helper splits them.
-const visit = (path: string, stamp: number, st?: NavEntryState): NavHistoryEntry => st
+const visit = (path: string, stamp: number, st?: NavEntryState): NavEntry => st
 	? {
 		kind: 'jump', path, leafId: 'leaf-1', t: stamp, st,
 		key: `outline:## L${st.scroll ?? st.context?.[st.contextAt ?? 0]?.line ?? 0}`,
-	} as NavHistoryEntry
+	} as NavEntry
 	: { kind: 'visit', path, leafId: 'leaf-1', t: stamp };
 
 // A capture as the plugin records one now: the landing's surrounding NON-BLANK
@@ -155,7 +155,7 @@ const SPREAD_HEADINGS = {
 };
 
 function harness(
-	entries: NavHistoryEntry[],
+	entries: NavEntry[],
 	index: number,
 	// The vault as the fake app reports it. Only EXISTENCE is asked of it now — a path
 	// absent here is a place the list will not draw — because the browser reads no file
@@ -799,8 +799,8 @@ describe('RecentFilesModal — keyboard', () => {
 		// Two landings in b.md, and the cursor walks onto its row.
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
-			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
-			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:Two', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavHistoryEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:Two', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavEntry,
 			visit('c.md', NOW),
 		];
 		const h = harness(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '' });
@@ -854,8 +854,8 @@ describe('RecentFilesModal — keyboard', () => {
 		// into them and Enter travels to the one it is on (see RecentFilesList.move).
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
-			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavHistoryEntry,
-			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:Two', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavHistoryEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavEntry,
+			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:Two', t: NOW - 2 * MINUTE, st: { scroll: 400 } } as NavEntry,
 			visit('c.md', NOW),
 		];
 		const h = harnessAll(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '' });
@@ -954,7 +954,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 describe('RecentFilesModal — searching a note by its other names', () => {
 	// The window opens with the note's `visit` (the file's own record) and one jump
 	// into it, so a query's hits can be counted as rows AND as landing rows.
-	const entries = (): NavHistoryEntry[] => [
+	const entries = (): NavEntry[] => [
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 400 }),
 		visit('b.md', NOW - 2 * MINUTE),
 		visit('a.md', NOW - MINUTE),
@@ -1236,7 +1236,7 @@ describe('RecentFilesModal — keyboard is announced', () => {
 describe('RecentFilesModal — one note, many landings', () => {
 	// A reading capture lands on a viewport line: every landing of one note is a
 	// row under that note, and two DIFFERENT lines stay two rows.
-	const at = (path: string, line: number, agoMin: number): NavHistoryEntry =>
+	const at = (path: string, line: number, agoMin: number): NavEntry =>
 		visit(path, NOW - agoMin * MINUTE, { scroll: line });
 	const files = { 'x.md': '', 'y.md': '', 'z.md': '' };
 
@@ -1415,7 +1415,7 @@ describe('RecentFilesModal — a landing row', () => {
 		// heading is the row's LAST level — the one a reader places the spot by — and it
 		// stays in the chain.
 		const jump = { kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:预览', t: NOW - MINUTE,
-			st: captured(SPREAD_DOC, 4) } as NavHistoryEntry;
+			st: captured(SPREAD_DOC, 4) } as NavEntry;
 		const entries = [jump, visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)), visit('b.md', NOW)];
 		const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
 
@@ -1445,7 +1445,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		'a/index.md': '', 'b/index.md': '', 'notes.md': '',
 		'report.pdf': '', 'LICENSE': '', 'board.canvas': '',
 	};
-	const stack = (): NavHistoryEntry[] => [
+	const stack = (): NavEntry[] => [
 		visit('a/index.md', NOW - 6 * MINUTE),
 		visit('b/index.md', NOW - 5 * MINUTE),
 		visit('notes.md', NOW - 4 * MINUTE),
@@ -1549,7 +1549,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		// The graph is a view and not a file: it has no type to mark and no path to
 		// print or to hover — its own name is the translated view label.
 		const h = harness([
-			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavHistoryEntry,
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
 			...stack(),
 		], 6, files);
 
@@ -1700,9 +1700,9 @@ describe('RecentFilesModal — the time on a row', () => {
 	// OLDEST FIRST, as the store really keeps them (see places.remember): the list's
 	// own order is the reverse scan of this array, so a fixture that shuffles it would
 	// be testing an order the panel never sees.
-	const stack = (): NavHistoryEntry[] => [
+	const stack = (): NavEntry[] => [
 		visit('notes.md', NOW - 3 * DAY),
-		{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW - 2 * HOUR } as NavHistoryEntry,
+		{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW - 2 * HOUR } as NavEntry,
 		visit('a/index.md', NOW - 5 * MINUTE),
 	];
 	const files = { 'a/index.md': '', 'notes.md': '' };
@@ -1793,12 +1793,12 @@ describe('RecentFilesModal — the time on a row', () => {
 describe('RecentFilesModal — where a row opens, and the right-click menu', () => {
 	// a.md is the OLDER note, so recency puts it SECOND: two rows, b.md first.
 	const files = { 'a.md': '', 'b.md': '' };
-	const entries = (): NavHistoryEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	const entries = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 	// A note with a LANDING and no file record — the shape a note has once its `visit`
 	// has been evicted while the jumps made inside it survive (see places.ts). Its row
 	// still opens the landing (see activeRep), so it is the row that can promise a
 	// SPOT rather than a file.
-	const jumped = (): NavHistoryEntry[] => [
+	const jumped = (): NavEntry[] => [
 		visit('a.md', NOW - MINUTE, { scroll: 30 }),
 		visit('b.md', NOW),
 	];
@@ -1910,7 +1910,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		// refused (the callout) and nothing is built.
 		const h = harness([
 			visit('a.md', NOW - MINUTE),
-			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavHistoryEntry,
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
 		], 1, files);
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		const ev = h.rightClick(graph);
@@ -2015,11 +2015,11 @@ describe('RecentFilesModal — the recorded landing block', () => {
 		mtime: 1000,
 		...extra,
 	});
-	const withBlock = (extra: NavEntryState = {}): NavHistoryEntry =>
+	const withBlock = (extra: NavEntryState = {}): NavEntry =>
 		visit('a.md', NOW - MINUTE, blockState(extra));
 	const files = { 'a.md': 'live ten\nlive eleven\nlive twelve', 'b.md': '' };
 	// A step made by clicking a plain [[link]]: keyless, so it keeps an origin.
-	const linkVisit = (viaPath: string, viaText: string, st?: NavEntryState): NavHistoryEntry =>
+	const linkVisit = (viaPath: string, viaText: string, st?: NavEntryState): NavEntry =>
 		({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st, via: 'link', viaPath, viaText });
 	const search = (h: ReturnType<typeof harness>, q: string) => {
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;

@@ -1,5 +1,5 @@
 import { App, EventRef, TFile } from 'obsidian';
-import { NavHistoryEntry } from '@/nav-history/entry';
+import { NavEntry } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { HeadingRef, NavEntryDescription, describeNavEntry } from './model';
 
@@ -20,7 +20,7 @@ export interface RecentFilesReadsOptions {
 	savedPosition?: (path: string) => EphemeralState | undefined;
 	// The places as they stand: a reader, not a snapshot, because the list is
 	// re-pointed on every render of a resident panel (see body.ts's render).
-	entries: () => NavHistoryEntry[];
+	entries: () => NavEntry[];
 }
 
 // What the browser takes from ONE file's metadata cache: the section chain a
