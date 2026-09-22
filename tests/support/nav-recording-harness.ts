@@ -33,6 +33,12 @@ export function makeApp(
 			iterateAllLeaves: (_cb: (leaf: WorkspaceLeaf) => void) => undefined,
 			setActiveLeaf: vi.fn(),
 			getMostRecentLeaf: () => null,
+			// The view branch of the open pipeline asks the workspace for every leaf
+			// showing a view TYPE and, when there is none, for a new tab (see stack.ts's
+			// findLeafShowing / showViewInNewTab). A suite that never travels to a view
+			// has neither, and says so here rather than leaving the methods missing.
+			getLeavesOfType: () => [],
+			getLeaf: () => ({ setViewState: vi.fn(), detach: vi.fn() }),
 		},
 		commands: { executeCommandById: vi.fn() },
 	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };

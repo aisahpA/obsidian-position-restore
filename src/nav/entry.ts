@@ -126,12 +126,13 @@ export interface NavTeleport extends NavEntryBase {
 // and a sidebar-resident Thino never reach this filter.
 //
 // Accepted with the widening, and why it is acceptable: a view entry carries no
-// state, so a traversal returns to a leaf that STILL HOLDS that view by
-// reactivating it, and re-asserts the bare view type only when the tab was swapped
-// to something else in the meantime (see nav-history/stack.ts's openViewPlace). A
-// local graph reached that way is the local graph of whatever file is active then
-// — which reads as "the view, on another note", never as a wrong note opened.
-// (Its view state is what used to keep localgraph off the list entirely.)
+// state, so it is answered by a leaf that SHOWS that view — the entry's own, any
+// other one, or one opened in a new tab when the view is nowhere (see
+// nav-history/stack.ts's openViewPlace) — constructed with the empty state the
+// app's own `graph:open` passes. A local graph reached that way is the local
+// graph of whatever file is active then, which reads as "the view, on another
+// note", never as a wrong note opened. (Its view state is what used to keep
+// localgraph off the list entirely.)
 export const NON_DESTINATION_VIEW_TYPES = new Set(['empty']);
 
 // Is this view type a place the recent-files list may hold? The one test, shared

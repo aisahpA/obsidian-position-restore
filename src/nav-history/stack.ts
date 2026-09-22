@@ -49,10 +49,12 @@ import { loadNavHistory, persistNavHistory } from './store';
 // patch injects this plugin's saved position over it (pendingHistoryNav).
 // Cross-tab traversals reactivate the original leaf (leafId); a closed leaf
 // falls back to the active one. Non-file main-area views (the graph, Thino's
-// memo list) are recorded too: their entries have no path, only a viewType —
-// traversal just reactivates the leaf. The entry vocabulary (NavEntry and its
-// variants, isMainAreaLeaf, what counts as a recordable view) lives in
-// nav/entry.ts.
+// memo list) are recorded too: their entries have no path, only a viewType, so a
+// traversal finds a leaf SHOWING that view — the entry's own if it is still
+// there, any other one if not, and a NEW TAB if the view is nowhere, because a
+// place outlives the tab it happened in (see the view branch of execute). The
+// entry vocabulary (NavEntry and its variants, isMainAreaLeaf, what counts as a
+// recordable view) lives in nav/entry.ts.
 //
 // Native per-tab history entry (internal, untyped): { state: { type, state:
 // { file, ... } }, eState: ... } — only the fields read for target
@@ -482,9 +484,9 @@ export class NavStack implements NavFunnelSink {
 			await leaf.openFile(file);
 	}
 
-	// A pathless view place (the graph tab, Thino's memo list): reactivate its
-	// leaf, or re-assert the view when the tab was swapped to a file in the
-	// meantime — execute()'s view branch, which needs nothing from the stack.
+	// A pathless view place (the graph tab, Thino's memo list): show it in the leaf
+	// that already holds it, or in a new tab when it is nowhere — execute()'s view
+	// branch, which needs nothing from the stack.
 	async openViewPlace(place: NavEntry, target?: PaneTarget): Promise<void> {
 		if (place.kind !== 'view')
 			return;
@@ -588,15 +590,37 @@ export class NavStack implements NavFunnelSink {
 			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
 		const targetLeaf = this.findLeafById(target.leafId);
 
-		// View entry (a view tab): reaching it means the leaf must SHOW that
-		// view — activate a different tab, and when the view was swapped
-		// out (a graph node click opens the file over the graph in the same
-		// leaf, or graph:open reuses the tab) re-assert it. A closed leaf
-		// has nothing to return to — no-op (never the active tab's file).
+		// View entry (a view tab): reaching it means a leaf must SHOW that view. WHICH
+		// leaf, in order of preference:
+		//
+		//   1. the one the entry came from, if it still exists — activate a different
+		//      tab, and when the view was swapped out (a graph node click opens the
+		//      file over the graph in the same leaf, or graph:open reuses the tab)
+		//      re-assert it;
+		//   2. any OTHER leaf already showing that view. A place is identified by its
+		//      view TYPE (see places.ts's placeKey) and the entry names whichever of
+		//      its tabs was activated last, so the reader's second Thino tab is just
+		//      as much the place they went to as the one this entry was written in;
+		//   3. a NEW TAB, because a recorded place outlives the tab it happened in.
+		//      Without this the entry was a row that looked like a destination and
+		//      answered a click with nothing at all whenever its leaf had been closed
+		//      — the ordinary end of a view tab. A view is CONSTRUCTED there by type,
+		//      with the empty state Obsidian's own `graph:open` passes; a view that
+		//      keeps something in its state (a local graph, a filtered panel)
+		//      therefore comes back at its defaults, which is the honest reading of
+		//      "the place you went to".
+		//
+		// The entry's own leafId is left as it was: it is only ever used to find a
+		// leaf, and the search above answers by TYPE whenever it misses (a foreign
+		// preference would be a write into the place list's own object — see
+		// places.travel — and the list re-points itself from the activation record
+		// anyway: see places.ts's placeRecord).
 		if (target.kind === 'view') {
-			const leaf = targetLeaf;
-			if (!leaf)
+			const leaf = targetLeaf ?? this.findLeafShowing(target.viewType);
+			if (!leaf) {
+				await this.showViewInNewTab(target.viewType);
 				return;
+			}
 			if (leaf !== activeLeaf)
 				this.app.workspace.setActiveLeaf(leaf, { focus: true });
 			if (leaf.isDeferred)
@@ -608,7 +632,6 @@ export class NavStack implements NavFunnelSink {
 			// the graph in the same leaf, or graph:open reuses the tab): ride
 			// the native per-tab history when its next entry IS the graph
 			// (keeps the two stacks aligned), else re-assert the view directly.
-			// A closed leaf falls through — never the active tab's file.
 			if (leaf === activeLeaf && await this.delegateNative(dir, leaf, undefined, target.viewType))
 				return;
 			await (leaf as unknown as {
@@ -841,6 +864,46 @@ export class NavStack implements NavFunnelSink {
 				found = leaf;
 		});
 		return found;
+	}
+
+	// A leaf already showing this view, MAIN AREA only: a place is the view itself
+	// (see places.ts's placeKey), so any of its tabs answers for it — and a sidebar
+	// leaf is skipped for the same reason it is never RECORDED, a panel not being a
+	// place in the workspace at all (see isMainAreaLeaf): a Thino living in the
+	// sidebar is not where the entry says the reader went, and the entry's own tab
+	// is the one to reconstruct instead.
+	private findLeafShowing(viewType: string): WorkspaceLeaf | undefined {
+		return this.app.workspace.getLeavesOfType(viewType)
+			.find(leaf => isMainAreaLeaf(this.app, leaf));
+	}
+
+	// A view that is nowhere: CONSTRUCT it in a new tab — a recorded place is a
+	// place the reader can still go to, whatever became of the tab it came from (see
+	// the view branch of execute). The type is all that was kept, so it is all that
+	// can be asked for, and `active` is what brings the new tab to the front with
+	// nothing shown on the way.
+	//
+	// The leaf is WATCHED afterwards rather than trusted, because `setViewState` is
+	// also how an unregistered type gets asked for: a plugin the reader disabled or
+	// removed leaves nothing to construct, and Obsidian answers that with a view of
+	// some other type (the empty page) rather than with a view of the one asked for.
+	// A tab left standing on a place this vault no longer has is worse than the click
+	// quietly doing nothing — which is what it used to do in every case — so the tab
+	// is closed again unless the view actually arrived.
+	private async showViewInNewTab(viewType: string): Promise<void> {
+		const leaf = this.app.workspace.getLeaf('tab');
+		const shaped = leaf as unknown as {
+			setViewState(vs: { type: string; state: object; active: boolean }): Promise<void>;
+			detach(): void;
+		};
+		try {
+			await shaped.setViewState({ type: viewType, state: {}, active: true });
+		} catch {
+			shaped.detach();
+			return;
+		}
+		if ((leaf.view as { getViewType?: () => string } | undefined)?.getViewType?.() !== viewType)
+			shaped.detach();
 	}
 
 	// Structural re-anchor for an in-file jump: resolve the entry's key

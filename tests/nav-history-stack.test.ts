@@ -1067,7 +1067,7 @@ describe('NavStack.navigate', () => {
 // A sidebar (file explorer, search, outline…) holds focus: getActiveViewOfType
 // is null until the traversal's setActiveLeaf reactivates a file tab — the
 // mock switches the "active view" exactly like the real workspace would.
-type HarnessLeaf = { id: string; isDeferred: boolean; containerEl: string; openFile: ReturnType<typeof vi.fn>; setViewState: ReturnType<typeof vi.fn>; view?: unknown };
+type HarnessLeaf = { id: string; isDeferred: boolean; containerEl: string; openFile: ReturnType<typeof vi.fn>; setViewState: ReturnType<typeof vi.fn>; detach?: ReturnType<typeof vi.fn>; view?: unknown };
 
 function makeSidebarHarness(opts: {
 	leaves: { id: string; file?: string; markdown?: boolean }[];
@@ -1080,9 +1080,19 @@ function makeSidebarHarness(opts: {
 		setActiveLeaf: (l: unknown, opts?: unknown) => void;
 		getMostRecentLeaf: () => unknown;
 		getLeaf: (target?: unknown) => unknown;
+		getLeavesOfType: (viewType: string) => unknown[];
 	};
 	const openFile = vi.fn().mockResolvedValue(undefined);
-	const setViewState = vi.fn().mockResolvedValue(undefined);
+	// A leaf that is TOLD to show a view shows it: the app builds the view it was
+	// asked for, and the open pipeline checks afterwards that it arrived (see
+	// stack.ts's showViewInNewTab). A leaf that already shows something keeps it —
+	// those are the SWAP cases, and they assert the call, not the leaf's contents.
+	const setViewState = vi.fn(function (this: HarnessLeaf, vs: { type: string }) {
+		if (!this.view)
+			this.view = { getViewType: () => vs.type };
+		return Promise.resolve();
+	});
+	const detach = vi.fn();
 	const applied: unknown[] = [];
 	const viewsByLeaf: Record<string, unknown> = {};
 	const leaves: HarnessLeaf[] = opts.leaves.map((spec) => {
@@ -1118,13 +1128,19 @@ function makeSidebarHarness(opts: {
 		activeView = viewsByLeaf[(target as { id: string }).id] ?? null;
 	});
 	ws.getMostRecentLeaf = () => leaves.find((l) => l.id === opts.mostRecentLeafId) ?? null;
+	// What the view branch of the open pipeline asks of the workspace: every leaf
+	// SHOWING this view type, read off the leaf as it stands now (a leaf that has been
+	// told to show a view has it from that moment on — see setViewState above).
+	ws.getLeavesOfType = (viewType: string) => leaves.filter(
+		(l) => (l.view as { getViewType?: () => string } | undefined)?.getViewType?.() === viewType,
+	);
 	// A BRAND-NEW leaf, as workspace.getLeaf hands one over for a target the reader
-	// asked for elsewhere (a tab, a split, a window): it shows nothing yet, so the open
-	// pipeline has to put the place in it. One object, so a test can ask whether the
-	// open landed HERE (the `openFile` mock is shared, and its `this` is the answer).
-	const newLeaf: HarnessLeaf = { id: 'leaf-new', isDeferred: false, containerEl: 'main', openFile, setViewState };
+	// asked for elsewhere (a tab, a split, a window) — or for a view whose own tab is
+	// gone. One object, so a test can ask whether the open landed HERE (the `openFile`
+	// mock is shared, and its `this` is the answer).
+	const newLeaf: HarnessLeaf = { id: 'leaf-new', isDeferred: false, containerEl: 'main', openFile, setViewState, detach };
 	ws.getLeaf = vi.fn(() => newLeaf);
-	return { ws, nav: makeNav(app), openFile, setViewState, applied, leaves, newLeaf };
+	return { ws, nav: makeNav(app), openFile, setViewState, detach, applied, leaves, newLeaf };
 }
 
 describe('NavStack.navigate from sidebar focus', () => {
@@ -1321,7 +1337,13 @@ describe('NavStack view-tab steps', () => {
 		expect(leaf.openFile).not.toHaveBeenCalled();
 	});
 
-	it('a closed graph leaf is a no-op, never a swap over the active file', async () => {
+	it('a view whose leaf is gone is built in a NEW tab, never over the active file', async () => {
+		// The reader's own case: they went to Thino, closed every tab, opened other
+		// notes, and then clicked the entry from back then. The place outlives the tab
+		// it was recorded in, so the view is CONSTRUCTED — and never in the tab the
+		// reader is reading, which is the one thing a pathless entry must not be taken
+		// to mean (with `state: {}`, the same thing Obsidian's own `graph:open` asks
+		// for).
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
@@ -1332,8 +1354,77 @@ describe('NavStack view-tab steps', () => {
 		await nav.stack.navigate(1);
 
 		expect(nav.stack.index).toBe(2);
-		expect(h.setViewState).not.toHaveBeenCalled();
+		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
+		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
 		expect(h.openFile).not.toHaveBeenCalled();
+		expect(h.detach).not.toHaveBeenCalled(); // the view arrived, so the tab stays
+	});
+
+	it('a view ROW whose tab is gone opens the view again — the reader scenario', async () => {
+		// The same question asked from the recent-files list rather than a traversal:
+		// the row was written when the reader was in Thino, Thino's tab is long gone, and
+		// the row still has to take them there (see places.ts's travel).
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const nav = h.nav;
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view', { label: 'Thino' }));
+		const at = nav.places.entries.findIndex(e => e.kind === 'view');
+
+		await nav.places.travel(at);
+
+		expect(h.setViewState).toHaveBeenCalledWith({ type: 'thino_view', state: {}, active: true });
+		expect(h.openFile).not.toHaveBeenCalled();
+	});
+
+	it('another tab already showing the view answers for the place', async () => {
+		// Two Thino tabs are ONE place (see places.ts's placeKey), and the entry names
+		// whichever of them was activated last. Closing that one leaves the place
+		// standing in the tab the reader still has, so nothing is built: the entry was
+		// a name for "Thino", not a handle on one particular tab.
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const other = viewLeaf('leaf-t2', 'thino_view');
+		h.leaves.push(other as never);
+		const nav = h.nav;
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // recorded there, tab since closed
+		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+
+		await nav.stack.navigate(1);
+
+		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(other, { focus: true });
+		expect(h.ws.getLeaf).not.toHaveBeenCalled(); // nothing had to be built
+		expect(h.setViewState).not.toHaveBeenCalled();
+	});
+
+	it('a sidebar panel is not the place: a main-area tab is built instead', async () => {
+		// A panel showing the same view is not where the reader went — it is not
+		// recorded for the same reason (see isMainAreaLeaf). So it does not stand in
+		// for the place either: the entry means a tab of its own.
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		h.leaves.push(viewLeaf('leaf-side', 'thino_view', { containerEl: 'sidebar' }) as never);
+		const nav = h.nav;
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // since closed
+		const at = nav.places.entries.findIndex(e => e.kind === 'view');
+
+		await nav.places.travel(at);
+
+		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
+	});
+
+	it('a view nothing can construct any more leaves no half-open tab behind', async () => {
+		// The plugin behind the view is disabled or gone: the type is asked for and
+		// never arrives (the app answers with the empty page). The tab is closed again
+		// rather than left standing on a place this vault no longer has — the click
+		// doing nothing being the honest outcome there, and what it always used to do.
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		h.newLeaf.view = { getViewType: () => 'empty' };
+		const nav = h.nav;
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // since closed
+		const at = nav.places.entries.findIndex(e => e.kind === 'view');
+
+		await nav.places.travel(at);
+
+		expect(h.setViewState).toHaveBeenCalledWith({ type: 'thino_view', state: {}, active: true });
+		expect(h.detach).toHaveBeenCalled();
 	});
 
 	it('a persisted graph entry survives the load filter', () => {

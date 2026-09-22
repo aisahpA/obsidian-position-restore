@@ -91,7 +91,8 @@ export interface PlaceOpeners {
 	openFile(path: string, leafId: string, target?: PaneTarget): Promise<void>;
 	// Open the file a jump was made in and land on the jump's recorded spot.
 	openJump(entry: NavEntry, target?: PaneTarget): Promise<void>;
-	// Reactivate a pathless view (a view tab — the graph, Thino's memo list).
+	// Show a pathless view (a view tab — the graph, Thino's memo list): in the leaf
+	// that already holds it, or in a new tab when it is nowhere.
 	openView(entry: NavEntry, target?: PaneTarget): Promise<void>;
 }
 
@@ -338,7 +339,9 @@ export class NavPlaces implements PlaceList {
 	//     to one file from behaving differently.
 	//   - a JUMP record is an explicit navigation, like back/forward, so it
 	//     carries its own landing and lands on it.
-	//   - a view record reactivates its leaf.
+	//   - a view record is answered by a leaf SHOWING that view: the one it came
+	//     from, any other one, or a new tab opened on it when the view is nowhere
+	//     (a place outlives the tab it happened in — see stack.ts's openViewPlace).
 	// `target` decides WHERE all three of them open, when the reader held a
 	// modifier down (see PaneTarget): a place is opened exactly the same way, one
 	// tab over. Absent — the ordinary click — the record's own leaf is the answer,
