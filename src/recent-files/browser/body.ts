@@ -516,7 +516,8 @@ export class RecentFilesBrowser {
 	// target (see list.ts).
 	private contextRow(rep: number, ev: MouseEvent): void {
 		const entry = this.opts.places.entries[rep];
-		// A pathless view (the graph) has no file: a file menu has nothing to be about.
+		// A pathless view (the graph, Thino's memo list) has no file: a file menu has
+		// nothing to be about.
 		if (!entry || entry.kind === 'view')
 			return;
 		const file = this.opts.app.vault.getAbstractFileByPath(entry.path);

@@ -80,11 +80,21 @@ export interface NavVisit extends NavEntryBase {
 	viaText?: string;
 }
 
-// A non-file main-area view destination (the global graph); a pathless
-// entry — traversal just reactivates the leaf.
+// A non-file main-area view destination: the global graph, Thino's memo list,
+// a main-area search or local graph — anything the reader opened that is a place
+// in the workspace rather than a place in a note. A pathless entry: traversal
+// reactivates the leaf, or re-asserts the bare view type when the tab was swapped
+// to a file in the meantime.
 export interface NavView extends NavEntryBase {
 	kind: 'view';
 	viewType: string;
+	// The name the view gives itself, for the row that stands for it (see
+	// shared/leaf.ts's viewLabel). DISPLAY-ONLY, and optional: a view that never
+	// named itself leaves it off and the browser answers with its own wording (see
+	// model.ts's viewName). Recorded rather than looked up later because a
+	// third-party view's name cannot be derived from its type — the type is what
+	// identity is (see places.ts's placeKey), the name is what the reader reads.
+	label?: string;
 }
 
 // An INFERRED same-file cursor jump (large move, go-to-line, vim jump — the
@@ -101,13 +111,34 @@ export interface NavTeleport extends NavEntryBase {
 	st?: NavEntryState;
 }
 
-// Non-file main-area views recorded as entries: the global graph is a real
-// destination (note → graph → note hops, and its leaf can be shared with
-// files via node clicks / graph:open tab reuse). Whitelisted — sidebar
-// panels are excluded by isMainAreaLeaf, the empty tab and dragged-in
-// sidebars stay out, and localgraph is omitted (its view state carries the
-// tracked file, which a pathless entry cannot restore).
-export const RECORDABLE_VIEW_TYPES = new Set(['graph']);
+// EVERY non-file main-area view is a destination, whatever its type is. The
+// global graph was only ever the first one to be listed, and a whitelist made the
+// list's answer depend on which plugins the reader has installed: Thino's memo
+// list was not recorded at all, so while the reader sat in it the newest place on
+// their recent-files list was still the FILE THEY CAME FROM — an unrelated note
+// standing in for the place they had just gone to.
+//
+// The rule is therefore written as what is NOT a place, and there is one:
+//   - 'empty' — the placeholder a main-area leaf shows with nothing in it. There
+//     is nothing behind it to return to, and its row would open nothing.
+// What else stays out is decided upstream and for another reason: a SIDEBAR panel
+// is not a main-area leaf at all (see isMainAreaLeaf), so the outline, backlinks
+// and a sidebar-resident Thino never reach this filter.
+//
+// Accepted with the widening, and why it is acceptable: a view entry carries no
+// state, so a traversal returns to a leaf that STILL HOLDS that view by
+// reactivating it, and re-asserts the bare view type only when the tab was swapped
+// to something else in the meantime (see nav-history/stack.ts's openViewPlace). A
+// local graph reached that way is the local graph of whatever file is active then
+// — which reads as "the view, on another note", never as a wrong note opened.
+// (Its view state is what used to keep localgraph off the list entirely.)
+export const NON_DESTINATION_VIEW_TYPES = new Set(['empty']);
+
+// Is this view type a place the recent-files list may hold? The one test, shared
+// by the capture points that see a view only as a type (see nav/funnel.ts).
+export function isRecordableViewType(viewType: string | undefined): boolean {
+	return !!viewType && !NON_DESTINATION_VIEW_TYPES.has(viewType);
+}
 
 // Both lists' STORAGE versions live with their stores, not here: this module is
 // the shared VOCABULARY (what one navigation looks like), and a format version

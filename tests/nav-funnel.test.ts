@@ -9,7 +9,8 @@
 //    bracket (runBracketed, watchdog included) publish nothing;
 //  - what each capture point publishes — recordOpen (a keyless visit, a keyed
 //    jump, a pathless view), recordTeleport, recordActivation (a tab switch is
-//    a leave of the old tab plus a visit of the new one);
+//    a leave of the old tab plus a visit of the new one — or, for a view tab of
+//    any type but the empty tab, a place of its own);
 //  - the two kinds of position read: `leave` (where the reader was) versus
 //    `settled` (where the jump landed) — ungated, and told apart so that a
 //    place list can take only the second;
@@ -28,7 +29,7 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
-import { entry, leafWithFile, makeApp, makeNav, pathOf } from './support/nav-recording-harness';
+import { entry, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
 
 beforeEach(() => {
 	window.localStorage.clear();
@@ -191,9 +192,49 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(leaves).toEqual([]);
 	});
 
-	it('a main-area leaf whose view is not recordable is still a leave', () => {
+	it('a main-area view of ANY type is a place: the type is no longer a whitelist', () => {
+		// The list used to hold 'graph' and nothing else. A reader who went to Thino
+		// therefore kept the FILE THEY CAME FROM as the newest place on their list —
+		// an unrelated note standing in for where they actually were (see
+		// nav/entry.ts's NON_DESTINATION_VIEW_TYPES).
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
+
+		expect(visits).toEqual([{
+			record: { kind: 'view', leafId: 'leaf-t', viewType: 'thino_view', label: 'Thino' },
+			cause: 'tab',
+		}]);
+	});
+
+	it('a view that never named itself records no label: the browser has its own wording', () => {
+		// Not an empty string and not the view type either: the recording says only
+		// what it knows, and what a row prints for it is the browser's call (see
+		// recent-files/browser/model.ts's viewName).
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(viewLeaf('leaf-g', 'graph'));
+
+		expect(visits).toEqual([{
+			record: { kind: 'view', leafId: 'leaf-g', viewType: 'graph' },
+			cause: 'tab',
+		}]);
+	});
+
+	it('the empty tab is the one view that is not a place', () => {
+		// What a main-area leaf shows with nothing in it: there is nothing behind it
+		// to go back to, so nothing is published for it.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(viewLeaf('leaf-e', 'empty'));
+
+		expect(visits).toEqual([]);
+	});
+
+	it('a main-area leaf whose view is the empty tab is still a leave', () => {
 		// The tab being left keeps its position whatever is taking over — only the
-		// half that would make a STEP out of the new view is skipped.
+		// half that would make a STEP out of the new view is skipped, and the empty
+		// tab is the one view that is not a place.
 		const { funnel, visits, leaves } = makeFunnel();
 		const empty = leafWithFile('leaf-2'); // view type 'empty'
 

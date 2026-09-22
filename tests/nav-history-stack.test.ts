@@ -32,7 +32,7 @@ import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 import {
-	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viaOf,
+	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viaOf, viewLeaf,
 } from './support/nav-recording-harness';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
@@ -484,7 +484,7 @@ describe('NavStack persistence', () => {
 				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }, // ok
 				{ path: 'x.md' }, // no kind, no leafId: dropped
 				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3, t: 1 }, // junk key: dropped
-				{ kind: 'view', viewType: 'graph', leafId: 'leaf-g', t: 1 }, // ok
+				{ kind: 'view', viewType: 'thino_view', label: 'Thino', leafId: 'leaf-g', t: 1 }, // ok (a view keeps its own name)
 				{ kind: 'visit', path: 'b.md', leafId: 'leaf-4' }, // no timestamp: dropped
 				{ leafId: 'leaf-3' }, // neither kind nor path/viewType: dropped
 			],
@@ -1182,14 +1182,10 @@ describe('NavStack.navigate from sidebar focus', () => {
 	});
 });
 
-// ===== NavStack: graph tab steps =====
+// ===== NavStack: view-tab steps =====
 
 function graphLeaf(id: string, containerEl: unknown = 'main'): WorkspaceLeaf {
-	return {
-		id,
-		containerEl,
-		view: { getViewType: () => 'graph' },
-	} as unknown as WorkspaceLeaf;
+	return viewLeaf(id, 'graph', { containerEl });
 }
 
 describe('NavStack entry timestamps', () => {
@@ -1209,7 +1205,7 @@ describe('NavStack entry timestamps', () => {
 	});
 });
 
-describe('NavStack graph view steps', () => {
+describe('NavStack view-tab steps', () => {
 	it('graph activation records a pathless view entry and dedups; sidebar does not record', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
@@ -1218,6 +1214,19 @@ describe('NavStack graph view steps', () => {
 
 		nav.funnel.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
 		expect(nav.stack.entries.length).toBe(1);
+	});
+
+	it('any view tab is a step, not just the graph — with the name it goes by', () => {
+		// The stack is not the list (see nav-history/stack.ts): its steps are
+		// traversed, never drawn, so it keeps the label only because it persists the
+		// entry whole — and a view tab of any type is a place this plugin moved to.
+		const nav = makeNav();
+		nav.funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
+		nav.funnel.recordActivation(viewLeaf('leaf-t2', 'empty')); // the empty tab: nothing to return to
+
+		expect(nav.stack.entries).toEqual([
+			{ kind: 'view', leafId: 'leaf-t', viewType: 'thino_view', label: 'Thino', t: expect.any(Number) },
+		]);
 	});
 
 	it('back from the graph tab reactivates the previous file tab without reopening', async () => {

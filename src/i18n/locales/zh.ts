@@ -136,7 +136,7 @@ export const zh: En = {
 	'navHistory.stackCap.name': '前进/后退保留步数',
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
-	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史。关闭后仅记录文件打开与文件内跳转（关系图谱标签页的步骤也将不再记录）。',
+	'navHistory.recordActivation.desc': '点击其他标签页/面板会推入一条历史。关闭后仅记录文件打开与文件内跳转（各类视图标签页——关系图谱、Thino 等——的步骤也不再记录）。',
 	'navHistory.recordTeleport.name': '记录大范围光标跳变',
 	'navHistory.recordTeleport.desc': '光标一次性跨越多行的移动（远距离点击、跳转到行、vim 翻页跳转）会推入一条历史。若滚动或误点常污染历史，可关闭。',
 	'navHistory.commands.navigateBack': '后退',
@@ -150,7 +150,7 @@ export const zh: En = {
 	// 过来的，两个存储答的是不同的问题，看起来却像同一份历史的两种看法。其余
 	// 的都交给下面各行自己说。
 	'recentFiles.intro':
-		'一份去处的清单：最近打开过的笔记，以及你在它们内部跳转过的标题与块——点一行就回到那一处。它不是「前进与后退」页那份历史：那里存的是怎么走到这里，这里存的是去过哪些地方，两者各记各的。清单存在本机，重启后仍在。',
+		'一份去处的清单：最近打开过的笔记，以及你在它们内部跳转过的标题与块——还有主区域里没有文件的视图（关系图谱、Thino 这类），它们也各占一行。点一行就回到那一处。它不是「前进与后退」页那份历史：那里存的是怎么走到这里，这里存的是去过哪些地方，两者各记各的。清单存在本机，重启后仍在。',
 
 	// 最近文件列表自己的文件夹规则（见 PluginSettings.navRecentExcludeFolders）：
 	// 哪些访问值得列出。它是独立的一份，与位置记录的文件夹规则无关——但两者不在
@@ -216,7 +216,8 @@ export const zh: En = {
 	'recentFiles.hotkeys.desc':
 		'进入列表的两种方式：一次性的弹窗，或常驻侧边栏的面板。两者默认都不绑快捷键——在命令面板里按名字打开即可。',
 
-	// 没有文件的一步（关系图谱）在列表里显示成什么。
+	// 一个没有自己名字的视图步骤回退成什么（见 browser/model.ts 的 viewName）：关系图谱，列表一直这么叫它。
+	// 其它类型的视图很少走到这里（视图会在记录时带上自己的名字），真没名字就直接印 viewType。
 	'recentFiles.graphView': '关系图谱',
 	'recentFiles.searchPlaceholder': '按笔记名或文本过滤…',
 	// 过滤框末尾那个 ×（见 RecentFilesBrowser.toolbar）：app 自己的手势，按「清掉什么」命名。

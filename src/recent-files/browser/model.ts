@@ -3,7 +3,7 @@
 // can answer — the file's saved position, and its mtime now — coming in as
 // predicates. No DOM and no `this`: every function here is testable on its own.
 
-import { NavEntry } from '@/nav/entry';
+import { NavEntry, NavView } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 
@@ -37,8 +37,8 @@ export function displayName(path: string): string {
 // are. A file with no extension at all gets "FILE", which closes the rule: every
 // name printed without an extension is either markdown or marked.
 //
-// An empty path is the PATHLESS group (the graph, see listing.ts's NO_PATH): it
-// is a view rather than a file and has no type to report.
+// An empty path is the PATHLESS group (a view — the graph, Thino's memo list, see
+// listing.ts's NO_PATH): it is a view rather than a file and has no type to report.
 export function badgeOf(path: string): string | undefined {
 	if (!path)
 		return undefined;
@@ -52,8 +52,8 @@ export function badgeOf(path: string): string | undefined {
 }
 
 // The folder a path sits in, for a name another path shares — "" for a note at
-// the vault root, and undefined for the placeholder group a pathless entry (the
-// graph) gets, whose name is a translated label rather than a path segment. Two
+// the vault root, and undefined for the placeholder group a pathless entry (a
+// view) gets, whose name is a label rather than a path segment. Two
 // notes called "index" are otherwise one row that cannot be told from the other,
 // and the folder is the only thing that distinguishes them; it is printed ONLY
 // where the name collides, because on every other row it is the same folder
@@ -101,7 +101,7 @@ export function duplicateNames(paths: Iterable<string>): Set<string> {
 // name, the coordinate, and the coordinate as an index for the section lookup.
 export interface NavEntryDescription {
 	// The note's display name: its last path segment WITHOUT its extension (see
-	// displayName), or the view's own label for a pathless step (the graph). The
+	// displayName), or the view's own name for a pathless step (see viewName). The
 	// file group's header prints it, with the type badge and the folder beside it
 	// (see badgeOf / folderOf).
 	name: string;
@@ -130,6 +130,23 @@ export function landedLine(entry: NavEntry): number | undefined {
 	return st.context?.[st.contextAt ?? -1]?.line ?? st.scroll ?? st.cursor?.from.line;
 }
 
+// The name a row prints for a PATHLESS step — a view rather than a place in a
+// note. It is the view's OWN, recorded when the reader went there: Obsidian's
+// `getDisplayText` is what that view's tab header says, so the row agrees with
+// the title the reader clicked, in the app's own language, and a third-party view
+// names itself without this plugin having to know it exists (see shared/leaf.ts's
+// viewLabel).
+//
+// With no label the view answers for itself: the graph keeps the name this list
+// has always given it, and anything else prints its bare view type — the honest
+// name when the view never offered one. Nothing here invents a name.
+//
+export function viewName(entry: NavView): string {
+	if (entry.label)
+		return entry.label;
+	return entry.viewType === 'graph' ? t('recentFiles.graphView') : entry.viewType;
+}
+
 // One entry as its row prints it. The fallbacks are for a state that never went
 // through the nav read: the file's saved position below, or a teleport whose landing
 // never settled.
@@ -138,7 +155,7 @@ export function describeNavEntry(
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ): NavEntryDescription {
 	if (entry.kind === 'view')
-		return { name: t('recentFiles.graphView') };
+		return { name: viewName(entry) };
 	let n: number | undefined;
 	if (entry.st) {
 		n = landedLine(entry);

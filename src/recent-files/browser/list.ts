@@ -341,7 +341,7 @@ export class RecentFilesList {
 		// the list is grouped, so no row, no landing and no "you are here" ever stands
 		// for a name that cannot be opened. The store prunes such a place by itself (see
 		// PathBookkeeper); this is the list agreeing with it, and it is also what covers
-		// the moment before that prune lands. A VIEW place is exempt: the graph has no
+		// the moment before that prune lands. A VIEW place is exempt: a view has no
 		// file to be gone.
 		const listed = (i: number): boolean => {
 			const entry = this.opts.entries[i];
@@ -440,8 +440,8 @@ export class RecentFilesList {
 	// where the reader asked for it, stands the AGE (see the rowTime option): a track
 	// of the row rather than a fourth thing in the name, so the times end on one x
 	// down the whole list whichever half of the name wrapped. A pathless view row (the
-	// graph) prints no folder and no badge: it is one view, not a note with spots in
-	// it, and it has no file on disk to have a type.
+	// graph, Thino's memo list) prints no folder and no badge: it is one view, not a note
+	// with spots in it, and it has no file on disk to have a type.
 	//
 	// The row is its NAME and nothing else. The caret that used to lead it opened a
 	// sublist of the note's landings and carried a "+N" count of what was hidden; both

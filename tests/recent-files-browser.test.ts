@@ -72,11 +72,27 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L42');
 	});
 
-	it('a pathless entry is the graph, and has no coordinate', () => {
+	it('a pathless view with no name of its own falls back, and has no coordinate', () => {
 		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavEntry);
 		expect(graph.name).toBe(t('recentFiles.graphView'));
 		expect(graph.line).toBeUndefined();
 		expect(graph.lineIndex).toBeUndefined();
+	});
+
+	it('names a view by its own label, and falls back for one that has none', () => {
+		// The view's own name is what its tab header said while the reader was there
+		// (see NavView.label), so a Thino row says "Thino" without this list having
+		// to know the plugin; a view that never named itself gets this list's wording
+		// for the graph, and its bare type otherwise (see viewName).
+		const named = describeNavEntry(
+			{ kind: 'view', viewType: 'thino_view', label: 'Thino', leafId: 'leaf-1' } as NavEntry,
+		);
+		expect(named.name).toBe('Thino');
+
+		const unnamed = describeNavEntry(
+			{ kind: 'view', viewType: 'thino_view', leafId: 'leaf-1' } as NavEntry,
+		);
+		expect(unnamed.name).toBe('thino_view');
 	});
 
 	it('an entry with no recorded position falls back to the file saved record', () => {
@@ -128,13 +144,16 @@ describe('groupByFile', () => {
 		expect(groups[0].current).toBe(true);
 	});
 
-	it('pins the current note first, whatever the recency order says', () => {
+	it('keeps the note the reader is in where its recency puts it', () => {
+		// "You are here" is a mark on a row (see NavFileGroup.current), never a place
+		// in the order: a.md is the note being read and the OLDER of the two, so it
+		// stays where its own time puts it — second.
 		const entries = [spot('a.md', 0, 10), spot('b.md', 1, 20)];
 		const groups = groupByFile(entries, 0);
 
-		expect(groups.map(g => g.path)).toEqual(['a.md', 'b.md']);
-		expect(groups[0].current).toBe(true);
-		expect(groups[1].current).toBe(false);
+		expect(groups.map(g => g.path)).toEqual(['b.md', 'a.md']);
+		expect(groups[1].current).toBe(true);
+		expect(groups[0].current).toBe(false);
 	});
 
 	it('drops the current note when nothing about it survives the filter', () => {
@@ -147,14 +166,18 @@ describe('groupByFile', () => {
 		expect(groups.map(g => g.path)).toEqual(['a.md']);
 	});
 
-	it('sorts the pathless view step (the graph) last, whatever its recency', () => {
+	it('orders the pathless view step (the graph) by its own time, like a note', () => {
+		// The graph is the NEWEST place here: the last step on the store's list is
+		// the most recent one (see places.ts). A view is somewhere the reader went,
+		// so it takes the place its time gives it — parked at the foot of the list
+		// it would be a place whose time the order ignores.
 		const entries = [
-			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 			spot('a.md', 0, 10),
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 		];
 		const groups = groupByFile(entries, 0);
 
-		expect(groups.map(g => g.path)).toEqual(['a.md', '']);
+		expect(groups.map(g => g.path)).toEqual(['', 'a.md']);
 	});
 
 	// EVERY SPOT IS A ROW, however close the next one stands. Nearby landings used to
@@ -378,28 +401,29 @@ describe('groupByFile', () => {
 			expect(groups.map(g => g.path)).toEqual(['d.md', 'c.md', 'a.md', 'b.md']);
 		});
 
-		it('still puts the pathless group last, held or not', () => {
+		it('orders a view group by recency when free, and by the held order when there is one', () => {
 			const entries = [
 				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 				...three,
 			];
-			// The order asks for the graph FIRST. The invariant overrides it: a view
-			// is not a place in a note, so it never competes for the scan order.
 			const held = groupByFile(entries, 1, undefined, lines(entries), ['view:graph', 'a.md']);
 			const free = groupByFile(entries, 1, undefined, lines(entries));
 
-			// …while the rest of each list is still whatever ordered it: recency with
-			// the current note (a) pinned first when free, the held sequence when not.
-			expect(free.map(g => g.path)).toEqual(['a.md', 'c.md', 'b.md', '']);
-			expect(held.map(g => g.path)).toEqual(['c.md', 'b.md', 'a.md', '']);
+			// Free: recency, and the graph is the OLDEST step here, so it comes last
+			// on its own merits — nothing puts it there (see groupByFile).
+			expect(free.map(g => g.path)).toEqual(['c.md', 'b.md', 'a.md', '']);
+			// Held: the graph is what the order names first, and the notes it never
+			// heard of (b, c) go ahead of everything it knows. A held order is the
+			// reader's, views included.
+			expect(held.map(g => g.path)).toEqual(['c.md', 'b.md', '', 'a.md']);
 		});
 
-		it('orders by recency exactly as before when nothing is held', () => {
-			// The regression that keeps the default honest: undefined is the whole of
-			// the old behaviour, current note pinned first.
+		it('is recency and nothing else when nothing is held', () => {
+			// The regression that keeps the default honest: undefined holds nothing,
+			// so the list is the places' own recency — the current note included.
 			const groups = groupByFile(three, 0, undefined, lines(three), undefined);
 
-			expect(groups.map(g => g.path)).toEqual(['a.md', 'c.md', 'b.md']);
+			expect(groups.map(g => g.path)).toEqual(['c.md', 'b.md', 'a.md']);
 		});
 	});
 });
@@ -432,11 +456,17 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, 'alpha missing')).toBe(false);
 	});
 
-	it('matches a pathless view entry by its view type / graph label', () => {
+	it('matches a pathless view by its type, its own name, and this list\'s wording', () => {
 		const e = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavEntry;
 		expect(matchesNavFilter(e, 'graph')).toBe(true);
 		expect(matchesNavFilter(e, t('recentFiles.graphView'))).toBe(true);
 		expect(matchesNavFilter(e, 'canvas')).toBe(false);
+
+		// A view's own name is searchable too: it is the word a reader who does not
+		// know the view TYPE would ever type (see navSearchText).
+		const thino = { kind: 'view', leafId: 'leaf-1', viewType: 'thino_view', label: 'Memos' } as NavEntry;
+		expect(matchesNavFilter(thino, 'memos')).toBe(true);
+		expect(matchesNavFilter(thino, 'thino_view')).toBe(true);
 	});
 
 	it('matches the recorded context block, not only the landing line', () => {

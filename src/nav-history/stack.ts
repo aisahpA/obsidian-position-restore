@@ -48,10 +48,10 @@ import { loadNavHistory, persistNavHistory } from './store';
 // native entry's eState carries only the cursor (no scroll), so the setViewState
 // patch injects this plugin's saved position over it (pendingHistoryNav).
 // Cross-tab traversals reactivate the original leaf (leafId); a closed leaf
-// falls back to the active one. Non-file main-area views (the graph tabs)
-// are recorded too: their entries have no path, only a viewType — traversal
-// just reactivates the leaf. The entry vocabulary (NavEntry and its
-// variants, isMainAreaLeaf, the recordable view whitelist) lives in
+// falls back to the active one. Non-file main-area views (the graph, Thino's
+// memo list) are recorded too: their entries have no path, only a viewType —
+// traversal just reactivates the leaf. The entry vocabulary (NavEntry and its
+// variants, isMainAreaLeaf, what counts as a recordable view) lives in
 // nav/entry.ts.
 //
 // Native per-tab history entry (internal, untyped): { state: { type, state:
@@ -482,9 +482,9 @@ export class NavStack implements NavFunnelSink {
 			await leaf.openFile(file);
 	}
 
-	// A pathless view place (the graph tab): reactivate its leaf, or re-assert
-	// the view when the tab was swapped to a file in the meantime — execute()'s
-	// view branch, which needs nothing from the stack.
+	// A pathless view place (the graph tab, Thino's memo list): reactivate its
+	// leaf, or re-assert the view when the tab was swapped to a file in the
+	// meantime — execute()'s view branch, which needs nothing from the stack.
 	async openViewPlace(place: NavEntry, target?: PaneTarget): Promise<void> {
 		if (place.kind !== 'view')
 			return;
@@ -588,7 +588,7 @@ export class NavStack implements NavFunnelSink {
 			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
 		const targetLeaf = this.findLeafById(target.leafId);
 
-		// View entry (graph tab): reaching it means the leaf must SHOW that
+		// View entry (a view tab): reaching it means the leaf must SHOW that
 		// view — activate a different tab, and when the view was swapped
 		// out (a graph node click opens the file over the graph in the same
 		// leaf, or graph:open reuses the tab) re-assert it. A closed leaf
@@ -792,10 +792,10 @@ export class NavStack implements NavFunnelSink {
 
 	// Delegates one step to the native per-tab history — but only when the
 	// native stack's next entry IS the target — a file path, or a view type
-	// for a view entry (the graph) — so the two stacks can never disagree on
-	// where a step lands (in-file jumps exist only on our stack, so
-	// mismatches happen legitimately; those run openInLeaf/setViewState
-	// instead). Returns whether the landing was verified.
+	// for a view entry (the graph, Thino's memo list) — so the two stacks can
+	// never disagree on where a step lands (in-file jumps exist only on our
+	// stack, so mismatches happen legitimately; those run
+	// openInLeaf/setViewState instead). Returns whether the landing was verified.
 	private async delegateNative(
 		dir: -1 | 1,
 		leaf: WorkspaceLeaf,
@@ -815,7 +815,7 @@ export class NavStack implements NavFunnelSink {
 		// Arm the injection: the setViewState patch then lays this plugin's
 		// position over the native entry's cursor-only eState — markdown file
 		// entries only, carrying the target's own landing when it has one. A
-		// view entry (graph) is left unarmed: its setViewState early-returns
+		// view entry is left unarmed: its setViewState early-returns
 		// in the patch before the flag is read, so arming it here would only
 		// leak onto an unrelated later open.
 		if (targetPath !== undefined)

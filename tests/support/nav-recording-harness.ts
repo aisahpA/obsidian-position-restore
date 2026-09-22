@@ -72,9 +72,10 @@ export function entry(path: string, leafId = 'leaf-1'): NavEntry {
 	return { kind: 'visit', path, leafId, t: 1 };
 }
 
-// A leaf whose view is a file view — or, with no `file`, a non-recordable
-// 'empty' view. `containerEl` is what isMainAreaLeaf asks the workspace root
-// about, so 'sidebar' models a panel while the default 'main' sits in the root.
+// A leaf whose view is a file view — or, with no `file`, the EMPTY TAB's view,
+// which is the one main-area view that is not a place. `containerEl` is what
+// isMainAreaLeaf asks the workspace root about, so 'sidebar' models a panel while
+// the default 'main' sits in the root.
 export function leafWithFile(id: string, file?: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	return {
 		id,
@@ -82,6 +83,26 @@ export function leafWithFile(id: string, file?: string, containerEl: unknown = '
 		view: file
 			? Object.assign(Object.create(FileView.prototype), { file: { path: file } })
 			: { getViewType: () => 'empty' },
+	} as unknown as WorkspaceLeaf;
+}
+
+// A leaf holding a non-file view — the graph, Thino's memo list, a main-area
+// search. `label` is the name the view gives itself (what its own tab header
+// prints), which is what a row standing for it says; a view that never named
+// itself leaves it off and the browser answers with its own wording (see
+// shared/leaf.ts's viewLabel).
+export function viewLeaf(
+	id: string,
+	viewType: string,
+	opts: { label?: string; containerEl?: unknown } = {},
+): WorkspaceLeaf {
+	return {
+		id,
+		containerEl: opts.containerEl ?? 'main',
+		view: {
+			getViewType: () => viewType,
+			getDisplayText: () => opts.label,
+		},
 	} as unknown as WorkspaceLeaf;
 }
 

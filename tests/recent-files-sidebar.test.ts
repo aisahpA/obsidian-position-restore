@@ -251,8 +251,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// RecentFilesBrowser.freezeOrder / RecentFilesListOptions.order). What a reader is
 	// looking at is the one thing a redraw must not re-arrange: a row that opens a
 	// note and then moves under the hand that opened it is a list that answers a
-	// click with a shuffle — and the row the reader is ON is pinned first, so every
-	// move drags the whole list one place.
+	// click with a shuffle.
 	it('holds the order it is being read at, and catches up when the pointer leaves', async () => {
 		const { el, nav, names, list } = await mount([
 			place('a.md', NOW - 3 * MINUTE, 10),
@@ -261,25 +260,31 @@ describe('RecentFilesView — the resident panel', () => {
 		], 2);
 		const current = () =>
 			el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent;
-		// Newest first, the current note (c) already at the top.
+		// Newest first: c, b, a.
 		expect(names()).toEqual(['c', 'b', 'a']);
 
 		list().dispatchEvent(new Event('pointerover', { bubbles: true }));
 
 		// The reader goes back to a.md — elsewhere in the app, with this panel still
-		// standing. The history moves, and a.md is now the note they are in: recency
-		// pins it first, which would drag all three rows down one.
-		nav.moved(0);
+		// standing. A place that is sat in again is re-stamped and moves to the END of
+		// the list (see places.remember), so the order the store holds is no longer the
+		// order the reader is looking at: a.md is now the newest of the three.
+		nav.entries = [
+			...nav.entries.filter(e => e.kind === 'view' || e.path !== 'a.md'),
+			place('a.md', NOW, 10),
+		];
+		nav.moved(2);
 
 		// Nothing moved. The list is still the one they were reading, and the only
-		// thing that changed is WHERE they are: the mark is on the third row now,
-		// which is the row a.md kept (see RecentFilesList.fileRow).
+		// thing that changed is WHERE they are: the mark is on the last row now, which
+		// is the row a.md kept (see RecentFilesList.fileRow).
 		expect(names()).toEqual(['c', 'b', 'a']);
 		expect(current()).toBe('a');
 
 		// The pointer leaves, and with nobody reading it the list is free to catch up
 		// on the spot — rather than waiting for the next change to the history, which
-		// may be minutes away.
+		// may be minutes away. Catching up means the store's order, which is now a.md
+		// first on its own merits (nothing lifts the current note to the top).
 		list().dispatchEvent(new Event('pointerleave', { bubbles: true }));
 
 		expect(names()).toEqual(['a', 'c', 'b']);
@@ -554,8 +559,8 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(held.defaultPrevented).toBe(true);
 	});
 
-	// The jump REWRITES the stack: the note it landed on is re-pushed on top and pinned
-	// first, so every stack index below it shifts and the groups are rebuilt. A position
+	// The jump REWRITES the stack: the note it landed on is re-pushed on top, so every
+	// stack index below it shifts and the groups are rebuilt. A position
 	// kept across that rewrite stands on whatever slid into its slot. This is that list,
 	// and the regression it guards.
 	it('starts the next list from a cleared position, not from the row that used to be in that slot', async () => {
@@ -583,7 +588,8 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		click(row);
 
 		expect(nav.jumped).toEqual([3]);
-		// The note travelled to is now the current one, pinned first …
+		// The note travelled to is now the current one — and, being the place just sat
+		// in, the newest one, so its row is the list's first…
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent).toBe('c');
 		// …and the stack was rewritten under the panel: the jump left c holding ONE spot,
 		// while b — which took the slot c's old landing index pointed into — prints its own

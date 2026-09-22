@@ -3,16 +3,15 @@
 // these predicates alone.
 
 import { NavEntry } from '@/nav/entry';
-import { t } from '@/i18n';
-import { baseName } from './model';
+import { baseName, viewName } from './model';
 
 // One FILE on the list: the note, and the steps that landed in it (by line,
 // ascending — see groupByFile). The list is one of these per note — which is what
 // makes a note opened ten times one row instead of ten, and what gives a
 // same-named note somewhere to say which folder it is in — and under the 'all'
 // setting its landings are printed beneath it (see RecentFilesList.shownLandings).
-// A pathless view step (the graph) is a group of its own with no path and never
-// more than one landing.
+// A pathless view step (the graph, Thino's memo list) is a group of its own with
+// no path and never more than one landing.
 //
 // The landings under a note are SPOTS, not steps (see landingKey): a note
 // returned to at the same line five times has one row to pick, however many
@@ -36,9 +35,11 @@ export interface NavFileGroup {
 	// The group's IDENTITY (see groupKey): its path, or the view type for a
 	// pathless one. Carried on the group because the key a pathless group is
 	// named by cannot be recovered from `path` — NO_PATH says a group is
-	// pathless, never WHICH view it is — and because a caller that wants to hold
-	// the list's order still (see groupByFile's `order`) has nothing else stable
-	// to hold: indices are the list's current shape, and the path is not the key.
+	// pathless, never WHICH view it is; what such a group PRINTS is the view's own
+	// label, which is a separate thing again (see model.ts's viewName). Carried
+	// because a caller that wants to hold the list's order still (see
+	// groupByFile's `order`) has nothing else stable to hold: indices are the
+	// list's current shape, and the path is not the key.
 	key: string;
 	// Stack indices of the note's landings, top of the note first: by line,
 	// ascending (see the sort in groupByFile). One entry per distinct line the note
@@ -55,8 +56,10 @@ export interface NavFileGroup {
 	// open will land on. It is deliberately NOT one of `indices`: a note's own
 	// record is not a landing to list under the note, it IS the note.
 	anchor?: number;
-	// The current entry's own group: pinned to the top of the list, so "you are
-	// here" is a place in the same list.
+	// The current entry's own group — the one whose row carries the "you are here"
+	// mark. Deliberately NOT an ordering fact: the list is in recency order
+	// whatever the reader happens to be standing in (see groupByFile), so this
+	// says where to paint the mark and nothing about where the group sits.
 	current: boolean;
 	// The landing that holds the CURRENT entry — the row that carries the "you are
 	// here" dot (see list.ts's placeRow). Undefined when the reader is standing in
@@ -70,14 +73,16 @@ export interface NavFileGroup {
 // because the browser's modules have always taken it from this one.
 export type { LandingsMode } from '@/types';
 
-// The path a pathless group (the graph) carries. A view step is not a place in
-// a note: it has no path to group by, and giving it one would let it merge with
-// a note of the same name.
+// The path a pathless group (a view — the graph, Thino's memo list) carries. A
+// view step is not a place in a note: it has no path to group by, and giving it
+// one would let it merge with a note of the same name.
 export const NO_PATH = '';
 
 // The key a group is identified by: its path, or the view type for a pathless
 // view step — two graph steps are two landings of the same "file" (the graph
-// tab), not two files.
+// tab), not two files. The view TYPE is the identity even though the row prints
+// the view's own label: two Thino tabs are one destination, whatever either of
+// them is called (see model.ts's viewName).
 function groupKey(entry: NavEntry): string {
 	return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
 }
@@ -98,7 +103,8 @@ function groupKey(entry: NavEntry): string {
 //
 // A VIEW step gets the one constant key: a group of them holds a single
 // destination, so the row that opens onto it is "the graph tab" rather than a list
-// of identical graph steps.
+// of identical graph steps. (Two Thino tabs collapse the same way: a view holds
+// one destination however many leaves are showing it.)
 const NO_LINE = 'none';
 
 function landingKey(entry: NavEntry, line: number | undefined): string {
@@ -109,13 +115,15 @@ function landingKey(entry: NavEntry, line: number | undefined): string {
 
 // The filtered steps as one group per note. Groups come out by the recency of
 // their NEWEST step — what a reader scanning for "where was I" expects, and the
-// order the flat chronological list had — except the current entry's group,
-// which is pinned first (unless `order` holds the list still; see below). INSIDE
-// a group the order is the note's own: by line,
-// ascending, every distinct line a row of its own. `keep` applies the filter (a
-// dropped step is not on screen, so its note may disappear with it) — and the
-// caller's filter is where a note whose FILE is gone is dropped too: this module
-// groups and orders, and a group it never hears about is a group it never draws.
+// order the flat chronological list had. That includes a VIEW group (the graph):
+// it is a place the reader went to, and a destination parked at the foot of the
+// list is one nobody scans — "last" and "nowhere" read the same, and a view's own
+// time is a fact the list is holding. INSIDE a group the order is the note's own:
+// by line, ascending, every distinct line a row of its own. `keep` applies the
+// filter (a dropped step is not on screen, so its note may disappear with it) —
+// and the caller's filter is where a note whose FILE is gone is dropped too: this
+// module groups and orders, and a group it never hears about is a group it never
+// draws.
 //
 // `lineOf` resolves the line a step landed on, which is what makes two steps the
 // same spot (see landingKey). It is INJECTED rather than read off the entry
@@ -130,6 +138,12 @@ function landingKey(entry: NavEntry, line: number | undefined): string {
 // keys go where (see its own note). It is a list of keys rather than of indices
 // because this function's group order is derived afresh every time, while a key
 // names the same note before and after the places move under it.
+//
+// The current entry gets no special place in either order. It is INCLUDED where
+// its recency puts it, and the "you are here" dot is painted on the row that
+// holds it (see list.ts's placeRow): a list that lifted the reader's note to the
+// top would re-arrange itself under the hand that clicked a row — and the one
+// note the reader is in is the newest one nearly always anyway.
 export function groupByFile(
 	entries: NavEntry[],
 	currentIndex: number,
@@ -139,8 +153,7 @@ export function groupByFile(
 	// undefined orders by recency, which is what the list does whenever nobody is
 	// looking at it. A caller that passes one is saying "the reader is USING this
 	// list": the order they are reading is then not the model's to change, so the
-	// current group is not pulled to the front and groups keep the places they
-	// were given (see RecentFilesListOptions.order).
+	// groups keep the places they were given (see RecentFilesListOptions.order).
 	order?: readonly string[],
 ): NavFileGroup[] {
 	const groups = new Map<string, NavFileGroup>();
@@ -241,43 +254,32 @@ export function groupByFile(
 	// business, current or not, and neither is a note whose file is gone, not even
 	// the one the reader is standing in (the list has no row for a name it cannot
 	// open; the gap is not worth a dead row). The `!groups.has` guard is only a
-	// fallback for a current entry the scan somehow never opened.
+	// fallback for a current entry the scan somehow never opened — and a group
+	// opened here is flagged current only: it takes the place its recency gives
+	// it, like every other group.
 	const current = entries[currentIndex];
 	if (current && keep(currentIndex) && !groups.has(groupKey(current)))
 		open(current).current = true;
 	const out = Array.from(groups.values());
-	if (!order) {
-		// Recency decides: the current entry's group is pinned first, so "you are
-		// here" is a place in the same list.
-		const here = out.findIndex(g => g.current);
-		if (here > 0)
-			out.unshift(out.splice(here, 1)[0]);
-	} else {
-		// The order the reader is looking at, held still. Two things it
-		// deliberately does NOT do:
-		//
-		//  - It does not pull the current group to the front. That pin is exactly
-		//    what a click would otherwise drag the list around with: the reader
-		//    clicks row 3, the places list moves that note to the end, and the pin
-		//    would answer by flinging it to row 1. The "you are here" MARK still
-		//    moves to the row that was clicked (it is painted per row, see
-		//    list.ts); only the rows stay put.
-		//
-		//  - It does not know about groups the order has never heard of. Those are
-		//    places that appeared since the order was taken, which by recency are
-		//    the NEWEST ones, so they take rank -1 and land at the front. The sort
-		//    is stable, so they keep their own recency order among themselves, and
-		//    the groups that DO have a rank keep the order they were given.
+	// Reaching this line `out` is ALREADY the recency order, and nothing else is
+	// applied to it: the reverse scan above inserted a group the first time it met
+	// one of its steps, and the first step it meets scanning backwards is that
+	// group's newest — so the insertion order is newest-first, the current group
+	// included. (The graph used to be pushed to the END here, whatever its own
+	// time said, and the current group used to be pinned FIRST. Both are gone: a
+	// row whose position no longer answers "how recently" is a row the reader
+	// cannot read a time off, and "you are here" is a mark on the row, not a
+	// place in the order.)
+	if (order) {
+		// The order the reader is looking at, held still. What it deliberately
+		// does NOT know about is groups it has never heard of: those are places
+		// that appeared since the order was taken, which by recency are the NEWEST
+		// ones, so they take rank -1 and land at the front. The sort is stable, so
+		// they keep their own recency order among themselves, and the groups that
+		// DO have a rank keep the order they were given.
 		const rank = new Map(order.map((k, i): [string, number] => [k, i]));
 		out.sort((a, b) => (rank.get(a.key) ?? -1) - (rank.get(b.key) ?? -1));
 	}
-	// A pathless group sits at the END, after every note: it is not a place in a
-	// note, so it does not compete with them for the reader's scan order. This is
-	// a rendering invariant rather than an ordering preference — it holds under
-	// either branch above, and so it is applied last, unconditionally.
-	const pathless = out.findIndex(g => g.path === NO_PATH);
-	if (pathless !== -1 && pathless !== out.length - 1)
-		out.push(out.splice(pathless, 1)[0]);
 	return out;
 }
 
@@ -314,7 +316,7 @@ export function matchesNavFilter(entry: NavEntry, query: string, extra?: string)
 // haystack, so the order of the parts carries nothing.
 export function navSearchText(entry: NavEntry): string {
 	if (entry.kind === 'view')
-		return `${entry.viewType} ${t('recentFiles.graphView')}`;
+		return `${entry.viewType} ${viewName(entry)}`;
 	const parts = [baseName(entry.path), entry.path];
 	const st = entry.st;
 	if (st) {

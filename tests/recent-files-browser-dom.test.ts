@@ -464,7 +464,7 @@ describe('RecentFilesModal — the dropped-steps footnote', () => {
 });
 
 describe('RecentFilesModal — current position', () => {
-	it('pins the current note first, with no dot of its own', () => {
+	it('shows the current note as a row like any other, with no dot of its own', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
@@ -473,11 +473,10 @@ describe('RecentFilesModal — current position', () => {
 		// and the row below is the authoritative one (see RecentFilesModal.render).
 		expect(h.el.querySelector('.position-restore-nav-here')).toBeNull();
 
-		// The current note is a row in the list like any other, first — and it carries
-		// no ●: the current note is pinned first, so a dot on it could only ever sit on
-		// row one, saying what the position already says. The dot is for the LANDING
-		// that holds the current entry, which has its note's other rows beside it (see
-		// RecentFilesList.placeRow), and no note row here prints landings.
+		// The current note is a row in the list like any other, and it leads because it
+		// is the newest place here — and it carries no ●: the dot marks the LANDING that
+		// holds the current entry (see RecentFilesList.placeRow), and a note's own
+		// record is not a landing at all, nor does any note row here print landings.
 		const notes = h.notes();
 		expect(notes).toHaveLength(3);
 		expect(notes[0].textContent).toContain('c');
@@ -717,7 +716,7 @@ describe('RecentFilesModal — keyboard', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
-		h.key('ArrowDown'); // c.md — the current note, pinned first
+		h.key('ArrowDown'); // c.md — the newest note, and the one the reader is in
 		h.key('ArrowDown'); // b.md, the newest back note
 		h.key('Enter');
 
@@ -736,7 +735,8 @@ describe('RecentFilesModal — keyboard', () => {
 		const selected = () => Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-selected'))
 			.map(r => r.querySelector('.nav-row-name')?.textContent);
 
-		// c.md, b.md, a.md — the current note first, then by recency.
+		// c.md, b.md, a.md — the newest first: the list is the places' recency, the
+		// current note included (see groupByFile).
 		h.key('ArrowDown');
 		expect(selected()).toEqual(['c']);
 		expect(spy).toHaveBeenCalled();
@@ -778,7 +778,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(listEl.scrollTop).toBe(0);
 		spy.mockClear(); // …and from here on, the walk alone moves the list
 
-		h.key('ArrowDown'); // c.md — the current note, pinned first, in sight
+		h.key('ArrowDown'); // c.md — the newest note, in sight
 		h.key('ArrowDown'); // b.md, in sight
 		expect(listEl.scrollTop).toBe(0);
 		h.key('ArrowDown'); // a.md, flush with the foot of the list — still IN sight
@@ -811,7 +811,7 @@ describe('RecentFilesModal — keyboard', () => {
 
 		// …and the keyboard's own position is left exactly where it was: no pointer
 		// report, over the row it walked to or over any other, takes it away.
-		h.key('ArrowDown'); // c.md — the current note, pinned first
+		h.key('ArrowDown'); // c.md — the newest note, and the one the reader is in
 		expect(selected()).toEqual(['c']);
 		h.movePointer(b, { x: 44, y: 41 });
 		h.movePointer(h.el.querySelector<HTMLElement>('.position-restore-nav-list')!, { x: 200, y: 90 });
@@ -860,7 +860,7 @@ describe('RecentFilesModal — keyboard', () => {
 		// The file's own record is the note's ROW (see listing.ts's `anchor`). A
 		// landing row standing for it would open the file the reader is already in —
 		// a plain open of the note on screen, i.e. a row that visibly does nothing,
-		// on the note pinned FIRST where it is clicked most.
+		// on the note at the TOP where it is clicked most.
 		const entries = [
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 40 }),
@@ -1191,9 +1191,9 @@ describe('RecentFilesModal — a file that is gone', () => {
 		expect(h.el.textContent).not.toContain('gone.md');
 	});
 
-	it('does not pin a current note whose file is gone', () => {
+	it('shows no row for a current note whose file is gone', () => {
 		// The reader may well be STANDING in the file that was just deleted (the tab is
-		// still open in the app). The list still has no row for it: it pins what it can
+		// still open in the app). The list still has no row for it: it lists what it can
 		// open, and nothing claims to be "here".
 		const entries = [visit('a.md', NOW - MINUTE), visit('gone.md', NOW)];
 		const h = harness(entries, 1, { 'a.md': '' }, ['gone.md']);
@@ -1248,7 +1248,7 @@ describe('RecentFilesModal — keyboard is announced', () => {
 		// Nothing is selected on open, so there is nothing to announce yet.
 		expect(input?.hasAttribute('aria-activedescendant')).toBe(false);
 
-		h.key('ArrowDown'); // the first row, the current note pinned first
+		h.key('ArrowDown'); // the first row: the newest note, which is the one the reader is in
 		const first = h.notes()[0];
 		expect(input?.getAttribute('aria-activedescendant')).toBe(first.id);
 		expect(first.getAttribute('aria-selected')).toBe('true');
@@ -1576,7 +1576,8 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 
 	it('says nothing about a pathless view: no badge, no folder, no tooltip', () => {
 		// The graph is a view and not a file: it has no type to mark and no path to
-		// print or to hover — its own name is the translated view label.
+		// print or to hover — its name is the view's own label, or this list's wording
+		// for a view that has none (see model.ts's viewName).
 		const h = harness([
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
 			...stack(),
@@ -1755,12 +1756,11 @@ describe('RecentFilesModal — the time on a row', () => {
 	it('says the age of each note, from the newest step the note holds', () => {
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 
-		// The current note (a/index.md) leads, then notes.md; the graph is LAST
-		// whatever it holds, because a pathless group never competes with the notes for
-		// the reader's scan order (see groupByFile) — including when it is where the
-		// reader is standing.
+		// The order is the rows' own ages: a/index.md (5m), then the graph (2h), then
+		// notes.md (3d). A view is a place with a time like any other, so it stands
+		// where that time puts it — not at the foot of the list (see groupByFile).
 		expect(h.notes()).toHaveLength(3);
-		expect(times(h)).toEqual(['5m ago', '3d ago', '2h ago']);
+		expect(times(h)).toEqual(['5m ago', '2h ago', '3d ago']);
 	});
 
 	it('dates the pathless view too, and every row the same way', () => {
@@ -1888,7 +1888,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		// reach: the keyboard's own answer is the gesture every list in the app takes.
 		// Whether the modifier is down is the app's call (see Keymap.isModifier).
 		const h = harness(entries(), 1, files);
-		h.key('ArrowDown'); // b.md, the current note, pinned first
+		h.key('ArrowDown'); // b.md, the current note — and, being the newest, the first row
 		h.key('ArrowDown'); // a.md
 		KeymapKnobs.modifier = true;
 		h.key('Enter');

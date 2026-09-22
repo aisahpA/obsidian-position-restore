@@ -1,10 +1,10 @@
 import { App, FileView, WorkspaceLeaf } from 'obsidian';
 import { NavEntryState } from '@/types';
 import {
-	NavEntry, NavTeleport, NewNavEntry, RECORDABLE_VIEW_TYPES, DistributiveOmit,
+	NavEntry, NavTeleport, NavView, NewNavEntry, DistributiveOmit, isRecordableViewType,
 } from './entry';
 import { PositionState } from '@/position/state';
-import { isMainAreaLeaf } from '@/shared/leaf';
+import { isMainAreaLeaf, viewLabel as readViewLabel } from '@/shared/leaf';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
 // THE RECORDING FUNNEL — one navigation, several readers.
@@ -136,18 +136,24 @@ export class NavFunnel {
 
 	// ===== The capture surface =====
 
-	// A file open (the setViewState patch), an in-file jump marker, or a graph
-	// activation (pathless, opts.viewType).
+	// A file open (the setViewState patch), an in-file jump marker, or a pathless
+	// view activation (opts.viewType — the graph tab and every other view).
 	recordOpen(
 		path: string | undefined,
 		leafId: string,
-		opts: { key?: string; force?: boolean; viewType?: string; via?: 'switch' | 'link'; viaPath?: string; viaText?: string } = {},
+		opts: { key?: string; force?: boolean; viewType?: string; viewLabel?: string; via?: 'switch' | 'link'; viaPath?: string; viaText?: string } = {},
 	) {
 		if (!this.isRecording())
 			return;
 		if (opts.viewType) {
-			// A pathless view (the graph tab) is reached by activating its leaf.
-			this.publish({ record: { kind: 'view', leafId, viewType: opts.viewType }, cause: 'open' });
+			// A pathless view is reached by activating its leaf. The label rides
+			// along when the caller has one: it is what the row will print (see
+			// NavView.label), and a caller that knows only the type leaves it off —
+			// the browser then answers with its own wording.
+			const record: DistributiveOmit<NavView, 't'> = { kind: 'view', leafId, viewType: opts.viewType };
+			if (opts.viewLabel)
+				record.label = opts.viewLabel;
+			this.publish({ record, cause: 'open' });
 			return;
 		}
 		// A pathless, typeless call has nothing to restore — no record.
@@ -192,9 +198,18 @@ export class NavFunnel {
 			this.publish({ record: { kind: 'visit', path: view.file.path, leafId, via: 'switch' }, cause: 'tab' });
 			return;
 		}
+		// A main-area view is a destination in its own right, whatever its type is:
+		// the reader went there, which is what this list records (see
+		// isRecordableViewType for the one type that is not a place). Its own display
+		// name rides along, so the row can say it the way the tab header did.
 		const viewType = view?.getViewType();
-		if (viewType && RECORDABLE_VIEW_TYPES.has(viewType))
-			this.publish({ record: { kind: 'view', leafId, viewType }, cause: 'tab' });
+		if (!viewType || !isRecordableViewType(viewType))
+			return;
+		const record: DistributiveOmit<NavView, 't'> = { kind: 'view', leafId, viewType };
+		const label = readViewLabel(view);
+		if (label)
+			record.label = label;
+		this.publish({ record, cause: 'tab' });
 	}
 
 	// "Update on leave": the position of the place being left, read while the view

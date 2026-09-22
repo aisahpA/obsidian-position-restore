@@ -34,7 +34,8 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 //     nowhere else, and a jump row that did not land on its jump would be a
 //     broken promise. Identity is the heading/anchor KEY, not the line: a
 //     heading that moved in an edit is the same place.
-// A pathless view (the graph) is one record, as it is in the panel.
+// A pathless view (the graph, Thino's memo list) is one record, as it is in the
+// panel.
 //
 // WHAT IS NOT IN IT: teleports (the sampler's INFERRED large cursor moves).
 // They are not places the reader chose, and they were the whole reason the
@@ -90,7 +91,7 @@ export interface PlaceOpeners {
 	openFile(path: string, leafId: string, target?: PaneTarget): Promise<void>;
 	// Open the file a jump was made in and land on the jump's recorded spot.
 	openJump(entry: NavEntry, target?: PaneTarget): Promise<void>;
-	// Reactivate a pathless view (the graph tab).
+	// Reactivate a pathless view (a view tab — the graph, Thino's memo list).
 	openView(entry: NavEntry, target?: PaneTarget): Promise<void>;
 }
 
@@ -494,7 +495,10 @@ function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 			};
 		}
 		case 'view':
-			return { kind: 'view', leafId: entry.leafId, viewType: entry.viewType, t };
+			// The label is taken from the recording, so it is refreshed by every
+			// visit: a view that renamed itself (or a plugin updated under it) is
+			// named by what it says NOW — the name the reader just read on its tab.
+			return { kind: 'view', leafId: entry.leafId, viewType: entry.viewType, label: entry.label, t };
 		default:
 			// Unreachable: remember() refuses teleports. Typed as a visit so a
 			// future variant fails the type check here rather than silently.

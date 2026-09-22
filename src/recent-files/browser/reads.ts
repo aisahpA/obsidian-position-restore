@@ -128,7 +128,7 @@ export class RecentFilesReads {
 }
 
 // Read one path's metadata, through the cache and never the disk. `path` is empty
-// for a pathless view (the graph): there is no file to look up.
+// for a pathless view (the graph, Thino's memo list): there is no file to look up.
 //
 //   - `aliases` is Obsidian's own property, and its value may be a string OR a list
 //     of them, so both are taken (a hand-written `aliases: weekly` is as valid as the

@@ -142,7 +142,7 @@ export const en = {
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
-	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
+	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step. Turn off for a jump-only history: only file opens and in-file jumps are recorded (view steps — the graph, the Thino view — stop being recorded too).',
 	'navHistory.recordTeleport.name': 'Record large cursor jumps',
 	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
 	'navHistory.commands.navigateBack': 'Navigate back',
@@ -164,7 +164,7 @@ export const en = {
 	// looking like two views of one history. Everything else the rows say
 	// about themselves.
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, and the headings and blocks you jumped to inside them — a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. This list is kept on this device and survives restarts.',
+		'A list of places you have been: notes opened recently, the headings and blocks you jumped to inside them, and the non-file views of the main area (the graph, the Thino view) — each of them one row, and a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. This list is kept on this device and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
 	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
@@ -253,7 +253,9 @@ export const en = {
 	'recentFiles.hotkeys.desc':
 		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
 
-	// What a step with no file (the graph) is called in the list.
+	// The fallback name for a view step that carries none of its own (see browser/model.ts's
+	// viewName): the graph, which this list has always called this. A view with a name
+	// of its own prints that instead; one without prints its bare view type.
 	'recentFiles.graphView': 'Graph view',
 	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
 	// The × at the end of the filter box (see RecentFilesBrowser.toolbar): the app's own

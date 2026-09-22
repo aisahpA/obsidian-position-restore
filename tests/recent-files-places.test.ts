@@ -151,6 +151,29 @@ describe('NavPlaces — what a place is', () => {
 
 		expect(paths(places)).toEqual(['view:graph', 'a.md']);
 	});
+
+	it('keeps the view\'s own name, refreshed by every visit', () => {
+		// The label is not part of a place's IDENTITY — that is the view type (see
+		// placeKey), and two Thino tabs are one destination. It is what the row
+		// PRINTS, and it is taken from the recording each time: a view that renamed
+		// itself is named by what it says now (see places.ts's placeRecord).
+		const { places } = makePlaces();
+		const labelAt = (i: number) => {
+			const entry = places.entries[i];
+			return entry.kind === 'view' ? entry.label : undefined;
+		};
+		const thino = (label?: string): NavEntry =>
+			({ kind: 'view', viewType: 'thino_view', leafId: 'leaf-1', label, t: 0 });
+
+		places.remember(thino('Thino'));
+		expect(labelAt(0)).toBe('Thino');
+
+		places.remember(thino('Memos'));
+
+		// One place, re-named — not two.
+		expect(places.entries).toHaveLength(1);
+		expect(labelAt(0)).toBe('Memos');
+	});
 });
 
 describe('NavPlaces — its own folder rule', () => {
