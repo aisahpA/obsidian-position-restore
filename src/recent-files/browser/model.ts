@@ -306,3 +306,26 @@ export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: num
 export function rowTrail(trail: string[], depth = 2): string[] {
 	return trail.slice(-depth);
 }
+
+// Whether a row has to give up the OUTER level of the chain it prints: less than
+// HALF of the level survived the row's width. `whole` is the width the level asks
+// for and `shown` is what the row could give it — both read off a laid-out row, by
+// the one caller that has one (see RecentFilesList.fitTrails).
+//
+// Half, and not "any of it was cut": a clipped level that is still mostly there names
+// its section (`面板设计与信息架…`), which is the whole of what a row asks of it, and
+// what a squeezed one leaves is a FRAGMENT that names nothing (`新插件 Positi…`). The
+// line is therefore drawn where the level stops being readable, not where it stops
+// being whole.
+//
+// What this is NOT about is the deepest level's width: that level takes the width its
+// own text needs whatever stands beside it (see styles.css's `flex: 0 0 auto` on it),
+// so taking the outer level off buys it not a pixel. What it buys is the READING — a
+// fragment in front of a place says nothing about the place, and the section a row
+// let go of is one hover away either way.
+//
+// A level that fits at all is never dropped (`whole === 0` is a level that fits:
+// nothing is clipped, so the two widths agree).
+export function dropsOuterLevel(shown: number, whole: number): boolean {
+	return whole > 0 && shown * 2 < whole;
+}

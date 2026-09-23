@@ -80,6 +80,14 @@ export class NavRowTip {
 		this.tips.set(el, content);
 	}
 
+	// An element that has nothing to say any more: the fit pass hands a row the words
+	// of the section level it took off, and takes them BACK when the row has room to
+	// print that level again (see RecentFilesList.fitTrails) — a tooltip left behind
+	// would then be repeating the row it is standing over.
+	detach(el: HTMLElement): void {
+		this.tips.delete(el);
+	}
+
 	// The list is being REBUILT (see RecentFilesList.render): the rows the registered
 	// tips belong to are gone, so the one on screen — which points at a row of the
 	// previous render — has to go with them. The registry itself needs no clearing: it

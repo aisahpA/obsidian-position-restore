@@ -2,7 +2,7 @@
 // the DOM, because jsdom never loads a stylesheet and every one of these is a
 // contract no rendering test here could catch.
 //
-// Four of them:
+// Five of them:
 //
 // 1. The quiet tiers (the section, the coordinate, the age, the toolbar chrome)
 //    must NOT be painted with --text-faint / --text-muted. Those are ordinary
@@ -31,6 +31,16 @@
 //    row's own flow, so summoning it moves nothing — and what gives way when the two
 //    trade places is the age's colour, not the track it stands in. On touch there is
 //    no hover to summon it with, so it stands there instead.
+//
+// 5. A landing row's section chain collapses FROM THE OUTSIDE IN, and ONLY from there:
+//    the outer level carries every pixel of a deficit, while the deepest level is not a
+//    shrinkable item at all — it takes the width its own text needs, up to the whole
+//    row — so the level a landing is PLACED by keeps its text however narrow the pane
+//    gets. The "›" between two levels rides with the level it follows, so a level
+//    squeezed out of the row takes its arrow with it instead of leaving one standing at
+//    the head of the row. What the collapse leaves of the outer level is a fragment
+//    that names no section, and the pass that reads the layout back takes it off a row
+//    squeezed past half of it (`is-deep-only`).
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -96,6 +106,56 @@ describe('recent-files browser quiet tiers', () => {
 		expect(trail).not.toMatch(/margin-inline-start/);
 		// and the name is capped rather than greedy
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
+	});
+
+	// A LANDING'S SECTION CHAIN GIVES WAY FROM THE OUTSIDE IN, AND ONLY FROM THERE (the
+	// whole reason a row prints the deepest two levels and not the chapter above them):
+	// the deepest level is not a shrinkable item at all, so the outer level carries
+	// every pixel of a deficit and the level a landing is PLACED by keeps its text while
+	// the row has any room at all. MEASURED in a real layout — no jsdom here — on a row
+	// whose two levels are 141px and 63px: at a 260px panel the outer level reads 118px
+	// of its 141 and the deepest reads its whole 63, where the shrink WEIGHTS this rule
+	// used to carry (100 against 1) left the deepest level 0.2px short — and 0.2px is
+	// not nothing when `text-overflow: ellipsis` charges a whole glyph for any overflow
+	// at all: that row printed "新插件 Positi… 2026-09-…".
+	it('collapses a section chain from the outside in', () => {
+		const seg = browser.match(/\.position-restore-nav-row \.nav-row-trail \.nav-trail-seg\s*\{[^}]*\}/)?.[0] ?? '';
+		const deep = browser.match(/\.position-restore-nav-row \.nav-row-trail \.nav-trail-deep\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(seg).not.toBe('');
+		expect(deep).not.toBe('');
+		// the outer level is the only thing that shrinks, and it can be squeezed to
+		// nothing at all, which is what lets the deepest stand alone on a row too narrow
+		// for two…
+		expect(seg).toMatch(/flex: 0 1 auto/);
+		expect(seg).toMatch(/min-width: 0/);
+		// …because the deepest level is not shrunk but CLAMPED: no shrink factor at all,
+		// and the trail itself as the ceiling its own ellipsis answers to.
+		expect(deep).toMatch(/flex: 0 0 auto/);
+		expect(deep).toMatch(/max-width: 100%/);
+		for (const rule of [seg, deep]) {
+			expect(rule).toMatch(/overflow: hidden/);
+			expect(rule).toMatch(/text-overflow: ellipsis/);
+			expect(rule).toMatch(/white-space: nowrap/);
+		}
+		// THE SEPARATOR IS NOT A CELL OF ITS OWN: as one it kept its ~15px after the
+		// level in front of it had been squeezed out, so the row printed a "›" with
+		// nothing to its left. It is written INSIDE that level instead (see
+		// RecentFilesList.placeRow), and there is no rule left that sizes it as a cell.
+		expect(browser).not.toMatch(/\.nav-trail-sep\s*\{[^}]*flex:/);
+	});
+
+	// …and the collapse is not the whole of the answer: what it leaves of the outer
+	// level is a FRAGMENT that names no section ("新插件 Positi…" in front of a date),
+	// so the pass that reads the layout back takes it off a row squeezed past half of it
+	// (see RecentFilesList.fitTrails). The stylesheet's half of that is one rule, and it
+	// is `display: none` — a WIDTH would leave the fragment standing in the row it was
+	// taken off.
+	it('takes off the outer level a row could not print', () => {
+		const off = browser.match(
+			/\.position-restore-nav-row\.is-deep-only \.nav-trail-seg\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(off).not.toBe('');
+		expect(off).toMatch(/display: none/);
 	});
 
 	// THE LIST'S TYPE is the app's own nav-list tier and not the 15px `body` hands

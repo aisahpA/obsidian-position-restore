@@ -5,8 +5,8 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-	describeNavEntry, headingTrailAtLine, rowTrail, baseName, badgeOf, displayName, duplicateNames, folderOf,
-	ageLabel, ageOf, newestStamp,
+	describeNavEntry, headingTrailAtLine, rowTrail, dropsOuterLevel, baseName, badgeOf, displayName,
+	duplicateNames, folderOf, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
 import { groupByFile, matchesNavFilter } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
@@ -697,6 +697,34 @@ describe('rowTrail', () => {
 		// preview panel does) — dropping it left the row naming the PARENT
 		// section, which is the one level a reader cannot place the spot by.
 		expect(rowTrail(['A', 'B', '决策'])).toEqual(['B', '决策']);
+	});
+});
+
+describe('dropsOuterLevel', () => {
+	// The widths are a real row's, read off a laid-out one: what the outer level asks
+	// for (`whole`) against what the row could give it (`shown`).
+	it('keeps a level that fits, and one clipped by a character or two', () => {
+		expect(dropsOuterLevel(80, 80)).toBe(false);
+		// "面板设计与信息架…" still says which section it is
+		expect(dropsOuterLevel(72, 80)).toBe(false);
+		// exactly half is the line, and the half that survived is still readable
+		expect(dropsOuterLevel(40, 80)).toBe(false);
+	});
+
+	it('drops a level less than half of which survived', () => {
+		// "新插件 Positi…" names no section, and the level beside it takes the width it
+		// needs whether this one is on the row or not (see styles.css)
+		expect(dropsOuterLevel(39, 80)).toBe(true);
+		// …and a level the collapse has already squeezed to nothing
+		expect(dropsOuterLevel(0, 80)).toBe(true);
+	});
+
+	it('keeps the level of a row that has not been laid out', () => {
+		// A row with no layout reports no width for either question, and a level that
+		// reports nothing has not been clipped — it has not been measured. (The panel
+		// guards on the LIST's width before it asks at all; this is the answer for a
+		// level the collapse never touched.)
+		expect(dropsOuterLevel(0, 0)).toBe(false);
 	});
 });
 

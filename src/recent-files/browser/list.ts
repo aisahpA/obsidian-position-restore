@@ -5,7 +5,8 @@ import { t } from '@/i18n';
 import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
 import { PathDisplayMode } from '@/types';
 import {
-	NavEntryDescription, ageLabel, badgeOf, displayName, duplicateNames, folderOf, newestStamp, rowTrail,
+	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
+	newestStamp, rowTrail,
 } from './model';
 import { NavRowTip, TipContent } from './tip';
 
@@ -113,6 +114,22 @@ interface RowRef {
 	// resolved from that group when it is needed (see activeRep).
 	rep?: number;
 	group?: number;
+}
+
+// A landing row's section chain, kept for the pass that reads the layout back (see
+// fitTrails): the row, the OUTER level it may have to give up, and the chain the
+// row answers with on hover once it has. Dropped with the rows on every render —
+// the element it names is thrown away with them.
+interface TrailRow {
+	el: HTMLElement;
+	// The outer level — the one that goes first, being the one a reader does not
+	// match a spot against (see model.ts's rowTrail and dropsOuterLevel).
+	outer: HTMLElement;
+	chain: string[];
+	// Whether the row already says something on hover of its OWN: a chain deeper
+	// than the row prints carries its whole chain as a tooltip from the moment the
+	// row is drawn (see placeRow), and the pass must write over that with nothing.
+	tipped: boolean;
 }
 
 export interface RecentFilesListOptions {
@@ -251,6 +268,14 @@ export class RecentFilesList {
 	// What a row says on hover, drawn by the panel rather than by the browser (see
 	// tip.ts): the only place a full path can be said in a type the reader can read.
 	private tip: NavRowTip;
+	// The rows that print a section chain, with the level each may have to give up
+	// once the layout has had its say (see fitTrails).
+	private trails: TrailRow[] = [];
+	// The list's own width, watched: a pane dragged narrower keeps its rows — nothing
+	// re-renders on a drag — and whether a chain fits is a question about the width
+	// the row has NOW. (Not a question a test can ask: jsdom implements no layout,
+	// and no observer with it.)
+	private watched?: ResizeObserver;
 
 	constructor(private opts: RecentFilesListOptions) {
 		// Nothing is listened to here for the LIST's own sake: a pointer moves no
@@ -258,6 +283,10 @@ export class RecentFilesList {
 		// the rows are drawn. The tooltip is the one pointer reader, and it answers with
 		// words rather than with a move.
 		this.tip = new NavRowTip(opts.list);
+		if (typeof ResizeObserver === 'function') {
+			this.watched = new ResizeObserver(() => this.fitTrails());
+			this.watched.observe(opts.list);
+		}
 	}
 
 	// The place index a row acts on: a landing is itself; a NOTE is the note's OWN
@@ -329,6 +358,7 @@ export class RecentFilesList {
 		this.opts.list.empty();
 		this.opts.clearDescribeCache();
 		this.refs = [];
+		this.trails = [];
 		this.groups = [];
 		this.selected = undefined;
 
@@ -392,6 +422,9 @@ export class RecentFilesList {
 			for (const i of this.shownLandings(group, index))
 				this.placeRow(i, i === group.currentRep);
 		});
+		// …and what the LAYOUT did to the rows just drawn, read back now that they
+		// have a width to be measured against (see fitTrails).
+		this.fitTrails();
 
 		// Nothing to draw: the query found no step to list, or the history has nothing
 		// left to name. Asked of the ROWS, because that is what the reader sees — and
@@ -673,18 +706,102 @@ export class RecentFilesList {
 		// The section the landing sits in, deepest one or two levels: what a
 		// reader recognizes a spot by, so it takes the row's slack. The cell is
 		// created even when empty, so its track exists on every landing row.
-		const trail = rowTrail(this.opts.trailFor(entry, d));
+		//
+		// The row holds the deepest TWO levels (see rowTrail) because it has one line
+		// of width; `chain` is the whole thing the note's headings answer for. The
+		// outer levels are not thrown away — they are one hover away (see the tooltip
+		// at the foot of this method).
+		const chain = this.opts.trailFor(entry, d);
+		const trail = rowTrail(chain);
 		const crumb = row.createSpan({ cls: 'nav-row-trail' });
+		let outer: HTMLElement | undefined;
 		for (let k = 0; k < trail.length; k++) {
-			if (k > 0)
-				crumb.createSpan({ text: '›', cls: 'nav-trail-sep' });
-			crumb.createSpan({
+			const level = crumb.createSpan({
 				text: trail[k],
 				cls: k === trail.length - 1 ? 'nav-trail-deep' : 'nav-trail-seg',
 			});
+			// The separator RIDES WITH THE LEVEL IT FOLLOWS, as a child of that level
+			// and not as a cell of its own standing between the two. A cell of its own
+			// keeps its width after the level in front of it has been squeezed to
+			// nothing, and a row that had already given up "呈现方案" went on printing a
+			// "›" with nothing to its left — measured at ~15px of a 360px panel, spent
+			// in front of the ONE level this row is for (see styles.css's collapse
+			// order). Inside the level it belongs to, it goes when the level goes, and
+			// the deepest level gets the width back.
+			if (k < trail.length - 1) {
+				level.createSpan({ text: '›', cls: 'nav-trail-sep' });
+				outer = level;
+			}
 		}
+		// WHAT THE HOVER SAYS: THE WHOLE CHAIN, outermost first, the way the note
+		// runs — and only where the row is not already printing all of it. A landing
+		// three sections deep prints "呈现方案 › 预览" and never says which chapter
+		// that is, and the chapter is the first thing a reader looking for a place
+		// asks about.
+		//
+		// It is deliberately NOT attached to a row that already prints its whole
+		// chain: hover answers with what the row could not say (see fileRow), and a
+		// tooltip repeating the two words on the row is a tooltip for nothing.
+		// "Already prints" is the layout's answer as much as the chain's, though, and
+		// a row is drawn before anything has been measured — so the pass that reads
+		// the layout back gives the row this tooltip when it takes a level off it
+		// (see fitTrails).
+		if (chain.length > trail.length)
+			this.tip.attach(row, { text: chain.join(' › ') });
+		// …and the row joins the ones the fit pass will ask about, outer level and
+		// all. A row that printed a single level has nothing to give up: the whole
+		// chain is the level it prints.
+		if (outer)
+			this.trails.push({ el: row, outer, chain, tipped: chain.length > trail.length });
 
 		return 1;
+	}
+
+	// WHAT THE LAYOUT DID TO THE CHAINS, READ BACK ONCE THE ROWS ARE ON SCREEN.
+	//
+	// A row is drawn before anything has been measured, and a stylesheet can only
+	// SQUEEZE the outer level of a chain (see .nav-trail-seg): what a squeezed level
+	// leaves is a FRAGMENT — measured on the panel's own width, a row whose levels are
+	// "新插件 Position Restore" and "2026-09-04" prints "新插件 Positi… 2026-09-04",
+	// where the fragment names no section and the DATE is the whole of what the row is
+	// saying. The deepest level does not pay for that fragment in width — it takes the
+	// width its own text needs however narrow the row gets (see styles.css) — so what
+	// the pass is deciding here is the row's READING: past half of its outer level, the
+	// fragment is not worth the room it reads in, and the row prints its deepest level
+	// alone (see dropsOuterLevel).
+	//
+	// The level that goes is not lost: it is one hover away. A row whose chain was
+	// deeper than what it printed already says the whole chain there, and a row that
+	// had only its two levels printed gets the words it let go of as its tooltip —
+	// hover answers with what the row could not say (see placeRow), and the row
+	// cannot say them now.
+	private fitTrails(): void {
+		const rows = this.trails;
+		// A list with no layout — a test's DOM, or a panel that has not reached the
+		// document — reports every width as 0, and every chain would go.
+		if (!rows.length || !this.opts.list.clientWidth)
+			return;
+		// Measure with every level back on its row: a level the LAST pass took off has
+		// no box to be measured in, and a pane dragged wider has to be able to have it
+		// back. One write over all of them …
+		for (const r of rows)
+			r.el.removeClass('is-deep-only');
+		// …then ONE read of all of them, before the first row is written back: a write
+		// invalidates the layout every later read would have to wait for, and this
+		// list has a row per note.
+		const dropped = rows.map(r => dropsOuterLevel(r.outer.clientWidth, r.outer.scrollWidth));
+		rows.forEach((r, i) => {
+			if (!dropped[i]) {
+				// The row prints its levels again, so the words it borrowed are the row's
+				// own once more and hover has nothing left to add.
+				if (!r.tipped)
+					this.tip.detach(r.el);
+				return;
+			}
+			r.el.addClass('is-deep-only');
+			if (!r.tipped)
+				this.tip.attach(r.el, { text: r.chain.join(' › ') });
+		});
 	}
 
 	// A right-click on a row — or a finger's lingering press, which a WebView reports
@@ -946,6 +1063,8 @@ private onContextMenu(ev: MouseEvent, ref: RowRef): void {
 	// come off with it.
 	destroy(): void {
 		this.tip.destroy();
+		// The width is watched no longer: the list it was watching goes with the panel.
+		this.watched?.disconnect();
 	}
 
 	// The keyboard's walk: one row on, wrapping at either end. A step is `walked`, so

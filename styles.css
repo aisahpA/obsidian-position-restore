@@ -687,19 +687,32 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* When the column runs out of room the OUTER levels give way first: the shrink
-   weights below are a collapse order, not a proportion (100:1), so the deepest
-   level — the one a reader matches a spot against memory by — keeps its text
-   until only it is left to ellipsize. */
-.position-restore-nav-row .nav-row-trail .nav-trail-seg {
-	flex: 0 100 auto;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
+/* ONLY THE OUTER LEVEL GIVES WAY, AND WHAT IT CARRIES IS THE WHOLE DEFICIT: the
+   deepest level takes the width its own text needs — up to what the row has at all —
+   so nothing the level beside it stands in can cost it a single character. The level
+   a reader matches a place against memory by keeps its text while the row has any
+   room for it, and is ellipsized only once it is alone and still too long.
 
-.position-restore-nav-row .nav-row-trail .nav-trail-deep {
+   It used to be a proportions game instead: a shrink weight of 100 against 1, so the
+   outer level took ~99% of a deficit and the deepest level took the rest. MEASURED in
+   a real layout, on a row whose two levels are 141px and 63px wide: at a 260px panel
+   the outer level read 118px of its 141 and the deepest had given up 0.2px. That
+   0.2px is not nothing, which is exactly what a ratio cannot express —
+   `text-overflow: ellipsis` charges a WHOLE glyph for any overflow at all, so the row
+   printed "新插件 Positi… 2026-09-…": a DATE losing the two digits that told this
+   dated section from the one a fortnight earlier, while the fragment in front of it
+   went on standing in ~24px. `flex: 0 0 auto` and `max-width: 100%` are the whole of
+   the difference — the deepest level is not an item that can be SHRUNK at all (its
+   box is its own text, or the trail itself when even that does not fit, which is the
+   one case its own ellipsis is for), and the outer level carries every pixel of the
+   deficit down to nothing.
+
+   What the outer level leaves behind as it goes is a FRAGMENT — "新插件 Positi…" —
+   and a pane can squeeze a row past the point where that is worth printing. That is
+   `.is-deep-only` below, and it is a question about what the row SAYS rather than
+   about width (see RecentFilesList.fitTrails): the deepest level no longer needs the
+   width the fragment stands in. */
+.position-restore-nav-row .nav-row-trail .nav-trail-seg {
 	flex: 0 1 auto;
 	min-width: 0;
 	overflow: hidden;
@@ -707,12 +720,30 @@ body.is-mobile .position-restore-cue {
 	white-space: nowrap;
 }
 
-/* The separator only ever takes its own width: it is a glyph between two
-   levels, not a level. */
-.position-restore-nav-row .nav-row-trail .nav-trail-sep {
+.position-restore-nav-row .nav-row-trail .nav-trail-deep {
 	flex: 0 0 auto;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
+/* The outer level, TAKEN OFF the row that could not print it (see
+   RecentFilesList.fitTrails). `display: none` and not a narrower width: a squeezed
+   level is a fragment that names no section, and a narrower one is a fragment still
+   — the level is either readable or it is not on the row at all, and what it said is
+   one hover away. */
+.position-restore-nav-row.is-deep-only .nav-trail-seg {
+	display: none;
+}
+
+/* The separator hangs off the level it FOLLOWS rather than standing between the
+   two levels as a cell of its own (see RecentFilesList.placeRow, which writes it
+   inside that level's span). As a cell it kept its width — the glyph and its 10px
+   of padding, ~15px — after the level in front of it had been squeezed to nothing,
+   so a row that had already given up its outer level still printed a "›" with
+   nothing to its left, standing where the deepest level could have had the room.
+   Inside the level, it goes when the level goes. */
 .nav-trail-sep {
 	padding: 0 5px;
 	color: var(--nav-faint);

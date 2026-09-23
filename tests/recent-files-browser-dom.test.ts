@@ -1111,9 +1111,12 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 	});
 
 	it('leaves a landing row\'s tooltip alone', () => {
-		// A landing row has no tooltip at all: a spot is placed by the coordinate and the
-		// section it prints, and the file's other names belong to the FILE rather than to
-		// one spot in it (see placeRow / fileRow).
+		// A landing row says nothing of the FILE: a spot is placed by the coordinate and
+		// the section it prints, and the note's other names belong to the note rather than
+		// to one spot in it (see placeRow / fileRow). It says nothing of the SECTION
+		// either here, because this fixture's note has no headings at all — a row whose
+		// chain is deeper than the two levels it prints says the whole chain on hover
+		// (see the landing row suite).
 		const h = harness([
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 400 }),
@@ -1385,6 +1388,43 @@ describe('RecentFilesModal — one note, many landings', () => {
 	});
 });
 
+// jsdom lays nothing out, so the two questions the fit asks of a row — how wide the
+// list is, and how much of a section level survived it — have to be answered for it
+// (see RecentFilesList.fitTrails). Answered on the PROTOTYPE and not on the elements,
+// because the rows the fit measures are the ones the render is drawing: an element a
+// test could stub first does not exist yet. `answer` is asked on every read, so one
+// test can render the same list at two widths.
+function fakeLayout(answer: () => {
+	list: number;
+	// What the layout left of one level, by the text it prints: `whole` is the width
+	// the level asks for, `shown` what the row could give it.
+	level: (text: string) => { shown: number; whole: number };
+}): () => void {
+	const proto = Element.prototype;
+	const kept = (['clientWidth', 'scrollWidth'] as const)
+		.map(name => [name, Object.getOwnPropertyDescriptor(proto, name)] as const);
+	const width = (el: Element, which: 'shown' | 'whole'): number => {
+		if (el.classList.contains('position-restore-nav-list'))
+			return answer().list;
+		if (el.classList.contains('nav-trail-seg'))
+			return answer().level(el.textContent ?? '')[which];
+		return 0;
+	};
+	Object.defineProperty(proto, 'clientWidth', {
+		configurable: true,
+		get(this: Element) { return width(this, 'shown'); },
+	});
+	Object.defineProperty(proto, 'scrollWidth', {
+		configurable: true,
+		get(this: Element) { return width(this, 'whole'); },
+	});
+	return () => {
+		for (const [name, saved] of kept)
+			if (saved)
+				Object.defineProperty(proto, name, saved);
+	};
+}
+
 describe('RecentFilesModal — a landing row', () => {
 	// The landings a note holds are rows of their own under 'all', so these tests ask
 	// for them: the note here holds TWO places — L7 under "预览" and L36 under
@@ -1418,13 +1458,13 @@ describe('RecentFilesModal — a landing row', () => {
 		expect(row.textContent).not.toContain('最后一段');
 	});
 
-	it('labels every landing with the line it will OPEN, and says nothing on hover', () => {
+	it('labels every landing with the line it will OPEN', () => {
 		// The list used to fold landings close enough together into one row, which printed
 		// the NEWEST member's line while covering the rest: a click could reach only that
 		// line, and the range the row covered survived as its tooltip. Every spot is a row
-		// of its own now (see NavFileGroup), so the label IS the destination — and a
-		// landing row has nothing left to say on hover, because a spot is placed by the
-		// coordinate and the section it already prints.
+		// of its own now (see NavFileGroup), so the label IS the destination — and what a
+		// row says on hover is the section chain it could not print, never the line (see
+		// the tooltip's own test below).
 		const entries = [
 			visit('a.md', NOW - 3 * MINUTE, captured(SPREAD_DOC, 6)),
 			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 12)),
@@ -1437,10 +1477,11 @@ describe('RecentFilesModal — a landing row', () => {
 		// distance between them — and L36 follows.
 		const rows = h.rows();
 		expect(rows.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L7', 'L13', 'L36']);
-		// …and a row opens the line it prints: the second one lands on the step behind it.
+		// …and a row opens the line it prints: the second one lands on the step behind
+		// it. (The click is the last thing here for a reason: a travel closes the
+		// dialog, and a row hovered after that answers nothing at all.)
 		h.clickRow(rows[1]);
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
-		expect(h.hover(rows[1])).toBeNull();
 	});
 
 	it('keeps the heading the landing line itself carries as the deepest level', () => {
@@ -1453,6 +1494,98 @@ describe('RecentFilesModal — a landing row', () => {
 		const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
 
 		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+	});
+
+	// WHAT A LANDING ROW SAYS ON HOVER (see RecentFilesList.placeRow): the row holds
+	// the deepest two levels of the chain because it has one line of width, so a
+	// landing three sections deep names the section and its parent and never the
+	// chapter above them — and the chapter is the first thing a reader looking for a
+	// place asks about. The chain is whole on hover, outermost first, the way the
+	// note runs.
+	it('says the whole chain on hover, and only where the row prints less than all of it', () => {
+		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
+		const rows = h.rows();
+
+		// L7 sits under 面板设计 › 呈现方案 › 预览, and the row prints the last two.
+		expect(rows[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
+		const tip = h.hover(rows[0])!;
+		expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+		// …and the tooltip is the chain and nothing else: the coordinate is on the row
+		// and the note's name is on the row above it.
+		expect(tip.querySelector('.nav-tip-path')).toBeNull();
+
+		// L36 is the other half of the rule: its chain IS two levels, the row prints
+		// both, so hover has nothing to add and says nothing at all.
+		h.unhover(rows[0]);
+		expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
+		expect(h.hover(rows[1])).toBeNull();
+	});
+
+	// THE SEPARATOR HANGS OFF THE LEVEL IT FOLLOWS rather than standing between the
+	// two as a cell of its own: a cell keeps its width after the level in front of it
+	// has been squeezed to nothing, and a row that had given up its outer level went
+	// on printing a "›" with nothing to its left — standing where the deepest level,
+	// the one the row is for, could have had the room (see styles.css's collapse
+	// order). The row still READS the same, so nothing a reader looks at changed.
+	it('hangs the separator on the level it follows, not between the two levels', () => {
+		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
+		const crumb = h.rows()[0].querySelector('.nav-row-trail')!;
+
+		expect(crumb.textContent).toBe('呈现方案›预览');
+		expect([...crumb.children].map(el => el.className))
+			.toEqual(['nav-trail-seg', 'nav-trail-deep']);
+		expect(crumb.querySelector('.nav-trail-sep')?.parentElement?.className)
+			.toBe('nav-trail-seg');
+	});
+
+	// THE LEVEL A ROW COULD NOT PRINT (see RecentFilesList.fitTrails). A row is drawn
+	// before anything has been measured, so the stylesheet can only SQUEEZE the outer
+	// level of a chain — and what a squeeze leaves is a FRAGMENT: it names no section,
+	// and the level beside it reads on regardless (the deepest level takes the width
+	// its own text needs, however narrow the row gets). Past half of it, the fragment
+	// is not worth the room it reads in; the pass reads the layout back and takes it
+	// off the row, and what the row let go of is one hover away.
+	//
+	// (With no layout at all — every test above — nothing is dropped: a row that has
+	// not been measured keeps both of its levels, which is what the rows above print.)
+	it('takes off the outer level the row could not print, and says it on hover', () => {
+		// L36's chain IS two levels, so its row prints both until the layout says
+		// otherwise — the only row that can show what the pass lends a row, since L7's
+		// three-level chain already has the whole chain on its hover.
+		let squeezed = true;
+		const restore = fakeLayout(() => ({
+			list: 300,
+			// a third of the level survived: "面板…" where the row needs "面板设计"
+			level: (text) => (squeezed && text === '面板设计›'
+				? { shown: 26, whole: 80 }
+				: { shown: 80, whole: 80 }),
+		}));
+		try {
+			const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
+
+			// The level is off the row — the row is its deepest level alone, which is
+			// what the stylesheet does with the class (see the styles suite).
+			expect(h.rows()[1].classList.contains('is-deep-only')).toBe(true);
+			const tip = h.hover(h.rows()[1])!;
+			expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 尾巴');
+
+			// A row whose level fits keeps it, and hover says what it always said.
+			h.unhover(h.rows()[1]);
+			expect(h.rows()[0].classList.contains('is-deep-only')).toBe(false);
+			expect(h.hover(h.rows()[0])!.querySelector('.nav-tip-text')?.textContent)
+				.toBe('面板设计 › 呈现方案 › 预览');
+
+			// …and a pane that GREW: the next render prints the level again, and the
+			// words the pass lent the row are the row's own once more — a tooltip left
+			// behind would repeat the row it is standing over.
+			h.unhover(h.rows()[0]);
+			squeezed = false;
+			h.changed();
+			expect(h.rows()[1].classList.contains('is-deep-only')).toBe(false);
+			expect(h.hover(h.rows()[1])).toBeNull();
+		} finally {
+			restore();
+		}
 	});
 
 	it('puts the coordinate before the section, and no time column anywhere', () => {
