@@ -554,7 +554,23 @@ body.is-mobile .position-restore-cue {
    asking what can be done with it.
    `background: inherit` is what keeps it seamless — the strip under the icon is painted
    with the row's own wash (the hover tint, or the position's accent), so the × looks
-   like part of the row rather than a patch laid over it. */
+   like part of the row rather than a patch laid over it.
+
+   ITS INK IS STATED HERE, and not left to the skin the element already carries. It
+   is built with the app's own icon class (`clickable-icon`, see list.ts), and that
+   skin paints with `--icon-color` at `--icon-opacity` — two ordinary theme knobs
+   tuned for a button on the app's chrome, and free to be anything at all. Left to
+   them, this glyph came out as whatever those happened to be in a sidebar: nearly
+   invisible on one side of the workspace and merely quiet on the other, because the
+   two sidebars are not the same colour under every theme and a TRANSLUCENT ink takes
+   its contrast from whatever it is painted on — which is what `--nav-faint` (55% of
+   the text colour, the tier a folder or a timestamp reads in) was doing here too.
+   88% — the panel's `--nav-muted`, the tier the section column reads in, one step
+   under the name — is the deep end of the same scale: the pane's colour still shows
+   through it, but no longer decides whether the control is there at all, and it is
+   still a mark ON the row rather than a second thing to read on it. Deepening the
+   ink is also what the × deserves over the label it replaces: that label is an
+   annotation, and this is the one control in the list. */
 .position-restore-nav-row .nav-row-forget {
 	position: absolute;
 	inset-inline-end: 4px;
@@ -566,10 +582,40 @@ body.is-mobile .position-restore-cue {
 	padding: 1px;
 	border-radius: var(--radius-s);
 	background: inherit;
-	color: var(--nav-faint);
+	--nav-forget-ink: var(--nav-muted);
+	color: var(--nav-forget-ink);
 	--icon-size: var(--icon-xs);
 	opacity: 0;
 	pointer-events: none;
+}
+
+/* …and one element further down, because the skin reads its OWN variable and not the
+   `color` beside it (see the search box's × above, which says the same thing): a
+   declaration on the wrapper is not a colour the glyph inherits when the app's icon
+   rule names one. The stroke gets a hair more weight for the same reason — at
+   `--icon-xs`, a stroke of 2 inside a 24-unit box is a little over one pixel, and a
+   hairline cross drawn in a muted ink is the first thing a busy pane eats.
+   The SHAPES are named alongside the `<svg>` and not left to inherit it: a shape
+   carrying the stroke width as an ATTRIBUTE of its own does not take the value
+   from the element above it — inheritance only fills in what nothing states — so a
+   width written on the root alone is a width the lines never see. */
+.position-restore-nav-row .nav-row-forget svg,
+.position-restore-nav-row .nav-row-forget svg * {
+	color: var(--nav-forget-ink);
+	stroke: currentColor;
+	stroke-width: 2.25;
+}
+
+/* REACHING THE × ANSWERS: full-strength ink over the app's own hover wash. It was the
+   one control in this panel with no response of its own — pointing at it changed
+   nothing at all, so a reader had no way to tell a control from a mark — and the row
+   could not answer for it either, because `background: inherit` above means the ×
+   wears whatever the row is already wearing. Scoped away from touch for the same
+   reason the row's own hover tint is: a finger's tap leaves `:hover` stuck on the
+   last thing it touched. */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row .nav-row-forget:hover {
+	--nav-forget-ink: var(--text-normal);
+	background-color: var(--background-modifier-hover);
 }
 
 /* …and it REPLACES the age rather than standing beside it: both are the row's far end,
