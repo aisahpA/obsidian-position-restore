@@ -17,7 +17,18 @@ import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
-import { TIP_DELAY_MS } from '@/recent-files/browser/constants';
+import { NAV_SOURCE_ID, TIP_DELAY_MS } from '@/recent-files/browser/constants';
+
+// jsdom has no PointerEvent, and `pointerType` is the one field the panel reads to tell a
+// mouse from a finger: a MouseEvent stands in for it, with the kind written on afterwards.
+// Shared by every suite that has to say WHICH pointer it is, because the panel answers the
+// two differently on purpose (see body.ts's hover rules, RecentFilesList.onHoverRow and
+// tip.ts): a mouse hovering is a mouse reading, and a finger is about to tap.
+const pointer = (type: string, kind: 'mouse' | 'touch' = 'mouse') => {
+	const ev = new MouseEvent(type, { bubbles: true });
+	Object.defineProperty(ev, 'pointerType', { value: kind });
+	return ev;
+};
 
 // jsdom implements no layout at all, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
@@ -2465,13 +2476,6 @@ describe('RecentFilesModal — touch', () => {
 describe('RecentFilesModal — a finger in the list', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
-	// jsdom has no PointerEvent, and `pointerType` is the one field the panel reads:
-	// a MouseEvent stands in for it, with the kind written on afterwards.
-	const pointer = (type: string, kind: 'mouse' | 'touch') => {
-		const ev = new MouseEvent(type, { bubbles: true });
-		Object.defineProperty(ev, 'pointerType', { value: kind });
-		return ev;
-	};
 
 	it('does not redraw the list when a finger leaves it', () => {
 		const h = harness(entries(), 1, files);
@@ -2509,5 +2513,134 @@ describe('RecentFilesModal — a finger in the list', () => {
 		vi.advanceTimersByTime(TIP_DELAY_MS);
 
 		expect(document.querySelector('.position-restore-nav-tip')).toBeNull();
+	});
+});
+
+// A HOVER OVER A ROW ASKS THE APP FOR THE NOTE ITSELF (see RecentFilesBrowser.hoverRow).
+// There is no preview in this plugin and nothing to test of one: what this panel draws when
+// a row is hovered is still nothing, and what it SAYS is one event naming the file the row
+// stands for — so the popover a reader gets here is the app's own, written by whatever the
+// app already answers every other list with, including whether hovering is enough at all.
+// What this panel adds to the asking, and what is tested below, is the one thing only it
+// knows: WHICH FILE, and WHERE in it.
+describe('RecentFilesModal — a hover asks the app for the note', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	// A note the reader simply opened — a file row with no spot of its own.
+	const plain = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	// …and one they also jumped into twice: under 'all' the spots are rows of their own
+	// (a note with a SINGLE landing prints none — see RecentFilesList.printsLandings), and
+	// the row the preview is asked about is the one eleven lines down.
+	const jumped = (): NavEntry[] => [
+		visit('a.md', NOW - MINUTE),
+		visit('a.md', NOW - 2 * MINUTE, { scroll: 11 }),
+		visit('a.md', NOW - 3 * MINUTE, { scroll: 40 }),
+		visit('b.md', NOW),
+	];
+	// The questions the app was asked, in order: the panel hands each one over as the
+	// app's own event, with the request as its second argument (see hoverRow).
+	const asked = (trigger: unknown) =>
+		(trigger as { mock: { calls: unknown[][] } }).mock.calls
+			.filter(c => c[0] === 'hover-link')
+			.map(c => c[1] as {
+				source?: string; targetEl?: HTMLElement;
+				linktext?: string; sourcePath?: string; state?: { scroll?: number };
+			});
+
+	it('names the file a row stands for, once per arrival', () => {
+		const h = harness(plain(), 1, files);
+		const row = h.note('a');
+
+		row.dispatchEvent(pointer('pointerover'));
+
+		const question = asked(h.trigger);
+		expect(question).toHaveLength(1);
+		expect(question[0].linktext).toBe('a.md');
+		// The path on disk rather than the name printed on the row: the row's name is
+		// shortened, may be neither unique nor spelled the way the vault spells it, and
+		// is not what opens anyway (see displayName).
+		expect(question[0].sourcePath).toBe('a.md');
+		// WHO IS ASKING is how the app knows which answer to give: this panel's own id,
+		// registered once for both shells (see main.ts's registerHoverLinkSource), and
+		// named by nothing borrowed from another view.
+		expect(question[0].source).toBe(NAV_SOURCE_ID);
+		// The ROW, and not whichever word of it the pointer crossed: the popover belongs
+		// to the line of the list the reader is on.
+		expect(question[0].targetEl).toBe(row);
+
+		// MOVING INSIDE that row asks nothing again: the name, the badge and the time are
+		// all still one arrival on one row (see RecentFilesList.onHoverRow) — otherwise a
+		// hand crossing the row would be a hand asking six times for one page.
+		row.querySelector('.nav-row-name')!.dispatchEvent(pointer('pointerover'));
+		expect(asked(h.trigger)).toHaveLength(1);
+	});
+
+	it('asks again once the pointer has been away and come back', () => {
+		// Leaving the LIST is what makes the next arrival an arrival (see the list's own
+		// pointerleave): arriving on the same row twice in one visit is one question.
+		const h = harness(plain(), 1, files);
+		h.note('a').dispatchEvent(pointer('pointerover'));
+
+		// A mouse's leave also lets the held order go, so the rows are drawn again on the
+		// way out (see RecentFilesBrowser.thawOrder) — the row below is a NEW element,
+		// and it answers for itself.
+		h.list().dispatchEvent(pointer('pointerleave'));
+		h.note('a').dispatchEvent(pointer('pointerover'));
+
+		expect(asked(h.trigger)).toHaveLength(2);
+	});
+
+	it('asks for the page at the line the landing row printed', () => {
+		// This is the reason the asking is worth making from HERE rather than anywhere
+		// else a file can be hovered: the row is a PLACE, and the popover opens on it.
+		// `scroll` is the app's own name for a markdown view's top line — one number, in
+		// the vocabulary the view reads (see EphemeralState) — and it is 0-based, as the
+		// line a row prints is one-based.
+		const h = harnessAll(jumped(), 3, files);
+		expect(h.place('L12')).toBeDefined(); // the row whose line is the one asked about
+
+		h.place('L12').dispatchEvent(pointer('pointerover'));
+
+		const question = asked(h.trigger);
+		expect(question).toHaveLength(1);
+		expect(question[0].linktext).toBe('a.md');
+		expect(question[0].state).toEqual({ scroll: 11 });
+	});
+
+	it('promises no line for a row that printed none', () => {
+		// A file row is an OPEN: what it promises is the note, and where a plain open
+		// lands is the position database's business rather than this asking's (see
+		// RecentFilesList.activeRep). Nothing is invented to fill the silence.
+		const h = harness(plain(), 1, files);
+
+		h.note('a').dispatchEvent(pointer('pointerover'));
+
+		expect(asked(h.trigger)[0].state).toBeUndefined();
+	});
+
+	it('asks for nothing behind a row that has no page', () => {
+		// A pathless view names no file: there is nothing for the app to open a preview
+		// of, and building this panel's own card about the graph is exactly the second
+		// implementation the asking is meant to spare us (see hoverRow).
+		const h = harness([
+			visit('a.md', NOW - MINUTE),
+			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
+		], 1, files);
+		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
+
+		graph.dispatchEvent(pointer('pointerover'));
+
+		expect(asked(h.trigger)).toHaveLength(0);
+	});
+
+	it('asks nothing of a finger, and travels nowhere', () => {
+		// A finger resting on a row is about to tap it, not to read it — and there is no
+		// room on a phone for a page beside the row anyway (see RecentFilesList.onHoverRow).
+		// Nothing travels either way: a hover is not a navigation, wherever it leads.
+		const h = harness(plain(), 1, files);
+
+		h.note('a').dispatchEvent(pointer('pointerover', 'touch'));
+
+		expect(asked(h.trigger)).toHaveLength(0);
+		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 });

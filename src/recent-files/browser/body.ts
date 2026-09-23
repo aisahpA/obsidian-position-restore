@@ -20,13 +20,17 @@
 //
 // READ-ONLY BUT FOR TWO THINGS, and that is what makes a RESIDENT panel possible at all: the
 // body draws whatever the place list holds at the moment render() is called, and the only
-// things it ever says back are the two a row can be asked for — go there (see jump), and go
-// away (see forgetRow). Everything else here is drawing — the list's own snapshot is
+// things it ever says back are what ONE ROW can be asked for — go there (see jump), and go
+// away (see forgetRow). A HOVER asks nothing of the places (see hoverRow): it names the file
+// a row stands for and hands the app the question of previewing it, so nothing recorded here
+// moves for the asking. The right-click raises no row of our own either — it asks the app for
+// the app's menu (see contextRow) — so what this body writes into the places stays exactly
+// those two removals wide. Everything else here is drawing — the list's own snapshot is
 // refreshed from the places on every render (see render), so a shell that lives for hours
 // shows the history as it stands rather than as it stood when the panel opened, and one that
 // lives for a second (the modal) is not asked for anything more.
 
-import { App, Menu, TFile, setIcon, Keymap } from 'obsidian';
+import { App, HoverParent, Menu, TFile, setIcon, Keymap } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList, placeKey } from '@/recent-files/places';
@@ -35,7 +39,7 @@ import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { RecentFilesReads } from './reads';
 import { RecentFilesList, RecentFilesListOptions } from './list';
-import { TIME_REFRESH_MS } from './constants';
+import { NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
 
 // Per-body sequence for the list element's id (see RecentFilesBrowser.listId).
 let browserSeq = 0;
@@ -129,6 +133,12 @@ export class RecentFilesBrowser {
 	// so a second browser mounted beside this one — a sidebar panel and the
 	// modal at once — cannot collide with it.
 	private readonly listId = `position-restore-nav-list-${++browserSeq}`;
+	// This panel's slot in the app's hover-preview system, ONE object for the life of the
+	// body rather than one per hover: the app writes the popover it opens back into it and
+	// asks it later (which popover is this panel's, and is it still open), so an object
+	// built per arrival would be an object with no memory — and at most one preview can be
+	// answered for a panel anyway, whichever row asked for it.
+	private readonly hoverParent: HoverParent = { hoverPopover: null };
 	// The group order the list is being HELD at, while the pointer is on it (see
 	// freezeOrder), or undefined when the list is nobody's business but the places'.
 	// Held as group keys rather than as rows because a rebuild draws new rows: the
@@ -200,6 +210,9 @@ export class RecentFilesBrowser {
 			aliasesFor: path => this.reads.aliasesFor(path),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
+			// The row the pointer arrived on: which FILE it names, handed over for the app's
+			// own page preview to open (see hoverRow). Nothing here travels for it.
+			onHoverRow: (rep, ev, el) => this.hoverRow(rep, ev, el),
 			// A right-click asks the APP what it can do with this file; the menu is
 			// built here because the list does not hold the app (see contextRow).
 			onContextRow: (rep, ev) => this.contextRow(rep, ev),
@@ -494,6 +507,68 @@ export class RecentFilesBrowser {
 		this.shellReacts();
 		void this.opts.places.travel(i, target)
 			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
+	}
+
+	// A row the pointer ARRIVED ON, handed over to the APP (see
+	// RecentFilesList.onHoverRow): asked, once, whether it would like to be previewed.
+	//
+	// The app's own preview is ASKED FOR rather than rebuilt here, which is the whole of
+	// the decision. A row names a note, and every other place in Obsidian that names a
+	// note — the file explorer, a search hit, a backlink, a link under the cursor — is
+	// previewed by ONE core mechanism, on the app's own layer, answering the reader's ONE
+	// answer about it: whether hovering is enough, or whether it takes Cmd/Ctrl. Writing
+	// a preview of our own would be a second popover with a second set of rules to learn,
+	// and it would be open whether or not the reader had ever wanted one anywhere else.
+	// Asking costs three lines and inherits everything, including "nothing happens" — for
+	// a reader whose preview plugin is off, or whose answer is "only with the key held",
+	// this row is exactly as quiet as it was yesterday.
+	//
+	// And nothing here is NAVIGATION: the places are untouched, nothing is travelled to,
+	// nothing is recorded, no row moves and no list is drawn again. A preview opened over
+	// a row is the app speaking about a file, and this panel goes on holding the row the
+	// reader was pointing at — which is the one promise it has always kept about a pointer
+	// that merely passes over the list.
+	//
+	// A PATHLESS VIEW IS NOT ASKED ABOUT: there is no page behind that row to preview, and
+	// inventing one here (a card about the graph, say) would be building the very second
+	// implementation this is asking the app to spare us. It is the same line this file
+	// draws for the row's menu (see contextRow): the two things only a FILE row can be
+	// asked for.
+	private hoverRow(rep: number, ev: PointerEvent, row: HTMLElement): void {
+		const entry = this.opts.places.entries[rep];
+		if (!entry || entry.kind === 'view')
+			return;
+		// WHERE IN THE NOTE the preview opens is this panel's to say, and it is the one
+		// thing a preview asked from HERE can offer that a preview asked anywhere else
+		// cannot: the row already prints the spot (see RecentFilesList), so the popover
+		// opens ON THAT LINE instead of at the top of the note. `scroll` is the app's own
+		// name for a markdown view's top visible line (see EphemeralState) — the same
+		// number the position database keeps, said in the vocabulary the view reads it in
+		// — so this is not a new state shape invented for a popover. A preview that pays
+		// it no mind opens at the note's head, which is no worse than not asking.
+		const line = this.reads.describe(rep).lineIndex;
+		this.opts.app.workspace.trigger('hover-link', {
+			event: ev,
+			// Who is asking: the id the plugin registered (see main.ts), which is what lets
+			// the app apply the answer the reader gave THIS panel — and only that reading
+			// decides whether anything opens at all.
+			source: NAV_SOURCE_ID,
+			hoverParent: this.hoverParent,
+			// The ROW, and not the child the pointer landed on, is what the popover stands
+			// beside: the reader is hovering a line of a list, and the popover belongs to
+			// that line rather than to whichever word of it the pointer happens to cross.
+			targetEl: row,
+			// The file, by the path it is opened by — the note's own name on disk rather
+			// than the name printed on the row, which is shortened and may be neither
+			// unique nor spelled the way the vault spells it (see displayName).
+			linktext: entry.path,
+			// …and the neighbourhood the page's own links are read against: its own file,
+			// since a note previewed from a row here has no other context to resolve them
+			// in. Nothing depends on it being one thing or the other for a preview that
+			// draws no relative link, which is every note this panel lists.
+			sourcePath: entry.path,
+			state: line === undefined ? undefined : { scroll: line },
+		});
 	}
 
 	// A row was right-clicked: raise the APP's own menu for the file behind it, with

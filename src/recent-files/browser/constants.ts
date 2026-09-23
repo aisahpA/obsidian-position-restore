@@ -1,5 +1,16 @@
 // The recent-files browser's tuning numbers.
 
+// The id this panel answers by in Obsidian's own hover-preview system — the same string
+// whether the panel is a dialog or a resident sidebar leaf, because either way the reader
+// is looking at ONE panel: the rows are the same rows, ordered the same way, and the
+// preview a row asks for is asked by the panel rather than by the window it stands in.
+// Registering it puts a line named after the panel into the settings of the core plugin
+// that answers the request (see main.ts, and body.ts's hoverRow): ONE row for this panel,
+// not one per shell. The resident panel's view type is the same string (see view.ts) —
+// that is what the app already tells its sources apart by, and the dialog borrows it so
+// that answering either shell says one name.
+export const NAV_SOURCE_ID = 'position-restore-recent-files';
+
 // Above this many entries the modal pins its height and scrolls the list inside it:
 // filtering must not resize and re-center the dialog. Below it the modal sizes to its
 // content — a three-entry history in a 640px box was mostly dead space.

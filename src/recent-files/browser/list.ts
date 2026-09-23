@@ -88,6 +88,12 @@ import { NavRowTip, TipContent } from './tip';
 // the stylesheet's and no listener in this class draws it, so what a pointer can change
 // remains exactly what it was: nothing.
 //
+// …and a hover now also ASKS THE APP something (see onHoverRow): which FILE the row under
+// the pointer stands for, so the app's own page preview can open a popover over it. That
+// is the app answering, on the app's own layer and by the app's own rules — and it is not
+// this list moving: no row shifts, no order changes, no position is chosen, and a preview
+// opened over a row leaves the row where it was, on its own side of the glass.
+//
 // NOTHING MOVES WHILE IT IS BEING READ either, which is the same rule one step later:
 // a click that opens a note re-orders the places it came from (they are kept by last
 // visit), so without being told otherwise the list would answer the click by shuffling
@@ -186,6 +192,20 @@ export interface RecentFilesListOptions {
 	// decides both — so the row is handed over, and nothing is drawn again here.
 	// Nothing in this file writes.
 	onContextRow: (rep: number, ev: MouseEvent) => void;
+	// The pointer ARRIVED on a row: which row, the event it arrived with, and the row's
+	// own element — handed over once, per row, per visit (see RecentFilesList.onHoverRow).
+	//
+	// What happens with it is the app's own preview of the page the row stands for (see
+	// RecentFilesBrowser.hoverRow), which is why it leaves this module rather than being
+	// answered in it: this list draws rows over PLACES and holds no App of its own — the
+	// one other thing that reaches outside them is a right-click's menu (see the comment
+	// above) — and a preview is drawn by the whole app, over everything else on screen.
+	//
+	// Arriving is not RESTING, and neither is it choosing: nothing here waits, and
+	// whether a preview opens at all is the app's decision, made by the same rules it
+	// applies to a link in a note. The ROW INDEX is what travels, and it is this
+	// render's own, which is enough for an answer drawn while the pointer sits still.
+	onHoverRow: (rep: number, ev: PointerEvent, el: HTMLElement) => void;
 	// The reader took a row off the list, from the × the row carries: WHICH row, by
 	// its identity — the group KEY, which is what a row is here (see
 	// NavFileGroup.key, and nav/entry.ts's navGroupKey). This is the list's one way
@@ -276,6 +296,11 @@ export class RecentFilesList {
 	// the row has NOW. (Not a question a test can ask: jsdom implements no layout,
 	// and no observer with it.)
 	private watched?: ResizeObserver;
+	// The row the pointer is ON, while it is on one, and the row it was last ANNOUNCED
+	// for — the two are kept apart so that a pointer wandering inside a row says it once
+	// rather than once per cell (see onHoverRow). Undefined while the pointer is away
+	// from the list, which is what makes coming back an arrival again.
+	private hovered?: RowRef;
 
 	constructor(private opts: RecentFilesListOptions) {
 		// Nothing is listened to here for the LIST's own sake: a pointer moves no
@@ -287,6 +312,13 @@ export class RecentFilesList {
 			this.watched = new ResizeObserver(() => this.fitTrails());
 			this.watched.observe(opts.list);
 		}
+		// The pointer LEAVING THE LIST is the one thing that makes the next arrival on the
+		// same row an arrival again (see onHoverRow). It is heard here rather than on the
+		// rows because every row hears its own leaving, including the ones it is leaving
+		// FOR each other — the list is the boundary that means "not on a row at all".
+		this.opts.list.addEventListener('pointerleave', () => {
+			this.hovered = undefined;
+		});
 	}
 
 	// The place index a row acts on: a landing is itself; a NOTE is the note's OWN
@@ -361,6 +393,10 @@ export class RecentFilesList {
 		this.trails = [];
 		this.groups = [];
 		this.selected = undefined;
+		// …and the row the pointer was last announced for goes with them: the element it
+		// names is being thrown away, and the row drawn in its place is a new arrival
+		// whenever the pointer crosses it (see onHoverRow).
+		this.hovered = undefined;
 
 		const query = this.opts.filter().trim();
 		// The query narrows on text: what the row prints (name, path, section
@@ -532,6 +568,7 @@ export class RecentFilesList {
 		row.addEventListener('click', (ev) => this.onClick(ref, ev));
 		row.addEventListener('pointerdown', (ev) => this.onPress(ref, ev));
 		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
+		row.addEventListener('pointerover', (ev) => this.onHoverRow(ref, ev));
 		this.refs.push(ref);
 
 		const file = row.createDiv({ cls: 'nav-row-file' });
@@ -680,6 +717,7 @@ export class RecentFilesList {
 		row.addEventListener('click', (ev) => this.onClick(ref, ev));
 		row.addEventListener('pointerdown', (ev) => this.onPress(ref, ev));
 		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
+		row.addEventListener('pointerover', (ev) => this.onHoverRow(ref, ev));
 		this.refs.push(ref);
 
 		// The coordinate: the coarse "how far in" a reader matches against memory, and
@@ -829,11 +867,44 @@ export class RecentFilesList {
 // the row off the list is NOT among them any more: that is the row's own ×, and it
 // asks through onForget rather than through this. (Nor is it for a pathless view,
 // which raises no menu at all — see contextRow.)
-private onContextMenu(ev: MouseEvent, ref: RowRef): void {
+	private onContextMenu(ev: MouseEvent, ref: RowRef): void {
 		ev.preventDefault();
 		const rep = this.activeRep(ref);
 		if (rep >= 0)
 			this.opts.onContextRow(rep, ev);
+	}
+
+	// A POINTER ARRIVED ON A ROW: hand it over, ONCE (see RecentFilesListOptions.onHoverRow).
+	//
+	// Once, because `pointerover` does not mean "the pointer came to this row" so much as
+	// "the pointer is inside this row": it fires again for every element the pointer crosses
+	// — the name, the badge, the folder, the time — and announcing each of those is
+	// announcing the same arrival six times, asking for a preview of a note already being
+	// previewed. Leaving the row for ANOTHER row is a different arrival and needs no help
+	// from here (the subject changes on its own); leaving the LIST and coming back is the
+	// case that does, and it is the list's own leave that forgets (see the constructor).
+	//
+	// WRITTEN ONCE AND LEFT ALONE from there: what comes of the arrival is the app's
+	// business entirely — whether it waits, whether it answers, whether the answer means
+	// anything at all — so there is nothing here to withdraw afterwards, no popover to
+	// dismiss and no state to undo. Nothing about this list moves for it either: the
+	// rows, the order and the position are exactly what they were before the pointer came.
+	//
+	// A FINGER DOES NOT ARRIVE, it presses, and on a phone there is neither the room nor
+	// the gesture for a page to open beside the row the thumb is about to tap. The same
+	// answer the list's own tooltip gives a touch (see tip.ts): a finger resting on a row
+	// is not asking what is in it.
+	private onHoverRow(ref: RowRef, ev: PointerEvent): void {
+		if (ev.pointerType === 'touch')
+			return;
+		if (this.hovered === ref)
+			return;
+		this.hovered = ref;
+		const rep = this.activeRep(ref);
+		// A row with nowhere to go has nothing to preview either — the algebra is
+		// `activeRep`'s, which is the one place this class says which record a row acts on.
+		if (rep >= 0)
+			this.opts.onHoverRow(rep, ev, ref.el);
 	}
 
 	// Put the position away: the list back to the shape it opens in — nothing

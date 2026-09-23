@@ -4,6 +4,7 @@ import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './type
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
 import { RECENT_FILES_VIEW_TYPE } from './recent-files/browser/view';
+import { NAV_SOURCE_ID } from './recent-files/browser/constants';
 import { t } from './i18n';
 
 
@@ -26,12 +27,8 @@ export default class PositionRestorePlugin extends Plugin {
 
 		this.addSettingTab(new SettingTab(this.app, this));
 
-		// The recent-files browser's resident form: registered BEFORE the layout is
-		// restored, which is what lets a saved sidebar panel come back as itself
-		// on the next start. Nothing detaches it on unload, deliberately — the
-		// workspace closes a disabled plugin's views, and detaching the leaf here
-		// would throw away where the reader had dragged it to.
 		this.registerView(RECENT_FILES_VIEW_TYPE, this.manager.recentFilesViewCreator());
+		this.registerPreviewSource();
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
@@ -81,6 +78,25 @@ export default class PositionRestorePlugin extends Plugin {
 	//----------------------------------------------------------------------------------------
 	// Lifecycle registration. Each method below owns one concern of onload;
 	// comments document WHY, the names document WHAT.
+
+	// Recent-files rows are a place the READER HOVERS FROM, so the panel joins the app's
+	// own page-preview system under one id (see NAV_SOURCE_ID) and a hover asks for that
+	// preview of the note its row names — instead of this panel drawing a popover of its
+	// own, which would be a second set of rules to learn (see RecentFilesBrowser.hoverRow).
+	//
+	// Registering is also what puts the panel BY NAME in the preview plugin's settings, and
+	// that is where the one question here gets answered: whether hovering is enough, or
+	// takes Cmd/Ctrl. `defaultMod: true` is what that row starts ON, because it is what the
+	// app starts on everywhere else — the file explorer and search among them — and a
+	// pointer crossing this narrow column earns no exception. The press is waited for ON
+	// THE ROW, which is why hoverRow passes `targetEl`: without it no amount of holding
+	// the key opens anything.
+	private registerPreviewSource(): void {
+		this.registerHoverLinkSource(NAV_SOURCE_ID, {
+			display: t('recentFiles.name'),
+			defaultMod: true,
+		});
+	}
 
 	/**
 	 * VSCode-style navigation. No default hotkeys — bind in Obsidian's hotkey

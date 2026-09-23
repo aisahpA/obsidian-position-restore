@@ -26,9 +26,15 @@ import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import { NAV_SOURCE_ID } from './constants';
 
-// The view type, which is also what the layout file remembers.
-export const RECENT_FILES_VIEW_TYPE = 'position-restore-recent-files';
+// The view type, which is also what the layout file remembers — and thereby the name the
+// panel answers by in the app's hover-preview system (see NAV_SOURCE_ID): the dialog says
+// it too, so hovering a row there and hovering the same row here is one name to the app,
+// and one line in that core plugin's settings. Which is also why changing this string
+// would orphan a saved sidebar from the layout that remembers it: it is a persisted id
+// before it is a label.
+export const RECENT_FILES_VIEW_TYPE = NAV_SOURCE_ID;
 
 export class RecentFilesView extends ItemView {
 	// The panel itself, and the subscription that keeps it current (see
