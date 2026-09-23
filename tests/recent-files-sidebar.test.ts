@@ -15,7 +15,7 @@ import type { PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import type { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
-import { TIME_REFRESH_MS } from '@/recent-files/browser/constants';
+import { PANEL_EXIT_GRACE_MS, TIME_REFRESH_MS } from '@/recent-files/browser/constants';
 
 // jsdom implements no layout, so this is missing rather than broken.
 Element.prototype.scrollIntoView = () => {};
@@ -425,6 +425,104 @@ describe('RecentFilesView — the resident panel', () => {
 		expect(nav.jumped).toHaveLength(1);
 	});
 
+	// A travel re-orders the list at the same moment it starts the drawer this panel
+	// stands in sliding off the screen: the place just sat in becomes the newest, so the
+	// row the reader aimed at climbs to the top of a list that is on its way out, and the
+	// "you are here" mark rides along with it. The panel is leaving anyway — what it owes
+	// the reader is a list that is true the next time the drawer is pulled open, and
+	// nothing in between (see RecentFilesView.standAside).
+	it('holds the list still while the panel leaves the screen, and catches up once it has gone', async () => {
+		vi.useFakeTimers();
+		try {
+			const { el, nav, view, names } = await mount(
+				[visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)], 2);
+			const pane = drawer();
+			(view.leaf as unknown as { parent?: unknown }).parent = pane;
+			const click = (row: HTMLElement) =>
+				row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			const note = () => Array
+				.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+				.find(r => r.querySelector('.nav-row-name')?.textContent === 'b')!;
+			// Newest first, and c is the note the reader is standing in.
+			expect(names()).toEqual(['c', 'b', 'a']);
+
+			const wasMobile = Platform.isMobile;
+			Platform.isMobile = true;
+			try {
+				click(note());
+			} finally {
+				Platform.isMobile = wasMobile;
+			}
+
+			// The drawer is on its way out and the travel has landed — the list the reader
+			// is still looking at has not moved. Drawn, b would be at the top already.
+			expect(pane.collapsed).toBe(true);
+			expect(nav.jumped).toEqual([1]);
+			expect(names()).toEqual(['c', 'b', 'a']);
+
+			// …and once the panel is out of sight it catches up in ONE redraw: b is the
+			// newest place now.
+			vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
+			expect(names()).toEqual(['b', 'a']);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// A panel can be closed while it is holding a redraw back — the reader swipes the
+	// drawer away, or closes the pane, inside the same few hundred milliseconds. Nothing
+	// is owed then either: the catch-up dies with the panel it was held for, rather than
+	// drawing into a body that has been torn down.
+	it('drops the redraw it is holding back when the panel is closed on the way out', async () => {
+		vi.useFakeTimers();
+		try {
+			const { el, view } = await mount([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
+			(view.leaf as unknown as { parent?: unknown }).parent = drawer();
+			const click = (row: HTMLElement) =>
+				row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			const note = () => Array
+				.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+				.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
+
+			const wasMobile = Platform.isMobile;
+			Platform.isMobile = true;
+			try {
+				click(note());
+			} finally {
+				Platform.isMobile = wasMobile;
+			}
+			await view.onClose();
+			const row = el.querySelector('.position-restore-nav-row')!;
+
+			vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
+
+			// The timer went with the panel: had it fired, the list would have been rebuilt
+			// and this element would no longer be the one standing in the pane.
+			expect(el.contains(row)).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// On a desktop none of it applies, and that is what this pins: the panel stays put,
+	// so the re-ordering is the ANSWER rather than a distraction — the note the reader
+	// went to takes the top row and the mark with it. A panel standing in full view must
+	// not be a step behind the history it is showing.
+	it('redraws on the spot where the panel stays put', async () => {
+		const { el, names } = await mount(
+			[visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)], 2);
+		const click = (row: HTMLElement) =>
+			row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		const note = () => Array
+			.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+			.find(r => r.querySelector('.nav-row-name')?.textContent === 'b')!;
+		expect(names()).toEqual(['c', 'b', 'a']);
+
+		click(note());
+
+		// Drawn in the same breath as the travel: no timer, nothing held back.
+		expect(names()).toEqual(['b', 'a']);
+	});
 });
 
 describe('RecentFilesView — the pointer is driven by clicks only', () => {

@@ -37,3 +37,23 @@ export const TIP_DELAY_MS = 1000;
 
 // How far the tooltip stands off the row it is about, in pixels (see tip.ts).
 export const TIP_GAP_PX = 6;
+
+// How long the RESIDENT panel holds its redraws back after a travel on a PHONE (see
+// RecentFilesView.standAside), in milliseconds.
+//
+// Why it is held at all: on a phone this panel IS a drawer over the whole screen, so a
+// travel folds the drawer away — and the travel also re-orders the list (the place just
+// sat in becomes the newest). The two happen at once, so a reader who pointed at a row
+// watched the list shuffle itself on the way out: the row they aimed at climbed to the
+// top of a list that was leaving, and the "you are here" mark rode along with it. A
+// panel that is on its way out of the reader's sight owes them a list that is TRUE the
+// next time the drawer is pulled open, and nothing in between. On a desktop the panel
+// stays put and the re-ordering IS the answer — the mark moves to the note they just
+// went to — so nothing is held back there.
+//
+// Why it is a number: nothing in the app says when the drawer has finished moving, and
+// both ways of guessing wrong are harmless. Too short and only the tail of the slide is
+// quiet — which is what the panel does today, one redraw earlier. Too long and a reader
+// who pulls the drawer straight back is shown the old order for the rest of the
+// difference, which is a fraction of a second and is over before the first row is read.
+export const PANEL_EXIT_GRACE_MS = 300;
