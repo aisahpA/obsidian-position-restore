@@ -163,6 +163,22 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 					desc: (() => {
 						const frag = createFragment();
 						frag.createDiv({ text: t('recordingRules.frontmatterExclude.desc') });
+						// The two forms get a line each instead of sharing a
+						// paragraph: almost every reader arrives to check
+						// which of the two they should type, and that is a
+						// question to scan for, not to read for. Muted, so
+						// they read as detail under the sentence above rather
+						// than as a third list — the list of what is already
+						// excluded follows right below, and two bullet lists
+						// of look-alike property names would be one too many.
+						frag.createDiv({
+							cls: 'mod-muted',
+							text: t('recordingRules.frontmatterExclude.formName'),
+						});
+						frag.createDiv({
+							cls: 'mod-muted',
+							text: t('recordingRules.frontmatterExclude.formValue'),
+						});
 						const props = ctx.plugin.settings.frontmatterExcludeProperties;
 						if (props.length === 0) {
 							return frag;

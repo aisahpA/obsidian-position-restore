@@ -3,13 +3,15 @@ export const en = {
 	//    and where the records live ─────────────────────────────────────
 	'lastPosition.heading': 'Last position',
 	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
-	// what is remembered, and for whom. Both halves are things no row below can
-	// say — none of them is about the cursor being remembered, and none of them
-	// knows there is more than one tab — and together they are why those rows
-	// can go straight to their own answer. The three group headings below are
-	// not repeated here: they name themselves when the reader reaches them.
+	// what is remembered, and where the record lives. No row below can say either
+	// — none of them is about the cursor being remembered, and none of them knows
+	// whether the record sits inside the vault or outside it. The per-tab memory is
+	// deliberately left out: it is a device-local localStorage overlay (see
+	// position-store's two layers), and saying it beside "kept in a JSON file inside
+	// the vault" would promise that it travels too. The three group headings below
+	// are not repeated here: they name themselves when the reader reaches them.
 	'lastPosition.intro':
-		'Every note remembers where the cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top, no jump afterwards. Each tab remembers for itself: one note open in two tabs comes back to its own place in each.',
+		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top first, no jump afterwards. Positions are kept in a JSON file inside the vault, by default in the plugin folder — Obsidian Sync does not carry it from there, so to take your positions to another device, point the path inside the vault (under Data storage below).',
 
 	'openAndRestore.heading': 'Open & restore',
 	'openAndRestore.defaultPosition.name': 'Default position in edit view',
@@ -58,7 +60,9 @@ export const en = {
 
 	'recordingRules.frontmatterExclude.name': 'Exclude by frontmatter property/value',
 	'recordingRules.frontmatterExclude.desc':
-		'Don\'t record files whose frontmatter matches any of these entries. An entry is either a property name (`publish`) — any file that merely has the property is excluded — or `name: value` (`publish: true`), which only excludes files whose property equals that value (yes/no/on/off count as booleans; arrays match when any element does). The properties usually already exist for another plugin, so no file needs editing. Remove all entries to disable. Beware bare names: "tags" would exclude nearly every note.',
+		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is not recorded.',
+	'recordingRules.frontmatterExclude.formName': 'A property name on its own (`status`): any file carrying the property is skipped, whatever its value.',
+	'recordingRules.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are skipped. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recordingRules.frontmatterExclude.list.empty': 'No properties excluded',
 	'recordingRules.frontmatterExclude.add': 'Add property',
 	'recordingRules.frontmatterExclude.search.placeholder': 'Type to search properties...',
@@ -71,11 +75,11 @@ export const en = {
 
 	'recordingRules.escapeHatch.name': 'Per-file override property',
 	'recordingRules.escapeHatch.desc':
-		'Any file can also opt out or in individually without touching settings: `{0}: false` never records it (overrides every rule above), `{0}: true` always records it (overrides excluded folders, the minimum-length filter and the property rule). Any other value is ignored.',
+		'This page can also be bypassed one file at a time: in its frontmatter, `{0}: false` means never record it — while `{0}: true` means record it anyway, over excluded folders, the minimum-length filter and the property rule above. Only true and false mean anything; write anything else and it reads as if you had never written the property.',
 
 	'recordingRules.recordBaseScroll.name': 'Record scroll position for Base files',
 	'recordingRules.recordBaseScroll.desc':
-		'Off by default. The saved value is a raw pixel offset that only fits the device it was recorded on — if the database syncs across devices, another device\'s record would overwrite the local one with an offset that doesn\'t fit this screen. PDF is always excluded: Obsidian natively remembers PDF reading positions on each device. Other non-Markdown files (images, etc.) are never recorded.',
+		'A Base has no line numbers to anchor to the way Markdown does, so the only thing worth saving is the pixel offset you scrolled to — and that stops meaning anything once the screen size differs: two devices syncing the database would overwrite each other\'s number. Off by default. This switch concerns Base alone: PDF reading positions are already remembered natively on each device, and images and other non-Markdown files have no scroll state worth keeping.',
 
 	'dataStorage.heading': 'Data storage',
 
@@ -133,7 +137,7 @@ export const en = {
 	// "Size configurable below" is NOT repeated here: the row it pointed at is
 	// named for that already.
 	'navHistory.intro':
-		'VSCode-style "navigate back" / "navigate forward": a step is a file switch or an in-file jump — a link, the outline, a search result, a far cursor move — and the two switches below decide which of those count. Switches inside one tab ride Obsidian\'s own per-tab history, so PDF, canvas and other views are travelled too. The stack is kept on this device and survives restarts.',
+		'VSCode-style "navigate back" / "navigate forward": opening a file, and jumping inside one — a link, the outline, a search result — each take a step; whether switching tabs and far cursor moves do is what the two switches below decide. A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
 	// The two commands that walk it (see settings/page's hotkeys row). Nothing
 	// here repeats the sentence above: the row is named for the keys it holds,
 	// and what back and forward mean has already been said on this page.
@@ -164,7 +168,7 @@ export const en = {
 	// looking like two views of one history. Everything else the rows say
 	// about themselves.
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, the headings and blocks you jumped to inside them, and the main area\'s file-less views (the graph above all) — each of them one row, and a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. This list is kept on this device and survives restarts.',
+		'A list of places you have been: notes opened recently, the headings and blocks you jumped to inside them, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
 	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
@@ -199,7 +203,7 @@ export const en = {
 	// default and the one that says the least: the folder is a disambiguator, so it
 	// is printed where there is something to disambiguate.
 	'recentFiles.pathDisplay.name': 'Folder path in the list',
-	'recentFiles.pathDisplay.desc': 'Whether a row prints the folder its note sits in — only where two rows share a name, or on every row — and on which side of the name.',
+	'recentFiles.pathDisplay.desc': 'Whether a row shows the folder its note sits in — on every row, or only where another row on screen shares the name — and on which side of the name. The side also decides which half gives way when the row runs out of width: the one laid out last drops to a second line.',
 	'recentFiles.pathDisplay.options.smart': 'Only when names repeat',
 	'recentFiles.pathDisplay.options.before': 'Always, before the name',
 	'recentFiles.pathDisplay.options.after': 'Always, after the name',
@@ -209,7 +213,7 @@ export const en = {
 	// at a time printed on a file row would be. The exact moment rides on the label's
 	// own tooltip.
 	'recentFiles.rowTime.name': 'Time on each row',
-	'recentFiles.rowTime.desc': 'Print how long ago each row was last visited, next to the row.',
+	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited — the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
 	'recentFiles.age.now': 'now',
 	'recentFiles.age.m': 'm ago',
 	'recentFiles.age.h': 'h ago',

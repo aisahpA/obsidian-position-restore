@@ -4,11 +4,13 @@ export const zh: En = {
 	// ── 功能一 · 位置记录：记什么、怎么回来、记录存在哪 ────────────────
 	'lastPosition.heading': '最后位置',
 	// 整页在说什么，开头说一次（见 settings/page 的 intro 行）：记住的是什么、
-	// 替谁记住。这两件事下面任何一行都说不了——没有一行是关于「记住光标」这件事
-	// 本身的，也没有一行知道同一个文件能开在两个标签页里；说清楚了，下面那些行
-	// 才能直接进入自己的答案。三组标题不在这里重复：它们自己就在下面。
+	// 记录存在哪。下面任何一行都说不了这两件事——没有一行是关于「记住光标」这件
+	// 事本身的，也没有一行知道记录是在库内还是库外。「每个标签页各记各的」刻意不
+	// 在这里说：那是本机 localStorage 的覆盖层（见 position-store 的两层），放在
+	// 「位置记在库里的 JSON 文件里」旁边，读者会以为它也能跟着换设备。三组标题不
+	// 在这里重复：它们自己就在下面。
 	'lastPosition.intro':
-		'为每篇笔记记住光标停在哪一行、滚到了哪里，重新打开直接落回那一处——不在文件顶部闪一下再跳过去。每个标签页各记各的：同一篇笔记开在两个标签页里，回来时各回各的位置。',
+		'每篇笔记都记得光标停在哪一行、滚到了哪里，再次打开直接落回那一处——不会先在文件顶部闪一下再跳过去。位置记在库里的一个 JSON 文件里，默认放在插件目录内——Obsidian Sync 不会从那里带走它；想让位置跟着你换设备，到下面「数据存储」把路径改到仓库内即可。',
 
 	'openAndRestore.heading': '打开与恢复',
 
@@ -58,7 +60,9 @@ export const zh: En = {
 
 	'recordingRules.frontmatterExclude.name': '按 frontmatter 属性/值排除',
 	'recordingRules.frontmatterExclude.desc':
-		'frontmatter 匹配任一这些条目的文件不记录位置。条目可以是属性名（`publish`）——只要含该属性即排除；也可以是 `属性: 值`（`publish: true`）——仅当属性值等于该值才排除（yes/no/on/off 视为布尔，数组命中任一元素即匹配）。这些属性通常已为其他插件而存在，因此无需修改任何文件。删除全部条目以关闭此功能。注意裸属性名：填 "tags" 会排除几乎全部笔记。',
+		'按 frontmatter 排除一整类笔记：命中列表里任一条目的文件，不记录它的位置。',
+	'recordingRules.frontmatterExclude.formName': '只写属性名（如 `status`）：文件只要带这个属性就不记录，不论值是多少。',
+	'recordingRules.frontmatterExclude.formValue': '写成 `属性: 值`（如 `status: archived`）：只有值相等才不记录。yes/no/on/off 按布尔比较；数组里任一元素相等即算命中。',
 	'recordingRules.frontmatterExclude.list.empty': '未排除任何属性',
 	'recordingRules.frontmatterExclude.add': '添加属性',
 	'recordingRules.frontmatterExclude.search.placeholder': '输入以搜索属性…',
@@ -71,11 +75,11 @@ export const zh: En = {
 
 	'recordingRules.escapeHatch.name': '单文件覆盖属性',
 	'recordingRules.escapeHatch.desc':
-		'任何文件也可单独开启或关闭记录，无需改动设置：`{0}: false` 表示绝不记录（优先于上方所有规则），`{0}: true` 表示总是记录（优先于排除的文件夹、最短行数过滤与属性规则）。其他值一律忽略。',
+		'也可以绕过这个页面，让某一篇自己决定：在它的 frontmatter 里写 `{0}: false`，这篇永不记录；写 `{0}: true`，则连排除的文件夹、最短行数和上面的属性规则一起压过去，照记不误。只认 true / false，写别的值等于没写。',
 
 	'recordingRules.recordBaseScroll.name': '记录 Base 文件的滚动位置',
 	'recordingRules.recordBaseScroll.desc':
-		'默认关闭。保存的是原始像素偏移量，只对记录它的那台设备有意义——若数据文件跨设备同步，另一台设备的记录会用不适合本机屏幕的偏移量覆盖本机记录。PDF 始终不记录：Obsidian 已在每台设备上原生记忆 PDF 阅读位置。其他非 Markdown 文件（图片等）一律不记录。',
+		'Base 文件不像 Markdown 那样有行号可供锚定，能存的只有滚过的像素数：屏幕尺寸一变就对不上，数据文件跨设备同步时还会被另一台设备的记录覆盖，所以默认关着。这个开关只管 Base——PDF 的阅读位置 Obsidian 原生已在每台设备上记住；图片等其他非 Markdown 文件，也没有值得记录的滚动状态。',
 
 	'dataStorage.heading': '数据存储',
 
@@ -129,7 +133,7 @@ export const zh: En = {
 	// 写得短的原因：开关只需说自己那一种走法要不要记。“大小可在下方调整”不再
 	// 重复：那个开关的名字已经在说它了。
 	'navHistory.intro':
-		'类似 VSCode 的“后退 / 前进”：一步可以是切换文件，也可以是文件内的跳转——链接、大纲、搜索结果、远距离的光标移动，下面两个开关决定哪些算数。同一标签页内的切换交给 Obsidian 自己的标签页历史，所以 PDF、Canvas 这类视图也走得回去。历史存在本机，重启后仍在。',
+		'类似 VSCode 的“后退 / 前进”：一次打开文件、一次文件内的跳转（链接、大纲、搜索结果）都各占一步；切标签页和大范围的光标跳变算不算，由下面两个开关决定。同一标签页内的切换借 Obsidian 自己的标签页历史走回去，所以 PDF、Canvas 这类本插件无法定位的视图也回得去。这份历史只存在本机，不随仓库同步；重启后仍在。',
 	// 走这条历史的两个命令（见 settings/page 的 hotkeys 行）。这里不重复上面那句：
 	// 这一行按它装的东西命名，而「后退 / 前进」是什么，本页已经说过了。
 	'navHistory.hotkeys.desc': '一个方向一个命令，走的正是上面那些步。默认都不绑快捷键——在命令面板里按名字运行即可。',
@@ -150,7 +154,7 @@ export const zh: En = {
 	// 过来的，两个存储答的是不同的问题，看起来却像同一份历史的两种看法。其余
 	// 的都交给下面各行自己说。
 	'recentFiles.intro':
-		'一份去处的清单：最近打开过的笔记，以及你在它们内部跳转过的标题与块——还有主区域里没有文件的视图（关系图谱这类），它们也各占一行。点一行就回到那一处。它不是「前进与后退」页那份历史：那里存的是怎么走到这里，这里存的是去过哪些地方，两者各记各的。清单存在本机，重启后仍在。',
+		'一份去处的清单：最近打开过的笔记，以及你在其中跳转过的标题与块；主区域里没有文件的视图（关系图谱这类）也各占一行。点一行就回到那一处。它不是「前进与后退」页那份历史——那里记的是怎么走到这里，这里记的是去过哪些地方，两者各记各的。清单只存在本机，不随仓库同步；重启后仍在。',
 
 	// 最近文件列表自己的文件夹规则（见 PluginSettings.navRecentExcludeFolders）：
 	// 哪些访问值得列出。它是独立的一份，与位置记录的文件夹规则无关——但两者不在
@@ -170,9 +174,9 @@ export const zh: En = {
 	'recentFiles.landings.options.all': '全部落点',
 	// 一行的路径打印多少、打印在名字哪一侧（见 PathDisplayMode）。两个「总是」档写的是
 	// 「放不下时谁下移」，因为那才是读者真正在权衡的东西——flex 行在行尾换行，所以排在后面
-	// 的那一半才会落到第二行。默认档「仅在重名时」说得最少：目录是消歧用的，有要消歧的才打印。
+	// 的那一半才会落到第二行。默认档「仅在重名时」说得最少：目录是消歧用的，有要消歧的才显示。
 	'recentFiles.pathDisplay.name': '列表里的路径',
-	'recentFiles.pathDisplay.desc': '一行是否打印笔记所在的文件夹——只在两行重名时打印，还是每行都打印——以及打印在名字的哪一侧。',
+	'recentFiles.pathDisplay.desc': '一行是否显示笔记所在的文件夹——每行都显示，还是只在名字与屏幕上别的行撞车时才显示；而显示在名字的哪一侧，也就定下了行挤不下时谁让位：排在后面的那一半会落到第二行。',
 	'recentFiles.pathDisplay.options.smart': '仅在重名时显示',
 	'recentFiles.pathDisplay.options.before': '总是显示，路径在前',
 	'recentFiles.pathDisplay.options.after': '总是显示，路径在后',
@@ -180,7 +184,7 @@ export const zh: En = {
 	// 上一次到那里的时间，不是文件的修改时间；后者是另一回事，而它恰好是读者看到文件行
 	// 上印着时间时的第一反应。确切时刻挂在这个标签自己的 tooltip 上。
 	'recentFiles.rowTime.name': '每行的时间',
-	'recentFiles.rowTime.desc': '在每行上打印「距上次到访过了多久」。',
+	'recentFiles.rowTime.desc': '在每行上显示「距上次到访过了多久」——那是你上一次在那里的时间，不是文件的修改时间；确切时刻悬停在这行的时间上可以看到。',
 	'recentFiles.age.now': '刚刚',
 	'recentFiles.age.m': '分钟',
 	'recentFiles.age.h': '小时',
