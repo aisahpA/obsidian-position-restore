@@ -23,12 +23,29 @@ import { NAV_SOURCE_ID, TIP_DELAY_MS } from '@/recent-files/browser/constants';
 // jsdom has no PointerEvent, and `pointerType` is the one field the panel reads to tell a
 // mouse from a finger: a MouseEvent stands in for it, with the kind written on afterwards.
 // Shared by every suite that has to say WHICH pointer it is, because the panel answers the
-// two differently on purpose (see body.ts's hover rules, RecentFilesList.onHoverRow and
+// two differently on purpose (see body.ts's hover rules, RecentFilesList.hoverAt and
 // tip.ts): a mouse hovering is a mouse reading, and a finger is about to tap.
-const pointer = (type: string, kind: 'mouse' | 'touch' = 'mouse') => {
-	const ev = new MouseEvent(type, { bubbles: true });
+// …and WHERE it is, which is the other half of what the panel reads: it asks the app for
+// a page only when the pointer has MOVED, so two events at one place are one resting
+// hand (a panel that came up under it), and an event a test does not place is put
+// somewhere new. `held` says the hand did NOT move — the one case the panel has to tell
+// apart from a move (see RecentFilesList.hoverAt).
+let cursor = { x: 0, y: 0 };
+const pointer = (type: string, kind: 'mouse' | 'touch' = 'mouse', held = false) => {
+	if (!held)
+		cursor = { x: cursor.x + 17, y: cursor.y + 11 };
+	const ev = new MouseEvent(type, { bubbles: true, clientX: cursor.x, clientY: cursor.y });
 	Object.defineProperty(ev, 'pointerType', { value: kind });
 	return ev;
+};
+// A reader MOVING ONTO a row: the pointer was somewhere else — the list's edge, another
+// row, wherever the hand was — and is now over this element. Two events, because what the
+// panel hears is the MOVE and not the arrival: the first is the pointer as the panel first
+// saw it (coming up under a hand that has not moved, which asks for nothing), the second
+// is the hand moving onto the row.
+const movedOnto = (el: HTMLElement, kind: 'mouse' | 'touch' = 'mouse') => {
+	el.dispatchEvent(pointer('pointermove', kind));
+	el.dispatchEvent(pointer('pointermove', kind));
 };
 
 // jsdom implements no layout at all, so this is missing rather than broken.
@@ -2584,7 +2601,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		const h = harness(plain(), 1, files);
 		const row = h.note('a');
 
-		row.dispatchEvent(pointer('pointerover'));
+		movedOnto(row);
 
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
@@ -2602,9 +2619,50 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].targetEl).toBe(row);
 
 		// MOVING INSIDE that row asks nothing again: the name, the badge and the time are
-		// all still one arrival on one row (see RecentFilesList.onHoverRow) — otherwise a
+		// all still one arrival on one row (see RecentFilesList.hoverAt) — otherwise a
 		// hand crossing the row would be a hand asking six times for one page.
-		row.querySelector('.nav-row-name')!.dispatchEvent(pointer('pointerover'));
+		row.querySelector('.nav-row-name')!.dispatchEvent(pointer('pointermove'));
+		expect(asked(h.trigger)).toHaveLength(1);
+	});
+
+	it('asks nothing for a row the PANEL DREW UNDER a pointer that has not moved', () => {
+		// THE DIALOG A HOTKEY OPENED with the mouse resting mid-screen: the rows are drawn
+		// around the pointer, the browser reports an arrival on whichever one it landed on,
+		// and the app would answer with a page opened over a row the reader never pointed
+		// at — a note asked for by a keystroke. Arriving is not pointing (see
+		// RecentFilesList.hoverAt), and two events at one place is one hand that has
+		// not moved.
+		const h = harness(plain(), 1, files);
+		const row = h.note('a');
+
+		// The arrival the browser reports for the row it drew around the pointer, and the
+		// move that comes with it — both at the place the hand already was.
+		row.dispatchEvent(pointer('pointerover'));
+		row.dispatchEvent(pointer('pointermove', 'mouse', true));
+
+		expect(asked(h.trigger)).toHaveLength(0);
+
+		// …and the smallest move of that hand is all it takes to be asked: the row the
+		// pointer came to rest on is still a row the reader can point at.
+		row.dispatchEvent(pointer('pointermove'));
+
+		expect(asked(h.trigger)).toHaveLength(1);
+		expect(asked(h.trigger)[0].linktext).toBe('a.md');
+	});
+
+	it('asks nothing again for a row the list REDREW under a pointer that has not moved', () => {
+		// The same arrival, one render later: the rows the reader is looking at are thrown
+		// away and drawn again — a note taken off the list, the ages ticking, a query typed
+		// — and the row now under the pointer is a row nobody has pointed at a second time.
+		const h = harness(plain(), 1, files);
+		movedOnto(h.note('a'));
+		expect(asked(h.trigger)).toHaveLength(1);
+
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = 'a';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		h.note('a').dispatchEvent(pointer('pointermove', 'mouse', true));
+
 		expect(asked(h.trigger)).toHaveLength(1);
 	});
 
@@ -2612,13 +2670,13 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// Leaving the LIST is what makes the next arrival an arrival (see the list's own
 		// pointerleave): arriving on the same row twice in one visit is one question.
 		const h = harness(plain(), 1, files);
-		h.note('a').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.note('a'));
 
 		// A mouse's leave also lets the held order go, so the rows are drawn again on the
 		// way out (see RecentFilesBrowser.thawOrder) — the row below is a NEW element,
 		// and it answers for itself.
 		h.list().dispatchEvent(pointer('pointerleave'));
-		h.note('a').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.note('a'));
 
 		expect(asked(h.trigger)).toHaveLength(2);
 	});
@@ -2632,7 +2690,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		const h = harnessAll(jumped(), 3, files);
 		expect(h.place('L12')).toBeDefined(); // the row whose line is the one asked about
 
-		h.place('L12').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.place('L12'));
 
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
@@ -2649,7 +2707,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// and travels to the line, behind the cover (see hover-settle.ts).
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
 
-		h.note('a').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.note('a'));
 
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
@@ -2668,7 +2726,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// Naming the section therefore costs no line at all: it is where the row stands.
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)]);
 
-		h.place('L12').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.place('L12'));
 
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
@@ -2685,7 +2743,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// cover hides anyway, see PreviewSettle).
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5), heading('Beta', 20)]);
 
-		h.place('L12').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.place('L12'));
 
 		expect(asked(h.trigger)[0].linktext).toBe('a.md');
 		expect(asked(h.trigger)[0].state).toEqual({ scroll: 11 });
@@ -2697,7 +2755,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// would arrive as something other than itself.
 		const h = withHeadings([heading('Alpha', 0), heading('Beta | gamma', 5)]);
 
-		h.place('L12').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.place('L12'));
 
 		expect(asked(h.trigger)[0].linktext).toBe('a.md');
 		expect(asked(h.trigger)[0].state).toEqual({ scroll: 11 });
@@ -2710,7 +2768,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// the note from its head, which is what opening it plainly would have shown.
 		const h = harness(plain(), 1, files);
 
-		h.note('a').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.note('a'));
 
 		expect(asked(h.trigger)[0].state).toBeUndefined();
 	});
@@ -2725,7 +2783,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		], 1, files);
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 
-		graph.dispatchEvent(pointer('pointerover'));
+		movedOnto(graph);
 
 		expect(asked(h.trigger)).toHaveLength(0);
 	});
@@ -2736,7 +2794,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// Nothing travels either way: a hover is not a navigation, wherever it leads.
 		const h = harness(plain(), 1, files);
 
-		h.note('a').dispatchEvent(pointer('pointerover', 'touch'));
+		movedOnto(h.note('a'), 'touch');
 
 		expect(asked(h.trigger)).toHaveLength(0);
 		expect(h.jumpTo).not.toHaveBeenCalled();
@@ -2753,7 +2811,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// this panel's to dress up. Marked rather than styled inline, because how a
 		// popover looks is the theme's answer and always has been.
 		const h = harness(plain(), 1, files);
-		h.note('a').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.note('a'));
 
 		const card = await opened(h);
 
@@ -2772,6 +2830,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 	it('takes its own words back the moment the note is standing over the rows', async () => {
 		const h = harness(plain(), 1, files);
 		// A hovering that got nothing else to go on is a hovering with something to say.
+		movedOnto(h.note('a'));
 		expect(h.hover(h.note('a'))).not.toBeNull();
 
 		// …and then the app opens one: the reader held its key, or has once said that
@@ -2789,7 +2848,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// being held back, is a hovering that got nothing at all — and the row's own words
 		// are then the only thing reading it has earned.
 		const h = harness(plain(), 1, files);
-		h.note('a').dispatchEvent(pointer('pointerover'));
+		movedOnto(h.note('a'));
 		await vi.advanceTimersByTimeAsync(2000);
 
 		expect(h.hover(h.note('a'))).not.toBeNull();
@@ -2800,6 +2859,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		// that stayed off after the popover closed was the bug this asking is the answer
 		// to (see tip.ts's `quiet`), and "away and back" is no longer part of the bargain.
 		const h = harness(plain(), 1, files);
+		movedOnto(h.note('a'));
 		expect(h.hover(h.note('a'))).not.toBeNull();
 		const card = await opened(h);
 		expect(tip()).toBeNull();

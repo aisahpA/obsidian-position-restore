@@ -546,8 +546,8 @@ export class RecentFilesBrowser {
 			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
 	}
 
-	// A row the pointer ARRIVED ON, handed over to the APP (see
-	// RecentFilesList.onHoverRow): asked, once, whether it would like to be previewed.
+	// A row the pointer MOVED ONTO, handed over to the APP (see
+	// RecentFilesList.hoverAt): asked, once, whether it would like to be previewed.
 	//
 	// The app's own preview is ASKED FOR rather than rebuilt here, which is the whole of
 	// the decision. A row names a note, and every other place in Obsidian that names a
