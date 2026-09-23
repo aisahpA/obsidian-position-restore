@@ -157,16 +157,36 @@ export default class PositionRestorePlugin extends Plugin {
 			icon: 'panel-right',
 			callback: () => this.manager.openRecentFilesSidebar(),
 		});
-		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
-		// and the toolbar only exists while editing, so one tap (the mobile
-		// navbar exposes the ribbon) is the only way in. On desktop the icon
-		// was noise on every toolbar — the command palette and hotkeys cover
-		// it, and the settings tab shows whether they are bound.
-		if (Platform.isMobile)
-			// NOT navHistory.heading: the ribbon opens the recent-files list, and
-			// that page's name is what the icon has to say. (The heading is the
-			// back/forward stack's, which is the other half of this feature.)
-			this.addRibbonIcon('clock', t('recentFiles.name'), () => this.manager.openRecentFilesModal());
+		// Ribbon entry: ONE icon on every platform, because this list is the only
+		// part of the plugin that has a face at all — restore happens by itself,
+		// and back/forward is a hotkey the reader has to bind before it exists.
+		// A door that cannot be seen leaves the feature waiting for a reader who
+		// already knows it is there, which is no way to meet a feature.
+		//
+		// What the icon OPENS is the platform's own answer. On desktop the sidebar
+		// is ground that stays, so the icon opens the resident panel — and brings
+		// it BACK when one is already standing, which activateRecentFilesView does
+		// by revealing the existing leaf. On a phone the icon asks and goes away —
+		// the modal — and not because a panel would be in the way there: a travel
+		// collapses the drawer the panel stands in (see
+		// RecentFilesView.dismissOnMobile), and a reader who wants it standing has
+		// the sidebar command and, after that, a swipe. One icon can only owe one
+		// answer, and on a phone that answer is "ask, then get out of the way".
+		//
+		// Desktop used to be left out on purpose, as "noise on every toolbar".
+		// That reason expired: the app lets a reader uncheck any ribbon action
+		// and remembers it across devices, so an icon nobody wants costs two
+		// seconds ONCE, while a feature with no visible door costs the reader
+		// the feature. And there is no setting of ours for it — the app already
+		// owns that switch, and a second copy would be a knob standing in front
+		// of a question the reader has already answered somewhere else.
+		const openFromRibbon = Platform.isMobile
+			? () => this.manager.openRecentFilesModal()
+			: () => this.manager.openRecentFilesSidebar();
+		// NOT navHistory.heading: the ribbon opens the recent-files list, and
+		// that page's name is what the icon has to say. (The heading is the
+		// back/forward stack's, which is the other half of this feature.)
+		this.addRibbonIcon('clock', t('recentFiles.name'), openFromRibbon);
 	}
 
 	/**

@@ -12,7 +12,7 @@ English | [简体中文](README-zh.md)
 - **Cursor and scroll, both restored** — exact line and column; records persist across restarts, and follow you to other devices once the database sits in the vault (see [Syncing across devices](#syncing-across-devices))
 - **Per-tab positions** — the same note open in several tabs keeps a separate position per tab
 - **Navigation history** — VSCode-style back/forward across files, tabs and in-file jumps
-- **Recent files** — a browsable list of the notes you have been in (and, if you turn it on, the headings/anchors you jumped to), with the same list available as a resident sidebar panel that follows it while you work
+- **Recent files** — a browsable list of the notes you have been in (and, if you turn it on, the headings/anchors you jumped to), with the same list available as a resident sidebar panel that follows it while you work. Both desktop and mobile carry an entry for it in the ribbon — it opens the resident sidebar on desktop and the picker on a phone — and it can be unchecked from the ribbon itself if you would rather not have it
 - **Mobile ready** — works on both desktop and mobile
 
 ## Features
