@@ -37,9 +37,9 @@ import { loadNavHistory, persistNavHistory } from './store';
 // SHARED gates — a traversal's own opens and the startup rebuild are not
 // navigations for anybody — and publishes. This class then applies ITS OWN gates
 // and keeps its own kind of record: whether the focus moving between FILE tabs is
-// worth a step (navRecordActivation — a view's activation always is: a view is a
+// worth a step (navHistoryRecordActivation — a view's activation always is: a view is a
 // place the reader went to, and one this class has to know they are standing in;
-// see onVisit), whether an inferred cursor jump is (navTeleportMinLines — how
+// see onVisit), whether an inferred cursor jump is (navHistoryTeleportMinLines — how
 // many lines the move crossed; 0 keeps none of them, and on mobile none is ever
 // inferred in the first place),
 // the same-location dedup, and the ceiling. The funnel's other listener keeps a
@@ -153,13 +153,13 @@ export class NavStack implements NavFunnelSink {
 	// back was unavailable outright.
 	onVisit(recording: NavRecording) {
 		if (recording.cause === 'tab' && recording.record.kind !== 'view'
-			&& !this.settings.navRecordActivation)
+			&& !this.settings.navHistoryRecordActivation)
 			return;
 		// The threshold itself is measured in the sampler — the only place that
 		// knows how far the cursor moved — so a move below it never reaches this
 		// line and 0 publishes nothing at all. Kept here anyway because what
 		// counts as a step is this list's own call, not the funnel's.
-		if (recording.cause === 'teleport' && this.settings.navTeleportMinLines <= 0)
+		if (recording.cause === 'teleport' && this.settings.navHistoryTeleportMinLines <= 0)
 			return;
 		this.pushIfNew(recording.record, recording.forced);
 	}
@@ -224,8 +224,8 @@ export class NavStack implements NavFunnelSink {
 	// otherwise make every `length > cap` comparison false and disable the
 	// ceiling entirely).
 	stackCap(): number {
-		const cap = Math.floor(this.settings.navStackCap);
-		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.navStackCap;
+		const cap = Math.floor(this.settings.navHistoryCap);
+		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.navHistoryCap;
 	}
 
 	// Trim the stack to the ceiling NOW. Called by push (the ordinary path),

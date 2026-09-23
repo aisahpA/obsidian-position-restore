@@ -61,8 +61,13 @@ function openers() {
 	};
 }
 
+// The harness picks the MIDDLE stop of the landings setting, against the
+// shipped default of 'none' (see LandingsMode): most of this file is about what
+// a LANDING is, and the bottom stop would refuse every one of them before the
+// assertion was reached. The default itself is held by one test of its own
+// below rather than by every other test in the file.
 function makePlaces(settings: Partial<PluginSettings> = {}, app = makeApp()) {
-	const places = new NavPlaces(app, makeSettings(settings));
+	const places = new NavPlaces(app, makeSettings({ recentFilesLandings: 'last', ...settings }));
 	const opened = openers();
 	places.attach(opened.open);
 	return { places, calls: opened.calls, app };
@@ -263,7 +268,7 @@ describe('NavPlaces — what a place is', () => {
 
 describe('NavPlaces — its own folder rule', () => {
 	it('skips the paths the reader excluded, and vault internals', () => {
-		const { places } = makePlaces({ navRecentExcludeFolders: ['私人', '归档/旧'] });
+		const { places } = makePlaces({ recentFilesExcludeFolders: ['私人', '归档/旧'] });
 		places.remember(visit('笔记/a.md'));
 		places.remember(visit('私人/b.md'));
 		places.remember(visit('私人')); // the folder path itself
@@ -272,7 +277,7 @@ describe('NavPlaces — its own folder rule', () => {
 		places.remember(visit('.obsidian/workspace.json'));
 
 		// The rule is the LIST's own, deliberately not the recording rules' folders
-		// (see PluginSettings.navRecentExcludeFolders).
+		// (see PluginSettings.recentFilesExcludeFolders).
 		expect(paths(places)).toEqual(['笔记/a.md']);
 	});
 
@@ -298,7 +303,7 @@ describe('NavPlaces — its own folder rule', () => {
 		places.markCurrent(visit('私人/a.md'));
 		expect(places.index).toBe(0);
 
-		settings.navRecentExcludeFolders = ['私人'];
+		settings.recentFilesExcludeFolders = ['私人'];
 		expect(places.pruneExcluded()).toBe(1);
 		expect(paths(places)).toEqual(['公开/b.md']);
 		// the place the reader was standing in is gone: nothing is "here"
@@ -314,7 +319,7 @@ describe('NavPlaces — its own frontmatter rule', () => {
 			'published/b.md': { publish: false },
 			'notes/c.md': { status: 'draft' },
 		});
-		const { places } = makePlaces({ navRecentExcludeProperties: ['kanban-plugin', 'publish: true'] }, app);
+		const { places } = makePlaces({ recentFilesExcludeProperties: ['kanban-plugin', 'publish: true'] }, app);
 		places.remember(visit('看板/board.md'));
 		places.remember(visit('published/a.md'));
 		places.remember(visit('published/b.md'));
@@ -332,7 +337,7 @@ describe('NavPlaces — its own frontmatter rule', () => {
 			'看板/board.md': { 'kanban-plugin': 'basic' },
 			'notes/a.md': { status: 'draft' },
 		});
-		const settings = makeSettings();
+		const settings = makeSettings({ recentFilesLandings: 'last' });
 		const places = new NavPlaces(app, settings);
 		places.remember(visit('看板/board.md'));
 		places.remember(jump('看板/board.md', 'outline:## T'));
@@ -340,7 +345,7 @@ describe('NavPlaces — its own frontmatter rule', () => {
 
 		// The whole ROW goes — the note and each jump made inside it — as it does
 		// for a folder that was just excluded (see pruneExcluded).
-		settings.navRecentExcludeProperties = ['kanban-plugin'];
+		settings.recentFilesExcludeProperties = ['kanban-plugin'];
 		expect(places.pruneExcluded()).toBe(2);
 		expect(paths(places)).toEqual(['notes/a.md']);
 	});
@@ -349,7 +354,7 @@ describe('NavPlaces — its own frontmatter rule', () => {
 		// `position-restore: false` answers whether a POSITION is recorded for
 		// this file — it says nothing about whether the reader goes there.
 		const app = makeAppWithFrontmatter({ 'notes/a.md': { 'position-restore': false } });
-		const { places } = makePlaces({ navRecentExcludeProperties: ['status'] }, app);
+		const { places } = makePlaces({ recentFilesExcludeProperties: ['status'] }, app);
 		places.remember(visit('notes/a.md'));
 
 		expect(paths(places)).toEqual(['notes/a.md']);
@@ -358,7 +363,7 @@ describe('NavPlaces — its own frontmatter rule', () => {
 	it('lists a file whose frontmatter has not been parsed yet', () => {
 		// The metadata cache fills lazily. A place withheld on a guess is a place
 		// the reader cannot get back; the next visit asks again.
-		const { places } = makePlaces({ navRecentExcludeProperties: ['status'] }, makeAppWithFrontmatter({}));
+		const { places } = makePlaces({ recentFilesExcludeProperties: ['status'] }, makeAppWithFrontmatter({}));
 		places.remember(visit('notes/a.md'));
 
 		expect(paths(places)).toEqual(['notes/a.md']);
@@ -376,7 +381,7 @@ describe('NavPlaces — its own frontmatter rule', () => {
 
 describe('NavPlaces — the ceiling', () => {
 	it('drops the oldest place and keeps the list MRU ordered', () => {
-		const { places } = makePlaces({ navRecentCap: 3 });
+		const { places } = makePlaces({ recentFilesCap: 3 });
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
 			places.remember(visit(p));
 
@@ -384,7 +389,7 @@ describe('NavPlaces — the ceiling', () => {
 	});
 
 	it('never drops the place the reader is standing in', () => {
-		const { places } = makePlaces({ navRecentCap: 2 });
+		const { places } = makePlaces({ recentFilesCap: 2 });
 		places.remember(visit('a.md'));
 		places.remember(visit('b.md'));
 		// the reader goes back to the oldest place, then a new one arrives
@@ -397,21 +402,157 @@ describe('NavPlaces — the ceiling', () => {
 	});
 
 	it('trims on the spot when the ceiling is lowered, and says how many went', () => {
-		const settings = makeSettings({ navRecentCap: 2 });
+		const settings = makeSettings({ recentFilesCap: 2 });
 		const places = new NavPlaces(makeApp(), settings);
 		for (const p of ['a.md', 'b.md', 'c.md'])
 			places.remember(visit(p));
 
 		expect(places.applyCap()).toBe(0);
-		settings.navRecentCap = 1;
+		settings.recentFilesCap = 1;
 		expect(places.applyCap()).toBe(1);
 		expect(paths(places)).toEqual(['c.md']);
 	});
 
 	it('clamps a hand-edited ceiling instead of disabling the cap', () => {
-		const { places } = makePlaces({ navRecentCap: 'abc' as unknown as number });
-		expect(places.cap()).toBe(DEFAULT_SETTINGS.navRecentCap);
-		expect(makePlaces({ navRecentCap: 0 }).places.cap()).toBe(1);
+		const { places } = makePlaces({ recentFilesCap: 'abc' as unknown as number });
+		expect(places.cap()).toBe(DEFAULT_SETTINGS.recentFilesCap);
+		expect(makePlaces({ recentFilesCap: 0 }).places.cap()).toBe(1);
+	});
+
+	// WHAT THE CEILING COUNTS is rows, and a row is what the reader is SHOWN:
+	// under 'last' a note is one row however many landings it holds, so a
+	// landing can never cost a file its place on the list — which is the whole
+	// reason the two ceilings are counted apart (see NavPlaces.trim).
+	it('counts a note as one row however many landings it holds', () => {
+		const { places } = makePlaces({ recentFilesCap: 2 });
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+		places.remember(jump('a.md', 'h2'));
+		places.remember(visit('b.md'));
+		places.remember(visit('c.md'));
+
+		// Three notes, room for two: the one that goes takes its landings with
+		// it, because a ROW is the thing being dropped (see forget).
+		expect(paths(places)).toEqual(['b.md', 'c.md']);
+	});
+
+	it('never drops the row the reader is standing in, landings and all', () => {
+		const { places } = makePlaces({ recentFilesCap: 2 });
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+		places.remember(visit('b.md'));
+		places.markCurrent(visit('a.md'));
+		places.remember(visit('c.md'));
+
+		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'c.md']);
+		expect(places.index).toBe(0);
+	});
+
+	// …and the landings have a ceiling of their own, the same number, so the
+	// list they live in stays bounded even where none of them is a row.
+	it('gives the landings a ceiling of their own and drops the oldest of them', () => {
+		const { places } = makePlaces({ recentFilesCap: 2 });
+		places.remember(visit('a.md'));
+		for (const key of ['h1', 'h2', 'h3', 'h4'])
+			places.remember(jump('a.md', key));
+
+		// The note's row is never in question — it is one row all along — but
+		// only the two newest landings are kept, and it is the LANDING that
+		// goes rather than the note it stands in.
+		expect(paths(places)).toEqual(['a.md', 'a.md#h3', 'a.md#h4']);
+	});
+
+	// The top stop DRAWS every landing as a row, but it does not change what
+	// the ceiling counts: a note is still one row, so the extra lines cost the
+	// reader no note — which is what keeps the number they set meaning the same
+	// thing at every stop (see NavPlaces.trim).
+	it('draws every landing as a row without charging them to the ceiling', () => {
+		const { places } = makePlaces({ recentFilesCap: 3, recentFilesLandings: 'all' });
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+		places.remember(jump('a.md', 'h2'));
+		places.remember(visit('b.md'));
+		places.remember(visit('c.md'));
+
+		// Three notes in a ceiling of three, landings and all: what the reader
+		// sees runs longer than the number — the one clause that stop adds.
+		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'a.md#h2', 'b.md', 'c.md']);
+		expect(places.rowCount()).toBe(3);
+	});
+
+	// …and so moving between the stops never re-trims: the ceiling was never
+	// counting the thing that changed.
+	it('does not re-trim when the reader moves between the stops', () => {
+		const settings = makeSettings({ recentFilesCap: 3, recentFilesLandings: 'last' });
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+		places.remember(jump('a.md', 'h2'));
+		places.remember(visit('b.md'));
+		places.remember(visit('c.md'));
+
+		expect(places.rowCount()).toBe(3);
+		settings.recentFilesLandings = 'all';
+		expect(places.applyCap()).toBe(0);
+		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'a.md#h2', 'b.md', 'c.md']);
+	});
+});
+
+// The BOTTOM stop of the landings setting (see LandingsMode): it answers
+// RECORDING, and recording only — what is already recorded is a place like any
+// other and no stop deletes it.
+describe('NavPlaces — recording jumps or not', () => {
+	// The shipped default (see LandingsMode), and why it is the TOP stop: what
+	// ships is the whole of what the list can record, because it is the only
+	// stop from which the two below it can be chosen with anything to choose
+	// between — a reader who started at 'none' and only later came upon the
+	// setting would find nothing recorded under it. The harness above turns it
+	// down so that landings can be talked about as a separate thing.
+	it('records a jump by default', () => {
+		const places = new NavPlaces(makeApp(), makeSettings());
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+
+		expect(paths(places)).toEqual(['a.md', 'a.md#h1']);
+	});
+
+	it('records no jump at all at the bottom stop', () => {
+		const { places } = makePlaces({ recentFilesLandings: 'none' });
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+
+		// The note is still a place; the spot inside it is not.
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('still records a view, which is a place rather than a spot in a note', () => {
+		const { places } = makePlaces({ recentFilesLandings: 'none' });
+		places.remember(view('graph'));
+
+		expect(paths(places)).toEqual(['view:graph']);
+	});
+
+	// The bottom stop stops the list RECORDING; it does not reach back and
+	// delete what it already has. A landing goes when the note it stands in is
+	// crowded out (see NavPlaces.trim), and not before — which is what makes
+	// every stop reversible: a reader trying "how finely" out and coming back
+	// finds their landings where they were.
+	it('keeps the landings already recorded when the bottom stop is chosen', () => {
+		const settings = makeSettings({ recentFilesLandings: 'last' });
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'h1'));
+		places.remember(visit('b.md'));
+
+		settings.recentFilesLandings = 'none';
+		// From here on a file is all that is recorded of a visit…
+		places.remember(jump('b.md', 'h2'));
+		places.remember(visit('c.md'));
+		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'b.md', 'c.md']);
+
+		// …and coming back down finds the landing it had, not an empty note.
+		settings.recentFilesLandings = 'all';
+		expect(places.entries.filter(e => e.kind === 'jump')).toHaveLength(1);
 	});
 });
 
@@ -731,7 +872,7 @@ describe('NavPlaces — change notification', () => {
 	});
 
 	it('tells a subscriber about a rename, a prune and a trim — and about nothing that changed nothing', () => {
-		const { places } = makePlaces({ navRecentCap: 2 });
+		const { places } = makePlaces({ recentFilesCap: 2 });
 		places.remember(visit('a.md'));
 		const seen = vi.fn();
 		places.subscribe(seen);

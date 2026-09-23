@@ -33,7 +33,7 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 					desc: (() => {
 						const frag = createFragment();
 						frag.createDiv({ text: t('recentFiles.folders.desc') });
-						const folders = ctx.plugin.settings.navRecentExcludeFolders;
+						const folders = ctx.plugin.settings.recentFilesExcludeFolders;
 						if (folders.length === 0)
 							return frag;
 						const list = frag.createEl('ul', { cls: 'mod-muted' });
@@ -47,22 +47,22 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						{
 							type: 'list',
 							emptyState: t('recentFiles.folders.list.empty'),
-							items: ctx.plugin.settings.navRecentExcludeFolders.map((folder) => ({
+							items: ctx.plugin.settings.recentFilesExcludeFolders.map((folder) => ({
 								name: folder + '/',
 							})),
 							onDelete: (index) => {
-								const folders = ctx.plugin.settings.navRecentExcludeFolders.filter((_, i) => i !== index);
-								void ctx.setValue('navRecentExcludeFolders', folders);
+								const folders = ctx.plugin.settings.recentFilesExcludeFolders.filter((_, i) => i !== index);
+								void ctx.setValue('recentFilesExcludeFolders', folders);
 							},
 							addItem: {
 								name: t('recentFiles.folders.add'),
 								action: () => {
 									new FolderSuggestModal(
 										ctx.app,
-										ctx.plugin.settings.navRecentExcludeFolders,
+										ctx.plugin.settings.recentFilesExcludeFolders,
 										(path) => {
-											const folders = [...ctx.plugin.settings.navRecentExcludeFolders, path];
-											void ctx.setValue('navRecentExcludeFolders', folders);
+											const folders = [...ctx.plugin.settings.recentFilesExcludeFolders, path];
+											void ctx.setValue('recentFilesExcludeFolders', folders);
 										}
 									).open();
 								},
@@ -76,7 +76,7 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 				// plugin owns, a page marked published, a template. It is the
 				// list's OWN list and not the position page's, for the same
 				// reason the folders are (see
-				// PluginSettings.navRecentExcludeProperties): a note whose
+				// PluginSettings.recentFilesExcludeProperties): a note whose
 				// cursor position is not worth keeping is still a note the
 				// reader navigates to.
 				//
@@ -98,7 +98,7 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 							cls: 'mod-muted',
 							text: t('recentFiles.frontmatterExclude.formValue'),
 						});
-						const props = ctx.plugin.settings.navRecentExcludeProperties;
+						const props = ctx.plugin.settings.recentFilesExcludeProperties;
 						if (props.length === 0)
 							return frag;
 						const list = frag.createEl('ul', { cls: 'mod-muted' });
@@ -112,12 +112,12 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						{
 							type: 'list',
 							emptyState: t('recentFiles.frontmatterExclude.list.empty'),
-							items: ctx.plugin.settings.navRecentExcludeProperties.map((prop) => ({
+							items: ctx.plugin.settings.recentFilesExcludeProperties.map((prop) => ({
 								name: prop,
 							})),
 							onDelete: (index) => {
-								const props = ctx.plugin.settings.navRecentExcludeProperties.filter((_, i) => i !== index);
-								void ctx.setValue('navRecentExcludeProperties', props);
+								const props = ctx.plugin.settings.recentFilesExcludeProperties.filter((_, i) => i !== index);
+								void ctx.setValue('recentFilesExcludeProperties', props);
 							},
 							addItem: {
 								name: t('recentFiles.frontmatterExclude.add'),
@@ -128,10 +128,10 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 											new PropertyValueModal(
 												ctx.app,
 												name,
-												ctx.plugin.settings.navRecentExcludeProperties,
+												ctx.plugin.settings.recentFilesExcludeProperties,
 												(entry) => {
-													const props = [...ctx.plugin.settings.navRecentExcludeProperties, entry];
-													void ctx.setValue('navRecentExcludeProperties', props);
+													const props = [...ctx.plugin.settings.recentFilesExcludeProperties, entry];
+													void ctx.setValue('recentFilesExcludeProperties', props);
 												}
 											).open();
 										}
@@ -141,26 +141,64 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
-				// WHAT A ROW PRINTS, and how far back the list reaches: the
-				// browser's own preferences (see RecentFilesBrowserPrefs). They stand
-				// here and no longer in a gear of the panel's toolbar — one
-				// place that holds them, reached the way every other setting of
-				// the plugin is, and no second copy inside a panel that is a
-				// navigator rather than a control surface. A panel standing
-				// open beside this page is redrawn as each of them is chosen
-				// (the tab's write path repaints its panels — see settings/tab.ts),
-				// so the question "what does the list look like" is answered in
-				// front of the reader either way.
+				// HOW MUCH OF ONE NOTE THE LIST KEEPS, AND HOW MUCH OF WHAT IT
+				// KEPT IT DRAWS — one row, three stops along a single axis
+				// (see LandingsMode). The two halves are ONE question because
+				// a landing that was never recorded cannot be drawn: a reader
+				// choosing how much to see has already answered how much to
+				// keep, and asking them twice produced a fourth answer that
+				// meant nothing. The stops are monotonic — each keeps and
+				// draws a superset of the one above — which is what lets them
+				// sit in one dropdown instead of two controls.
+				//
+				// 'all' is the default: the list ships showing every spot
+				// the reader left, which is the only stop from which the
+				// two below it can be chosen with anything to choose
+				// between — a reader who started at 'none' and only later
+				// came upon this row would find nothing recorded under it.
+				// And no stop is a one-way door: coming down stops the list
+				// RECORDING new landings, but what it already recorded stays
+				// until the note it stands in is crowded out.
 				{
 					name: t('recentFiles.landings.name'),
 					desc: t('recentFiles.landings.desc'),
 					control: {
 						type: 'dropdown',
-						key: 'navLandings',
+						key: 'recentFilesLandings',
 						options: {
+							none: t('recentFiles.landings.options.none'),
 							last: t('recentFiles.landings.options.last'),
 							all: t('recentFiles.landings.options.all'),
 						},
+					},
+				},
+				// HOW MANY NOTES THE LIST REMEMBERS — one number with one
+				// meaning, whichever stop of the row above the reader is
+				// on: it counts the notes and the views, never the landings
+				// inside them, so moving between the stops does not move
+				// the goal posts of a number they already set.
+				//
+				// It stands BELOW that row and not above it, because that
+				// row is the only thing this one needs read first: a reader
+				// who has not yet answered "how finely do I want my
+				// navigation kept" cannot say what a number of notes is a
+				// number of — the row above is what makes the row below
+				// answerable. (And its sentence is written twice, but only
+				// because the top stop owes one extra clause: landings are
+				// drawn as rows there, so the list on screen runs longer
+				// than this number even though the number still counts
+				// notes.)
+				{
+					name: t('recentFiles.cap.name'),
+					desc: ctx.plugin.settings.recentFilesLandings === 'all'
+						? t('recentFiles.cap.desc.all')
+						: t('recentFiles.cap.desc.plain'),
+					control: {
+						type: 'number',
+						key: 'recentFilesCap',
+						min: 20,
+						max: 500,
+						step: 10,
 					},
 				},
 				{
@@ -168,7 +206,7 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 					desc: t('recentFiles.pathDisplay.desc'),
 					control: {
 						type: 'dropdown',
-						key: 'navPathDisplay',
+						key: 'recentFilesPathDisplay',
 						options: {
 							smart: t('recentFiles.pathDisplay.options.smart'),
 							before: t('recentFiles.pathDisplay.options.before'),
@@ -181,18 +219,7 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 					desc: t('recentFiles.rowTime.desc'),
 					control: {
 						type: 'toggle',
-						key: 'navRowTime',
-					},
-				},
-				{
-					name: t('recentFiles.cap.name'),
-					desc: t('recentFiles.cap.desc'),
-					control: {
-						type: 'number',
-						key: 'navRecentCap',
-						min: 20,
-						max: 500,
-						step: 10,
+						key: 'recentFilesRowTime',
 					},
 				},
 			],

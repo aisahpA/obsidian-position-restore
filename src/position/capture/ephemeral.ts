@@ -98,20 +98,27 @@ function cursorOnScreen(view: MarkdownView, line: number): boolean {
 }
 
 // The recorded context block's radius, in NON-BLANK lines either side of the
-// landing (the landing line itself is always recorded, blank or not). One
-// number for one window: the recent-files browser renders exactly this block, so
-// what the search box matches is what the panel can show. Non-blank counting
-// is the point — a note written one sentence per line with blank separators
-// spends a raw ±5 on two or three lines of actual text, and the remembered
-// words are worth more than the blank lines around them.
-export const NAV_CONTEXT_RADIUS = 5;
+// landing (the landing line itself is always recorded, blank or not). Non-blank
+// counting is the point — a note written one sentence per line with blank
+// separators would spend a raw ±3 on two lines of actual text, and the
+// remembered words are worth more than the blank lines around them.
+//
+// THREE, and it came down from five, because this block is the heaviest thing
+// the recent-files list stores and it buys exactly one thing: the search box
+// matching a note by the words that stood beside a jump (see listing.ts's
+// navSearchText). The line NUMBER travels on its own (contextAt), so a
+// narrower window costs no precision — only reach, and three lines either
+// side is where "the sentence I remember" actually is.
+export const NAV_CONTEXT_RADIUS = 3;
 
-// Per-line cap of a recorded context line. Longer than the anchor's 80 on
-// purpose: they do different jobs. The anchor (below) is matched EXACTLY to
-// re-find a line after edits, where a longer string is a brittler key; a
-// context line is only displayed and searched, and a note written one
-// paragraph per line carries the whole paragraph here.
-const CONTEXT_LINE_CAP = 200;
+// Per-line cap of a recorded context line, in characters. Longer than the
+// anchor's 80 on purpose: they do different jobs. The anchor (below) is matched
+// EXACTLY to re-find a line after edits, where a longer string is a brittler
+// key, while a context line is only searched. 120 still carries a whole
+// ordinary paragraph — the shape a note written one paragraph per line has —
+// and with the radius above it puts a landing's worst case near 840 bytes
+// instead of 2.2KB, which is the number the list's ceiling is defending.
+const CONTEXT_LINE_CAP = 120;
 
 // How many RAW lines a side the block looks through to find its radius worth
 // of non-blank ones. Without a bound, a landing at the foot of a note with a

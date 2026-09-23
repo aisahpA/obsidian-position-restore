@@ -31,7 +31,19 @@ import { t } from '@/i18n';
 // was drawn with the old one and has to be asked to draw again. That is why the
 // list stands here instead of inside the manager's diff table: that table
 // re-applies state the stores hold in memory, while this asks a view to draw.
-const BROWSER_PREF_KEYS = new Set(['navLandings', 'navPathDisplay', 'navRowTime']);
+const BROWSER_PREF_KEYS = new Set(['recentFilesLandings', 'recentFilesPathDisplay', 'recentFilesRowTime']);
+
+// The keys that change the SHAPE OF A PAGE rather than a value on it — whose
+// consequence is a row appearing or not, or a sentence read differently. The
+// framework writes a control's value and calls nothing back, so these are the
+// writes that have to ask for the redraw themselves (see setControlValue);
+// every other key changes a number or an answer, and the row that holds it is
+// already drawn with the new one.
+//
+// recentFilesLandings is the only one today: at the top stop the ceiling above
+// it is read by the sentence that says the list runs longer than the number,
+// and at the bottom one by the sentence that does not mention landings at all.
+const PAGE_SHAPE_KEYS = new Set(['recentFilesLandings']);
 
 export class SettingTab extends PluginSettingTab {
 	plugin: PositionRestorePlugin;
@@ -66,6 +78,13 @@ export class SettingTab extends PluginSettingTab {
 		if (BROWSER_PREF_KEYS.has(key))
 			this.plugin.manager.refreshNavPanels();
 		await this.plugin.saveSettings();
+		// Asked AFTER the save, and only for the keys named above: a redraw
+		// rebuilds every page from the settings, so it has to see the value
+		// that was just written — and it has to be asked here, because the
+		// framework's own write path (a control bound to a key) ends in this
+		// method and nowhere calls back into the tab.
+		if (PAGE_SHAPE_KEYS.has(key))
+			this.update();
 	}
 
 	getSettingDefinitions(): SettingDefinitionItem[] {

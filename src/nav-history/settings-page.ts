@@ -27,7 +27,7 @@ export function navHistorySettingsPage(ctx: SettingsPageContext): SettingDefinit
 					desc: t('navHistory.stackCap.desc'),
 					control: {
 						type: 'number',
-						key: 'navStackCap',
+						key: 'navHistoryCap',
 						min: 10,
 						max: 500,
 						step: 1,
@@ -38,7 +38,7 @@ export function navHistorySettingsPage(ctx: SettingsPageContext): SettingDefinit
 					desc: t('navHistory.recordActivation.desc'),
 					control: {
 						type: 'toggle',
-						key: 'navRecordActivation',
+						key: 'navHistoryRecordActivation',
 					},
 				},
 				{
@@ -46,7 +46,7 @@ export function navHistorySettingsPage(ctx: SettingsPageContext): SettingDefinit
 					desc: t('navHistory.teleportMinLines.desc'),
 					control: {
 						type: 'number',
-						key: 'navTeleportMinLines',
+						key: 'navHistoryTeleportMinLines',
 						min: 0,
 						max: 500,
 						step: 1,

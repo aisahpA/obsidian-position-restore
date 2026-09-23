@@ -168,7 +168,7 @@ describe('readNavEntryState — which line the landing is', () => {
 describe('readNavEntryState — the landing context block', () => {
 	it('counts NON-BLANK lines each side, and clamps at the document edges', () => {
 		// One sentence per line with blank separators (the ordinary shape of a
-		// Chinese markdown note): a raw ±5 would spend the window on blanks.
+		// Chinese markdown note): a raw ±3 would spend the window on blanks.
 		const lines = [
 			'# 标题', '', '第一段', '', '第二段', '落点',
 			'', '第三段', '', '第四段', '', '第五段', '', '第六段', '', '第七段',
@@ -177,9 +177,9 @@ describe('readNavEntryState — the landing context block', () => {
 
 		const st = readNavEntryState(view);
 
-		// three non-blank lines before (the document starts), five after, and
+		// three non-blank lines before (the document starts), three after, and
 		// the landing itself in the middle.
-		expect(st?.context?.map(l => l.line)).toEqual([0, 2, 4, 5, 7, 9, 11, 13, 15]);
+		expect(st?.context?.map(l => l.line)).toEqual([0, 2, 4, 5, 7, 9, 11]);
 		expect(st?.contextAt).toBe(3);
 		expect(st?.context?.[3]).toEqual({ line: 5, text: '落点' });
 	});
@@ -227,7 +227,7 @@ describe('readNavEntryState — the landing context block', () => {
 		const long = 'x'.repeat(500);
 		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: [long] });
 
-		expect(readNavEntryState(view)?.context?.[0].text).toHaveLength(200);
+		expect(readNavEntryState(view)?.context?.[0].text).toHaveLength(120);
 	});
 
 	it('trims a line, so the recorded text is what the panel prints', () => {
@@ -261,10 +261,8 @@ describe('withNavDisplay — rebuilds display fields around an existing position
 			cursor: cursor(101),
 			anchor: 'L500',
 			// The cursor was off screen, so the landing is the VIEWPORT top (500)
-			// and the block is built around it: five recorded lines either side.
+			// and the block is built around it: three recorded lines either side.
 			context: [
-				{ line: 495, text: 'L495' },
-				{ line: 496, text: 'L496' },
 				{ line: 497, text: 'L497' },
 				{ line: 498, text: 'L498' },
 				{ line: 499, text: 'L499' },
@@ -272,10 +270,8 @@ describe('withNavDisplay — rebuilds display fields around an existing position
 				{ line: 501, text: 'L501' },
 				{ line: 502, text: 'L502' },
 				{ line: 503, text: 'L503' },
-				{ line: 504, text: 'L504' },
-				{ line: 505, text: 'L505' },
 			],
-			contextAt: 5,
+			contextAt: 3,
 		});
 		// The input is untouched: the baseline is shared with the poll and the
 		// db, and a later reconstruction must never flip an entry retroactively.

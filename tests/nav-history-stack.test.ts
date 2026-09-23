@@ -41,7 +41,7 @@ const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 // share one instance, see NavStack.settings) — this is that mutation, without
 // going through the whole settings tab.
 function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
-	(nav.stack as unknown as { settings: PluginSettings }).settings.navStackCap = cap;
+	(nav.stack as unknown as { settings: PluginSettings }).settings.navHistoryCap = cap;
 }
 
 beforeEach(() => {
@@ -341,8 +341,8 @@ describe('NavStack activation recording', () => {
 });
 
 describe('NavStack recording settings', () => {
-	it('navStackCap caps the stack, oldest entries drop, index stays at the top', () => {
-		const nav = makeNav(makeApp(), { navStackCap: 2 });
+	it('navHistoryCap caps the stack, oldest entries drop, index stays at the top', () => {
+		const nav = makeNav(makeApp(), { navHistoryCap: 2 });
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		nav.funnel.recordOpen('c.md', 'leaf-1');
@@ -350,8 +350,8 @@ describe('NavStack recording settings', () => {
 		expect(nav.stack.index).toBe(1);
 	});
 
-	it('a hand-edited navStackCap below 1 clamps to 1', () => {
-		const nav = makeNav(makeApp(), { navStackCap: 0 });
+	it('a hand-edited navHistoryCap below 1 clamps to 1', () => {
+		const nav = makeNav(makeApp(), { navHistoryCap: 0 });
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md']);
@@ -360,8 +360,8 @@ describe('NavStack recording settings', () => {
 	it('a cap that is not a number at all falls back to the default', () => {
 		// "abc" would make every `length > cap` comparison false and disable the
 		// ceiling entirely; null would collapse it to 1.
-		const nav = makeNav(makeApp(), { navStackCap: 'abc' as unknown as number });
-		expect(nav.stack.stackCap()).toBe(DEFAULT_SETTINGS.navStackCap);
+		const nav = makeNav(makeApp(), { navHistoryCap: 'abc' as unknown as number });
+		expect(nav.stack.stackCap()).toBe(DEFAULT_SETTINGS.navHistoryCap);
 	});
 
 	it('lowering the cap trims the stack at once, keeping the pointer on the top', () => {
@@ -418,13 +418,13 @@ describe('NavStack recording settings', () => {
 			index: 3,
 		}));
 
-		const nav = makeNav(makeApp(), { navStackCap: 2 });
+		const nav = makeNav(makeApp(), { navHistoryCap: 2 });
 
 		expect(nav.stack.entries.map(pathOf)).toEqual(['c.md', 'd.md']);
 		expect(nav.stack.index).toBe(1);
 	});
 
-	it('navRecordActivation off: a file tab switch is no step, a view tab still is', async () => {
+	it('navHistoryRecordActivation off: a file tab switch is no step, a view tab still is', async () => {
 		const h = makeSidebarHarness({
 			leaves: [
 				{ id: 'leaf-a', file: 'a.md', markdown: true },
@@ -433,7 +433,7 @@ describe('NavStack recording settings', () => {
 		});
 		const nav = h.nav;
 		// The gate is read off the object the settings panel mutates (see setCap).
-		(nav.stack as unknown as { settings: PluginSettings }).settings.navRecordActivation = false;
+		(nav.stack as unknown as { settings: PluginSettings }).settings.navHistoryRecordActivation = false;
 
 		nav.funnel.recordOpen('a.md', 'leaf-a');
 		nav.funnel.recordOpen('b.md', 'leaf-b');
@@ -457,7 +457,7 @@ describe('NavStack recording settings', () => {
 	});
 
 	it('threshold 0: cursor jumps record nothing', () => {
-		const nav = makeNav(makeApp(), { navTeleportMinLines: 0 });
+		const nav = makeNav(makeApp(), { navHistoryTeleportMinLines: 0 });
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42);
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 300);
 		expect(nav.stack.entries.length).toBe(0);

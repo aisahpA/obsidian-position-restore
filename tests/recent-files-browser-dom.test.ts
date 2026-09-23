@@ -83,7 +83,7 @@ function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: 
 		state,
 		browser: {
 			landings: () => state.landings,
-			// How far back the list reaches (see PluginSettings.navRecentCap).
+			// How far back the list reaches (see PluginSettings.recentFilesCap).
 			placesCap: () => state.cap,
 			// How much of a row's path is printed, and on which side of the name (see
 			// PathDisplayMode).

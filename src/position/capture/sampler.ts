@@ -85,7 +85,7 @@ export class Sampler {
 	// on the mobile poll path, the latter only because a 100ms tick
 	// accumulates 5-10 lines of held-key movement where one selection event
 	// moves 1. Both are gone: the threshold is the reader's setting now
-	// (navTeleportMinLines, read through teleportMinLines below), and the
+	// (navHistoryTeleportMinLines, read through teleportMinLines below), and the
 	// mobile path is deleted outright — a touch screen has no held keys, a
 	// swipe moves no cursor at all, and every deliberate far jump on mobile
 	// (outline item, anchor link, search result) arrives as its own keyed
@@ -98,7 +98,7 @@ export class Sampler {
 	// another device) reads as 0 = do not record: the safe direction for a
 	// broken value is silence, never "every cursor move is a jump".
 	private get teleportMinLines(): number {
-		const n = Math.floor(this.settings.navTeleportMinLines);
+		const n = Math.floor(this.settings.navHistoryTeleportMinLines);
 		return Number.isFinite(n) && n > 0 ? n : 0;
 	}
 

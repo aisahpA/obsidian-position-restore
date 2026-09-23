@@ -197,8 +197,8 @@ describe('PositionManager navigation history maintenance', () => {
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
 			h.funnel.recordOpen(p, 'leaf-1');
 
-		h.settings.navStackCap = 2;
-		h.manager.applyNavStackCap();
+		h.settings.navHistoryCap = 2;
+		h.manager.applyNavHistoryCap();
 
 		// Trimmed NOW, not on the next navigation (which would drop a large
 		// chunk at once, long after the setting was changed).

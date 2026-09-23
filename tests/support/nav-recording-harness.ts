@@ -55,7 +55,12 @@ export function makeNav(
 	settings: Partial<PluginSettings> = {},
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ) {
-	const resolved = { ...DEFAULT_SETTINGS, ...settings } as PluginSettings;
+	// The middle stop of the landings setting, against the shipped default of
+	// 'none' (see LandingsMode): most of these tests watch the place list to see
+	// what a jump BECAME, and the bottom stop would refuse the jump before there
+	// was anything to look at. The default is a setting, not a behaviour of
+	// navigation, so nothing here is bent by it.
+	const resolved = { ...DEFAULT_SETTINGS, recentFilesLandings: 'last', ...settings } as PluginSettings;
 	const state = new PositionState(resolved);
 	const funnel = new NavFunnel(app, state);
 	const stack = new NavStack(app, resolved, state, funnel, savedPosition);

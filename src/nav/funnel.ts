@@ -186,7 +186,7 @@ export class NavFunnel {
 	// per selection event, desktop only — a swipe moves no cursor and a tap lands
 	// within the screenful, so a touch device has nothing left to infer. An
 	// INFERRED move, not a deliberate jump — whether it is worth a step is the
-	// stack's call (its navTeleportMinLines threshold); the landing is the
+	// stack's call (its navHistoryTeleportMinLines threshold); the landing is the
 	// post-jump read when one arrived with the call.
 	recordTeleport(path: string, leafId: string, line: number, landing?: NavEntryState) {
 		if (!this.isRecording())

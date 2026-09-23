@@ -38,11 +38,11 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 // A pathless view (the graph, Thino's memo list) is one record, as it is in the
 // panel.
 //
-// WHAT IS NOT IN IT: teleports (the sampler's INFERRED large cursor moves).
-// They are not places the reader chose, and they were the whole reason the
-// list needed a second eviction tier to keep them from crowding out the real
-// ones. Dropping them removes the tier: the array is a strict MRU list, so
-// eviction is "drop from the front".
+// WHAT IS NOT IN IT: teleports (the sampler's INFERRED large cursor moves), and
+// — at the bottom stop of the landings setting — jumps (see LandingsMode): neither is a place the reader chose to
+// go to. Teleports were the whole reason the list needed a second eviction tier
+// to keep them from crowding out the real places; dropping them leaves one
+// eviction rule, whose unit is the ROW (see trim).
 //
 // ORDER IS THE MRU ORDER: a touched place is moved to the END. The panel reads
 // an index as a clock (list.ts's activeRep: the highest index among a note's
@@ -147,13 +147,32 @@ export class NavPlaces implements PlaceList {
 
 	// ===== Configuration =====
 
-	// How many places are kept: the setting, clamped, with DEFAULT_SETTINGS as
-	// the fallback for a value that is not a number at all (a hand-edited
-	// data.json would otherwise make every `length > cap` comparison false and
-	// disable the ceiling entirely — the same guard as the stack's stackCap).
+	// Whether this list records JUMPS — everything but the bottom stop of the
+	// landings setting (see LandingsMode), where the list is notes and views
+	// and nothing else. Asked of every jump and of nothing else: a file the
+	// reader opened and a view they sat in are places whatever this says, and
+	// the list without its jumps is still a list of notes.
+	//
+	// It answers RECORDING and only recording, never retention: a jump
+	// recorded at an upper stop is a place like any other, and coming down
+	// to 'none' leaves it where it is — it stops new ones being recorded and
+	// draws nothing from the ones already there, and what that cost is bounded
+	// by, and what finally takes them, is the trim (see dropOldestLandings and
+	// dropOldestRows). Which is why no stop is a one-way door.
+	private recordsJumps(): boolean {
+		return this.settings.recentFilesLandings !== 'none';
+	}
+
+	// How many NOTES the list is kept to: the setting, clamped, with
+	// DEFAULT_SETTINGS as the fallback for a value that is not a number at all
+	// (a hand-edited data.json would otherwise make every `length > cap`
+	// comparison false and disable the ceiling entirely — the same guard as the
+	// stack's stackCap). What it counts is the note or view a row stands for,
+	// in every mode (see rowCount) — not the landings inside it, which are
+	// bounded by trim's second pass instead.
 	cap(): number {
-		const cap = Math.floor(this.settings.navRecentCap);
-		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.navRecentCap;
+		const cap = Math.floor(this.settings.recentFilesCap);
+		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.recentFilesCap;
 	}
 
 	// Whether a path may be listed at all: this list's OWN rules, and no other
@@ -161,8 +180,8 @@ export class NavPlaces implements PlaceList {
 	// are worth listing" — a template folder, an archive, a scratch folder, a
 	// board that another plugin owns — and are deliberately not the position
 	// recording's excludedFolders and frontmatterExcludeProperties, which answer
-	// a different question (see PluginSettings.navRecentExcludeFolders /
-	// navRecentExcludeProperties). Vault-internal paths are skipped outright:
+	// a different question (see PluginSettings.recentFilesExcludeFolders /
+	// recentFilesExcludeProperties). Vault-internal paths are skipped outright:
 	// they are not notes and a reader never navigates to them.
 	private recordable(path: string): boolean {
 		if (!path)
@@ -175,7 +194,7 @@ export class NavPlaces implements PlaceList {
 			return false;
 		if (path.startsWith('.trash/'))
 			return false;
-		const folders = this.settings.navRecentExcludeFolders ?? [];
+		const folders = this.settings.recentFilesExcludeFolders ?? [];
 		if (folders.some(folder => {
 			const clean = folder.replace(/\/+$/, '');
 			return !!clean && (path === clean || path.startsWith(`${clean}/`));
@@ -184,7 +203,7 @@ export class NavPlaces implements PlaceList {
 		return !this.excludedByFrontmatter(path);
 	}
 
-	// The property rule (see PluginSettings.navRecentExcludeProperties): `status`
+	// The property rule (see PluginSettings.recentFilesExcludeProperties): `status`
 	// keeps out every file carrying the property whatever its value,
 	// `status: archived` only the files whose value equals it — the one entry
 	// form this plugin writes, shared with the position rules (see
@@ -200,7 +219,7 @@ export class NavPlaces implements PlaceList {
 	// reader cannot get back, while a place listed by mistake is one they can
 	// drop — and the next visit asks again.
 	private excludedByFrontmatter(path: string): boolean {
-		const rules = this.settings.navRecentExcludeProperties ?? [];
+		const rules = this.settings.recentFilesExcludeProperties ?? [];
 		if (rules.length === 0)
 			return false;
 		return frontmatterRuleMatches(frontmatterOfPath(this.app, path), rules);
@@ -231,6 +250,13 @@ export class NavPlaces implements PlaceList {
 	// row, and what keeps the list's order the order of last visit.
 	remember(entry: NewNavEntry): void {
 		if (entry.kind === 'teleport')
+			return;
+		// A jump at the bottom stop of the landings setting, where the reader
+		// has said no landing is recorded at all (see LandingsMode). Asked of
+		// the KIND rather than of the file, and before the list's own file
+		// rules: those answer whether a file may be listed, which is a
+		// different question from whether the spots inside it are remembered.
+		if (entry.kind === 'jump' && !this.recordsJumps())
 			return;
 		if (entry.kind !== 'view' && !this.recordable(entry.path))
 			return;
@@ -482,32 +508,113 @@ export class NavPlaces implements PlaceList {
 		return this.indexOf(entry.path);
 	}
 
-	// Keep the list to its ceiling by dropping the OLDEST places (the front of the
-	// MRU array) — never the one the reader is standing in. A reader who went back
-	// through the list must not have the row under them evicted by the trim their
-	// own visit triggered, so the current place is SKIPPED and the next oldest goes
-	// instead. That keeps the ceiling exact rather than letting the list run over it
-	// for as long as the reader sits on an old place.
+	// Keep the list inside its ceiling by dropping the OLDEST things — never the
+	// one the reader is standing in. A reader who went back through the list
+	// must not have the row under them evicted by the trim their own visit
+	// triggered, so the current place is SKIPPED and the next oldest goes
+	// instead. That keeps the ceiling exact rather than letting the list run
+	// over it for as long as the reader sits on an old place.
+	//
+	// TWO CEILINGS, both the same number, and the split is the whole point: the
+	// one the reader sets bounds what they are SHOWN, while this one bounds
+	// what is STORED — a place they are not being shown must not be able to
+	// cost them a place they are, and no note may grow the stored list without
+	// bound (see PluginSettings.recentFilesCap).
+	//   - ROWS first. A row is a note or a view in every mode, and a row goes
+	//     WHOLE — the note's own record and every landing inside it, the way
+	//     forget takes them — so a jump can never push a file off the list.
+	//   - LANDINGS second, counted over the whole list rather than per note.
+	//     The stored list needs a bound of its own: a jump is by far the
+	//     heaviest record it holds, carrying the lines that were on screen
+	//     with the jump (see NavEntryState.context), and the ceiling above
+	//     does not count it — so this is the only bound there is, in every
+	//     mode, whether the landings are drawn or not. It drops the OLDEST
+	//     LANDINGS, never the row they stand in.
 	// @returns how many were dropped.
 	private trim(): number {
-		const over = this.entries.length - this.cap();
+		const before = this.entries.length;
+		this.dropOldestRows();
+		this.dropOldestLandings();
+		return before - this.entries.length;
+	}
+
+	// Drop whole ROWS until the list is inside its ceiling. A row is a note (or
+	// a view) in EVERY mode — the ceiling counts notes, so 'all' does not
+	// change which rows go, only how many lines they take to draw — and the
+	// rows are ordered by their NEWEST place: the same clock the panel reads,
+	// an index being the time (see list.ts). The row the reader has not
+	// touched for the longest is the one that goes, and it takes the landings
+	// inside it with it: a row is one thing (see forget).
+	private dropOldestRows(): void {
+		const over = this.rowCount() - this.cap();
 		if (over <= 0)
-			return 0;
+			return;
+		const newest = new Map<string, number>();
+		for (let i = 0; i < this.entries.length; i++)
+			newest.set(navGroupKey(this.entries[i]), i);
+		const oldestFirst = Array.from(newest.entries())
+			.sort((a, b) => a[1] - b[1])
+			.map(([key]) => key);
+		const currentKey = this.index >= 0 ? navGroupKey(this.entries[this.index]) : undefined;
+		const doomed = new Set<string>();
+		for (const key of oldestFirst) {
+			if (doomed.size >= over)
+				break;
+			if (key === currentKey)
+				continue;
+			doomed.add(key);
+		}
+		this.keep(this.entries.filter(e => !doomed.has(navGroupKey(e))));
+	}
+
+	// How many rows the list draws, which is what the ceiling counts: a note is
+	// one row however many landings it holds, and a view is one row. The same
+	// in all three modes — a mode that made the ceiling count landings too
+	// would leave the reader's number meaning two different things (see
+	// PluginSettings.recentFilesCap).
+	rowCount(): number {
+		const seen = new Set<string>();
+		for (const entry of this.entries)
+			seen.add(navGroupKey(entry));
+		return seen.size;
+	}
+
+	// The landings' own ceiling: the same number, counted over every jump in
+	// the list at once rather than per note. One shared pool rather than a
+	// budget each, because what it is for is bounding what the list STORES:
+	// the jumps it spends the pool on are the ones the reader actually made,
+	// so a note they jumped around in keeps as many as it earned and a note
+	// they only read keeps none — and no note is capped at a number the
+	// reader would have had to invent (see PluginSettings.recentFilesCap).
+	private dropOldestLandings(): void {
+		let held = 0;
+		for (const entry of this.entries)
+			if (entry.kind === 'jump')
+				held++;
+		const over = held - this.cap();
+		if (over <= 0)
+			return;
 		const kept: NavEntry[] = [];
 		let dropped = 0;
 		for (let i = 0; i < this.entries.length; i++) {
-			if (dropped < over && i !== this.index) {
+			const entry = this.entries[i];
+			if (entry.kind === 'jump' && dropped < over && i !== this.index) {
 				dropped++;
 				continue;
 			}
-			kept.push(this.entries[i]);
+			kept.push(entry);
 		}
-		if (dropped === 0)
-			return 0;
-		const current = this.index >= 0 ? this.entries[this.index] : undefined;
+		this.keep(kept);
+	}
+
+	// Put a filtered array in the list's place, keeping the "you are here"
+	// pointer on the same place when that place survived the filter.
+	private keep(kept: NavEntry[]): void {
+		if (kept.length === this.entries.length)
+			return;
+		const current = this.entries[this.index];
 		this.entries = kept;
-		this.index = current ? kept.indexOf(current) : -1;
-		return dropped;
+		this.index = current && kept.includes(current) ? kept.indexOf(current) : -1;
 	}
 }
 

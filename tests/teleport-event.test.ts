@@ -140,7 +140,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 	});
 
 	it('the reader’s threshold decides: the same move is nothing below it and a jump above it', () => {
-		const h = makeHarness({ settings: { navTeleportMinLines: 30 } });
+		const h = makeHarness({ settings: { navHistoryTeleportMinLines: 30 } });
 
 		h.cursor.line = 5;
 		h.onSelection(h.editor); // baseline: line 5
@@ -280,9 +280,9 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 			anchor: 'line 10',
 			// The off-screen cursor makes the landing the VIEWPORT top (10), and
-			// the recorded block runs five lines either side of it.
-			context: Array.from({ length: 11 }, (_, i) => ({ line: 5 + i, text: `line ${5 + i}` })),
-			contextAt: 5,
+			// the recorded block runs three lines either side of it.
+			context: Array.from({ length: 7 }, (_, i) => ({ line: 7 + i, text: `line ${7 + i}` })),
+			contextAt: 3,
 		});
 	});
 

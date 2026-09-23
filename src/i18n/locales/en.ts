@@ -168,10 +168,10 @@ export const en = {
 	// looking like two views of one history. Everything else the rows say
 	// about themselves.
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, the headings and blocks you jumped to inside them, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. Whether the headings and blocks you jumped to inside a note are recorded too is the switch below (they are not, by default). It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
-	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
+	// PluginSettings.recentFilesExcludeFolders): which visits are worth listing.
 	// A list of its own, and not the position records' folder rule — but the two
 	// are not on one page, so the row says what it does and stops there rather
 	// than explaining a rule the reader is not looking at.
@@ -191,22 +191,35 @@ export const en = {
 	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
 	'recentFiles.frontmatterExclude.add': 'Add property',
-	// How far back the list reaches: its own storage knob (see
-	// PluginSettings.navRecentCap), and not the back/forward stack's ceiling below.
-	'recentFiles.cap.name': 'Places to keep',
-	'recentFiles.cap.desc': 'How many places the recent files list holds. Lowering it drops the oldest at once.',
-	// How many spots in one note the list prints. The two answers are written as what
-	// they do to the LIST rather than as what they do to a note, because that is the
-	// choice: by default the list follows the reader's own navigation, which is by
-	// file, and the newest spot is the one their back button keeps returning to —
-	// and that spot is exactly what the note's row already stands for (the panel
-	// describes it, the row opens it, the row of the note the reader is already in
-	// included, where the open re-lands the place rather than pushing it again), so
-	// nothing has to be printed under the row for it.
-	'recentFiles.landings.name': 'Landings in the list',
-	'recentFiles.landings.desc': 'One row per note, standing for the spot you left it at — or one row for every spot you left it at.',
-	'recentFiles.landings.options.last': 'One row per note',
-	'recentFiles.landings.options.all': 'Every landing',
+	// How many NOTES the list remembers: its own storage knob (see
+	// PluginSettings.recentFilesCap), and not the back/forward stack's ceiling
+	// below. Notes and views only — never the landings inside them, which have
+	// a bound of their own inside the store — so the number the reader set
+	// keeps its meaning whichever stop of the landings setting they are on.
+	//
+	// It has TWO sentences, and the difference is one clause: at the top stop
+	// the landings are drawn as rows, so the list on screen runs longer than
+	// this number even though the number still counts notes.
+	'recentFiles.cap.name': 'Notes to remember',
+	'recentFiles.cap.desc.plain':
+		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
+	'recentFiles.cap.desc.all':
+		'How many notes the recent files list remembers (a view counts as one) — the landings inside a note do not count, but each is drawn as a row of its own, so the list runs longer than this number. Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
+	// HOW MUCH THE LIST KEEPS, AND HOW MUCH OF WHAT IT KEPT IT DRAWS — three
+	// stops along one axis (see LandingsMode), not two controls: how much is
+	// drawn depends on how much was kept, and the stops are monotonic, so a
+	// fourth answer ("keep none, draw every one") never existed as a choice a
+	// reader could mean. Every stop is reversible, which is why the sentence
+	// has no price in it: coming back down to "notes only" stops new landings
+	// being recorded and draws none of the ones already there, but keeps them
+	// — they go when the note they stand in is crowded out (see
+	// NavPlaces.trim).
+	'recentFiles.landings.name': 'How much it keeps',
+	'recentFiles.landings.desc':
+		'How finely the list remembers where you have been: the notes you opened only, or the headings and blocks you jumped to inside them as well. And once they are recorded, whether they are drawn: the note still takes one row and its landings only answer the search box, or every landing gets a row of its own. Moving either way costs nothing: coming back to "notes only" merely stops recording new ones — the landings already recorded are kept, and going back down finds them there, until the note they stand in is crowded out.',
+	'recentFiles.landings.options.none': 'Notes only',
+	'recentFiles.landings.options.last': 'Landings, one row per note',
+	'recentFiles.landings.options.all': 'Landings, a row each',
 	// How much of a row's PATH is printed, and on which side of the name (see
 	// PathDisplayMode). The two "always" answers are written as what gives way when
 	// the row runs out of width — that, and not the side, is what the reader is

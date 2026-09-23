@@ -114,7 +114,7 @@ export interface NavView extends NavEntryBase {
 }
 
 // An INFERRED same-file cursor jump (large move, go-to-line, vim jump — the
-// sampler's heuristic, gated by navTeleportMinLines and desktop-only): unlike the
+// sampler's heuristic, gated by navHistoryTeleportMinLines and desktop-only): unlike the
 // deliberate NavJump sources (outline click, anchor link, search/backlinks
 // caller) the user may not perceive it as a jump at all, so it is its own
 // kind — deduped by target line, carrying the jump's precise landing (same

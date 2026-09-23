@@ -48,7 +48,7 @@ function browserPrefs(
 	const held = { landings, path, time };
 	return {
 		landings: () => held.landings,
-		// How far back the list reaches (see PluginSettings.navRecentCap): a number
+		// How far back the list reaches (see PluginSettings.recentFilesCap): a number
 		// the panel only reads.
 		placesCap: () => 200,
 		// How much of a row's path is printed, and on which side of the name (see

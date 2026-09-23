@@ -294,16 +294,16 @@ export class PositionManager {
 	// live, not a snapshot of them.
 	private browserPrefs(): RecentFilesBrowserPrefs {
 		return {
-			landings: () => this.settings.navLandings,
+			landings: () => this.settings.recentFilesLandings,
 			// How far back the recent-files list reaches (see
 			// SettingTab.setControlValue: lowering it trims the list on the spot).
-			placesCap: () => this.settings.navRecentCap,
+			placesCap: () => this.settings.recentFilesCap,
 			// How much of a row's path the list prints, and on which side of the
 			// name (see PathDisplayMode): it decides what the NEXT render prints.
-			pathDisplay: () => this.settings.navPathDisplay,
+			pathDisplay: () => this.settings.recentFilesPathDisplay,
 			// Whether each row says how long ago it was last visited: a label the
 			// next render adds or leaves off.
-			rowTime: () => this.settings.navRowTime,
+			rowTime: () => this.settings.recentFilesRowTime,
 		};
 	}
 
@@ -358,7 +358,7 @@ export class PositionManager {
 	// The history stack's ceiling changed in the settings: apply it to the
 	// stack already in memory instead of waiting for the next navigation to
 	// drop a large chunk at once (see NavStack.applyStackCap).
-	applyNavStackCap(): void {
+	applyNavHistoryCap(): void {
 		this.stack.applyStackCap();
 	}
 
@@ -367,7 +367,7 @@ export class PositionManager {
 	// rule excludes. A place the reader can no longer be shown must not keep a
 	// slot in a capped list until they happen to revisit it — and the drop has to
 	// happen while they are looking at the setting they just changed.
-	applyNavRecentExclusions(): void {
+	applyRecentFilesExclusions(): void {
 		if (this.places.pruneExcluded() > 0)
 			this.places.applyCap();
 	}
@@ -377,7 +377,16 @@ export class PositionManager {
 	// it on the next open. Called by the settings tab and by an external write
 	// (data.json edited by hand, a sync landing) — the panel no longer carries a
 	// second copy of the knob, so every writer comes through here.
-	applyNavRecentCap(): void {
+	//
+	// The ceiling counts NOTES, so what it owes is one number's worth of
+	// trimming and nothing else: no other setting changes what a note is.
+	//
+	// The landings setting is deliberately NOT in this table at all — see
+	// RecentFilesBrowserPrefs: it stops or starts RECORDING, which is a
+	// question the list answers on the next navigation (NavPlaces.recordsJumps)
+	// rather than a consequence to re-apply, and it leaves what was already
+	// recorded alone.
+	applyRecentFilesCap(): void {
 		this.places.applyCap();
 	}
 
@@ -397,15 +406,19 @@ export class PositionManager {
 	// again, and only the settings tab knows a reader just changed one of those
 	// preferences in front of a panel (see its BROWSER_PREF_KEYS).
 	applyChangedSettings(before: PluginSettings): void {
-		if (this.settings.navStackCap !== before.navStackCap)
-			this.applyNavStackCap();
-		if (this.settings.navRecentCap !== before.navRecentCap)
-			this.applyNavRecentCap();
+		if (this.settings.navHistoryCap !== before.navHistoryCap)
+			this.applyNavHistoryCap();
+		if (this.settings.recentFilesCap !== before.recentFilesCap)
+			this.applyRecentFilesCap();
+		// The landings setting is not here: it changes what is recorded from
+		// now on and what the panel draws, and neither is state a store
+		// holds (see applyRecentFilesCap) — the reader's next jump is
+		// answered by the setting as it stands, and a panel reads it live.
 		// Both of the list's own rules: which folders, and which frontmatter, it
 		// refuses. One prune answers either (see NavPlaces.pruneExcluded).
-		if (!sameList(this.settings.navRecentExcludeFolders, before.navRecentExcludeFolders)
-			|| !sameList(this.settings.navRecentExcludeProperties, before.navRecentExcludeProperties))
-			this.applyNavRecentExclusions();
+		if (!sameList(this.settings.recentFilesExcludeFolders, before.recentFilesExcludeFolders)
+			|| !sameList(this.settings.recentFilesExcludeProperties, before.recentFilesExcludeProperties))
+			this.applyRecentFilesExclusions();
 		// The cache is keyed by path and holds answers that the excluded-folder
 		// and frontmatter rules were consulted to produce, so a change to either
 		// rule invalidates it wholesale (see Sampler.clearExclusionCache).

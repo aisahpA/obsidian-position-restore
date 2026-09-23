@@ -383,7 +383,7 @@ describe('NavFunnel — one recording, several readers', () => {
 		// The stack's own gates (record tab switches / cursor jumps) are about ITS
 		// list; the funnel publishes before any of them, which is exactly why the
 		// two stores could be split apart.
-		const { funnel, stack, places } = makeNav(makeApp(), { navRecordActivation: false });
+		const { funnel, stack, places } = makeNav(makeApp(), { navHistoryRecordActivation: false });
 
 		funnel.recordActivation(leafWithFile('leaf-2', 'b.md'));
 
@@ -493,7 +493,7 @@ describe('Sampler in-file teleport detection', () => {
 	});
 
 	it('threshold 0: the selection event path stays fully silent', () => {
-		const h = makeSamplerHarness({ navTeleportMinLines: 0 });
+		const h = makeSamplerHarness({ navHistoryTeleportMinLines: 0 });
 		h.onSelection(h.view.editor); // baseline: line 60
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor); // 57-line jump, threshold 0
