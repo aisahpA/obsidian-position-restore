@@ -6,7 +6,7 @@ import { isEphemeralStatesEquals, isCursorStatesEqual } from '@/shared/ephemeral
 import { ExclusionChecker } from '@/position/policy/exclusion';
 import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
 import { PositionState } from '@/position/state';
-import type { NavHistory } from '@/nav-history/history';
+import type { NavFunnel } from '@/nav/funnel';
 
 // Records cursor/scroll position changes for the shared PositionState baseline
 // and the position store. Two inputs feed the store:
@@ -30,7 +30,7 @@ export class Sampler {
 	private exclusions: ExclusionChecker;
 	private state: PositionState;
 	private settings: PluginSettings;
-	private nav: NavHistory;
+	private funnel: NavFunnel;
 
 	private readonly STORE_INTERVAL = 97;
 
@@ -81,22 +81,26 @@ export class Sampler {
 	// costs nothing.
 	private readonly SCROLL_SETTLE_GUARD_MS = 4000;
 
-	// Mobile poll path only: minimum anchor-line delta within one poll tick
-	// for the movement to read as an in-file navigation jump (NavHistory
-	// teleport record) rather than typing or held-key movement. Held keys
-	// move ~5-10 lines/tick; a deliberate far jump is dozens. Desktop detects
-	// teleports per selection event instead (TELEPORT_MIN_LINES_EVENT) —
-	// running both would let the poll's tick-delayed refreshTop overwrite
-	// the event path's synthesized entry positions.
-	private readonly TELEPORT_MIN_LINES = 50;
+	// The jump threshold used to sit here as a constant — 10 on desktop, 50
+	// on the mobile poll path, the latter only because a 100ms tick
+	// accumulates 5-10 lines of held-key movement where one selection event
+	// moves 1. Both are gone: the threshold is the reader's setting now
+	// (navHistoryTeleportMinLines, read through teleportMinLines below), and the
+	// mobile path is deleted outright — a touch screen has no held keys, a
+	// swipe moves no cursor at all, and every deliberate far jump on mobile
+	// (outline item, anchor link, search result) arrives as its own keyed
+	// entry, so the poll had nothing left to infer that the reader wanted a
+	// step for. Left on desktop only: there a go-to-line or a vim {/} really
+	// does cross hundreds of lines that no scroll-back would find again.
 
-	// Desktop: minimum anchor-line delta within ONE selection event —
-	// VSCode's TextEditorPaneSelection.TEXT_EDITOR_SELECTION_THRESHOLD. One
-	// event moves 1 line for a held key and hundreds for a deliberate jump
-	// (go-to-line, far click, vim {/}/half-page), so the threshold sits at 10
-	// instead of the poll's per-tick 50, and paragraph-scale jumps reach the
-	// nav stack.
-	private readonly TELEPORT_MIN_LINES_EVENT = 10;
+	// The reader's threshold, as the teleport gate reads it. Anything that is
+	// not a positive number (a hand-edited data.json, a value synced in from
+	// another device) reads as 0 = do not record: the safe direction for a
+	// broken value is silence, never "every cursor move is a jump".
+	private get teleportMinLines(): number {
+		const n = Math.floor(this.settings.navHistoryTeleportMinLines);
+		return Number.isFinite(n) && n > 0 ? n : 0;
+	}
 
 	// Rolling teleport baseline (desktop event path): the anchor position at
 	// the last selection event, the file it belonged to, and the re-anchor
@@ -109,13 +113,13 @@ export class Sampler {
 	private teleportFromPath: string | undefined;
 	private teleportAnchorAt = 0;
 
-	constructor(app: App, store: PositionStore, settings: PluginSettings, state: PositionState, nav: NavHistory) {
+	constructor(app: App, store: PositionStore, settings: PluginSettings, state: PositionState, funnel: NavFunnel) {
 		this.app = app;
 		this.store = store;
 		this.settings = settings;
 		this.exclusions = new ExclusionChecker(app, settings);
 		this.state = state;
-		this.nav = nav;
+		this.funnel = funnel;
 	}
 
 	sampleActiveView() {
@@ -187,7 +191,7 @@ export class Sampler {
 				// other caller hands over the reader's LEAVE, which the place must
 				// not mistake for the jump's own spot). Nav read (low frequency):
 				// the landing entry carries the display fields.
-				this.nav.refreshTop(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st, { landing: true });
+				this.funnel.settled(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st);
 				}
 			} else {
 				this.searchSettledTicks = 0;
@@ -233,23 +237,15 @@ export class Sampler {
 			// the first deliberate move after the session ends records normally.
 
 			if (write) {
-				// Mobile keeps the poll's coarse per-tick jump detection (see
-				// teleportLines): refreshTop hands the pre-jump read (prev) to
-				// the entry being left — open/activation entries only, a
-				// teleport top keeps its landing inside refreshTop — and the
-				// pushed entry carries the post-jump read as its precise
-				// landing. Gated by navRecordTeleport: both calls serve the
-				// teleport entry (see onEditorSelection) — dead when off.
-				if (this.settings.navRecordTeleport && Platform.isMobileApp) {
-					const jumpLines = this.teleportLines(prev, write);
-					if (jumpLines !== null && !this.state.isSearchAnchored()) {
-						// The pre-jump state cannot be re-read (the cursor has
-						// already jumped): withNavDisplay rebuilds the entry
-						// display around the baseline's position.
-						this.nav.refreshTop(filePath, this.state.leafId(view.leaf), withNavDisplay(view, prev));
-						this.nav.recordTeleport(filePath, this.state.leafId(view.leaf), write.cursor!.from.line, readNavEntryState(view) ?? write);
-					}
-				}
+				// No teleport detection on this path. The poll is the only
+				// cursor sampler a touch device has, and it has nothing to
+				// infer from: a swipe moves no cursor, a tap lands within the
+				// screenful the reader is already looking at, and a jump far
+				// enough to matter is an outline item, an anchor link or a
+				// search result — each of which arrives as its own keyed
+				// entry. So mobile back/forward stays about which file the
+				// reader came from, which is also the part of it that a
+				// scroll-back cannot replace.
 				if (!skipRecording) {
 					// Record through the store, which updates the leaf layer and
 					// the file layer together (and dedups both). On mobile there
@@ -427,14 +423,15 @@ export class Sampler {
 		});
 	}
 
-	// Desktop in-file teleport detection, per editor selection event instead
-	// of the poll's 100ms tick. The tick quantizes cursor movement (held
-	// keys accumulate 5-10 lines per tick), forcing the mobile threshold of
-	// 50 and swallowing paragraph-scale jumps (vim {/}, half-page motions);
-	// selection events arrive one per user action — 1 line for a held key —
-	// so TELEPORT_MIN_LINES_EVENT applies and those jumps reach the nav
-	// stack. NavHistory only: position records still come from the poll and
-	// the scroll capture.
+	// Desktop in-file teleport detection, per editor selection event rather
+	// than the poll's 100ms tick. The tick quantizes cursor movement (held
+	// keys accumulate 5-10 lines per tick), and that coarseness is why the
+	// poll's own jump detection is gone: the floor it needed to tell held
+	// keys from a jump was high enough to swallow paragraph-scale jumps
+	// (vim {/}, half-page motions). Selection events arrive one per user
+	// action — 1 line for a held key — so the reader's threshold applies as
+	// they mean it. The nav stack only: position records still come from the
+	// poll and the scroll capture.
 	//
 	// One workspace-level listener covers every markdown editor; embedded
 	// and mirrored editors (distinct Editor instances) and background panes
@@ -457,13 +454,14 @@ export class Sampler {
 	// the poll's unconditional baseline refresh at the bottom of
 	// sampleActiveView).
 	private onEditorSelection = (editor: Editor): void => {
-		// The whole handler exists for the teleport record: with the setting
-		// off, recordTeleport no-ops and the leave-refresh would be
+		// The whole handler exists for the teleport record: at threshold 0
+		// nothing is ever a jump, the leave-refresh below would be
 		// overwritten by refreshTopFromActiveView at the next traverse anyway
 		// (no teleport entry sits on top). Bail before any work; reset the
-		// baseline so re-enabling starts clean — a stale prev would read as
-		// one false jump.
-		if (!this.settings.navRecordTeleport) {
+		// baseline so raising the threshold again starts clean — a stale prev
+		// would read as one false jump.
+		const minLines = this.teleportMinLines;
+		if (minLines <= 0) {
 			this.teleportFrom = undefined;
 			return;
 		}
@@ -494,7 +492,7 @@ export class Sampler {
 		// A different file is a switch, not an in-file jump: reset silently.
 		if (!prev || prevPath !== filePath)
 			return;
-		if (Math.abs(from.line - prev.line) < this.TELEPORT_MIN_LINES_EVENT)
+		if (Math.abs(from.line - prev.line) < minLines)
 			return;
 		if (this.state.isRestoringFile() || this.state.isSearchAnchored())
 			return;
@@ -504,25 +502,27 @@ export class Sampler {
 		// tops get the poll's latest read — the pre-jump position as of the
 		// last poll tick (the event fires before the next tick can
 		// re-baseline; at most one tick stale, per withNavDisplay's doc).
-		// Keyed tops (a teleport top included) are skipped inside refreshTop:
-		// they keep the landing they were pushed with.
+		// Keyed tops (a teleport top included) are skipped by the stack: they
+		// keep the landing they were pushed with.
 		// withNavDisplay rebuilds the display fields around that baseline (the
 		// pre-jump state cannot be re-read; CM applies the jump's
 		// scrollIntoView after this event, so the visibility check still sees
 		// the pre-jump viewport).
 		if (this.state.lastEphemeralState)
-			this.nav.refreshTop(filePath, leafId, withNavDisplay(view, this.state.lastEphemeralState));
+			this.funnel.leave(filePath, leafId, withNavDisplay(view, this.state.lastEphemeralState));
 		// The pushed entry carries the jump's landing: the post-jump live
 		// read (cursor already at the target).
-		this.nav.recordTeleport(filePath, leafId, from.line, readNavEntryState(view));
+		this.funnel.recordTeleport(filePath, leafId, from.line, readNavEntryState(view));
 		// The scroll, though, lands AFTER this event fires — CM applies the
 		// jump's scrollIntoView in its measure phase (observed 2026-09: an
 		// outline jump to line 323 saved the origin scroll 232), so the
 		// push-time read above carries the origin scroll. Re-read one frame
-		// later and replace the landing while the jump is still the last
-		// thing that happened. ponytail: one rAF covers the deferred-measure
-		// case (CM's own measure rAF is registered first); a still-stale
-		// read after that is not corrected.
+		// later and BROADCAST the corrected landing; the stack takes it only
+		// while this teleport is still its top step (see its onLanded), so a
+		// hop in between leaves the entry the user actually moved past alone.
+		// ponytail: one rAF covers the deferred-measure case (CM's own
+		// measure rAF is registered first); a still-stale read after that is
+		// not corrected.
 		window.requestAnimationFrame(() => {
 			if (this.app.workspace.getActiveViewOfType(MarkdownView) !== view)
 				return;
@@ -532,14 +532,9 @@ export class Sampler {
 			// not the jump's landing.
 			if (editor.getCursor('anchor').line !== from.line)
 				return;
-			const top = this.nav.entries[this.nav.index];
-			if (!top || top.kind !== 'teleport'
-				|| top.path !== filePath || top.leafId !== leafId
-				|| top.line !== from.line)
-				return;
 			const settled = readNavEntryState(view);
 			if (settled)
-				top.st = settled;
+				this.funnel.landing({ kind: 'teleport', path: filePath, leafId, line: from.line, st: settled });
 		});
 	};
 
@@ -559,25 +554,6 @@ export class Sampler {
 		if (this.state.lastTouchAt > this.state.lastAnchorAt)
 			return true;
 		return Date.now() - this.state.lastAnchorAt > this.SCROLL_SETTLE_GUARD_MS;
-	}
-
-	// Mobile poll path (desktop: onEditorSelection). VSCode-style in-file
-	// jump detection: a cursor/selection whose anchor line moves
-	// ≥ TELEPORT_MIN_LINES within one 100ms tick is a navigation
-	// action (go-to-line, vim jump, far mouse click), not typing or held-key
-	// movement. Returns the line delta, or null when the movement is not a
-	// teleport. (A giant paste/delete can produce a false positive — one
-	// harmless extra history entry.) Callers gate on the search anchor: a
-	// search/find hop is engine-driven, never a teleport.
-	// ponytail: threshold heuristic; explicit-jump hooks (1/2 in patcher) stay
-	// the reliable sources, widen only if misses are reported.
-	private teleportLines(prev: EphemeralState, st: EphemeralState): number | null {
-		const from = prev.cursor?.from.line;
-		const to = st.cursor?.from.line;
-		if (from === undefined || to === undefined)
-			return null;
-		const delta = Math.abs(to - from);
-		return delta >= this.TELEPORT_MIN_LINES ? delta : null;
 	}
 
 	// Mobile only. Marks user interaction so isTrustedMobileScroll (and the

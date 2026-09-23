@@ -23,7 +23,7 @@ import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { TabStateRecord,DEFAULT_SETTINGS } from '@/types';
 // leafStates is private on the store; this is the test seam.
-import { setLeafStates } from './position-store-seam';
+import { setLeafStates } from './support/position-store-seam';
 
 // injectEphemeralStateOnOpen is private; tests drive it through this alias.
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };
@@ -86,9 +86,11 @@ function makeHarness(
 	// map replace it after construction (private member → the seam cast).
 	setLeafStates(store, lastStateByLeaf);
 	const recordOpen = vi.fn();
-	const nav = { recordOpen, refreshTop: () => undefined };
+	// The patcher is a pure CAPTURE point: it writes to the funnel and reads no
+	// reader, so spies for what it calls are all it needs.
+	const funnel = { recordOpen, recordTeleport: vi.fn(), leave: vi.fn(), settled: vi.fn(), landing: vi.fn() };
 	const flushOnLeave = vi.fn();
-	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, nav as never, { flushOnLeave } as never);
+	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, funnel as never, { flushOnLeave } as never);
 	const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 	disposables.push(() => state.cover.uncover(leaf));
 	return { state, leaf, inject, flushOnLeave, recordOpen };

@@ -1,4 +1,18 @@
 export const en = {
+	// ── Feature 1 · Saved positions: what is recorded, how it comes back,
+	//    and where the records live ─────────────────────────────────────
+	'lastPosition.heading': 'Last position',
+	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
+	// what is remembered, and where the record lives. No row below can say either
+	// — none of them is about the cursor being remembered, and none of them knows
+	// whether the record sits inside the vault or outside it. The per-tab memory is
+	// deliberately left out: it is a device-local localStorage overlay (see
+	// position-store's two layers), and saying it beside "kept in a JSON file inside
+	// the vault" would promise that it travels too. The three group headings below
+	// are not repeated here: they name themselves when the reader reaches them.
+	'lastPosition.intro':
+		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top first, no jump afterwards. Positions are kept in a JSON file inside the vault, by default in the plugin folder — Obsidian Sync does not carry it from there, so to take your positions to another device, point the path inside the vault (under Data storage below).',
+
 	'openAndRestore.heading': 'Open & restore',
 	'openAndRestore.defaultPosition.name': 'Default position in edit view',
 	'openAndRestore.defaultPosition.desc':
@@ -46,7 +60,9 @@ export const en = {
 
 	'recordingRules.frontmatterExclude.name': 'Exclude by frontmatter property/value',
 	'recordingRules.frontmatterExclude.desc':
-		'Don\'t record files whose frontmatter matches any of these entries. An entry is either a property name (`publish`) — any file that merely has the property is excluded — or `name: value` (`publish: true`), which only excludes files whose property equals that value (yes/no/on/off count as booleans; arrays match when any element does). The properties usually already exist for another plugin, so no file needs editing. Remove all entries to disable. Beware bare names: "tags" would exclude nearly every note.',
+		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is not recorded.',
+	'recordingRules.frontmatterExclude.formName': 'A property name on its own (`status`): any file carrying the property is skipped, whatever its value.',
+	'recordingRules.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are skipped. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recordingRules.frontmatterExclude.list.empty': 'No properties excluded',
 	'recordingRules.frontmatterExclude.add': 'Add property',
 	'recordingRules.frontmatterExclude.search.placeholder': 'Type to search properties...',
@@ -59,11 +75,11 @@ export const en = {
 
 	'recordingRules.escapeHatch.name': 'Per-file override property',
 	'recordingRules.escapeHatch.desc':
-		'Any file can also opt out or in individually without touching settings: `{0}: false` never records it (overrides every rule above), `{0}: true` always records it (overrides excluded folders, the minimum-length filter and the property rule). Any other value is ignored.',
+		'This page can also be bypassed one file at a time: in its frontmatter, `{0}: false` means never record it — while `{0}: true` means record it anyway, over excluded folders, the minimum-length filter and the property rule above. Only true and false mean anything; write anything else and it reads as if you had never written the property.',
 
 	'recordingRules.recordBaseScroll.name': 'Record scroll position for Base files',
 	'recordingRules.recordBaseScroll.desc':
-		'Off by default. The saved value is a raw pixel offset that only fits the device it was recorded on — if the database syncs across devices, another device\'s record would overwrite the local one with an offset that doesn\'t fit this screen. PDF is always excluded: Obsidian natively remembers PDF reading positions on each device. Other non-Markdown files (images, etc.) are never recorded.',
+		'A Base has no line numbers to anchor to the way Markdown does, so the only thing worth saving is the pixel offset you scrolled to — and that stops meaning anything once the screen size differs: two devices syncing the database would overwrite each other\'s number. Off by default. This switch concerns Base alone: PDF reading positions are already remembered natively on each device, and images and other non-Markdown files have no scroll state worth keeping.',
 
 	'dataStorage.heading': 'Data storage',
 
@@ -87,12 +103,6 @@ export const en = {
 	'dataStorage.dbFileName.messages.merged': 'Adopted the existing database file and merged {0} record(s) from it.',
 	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',
-	// Where the file sits is a FACT the settings item may state; whether it
-	// therefore syncs is not — that depends on the client the reader uses, and
-	// several of them (Nutstore Sync, Remotely Save, iCloud, git) do carry a
-	// plugin folder that Obsidian Sync skips. So the page says where the file
-	// is and no more, and the modal's folded note names Obsidian Sync and its
-	// rules, because that is the question it is asked there.
 	'dataStorage.dbFileName.syncLocal': 'Inside the plugin folder (the default) — whether it travels with your vault depends on the sync client.',
 	'dataStorage.dbFileName.syncVault': 'Inside the vault — an ordinary vault file, which any sync client can carry.',
 	'dataStorage.dbFileName.syncHidden': 'Inside a hidden folder — some sync clients skip folders whose name starts with ".".',
@@ -109,176 +119,190 @@ export const en = {
 	'dataStorage.entries.desc':
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
 
-	'navHistory.heading': 'Navigation history',
-	// The settings item is its own heading's content, so it must not repeat the
-	// heading (see settings-tab): what it actually holds is the hotkey list.
-	'navHistory.hotkeys.name': 'Hotkeys',
+	// ── Shared · what a hotkey row says, on either page that binds one ──
+	// A hotkey row is named for what it HOLDS, not for the page it stands on:
+	// the same word heads the back/forward page's two commands and the
+	// recent-files page's two (see settings/page), and a reader looking for one
+	// of them is looking for the key, not for the page.
+	'hotkeys.name': 'Hotkeys',
+	'hotkeys.unbound': 'Not bound — click the button to set it up',
+	'hotkeys.open': 'Open hotkey settings',
+
+	// ── Feature 2 · Back and forward: the navigation stack ──────────────
+	'navHistory.heading': 'Back and forward',
+	// WHAT THE PAGE IS ABOUT, said once at the top (see settings/page's intro
+	// row). What a step is, and where the stack lives — the two things none of
+	// the rows below can say for themselves, and the reason those rows can be
+	// short: a toggle here only has to say whether its own kind of step counts.
+	// "Size configurable below" is NOT repeated here: the row it pointed at is
+	// named for that already.
+	'navHistory.intro':
+		'VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one — a link, the outline, a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
+	// The two commands that walk it (see settings/page's hotkeys row). Nothing
+	// here repeats the sentence above: the row is named for the keys it holds,
+	// and what back and forward mean has already been said on this page.
+	'navHistory.hotkeys.desc':
+		'One command per direction, walking the steps above. Neither is bound by default — run either by name from the command palette.',
+	'navHistory.stackCap.name': 'Back/forward steps kept',
+	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
+	'navHistory.recordActivation.name': 'Record tab switches',
+	'navHistory.recordActivation.desc': 'Clicking another tab pushes a back/forward step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps — except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note. It governs the back/forward history only: the recent-files list records those views either way.',
+	'navHistory.teleportMinLines.name': 'Cursor jump distance',
+	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action — clicking a spot far away in the note, a go-to-line command, a keyboard motion that crosses many lines at once — counts as an in-file jump and pushes a back/forward step. Set 0 to never record one. Desktop only: the phone and tablet apps run no such detection.',
+	'navHistory.commands.navigateBack': 'Navigate back',
+	'navHistory.commands.navigateForward': 'Navigate forward',
+
+	// ── Feature 3 · Recent files: the list of places, and its panel ─────
 	// The modal's own title, where there is no heading above it to repeat.
 	// The PANEL's name. It is a list of places the reader has been — recent
 	// files, plus the headings and anchors they jumped to inside them (see
 	// places.ts) — and NOT the back/forward stack, which is why it is not
 	// called "Navigation history" any more: the two answer different questions
 	// and only one of them is a history of travel.
-	'navHistory.overview.name': 'Recent files',
-	'navHistory.overview.desc':
-		'VSCode-style "Navigate back" / "Navigate forward" across file switches and in-file jumps (links, outline, search results, large cursor moves). Always on — it only needs hotkeys, none are pre-assigned. Same-tab file switches ride Obsidian\'s native per-tab history (PDF, canvas and other views included); the stack (size configurable below) is device-local and survives restarts.',
-	'navHistory.overview.hotkeyUnbound': 'Not bound — click the button to set it up',
-	'navHistory.overview.openHotkeySettings': 'Open hotkey settings',
+	'recentFiles.name': 'Recent files',
+
+	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
+	// what one ROW stands for, and what this list is not. The second half is
+	// the half worth saying — the reader arrives here from the page named
+	// "Back and forward", and the two stores answer different questions while
+	// looking like two views of one history. Everything else the rows say
+	// about themselves.
+	'recentFiles.intro':
+		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. Whether the headings and blocks you jumped to inside a note are recorded too is the switch below (they are not, by default). It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
-	// PluginSettings.navRecentExcludeFolders): which visits are worth listing.
-	// Its own list, deliberately not the recording rules' folders above.
-	'navHistory.recentFolders.name': 'Folders not listed',
-	'navHistory.recentFolders.desc': 'Files in these folders are not added to the recent files list. Separate from the recording rules above: a folder you do not want to remember positions in may still be one you want to navigate back to.',
-	'navHistory.recentFolders.list.empty': 'Every folder is listed.',
-	'navHistory.recentFolders.add': 'Add folder',
-	// How far back the list reaches: the panel's own storage knob, chosen in the
-	// panel (see NavBrowserPrefs.placesCap).
-	'navHistory.recentCap.name': 'Places to keep',
-	'navHistory.recentCap.short': '(last 100)',
-	'navHistory.recentCap.medium': '(last 200)',
-	'navHistory.recentCap.long': '(last 500)',
-	'navHistory.stackCap.name': 'Back/forward steps kept',
-	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
-	'navHistory.recordActivation.name': 'Record tab switches',
-	'navHistory.recordActivation.desc': 'Clicking another tab or pane pushes a history step, like VSCode. Turn off for a jump-only history: only file opens and in-file jumps are recorded (graph view steps stop being recorded too).',
-	'navHistory.recordTeleport.name': 'Record large cursor jumps',
-	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
-	// How many spots in one note the history list prints. The setting itself stands on
-	// the page too — the small button at the far end of the toolbar (see
-	// NavHistoryBrowser.settings) — because the reader decides it while looking at the
-	// list: by default the list follows the reader's own navigation, which is by file,
-	// and the newest spot is the one their back button keeps returning to. That spot is
-	// exactly what the note's row stands for (the panel describes it, the row opens it
-	// — the row of the note the reader is already in included, where the open re-lands
-	// the place rather than pushing it again), so nothing has to be printed under the
-	// row for it.
-	'navHistory.landings.name': 'Landings in the list',
-	'navHistory.listSettings': 'Settings',
-	// The few words an answer carries, written AFTER the answer itself (see
-	// NavHistoryBrowser.settingGroup), in brackets so that they are read as a note on
-	// the answer and not as a second label: one paragraph under the group had to name
-	// its two options before it could say anything about them, and the reader had to
-	// pick the sentence that belonged to the answer they were looking at out of a wall
-	// of small print; beside the answer, the words are read where the answer is. The
-	// brackets travel WITH the words, because which pair of them to draw is the
-	// language's own call.
-	'navHistory.landings.options.last': 'One row per note',
-	'navHistory.landings.options.last.desc': '(last spot only)',
-	'navHistory.landings.options.all': 'Every landing',
-	'navHistory.landings.options.all.desc': '(all spots listed)',
-	// Whether the list describes a landing at all (see
-	// PluginSettings.navShowDetails). OFF by default: the history is a list of places
-	// to go back to, and the column that says WHAT each spot was is a reader's own
-	// choice — made here, from the list it changes. The group has ONE row rather than
-	// the two of the groups above, because "show it" and "hide it" are not two answers
-	// a reader picks between: the row is the switch, and the mark is its state.
-	'navHistory.details.name': 'Spot details',
-	'navHistory.details.show': 'Show',
-	'navHistory.details.show.desc': '(what each spot was, from the row’s arrow)',
-
-	'navHistory.commands.navigateBack': 'Navigate back',
-	'navHistory.commands.navigateForward': 'Navigate forward',
-	'navHistory.commands.browseHistory': 'Open recent files',
+	// PluginSettings.recentFilesExcludeFolders): which visits are worth listing.
+	// A list of its own, and not the position records' folder rule — but the two
+	// are not on one page, so the row says what it does and stops there rather
+	// than explaining a rule the reader is not looking at.
+	'recentFiles.folders.name': 'Folders not listed',
+	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
+	'recentFiles.folders.list.empty': 'Every folder is listed.',
+	'recentFiles.folders.add': 'Add folder',
+	// Which FRONTMATTER the list refuses: the folder rule's own question
+	// answered by the note itself instead of by where it sits — a board another
+	// plugin owns, a page marked published, a template. The two forms get a line
+	// each, exactly as on the position page (and for the same reason: nearly
+	// every reader arrives to check which of the two to type).
+	'recentFiles.frontmatterExclude.name': 'Properties not listed',
+	'recentFiles.frontmatterExclude.desc':
+		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is never added to the recent files list.',
+	'recentFiles.frontmatterExclude.formName': 'A property name on its own (`status`): any file carrying the property is left out, whatever its value.',
+	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
+	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
+	'recentFiles.frontmatterExclude.add': 'Add property',
+	// How many NOTES the list remembers: its own storage knob (see
+	// PluginSettings.recentFilesCap), and not the back/forward stack's ceiling
+	// below. Notes and views only — never the landings inside them, which have
+	// a bound of their own inside the store — so the number the reader set
+	// keeps its meaning whichever stop of the landings setting they are on.
+	//
+	// It has TWO sentences, and the difference is one clause: at the top stop
+	// the landings are drawn as rows, so the list on screen runs longer than
+	// this number even though the number still counts notes.
+	'recentFiles.cap.name': 'Notes to remember',
+	'recentFiles.cap.desc.plain':
+		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
+	'recentFiles.cap.desc.all':
+		'How many notes the recent files list remembers (a view counts as one) — the landings inside a note do not count, but each is drawn as a row of its own, so the list runs longer than this number. Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
+	// HOW MUCH THE LIST KEEPS, AND HOW MUCH OF WHAT IT KEPT IT DRAWS — three
+	// stops along one axis (see LandingsMode), not two controls: how much is
+	// drawn depends on how much was kept, and the stops are monotonic, so a
+	// fourth answer ("keep none, draw every one") never existed as a choice a
+	// reader could mean. Every stop is reversible, which is why the sentence
+	// has no price in it: coming back down to "notes only" stops new landings
+	// being recorded and draws none of the ones already there, but keeps them
+	// — they go when the note they stand in is crowded out (see
+	// NavPlaces.trim).
+	'recentFiles.landings.name': 'How much it keeps',
+	'recentFiles.landings.desc':
+		'How finely the list remembers where you have been: the notes you opened only, or the headings and blocks you jumped to inside them as well. And once they are recorded, whether they are drawn: the note still takes one row and its landings only answer the search box, or every landing gets a row of its own. Moving either way costs nothing: coming back to "notes only" merely stops recording new ones — the landings already recorded are kept, and going back down finds them there, until the note they stand in is crowded out.',
+	'recentFiles.landings.options.none': 'Notes only',
+	'recentFiles.landings.options.last': 'Landings, one row per note',
+	'recentFiles.landings.options.all': 'Landings, a row each',
+	// How much of a row's PATH is printed, and on which side of the name (see
+	// PathDisplayMode). The two "always" answers are written as what gives way when
+	// the row runs out of width — that, and not the side, is what the reader is
+	// really choosing: a flex line wraps at its end, so whichever half is laid out
+	// last is the half that drops to a second line. "Only when names repeat" is the
+	// default and the one that says the least: the folder is a disambiguator, so it
+	// is printed where there is something to disambiguate.
+	'recentFiles.pathDisplay.name': 'Folder path in the list',
+	'recentFiles.pathDisplay.desc': 'Whether a row shows the folder its note sits in — on every row, or only where another row on screen shares the name — and on which side of the name. The side also decides which half gives way when the row runs out of width: the one laid out last drops to a second line.',
+	'recentFiles.pathDisplay.options.smart': 'Only when names repeat',
+	'recentFiles.pathDisplay.options.before': 'Always, before the name',
+	'recentFiles.pathDisplay.options.after': 'Always, after the name',
+	// Whether each row says how long ago it was last visited. The label is the place's
+	// own `t` (see places.ts) — the last time the reader was there, and NOT the file's
+	// modification time, which is a different fact and the one a reader's first guess
+	// at a time printed on a file row would be. The exact moment rides on the label's
+	// own tooltip.
+	'recentFiles.rowTime.name': 'Time on each row',
+	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited — the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
+	'recentFiles.age.now': 'now',
+	'recentFiles.age.m': 'm ago',
+	'recentFiles.age.h': 'h ago',
+	'recentFiles.age.d': 'd ago',
+	'recentFiles.age.w': 'w ago',
+	'recentFiles.age.mo': 'mo ago',
+	'recentFiles.age.y': 'y ago',
+	// The row's right-click menu (see RecentFilesBrowser.contextRow). The menu itself is
+	// the app's; the ONE item added is the one the app cannot know, because a row here
+	// stands for a PLACE and not merely for a file: a jump row promises a landing, and
+	// "open it in a new tab" has to mean opening it THERE. Hence two answers rather than
+	// one — "the file" and "this spot in it" are different promises.
+	// The word a file's OTHER names are introduced by, on the row's own tooltip (see
+	// RecentFilesReads.aliasesFor). They are searchable and occupy no cell, so the hover
+	// is the only place a reader ever sees them; the colon is part of the value because
+	// whether to draw one is the language's call.
+	'recentFiles.aka': 'aka:',
+	'recentFiles.menu.openInNewTab': 'Open in new tab',
+	'recentFiles.menu.openHereInNewTab': 'Open here in a new tab',
+	// The row's own removal, drawn on the row as a × (see RecentFilesBrowser.onForget).
+	// It is NOT in the row's menu any more: that menu is the APP's, and only a file has
+	// one — a pathless view row (the graph, Thino's memo list) has no file for it to be
+	// about, so a removal offered there was a removal those rows never got, which is the
+	// one inconsistency this leaves behind. "Remove" and not "delete": what goes is the
+	// record, while the file and the position database are untouched, and visiting the
+	// file again puts a place back.
+	'recentFiles.forget': 'Remove from recent files',
+	// "Browse" and not "open": what opens is the LIST, and "open recent files"
+	// reads as opening the one file the reader was last in. It is also the verb the
+	// command's own id carries (see main.ts), and it is what separates the two
+	// commands at a glance in the palette — the other one is "Open …", because
+	// there the thing opened is the panel.
+	'recentFiles.commands.open': 'Browse recent files',
 	// The resident form of the same browser: a sidebar panel instead of a dialog
 	// (see view.ts). Named as a PLACE rather than as an action, because that is
 	// the difference — the panel stays where it is put.
-	'navHistory.commands.browseHistorySidebar': 'Open recent files in sidebar',
+	'recentFiles.commands.openSidebar': 'Open recent files in sidebar',
+	// The two commands above, as the settings row that binds them (see
+	// settings/page). Their keys stand on the recent files page and NOT beside the
+	// back/forward ones: the two pages answer different questions, and a reader
+	// looking for the key that opens the LIST should not have to know that it
+	// lives under a heading about travel.
+	'recentFiles.hotkeys.desc':
+		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
 
-	'navHistory.type.open': 'Open',
-	'navHistory.type.switch': 'Switch',
-	'navHistory.type.teleport': 'Jump',
-	'navHistory.type.outline': 'Outline',
-	'navHistory.type.link': 'Link',
-	'navHistory.type.graph': 'Graph',
-	'navHistory.graphView': 'Graph view',
-	'navHistory.searchPlaceholder': 'Filter by note name or text…',
-	'navHistory.noMatch': 'No matching entry.',
+	// The fallback name for a view step that carries none of its own (see browser/model.ts's
+	// viewName): the graph, which this list has always called this. A view with a name
+	// of its own prints that instead; one without prints its bare view type.
+	'recentFiles.graphView': 'Graph view',
+	// What a view row prints in place of an icon when the view named none (see
+	// list.ts's fileRow): a word, and deliberately not a stand-in glyph.
+	'recentFiles.viewBadge': 'View',
+	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
+	// The × at the end of the filter box (see RecentFilesBrowser.toolbar): the app's own
+	// gesture, named for what it empties. It is the button's accessible name and its
+	// tooltip, so it is written as the action rather than as the glyph.
+	'recentFiles.clearFilter': 'Clear filter',
+	'recentFiles.noMatch': 'No matching entry.',
 	// There used to be a file scope here: an "only this note" switch plus a chip
 	// listing every note the history had been in. Both asked a question the
 	// search box already answers — a note's name IS text it matches on — and each
 	// cost the toolbar a cell and the dialog a piece of state, so both are gone
 	// (see modal.ts).
-	'navHistory.empty': 'Nowhere to go.',
-
-	// Browser chrome: the click affordances. The list is a NAVIGATOR now: a click on a
-	// row opens the file that row stands for, and the control in the row's left gutter
-	// looks at that row's own details (see NavHistoryList.disclose). Two actions, two
-	// targets, and that is what these lines teach.
-	// `{arrow}` is where the row's OWN icon is drawn into the sentence (see
-	// NavHistoryBrowser.hint) — the reader is told to look for the gutter control, so
-	// the line shows the glyph that is actually on the list.
-	// "Expand" is not in either sentence: WHICH details are shown is the button in the
-	// gear (see NavHistoryBrowser.settings) and says nothing about the gesture, so the
-	// line does not name it and cannot be left behind by it.
-	// WHETHER there are details at all DOES change the sentence, and the line is
-	// rewritten when that changes (see fillHint): the two lines below are the ones that
-	// name a control, and the two after them are the ones a reader gets who has
-	// switched the details column off.
-	'navHistory.touchHint': 'Tap a row to open it, {arrow} to see this spot',
-	// …and the same gestures with a mouse, in both shells: the list is click-only
-	// (see NavHistoryList), opening is the row's own job, the gutter control looks,
-	// and nothing at all happens on hover — a pointer that merely crosses a row moves
-	// no position and opens nothing. (The keyboard still works — ↑↓ walk, Enter opens
-	// — it is simply not what this line has to teach.)
-	'navHistory.clickHint': 'Click a row to open it · {arrow} to see this spot',
-	// The same two devices, with no details column to look at: one gesture, and a
-	// sentence that says it and stops. No `{arrow}` in either — the glyph it stands for
-	// is not on the list (see NavHistoryList.disclose).
-	'navHistory.touchHintOpen': 'Tap a row to open it',
-	'navHistory.clickHintOpen': 'Click a row to open it',
-	// The gutter control's own word: it carries it as its tooltip.
-	'navHistory.showDetails': 'View details',
-	// A leaf holding a second tab/pane of the same file: without this the
-	// browser's rows for the two panes are indistinguishable. Rendered as
-	// "which of how many" — two digits and no word, because the word was the
-	// widest thing in the row's quiet zone.
-	'navHistory.pane': '{0}/{1}',
-	'navHistory.disabledTip': 'File deleted — this step cannot be restored',
-	// The span a row prints when it folds several nearby landings into one (see
-	// groupByFile and LANDING_MERGE_LINES). The second L is dropped: it and the first
-	// sit in the same column, and that column is narrow on a phone.
-	'navHistory.lineRange': 'L{0}–{1}',
-	// Relative time is no longer a column of the list (see listing.ts): it
-	// survives in the landing panel's head alone.
-	'navHistory.time.now': 'just now',
-	'navHistory.time.minutes': '{0} min ago',
-	'navHistory.time.hours': '{0} h ago',
-	'navHistory.time.days': '{0} d ago',
-	// Landing drawer. It prints the entry's own recorded context block — the
-	// lines the user was looking at when they left, with no read behind it — or
-	// the note as it stands now (one vault read, see PreviewContent). Both go
-	// through Obsidian's OWN markdown renderer, so there is no "reading…" state
-	// and no raw source on screen.
-	'navHistory.preview.none': 'No line to preview here (no markdown landing).',
-	'navHistory.preview.gone': 'File deleted.',
-	// The drawer's two contents. They are no longer a pair of buttons in the panel:
-	// which one is shown is a setting that travels with every panel, chosen in the
-	// toolbar's gear (see NavHistoryBrowser.openSettings), so these two words are now
-	// the labels of a group in that menu. One word each, because the few words
-	// written after each of them say the rest.
-	'navHistory.preview.name': 'Panel content',
-	'navHistory.preview.spot': 'Then',
-	'navHistory.preview.spot.desc': '(the lines you left on)',
-	'navHistory.preview.note': 'Now',
-	'navHistory.preview.note.desc': '(the note as it stands)',
-	// The range the recorded block covers: the rendered lines have no gutter of
-	// their own left to say which numbers they are. Not printed in the whole-note
-	// view — those lines are today's note, and say nothing about the record.
-	'navHistory.preview.recorded': 'On screen then · L{0}–L{1}',
-	// A file that is not a note has one view — its own source — and no recorded
-	// spot to name a range for.
-	'navHistory.preview.source': 'File source',
-	// …and one with no text at all (a PDF, an image). Clicking the row is what opens
-	// it, so that is what the message names.
-	'navHistory.preview.binary': 'Nothing to preview in a file like this (a PDF, an image…) — clicking the row opens it',
-	// The note a plain link was clicked in, and the file's "written since the
-	// step was recorded" marker.
-	'navHistory.preview.via': 'via {0}',
-	'navHistory.preview.modified': 'written since',
-	// The drawer's empty state: the history has no entry at all, so the column says
-	// what it is for instead of sitting blank.
-	'navHistory.preview.pick': 'This column shows one place: use the control at the start of a row to open it',
+	'recentFiles.empty': 'Nowhere to go.',
 };
 
 export type En = typeof en;

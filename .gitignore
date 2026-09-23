@@ -1,12 +1,14 @@
 # Intellij
 *.iml
 .idea
+.workbuddy
 
 # npm
 node_modules
 
 # build
 main.js
+dist/
 *.js.map
 data.json
 positions.json

@@ -105,7 +105,7 @@ describe('resolveAnchorLine', () => {
 	});
 });
 // The section chain a line sits under — shared by the post-restore breadcrumb
-// and the history browser's detail strip, so both name a section identically.
+// and the recent-files browser's detail strip, so both name a section identically.
 describe('outlinePathAtLine', () => {
 	const trail = (lines: string[], line: number) => outlinePathAtLine(lines, line);
 

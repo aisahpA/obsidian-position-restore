@@ -3,7 +3,7 @@ import { EphemeralState, PluginSettings } from '@/types';
 import { PositionStore } from '@/position/storage/position-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
-import type { NavHistory } from '@/nav-history/history';
+import type { NavFunnel } from '@/nav/funnel';
 import { isMainAreaLeaf } from '@/shared/leaf';
 import type { Sampler } from '@/position/capture/sampler';
 
@@ -44,14 +44,14 @@ export class OpenPatcher {
 	private settings: PluginSettings;
 	private state: PositionState;
 	private store: PositionStore;
-	private nav: NavHistory;
+	private funnel: NavFunnel;
 	private sampler: Sampler;
 
-	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState, nav: NavHistory, sampler: Sampler) {
+	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState, funnel: NavFunnel, sampler: Sampler) {
 		this.app = app;
 		this.settings = settings;
 		this.store = store;
-		this.nav = nav;
+		this.funnel = funnel;
 		this.sampler = sampler;
 		this.state = state;
 	}
@@ -197,7 +197,7 @@ export class OpenPatcher {
 			// assembled here, at the save moment.
 			const fromSt = readNavEntryState(leavingView);
 			if (fromSt) {
-				this.nav.refreshTop(leavingView.file.path, leafId, fromSt);
+				this.funnel.leave(leavingView.file.path, leafId, fromSt);
 				// The record's regular writers lag (poll tick, debounced
 				// scroll capture): a move + quick jump-away inside that
 				// window loses the final position. Flush the exact leaving
@@ -220,7 +220,7 @@ export class OpenPatcher {
 		// Main-area leaves only — a sidebar panel's state re-assertion
 		// (outline/backlinks carrying the tracked file) is not a jump.
 		if (isMainAreaLeaf(this.app, leaf))
-			this.nav.recordOpen(filePath, leafId, {
+			this.funnel.recordOpen(filePath, leafId, {
 				// Caller-target jumps (search match, backlinks is-flashing)
 				// carry no linktext: key them uniquely so the entry takes the
 				// keyed precise-landing regime — the settle-capture backfills
@@ -232,7 +232,7 @@ export class OpenPatcher {
 				viaText: fromLink ? viaText : undefined,
 			});
 
-		// A history traversal (NavHistory armed pendingHistoryNav, consumed
+		// A history traversal (the stack armed pendingHistoryNav, consumed
 		// here — single shot): inject THIS plugin's saved position over the
 		// native entry's eState, which carries only the cursor (no scroll).
 		// Bypasses the callerTarget yield and the glide choice on purpose:

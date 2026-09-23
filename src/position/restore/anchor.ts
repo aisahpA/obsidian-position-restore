@@ -11,7 +11,7 @@ import { normAnchor } from '@/position/capture/ephemeral';
 // headings array — faster than remap's per-line doc reads, and only ever
 // runs on a back/forward/jump-to apply.
 //
-// Key forms (see NavHistory.recordOpen / OpenPatcher):
+// Key forms (see NavFunnel.recordOpen / OpenPatcher):
 //   outline:<heading text>      raw heading text (outline panel click)
 //   <file>#<slug> | #<slug>     heading link (anchor/caller linktext)
 //   <file>^<block> | ^<block>   block reference
@@ -34,7 +34,7 @@ export function resolveAnchorLine(
 		return undefined;
 
 	// outline:<heading> — two key forms:
-	//   "outline:## My Heading"  UPGRADED (NavHistory.upgradeOutlineKey): the
+	//   "outline:## My Heading"  UPGRADED (NavStack.upgradeKeyLine): the
 	//     # count is the heading's absolute level, the rest is
 	//     HeadingCache.heading's exact source — exact pass filtered by level
 	//     (also disambiguates same-text headings at different depths);

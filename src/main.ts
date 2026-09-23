@@ -1,21 +1,25 @@
 import { Platform, Plugin } from 'obsidian';
-import { SettingTab } from './ui/settings-tab';
+import { SettingTab } from './settings/tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
-import { NAV_HISTORY_VIEW_TYPE } from './nav-history/browser/view';
+import { RECENT_FILES_VIEW_TYPE } from './recent-files/browser/view';
+import { NAV_SOURCE_ID } from './recent-files/browser/constants';
 import { t } from './i18n';
 
 
 export default class PositionRestorePlugin extends Plugin {
-	settings!: PluginSettings;
+	// Initialised in place rather than left to loadSettings, and never
+	// reassigned afterwards — see loadSettings for why the IDENTITY of this
+	// object matters.
+	settings: PluginSettings = { ...DEFAULT_SETTINGS };
 	database!: CursorPositionDatabase;
 	manager!: PositionManager;
 
 	async onload() {
 		await this.loadSettings();
 		this.database = new CursorPositionDatabase(this, this.settings);
-		this.manager = new PositionManager(this.app, this.database, this.settings, () => void this.saveSettings());
+		this.manager = new PositionManager(this.app, this.database, this.settings);
 
 		await this.database.readDb();
 		this.manager.prunePositions();
@@ -23,12 +27,8 @@ export default class PositionRestorePlugin extends Plugin {
 
 		this.addSettingTab(new SettingTab(this.app, this));
 
-		// The history browser's resident form: registered BEFORE the layout is
-		// restored, which is what lets a saved sidebar panel come back as itself
-		// on the next start. Nothing detaches it on unload, deliberately — the
-		// workspace closes a disabled plugin's views, and detaching the leaf here
-		// would throw away where the reader had dragged it to.
-		this.registerView(NAV_HISTORY_VIEW_TYPE, this.manager.navHistoryViewCreator());
+		this.registerView(RECENT_FILES_VIEW_TYPE, this.manager.recentFilesViewCreator());
+		this.registerPreviewSource();
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
@@ -46,16 +46,57 @@ export default class PositionRestorePlugin extends Plugin {
 
 	async loadSettings() {
 		const loaded = (await this.loadData()) as Partial<PluginSettings>;
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// Merged INTO the existing object, never assigned over it. NavPlaces and
+		// PositionManager both capture this reference at construction and read
+		// through it live (places.cap(), the panel's landings/placesCap prefs),
+		// so replacing the object would leave them reading a stale copy forever.
+		Object.assign(this.settings, DEFAULT_SETTINGS, loaded);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
 
+	// data.json was edited while this plugin was already loaded — by the reader,
+	// by a sync, or by another plugin writing on our behalf. Obsidian calls this
+	// on the running instance; without it a change would not apply until the
+	// next restart.
+	//
+	// Loading is all that is needed for the values themselves: both consumers
+	// read the settings object live, so a new value is in effect on the very
+	// next access. What does NOT happen by itself is the work a few keys owe
+	// when they change — a lowered ceiling has to trim, a new folder rule has to
+	// drop — so the pre-merge copy goes to the manager to diff against. No
+	// saveSettings here: echoing the file straight back is how two writers
+	// ping-pong.
+	async onExternalSettingsChange() {
+		const before = { ...this.settings };
+		await this.loadSettings();
+		this.manager.applyChangedSettings(before);
+	}
+
 	//----------------------------------------------------------------------------------------
 	// Lifecycle registration. Each method below owns one concern of onload;
 	// comments document WHY, the names document WHAT.
+
+	// Recent-files rows are a place the READER HOVERS FROM, so the panel joins the app's
+	// own page-preview system under one id (see NAV_SOURCE_ID) and a hover asks for that
+	// preview of the note its row names — instead of this panel drawing a popover of its
+	// own, which would be a second set of rules to learn (see RecentFilesBrowser.hoverRow).
+	//
+	// Registering is also what puts the panel BY NAME in the preview plugin's settings, and
+	// that is where the one question here gets answered: whether hovering is enough, or
+	// takes Cmd/Ctrl. `defaultMod: true` is what that row starts ON, because it is what the
+	// app starts on everywhere else — the file explorer and search among them — and a
+	// pointer crossing this narrow column earns no exception. The press is waited for ON
+	// THE ROW, which is why hoverRow passes `targetEl`: without it no amount of holding
+	// the key opens anything.
+	private registerPreviewSource(): void {
+		this.registerHoverLinkSource(NAV_SOURCE_ID, {
+			display: t('recentFiles.name'),
+			defaultMod: true,
+		});
+	}
 
 	/**
 	 * VSCode-style navigation. No default hotkeys — bind in Obsidian's hotkey
@@ -87,14 +128,22 @@ export default class PositionRestorePlugin extends Plugin {
 				return true;
 			}
 		});
-		// History browser: the stack newest-first, one row per note — the row OPENS the
-		// file at the spot it stands for, and the control in its gutter shows that row's
-		// details (time travel — the forward part is kept). No availability gate.
+		// Recent files: the PLACES list, most recent last (see places.ts) — one row
+		// per note, and the row OPENS the file at the spot it stands for, while the
+		// control in its gutter shows that row's details (time travel — the forward
+		// part is kept). It is NOT the back/forward stack: that store is the pair of
+		// commands above, and the two are kept apart. No availability gate.
+		//
+		// The icon is a CLOCK: the rows are places ordered by when they were last
+		// sat in, so "recent" is the thing to draw. Not 'list', which belongs to
+		// the outline pane and would make the two read as one thing in the
+		// palette. The panel's own tab carries the same icon, for the same reason
+		// (see RecentFilesView.getIcon).
 		this.addCommand({
-			id: 'browse-nav-history',
-			name: t('navHistory.commands.browseHistory'),
-			icon: 'history',
-			callback: () => this.manager.openNavHistoryModal(),
+			id: 'browse-recent-files',
+			name: t('recentFiles.commands.open'),
+			icon: 'clock',
+			callback: () => this.manager.openRecentFilesModal(),
 		});
 		// …and the same browser as a RESIDENT sidebar panel: a place in the
 		// workspace rather than a question asked and dismissed. A separate
@@ -103,18 +152,41 @@ export default class PositionRestorePlugin extends Plugin {
 		// is wanted is the reader's call at the moment they ask, not a setting
 		// they have to get right beforehand.
 		this.addCommand({
-			id: 'open-nav-history-sidebar',
-			name: t('navHistory.commands.browseHistorySidebar'),
+			id: 'open-recent-files-sidebar',
+			name: t('recentFiles.commands.openSidebar'),
 			icon: 'panel-right',
-			callback: () => this.manager.openNavHistorySidebar(),
+			callback: () => this.manager.openRecentFilesSidebar(),
 		});
-		// Ribbon entry: MOBILE ONLY. There are no hotkeys on a touch device
-		// and the toolbar only exists while editing, so one tap (the mobile
-		// navbar exposes the ribbon) is the only way in. On desktop the icon
-		// was noise on every toolbar — the command palette and hotkeys cover
-		// it, and the settings tab shows whether they are bound.
-		if (Platform.isMobile)
-			this.addRibbonIcon('history', t('navHistory.heading'), () => this.manager.openNavHistoryModal());
+		// Ribbon entry: ONE icon on every platform, because this list is the only
+		// part of the plugin that has a face at all — restore happens by itself,
+		// and back/forward is a hotkey the reader has to bind before it exists.
+		// A door that cannot be seen leaves the feature waiting for a reader who
+		// already knows it is there, which is no way to meet a feature.
+		//
+		// What the icon OPENS is the platform's own answer. On desktop the sidebar
+		// is ground that stays, so the icon opens the resident panel — and brings
+		// it BACK when one is already standing, which activateRecentFilesView does
+		// by revealing the existing leaf. On a phone the icon asks and goes away —
+		// the modal — and not because a panel would be in the way there: a travel
+		// collapses the drawer the panel stands in (see
+		// RecentFilesView.dismissOnMobile), and a reader who wants it standing has
+		// the sidebar command and, after that, a swipe. One icon can only owe one
+		// answer, and on a phone that answer is "ask, then get out of the way".
+		//
+		// Desktop used to be left out on purpose, as "noise on every toolbar".
+		// That reason expired: the app lets a reader uncheck any ribbon action
+		// and remembers it across devices, so an icon nobody wants costs two
+		// seconds ONCE, while a feature with no visible door costs the reader
+		// the feature. And there is no setting of ours for it — the app already
+		// owns that switch, and a second copy would be a knob standing in front
+		// of a question the reader has already answered somewhere else.
+		const openFromRibbon = Platform.isMobile
+			? () => this.manager.openRecentFilesModal()
+			: () => this.manager.openRecentFilesSidebar();
+		// NOT navHistory.heading: the ribbon opens the recent-files list, and
+		// that page's name is what the icon has to say. (The heading is the
+		// back/forward stack's, which is the other half of this feature.)
+		this.addRibbonIcon('clock', t('recentFiles.name'), openFromRibbon);
 	}
 
 	/**

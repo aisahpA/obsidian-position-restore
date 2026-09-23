@@ -26,7 +26,7 @@ interface NavContextLine {
 	text: string,
 }
 
-// What a NavHistory entry carries beyond the position: the nav-display
+// What a nav entry carries beyond the position: the nav-display
 // fields, produced ONLY by the low-frequency nav reads (readNavEntryState /
 // withNavDisplay) at the moment a navigation entry is saved — never by the
 // hot read. EphemeralState is structurally assignable, so baseline-fed
@@ -41,23 +41,18 @@ interface NavContextLine {
 // costs no storage.
 interface NavEntryState extends EphemeralState {
 	// The landing's CONTEXT BLOCK: the lines the landing sat among at capture
-	// time, in document order, with the landing itself at `contextAt`. The
-	// history browser renders this block instead of re-reading the file (no
-	// IO, works for a file that has since been deleted, and shows what the
-	// user actually saw when they left) and the search box matches its text.
-	// DISPLAY + SEARCH ONLY: re-anchoring stays `anchor`'s job, one line with
-	// exact-match semantics (remapAnchoredState) — a multi-line block is a
-	// different algorithm and must never feed it.
+	// time, in document order, with the landing itself at `contextAt`. It is what
+	// the browser's SEARCH BOX matches — "the words I saw when I left" is how a
+	// reader finds an old spot — and was once what the details panel rendered.
+	// SEARCH ONLY: re-anchoring stays `anchor`'s job, one line with exact-match
+	// semantics (remapAnchoredState) — a multi-line block is a different algorithm
+	// and must never feed it.
 	context?: NavContextLine[],
 	// Index of the landing line within `context`.
 	contextAt?: number,
-	// The file's line count at capture time — the denominator for the row's
-	// "L412" (see the landing panel's head).
-	lineCount?: number,
-	// The file's mtime at capture time. Display-only: a live mtime that
-	// differs means the file was written after this step was recorded, so the
-	// text above may already be gone. (It is deliberately NOT used to skip the
-	// text remap: that runs against a live editor buffer, which can differ
+	// The file's mtime at capture time. Nothing displays it (the panel that said
+	// "written since" is gone), and it is deliberately NOT used to skip the text
+	// remap: that runs against a live editor buffer, which can differ
 	// from the file on disk — an unsaved edit changes the lines without
 	// touching the mtime.)
 	mtime?: number,
@@ -76,71 +71,135 @@ interface TabStateRecord {
 	st: EphemeralState;
 }
 
-// How much of one note the history list prints: 'last' keeps the list to one row
-// per note — the note's own row stands for the last spot the reader was at in it
-// (see NavHistoryList.activeRep), and a click points the panel at that spot —
-// while 'all' prints every distinct spot the note was left at under its name.
+// How much of one note the list keeps, and how much of what it kept it DRAWS:
+// one answer, three stops along it, because the two questions are not
+// independent — a landing that was never recorded cannot be drawn, so a reader
+// picking how much to see has already answered how much to keep.
+//
+//   'none' — record notes and views only. There is no landing to draw, and
+//            there is no landing to search by either.
+//   'last' — record landings too, but draw one row per note. The landings are
+//            an invisible index: the search box finds a note by the lines that
+//            stood beside a jump, and a note whose own record has been crowded
+//            out still has a row.
+//   'all'  — record landings and draw one row for each. The default: what
+//            ships is the whole of what the list can record, because it is the
+//            only stop from which the other two can be chosen with anything to
+//            choose between — a reader who started at 'none' and only later
+//            found this setting would find nothing recorded under it, while
+//            one who starts here and moves down loses nothing (see below).
+//
+// The stops are monotonic — each one keeps and draws a superset of the one
+// above — which is what makes ONE question of it. And every stop is
+// reversible: coming back down to 'none' stops new landings being recorded and
+// draws none of the ones already there, but it does not DELETE them — they go
+// when the note they stand in is crowded out (see NavPlaces.trim), so moving
+// back up finds them where they were.
 //
 // Named here, beside the setting that holds it, because three places speak it: the
-// settings record, the list's own options and the toolbar's setting (see
-// NavBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
-type LandingsMode = 'last' | 'all';
+// settings record, the settings tab's row for it and the list's own options (see
+// RecentFilesBrowserPrefs.landings); listing.ts re-exports it for the browser's modules.
+type LandingsMode = 'none' | 'last' | 'all';
+
+// How much of a row's PATH the history list prints. The two "always" states are
+// also a choice of what gives way when the row runs out of width: the middle of a
+// flex line is where the wrap happens, so 'before' drops the NAME to a second line
+// with the path kept whole, and 'after' drops the PATH — see list.ts's fileRow and
+// the `order` rule in styles.css, which is the whole of the difference.
+//
+// 'smart' (the default) prints the folder only on the rows whose name another row
+// on screen shares — where it is the only thing that tells two rows apart (see
+// duplicateNames) — and lays them out like 'before'.
+//
+// Named here, beside the setting that holds it, because the settings record, the
+// settings tab's row for it and the list's own options all speak it (see
+// RecentFilesBrowserPrefs.pathDisplay).
+type PathDisplayMode = 'smart' | 'before' | 'after';
 
 interface PluginSettings {
 	dbFileName: string;
-	minLinesToRecord: number; // 0 = disabled, do not record positions for files with fewer lines
-	excludedFolders: string[]; // do not record positions for files in these folders and their subfolders
-	// B rule: do not record positions for files whose frontmatter contains ANY
+	// 0 = disabled, do not record positions for files with fewer lines
+	minLinesToRecord: number;
+	// do not record positions for files in these folders and their subfolders
+	excludedFolders: string[];
+	// do not record positions for files whose frontmatter contains ANY
 	// of these property names (value ignored — the properties usually already
 	// exist for another plugin). Empty array = disabled.
 	frontmatterExcludeProperties: string[];
 	defaultPosition: 'default' | 'fileEnd';
-	linkOpenPosition: 'restore' | 'start'; // where to open a plain file link (no #/^ target): saved position, or file start
-	sourceRestoreMethod: 'instant' | 'glide'; // how to restore a saved position in source mode
-	readingRestoreMethod: 'instant' | 'glide'; // how to restore a saved position in reading view
-	restoreIndicator: 'off' | 'breadcrumb' | 'both'; // what to show after a restore: section breadcrumb and/or a source-mode flash on the cursor line
-	// opt-in recording of raw scroller scrollTop for base views, keyed by
-	// their 'bases' view type. Off by default: the value is device-local, so a
-	// synced record from another device would overwrite the local one with a
-	// meaningless pixel offset. Other non-markdown FileViews (pdf, image...)
-	// are never recorded: pdf is native-managed, the rest have no useful
-	// scroll.
+	// where to open a plain file link (no #/^ target): saved position, or file start
+	linkOpenPosition: 'restore' | 'start';
+	// how to restore a saved position in source mode
+	sourceRestoreMethod: 'instant' | 'glide';
+	// how to restore a saved position in reading view
+	readingRestoreMethod: 'instant' | 'glide';
+	// what to show after a restore: section breadcrumb and/or a source-mode flash on the cursor line
+	restoreIndicator: 'off' | 'breadcrumb' | 'both';
+	// Opt-in recording of raw scroller scrollTop for base views. Off by default:
+	// the value is device-local, so a synced record from another device would
+	// overwrite the local one with a meaningless pixel offset. Other
+	// non-markdown FileViews (pdf, image...) are never recorded: pdf is
+	// native-managed, the rest have no useful scroll.
 	recordBaseScroll: boolean;
+	
 	// Navigation history (VSCode-style back/forward) tuning.
-	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
-	navRecordActivation: boolean; // tab/pane activation records as a navigation entry
-	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
-	// The recent-files list's own storage. It is a DIFFERENT thing from the
-	// back/forward stack above (and from the position records): what it holds is
-	// which files the reader has been in and which headings/anchors they jumped
-	// to, so a place may be lived in for months where a stack step lives for
-	// minutes. Its ceiling is chosen in the panel's own gear (see
-	// NavBrowserPrefs.placesCap), because that is where the reader is looking at
-	// the list whose length it decides.
-	navRecentCap: number; // max places kept in the recent-files list; oldest drop on overflow
-	// The files the recent-files list must NOT record — its OWN rule, deliberately
-	// not shared with excludedFolders above: that one answers "whose scroll
-	// position is worth remembering" (a diary folder may be excluded from stale
-	// restores and still be exactly what the reader wants to navigate back to),
-	// while this one answers "which visits are worth listing".
-	navRecentExcludeFolders: string[];
-	// The history browser's own preferences. They are persisted rather than held
-	// in the panel because all of them outlive the panel they are chosen in: a reader
-	// who wants the note as it stands now wants it tomorrow too, and a reader who wants
-	// one row per note wants that of every note. All are chosen IN the panel — the
-	// content by the switch above the landing's lines (see LandingPanel), the list's
-	// shape and whether the details column exists at all by the toolbar's own setting
-	// button — because that is where the reader is looking at what they change, and the
-	// settings tab keeps no second copy of any of them.
-	navPreviewMode: 'spot' | 'note'; // which content a landing opens on: the spot the step recorded, or the note as it stands now
-	navLandings: LandingsMode; // one row per note (the last spot it stands for), or every distinct spot printed under it
-	// Whether the browser describes a landing at all: the gutter control in every row,
-	// the panel it opens (the drawer beside the list or the block under the row), and
-	// the half of the hint that names the control. OFF by default — a history list is
-	// a list, and a reader who wants to see WHAT each step was turns the column on in
-	// the gear. With it off the rows lose their left gutter too: there is nothing to
-	// put there.
-	navShowDetails: boolean;
+	// max entries kept in the nav history stack; oldest drop on overflow
+	navHistoryCap: number;
+	// a FILE tab's activation records as a navigation entry (a view tab's always
+	//  does — see nav-history/stack.ts's onVisit)
+	navHistoryRecordActivation: boolean;
+	// How many lines one cursor move must cross before it counts as an in-file
+	// jump and takes a back/forward step: a go-to-line, a far click, a vim page
+	// motion. 0 records none of them. A number and not a yes/no switch because
+	// the question was never whether such a move exists — it was how big a move
+	// the reader means, and that is a number they can answer and we cannot.
+	// Desktop only: on a touch screen every deliberate far jump (an outline
+	// item, an anchor link, a search hit) already arrives as its own keyed
+	// entry, so the poll has nothing left worth inferring (see sampler.ts).
+	navHistoryTeleportMinLines: number;
+	
+	// Files the list must NOT record — its OWN rule, not shared with
+	// excludedFolders above: that one answers "whose scroll position is worth
+	// remembering" (a diary folder may be excluded from stale restores and
+	// still be exactly what the reader wants to navigate back to), while this
+	// one answers "which visits are worth listing".
+	recentFilesExcludeFolders: string[];
+	// The list's own frontmatter rule, in the same `prop[: value]` form as the
+	// position rules (see shared/frontmatter.ts): a file whose frontmatter
+	// matches any entry is never added. Its own list, for the same reason the
+	// folder rule above is — a kanban board or a published page is exactly the
+	// kind of note whose cursor position is not worth keeping and which the
+	// reader still navigates to every day.
+	//
+	// What it does NOT read is the position feature's per-file escape hatch
+	// (`position-restore`): that property answers whether a POSITION is
+	// recorded, and a note the reader opted out of position recording is still
+	// a place they go.
+	recentFilesExcludeProperties: string[];
+	// How much of the reader's navigation the list keeps, and how much of what
+	// it kept it draws (see LandingsMode). One setting and not two because a
+	// landing that was never recorded cannot be drawn — and not three, because
+	// the ceiling above counts notes whatever this says.
+	recentFilesLandings: LandingsMode;
+	// ===== The recent-files list: its own storage, and its own rules. =====
+	// A different thing from the back/forward stack above and from the position
+	// records: what it holds is WHERE the reader has been, so a place may be
+	// lived in for months where a stack step lives for minutes.
+	// How many NOTES it remembers — the oldest drop on overflow. Notes in
+	// every mode: a row is a note or a view, so the number means the same
+	// thing at every stop of the landings setting below. The landings are
+	// bounded separately and internally (see NavPlaces.trim): their ceiling is
+	// storage hygiene, not a number the reader is asked to invent.
+	recentFilesCap: number;
+	// whether a row prints the folder its note sits in, and on which side of the name
+	recentFilesPathDisplay: PathDisplayMode;
+	// Whether a row prints how long ago it was last visited. On by default: the
+	// list already IS in that order, so what the label adds is not the order
+	// but the MAGNITUDE — the row above the reader and the row ten screens
+	// down are both "before", and only one of them is from this morning. It is
+	// the place's own `t` (see places.ts) — the last time the reader was there,
+	// not the file's mtime.
+	recentFilesRowTime: boolean;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -156,14 +215,17 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	readingRestoreMethod: 'instant',
 	restoreIndicator: 'off',
 	recordBaseScroll: false,
-	navStackCap: 50,
-	navRecordActivation: true,
-	navRecordTeleport: true,
-	navRecentCap: 200,
-	navRecentExcludeFolders: [],
-	navPreviewMode: 'spot',
-	navLandings: 'last',
-	navShowDetails: false,
+	
+	navHistoryCap: 50,
+	navHistoryRecordActivation: true,
+	navHistoryTeleportMinLines: 10,
+	
+	recentFilesExcludeFolders: [],
+	recentFilesExcludeProperties: [],
+	recentFilesLandings: 'all',
+	recentFilesCap: 50,
+	recentFilesPathDisplay: 'smart',
+	recentFilesRowTime: true,
 };
 
 export {
@@ -174,4 +236,5 @@ export {
 	TabStateRecord,
 	PluginSettings,
 	LandingsMode,
+	PathDisplayMode,
 };

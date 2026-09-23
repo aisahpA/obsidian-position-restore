@@ -1,13 +1,13 @@
 import { App, TAbstractFile } from 'obsidian';
-import { NavHistory } from '@/nav-history/history';
 import { PositionStore } from './storage/position-store';
 import { PositionState } from './state';
 
 // Path-keyed state — the position store (which owns BOTH the per-file record
 // and the per-leaf records, so a path change re-keys or drops them together),
-// the navigation history, the pipeline's current-file pointer — kept in step
-// with the vault's rename and delete events in one place, so the three cannot
-// disagree about what a path change means.
+// the navigation stores (the back/forward stack and the recent-files list,
+// each of which re-keys or drops its OWN records), the pipeline's current-file
+// pointer — kept in step with the vault's rename and delete events in one
+// place, so they cannot disagree about what a path change means.
 //
 // A delete cannot be acted on when the event arrives: the vault fires the same
 // 'delete' both for a file the user removed and for a sync plugin replacing a
@@ -26,6 +26,19 @@ import { PositionState } from './state';
 // delivery with room to spare.
 const DELETE_PRUNE_GRACE_MS = 2000;
 
+// What the bookkeeper needs from a navigation store to keep it in step with the
+// vault: the stack and the recent-files list are both keyed by path and both
+// answer these four — but they keep DIFFERENT records, so each is told
+// separately and each re-keys/drops its own. Declared here rather than imported
+// so the bookkeeper does not have to know which stores exist: the composition
+// root hands it the list (see position/manager.ts).
+export interface PathStore {
+	renameFile(oldPath: string, newPath: string): void;
+	deleteFile(path: string): void;
+	knownPaths(): string[];
+	persist(): void;
+}
+
 export class PathBookkeeper {
 	// Deleted paths waiting out their window (path → timer).
 	private pendingDeletes = new Map<string, number>();
@@ -40,7 +53,9 @@ export class PathBookkeeper {
 	constructor(
 		private app: App,
 		private store: PositionStore,
-		private nav: NavHistory,
+		// The navigation stores, told separately and each accountable for its
+		// own records (see PathStore).
+		private navStores: PathStore[],
 		private state: PositionState,
 	) {}
 
@@ -50,7 +65,8 @@ export class PathBookkeeper {
 	// split onto the file record.
 	renameFile(file: TAbstractFile, oldPath: string) {
 		this.store.renameFile(file.path, oldPath);
-		this.nav.renameFile(oldPath, file.path);
+		for (const nav of this.navStores)
+			nav.renameFile(oldPath, file.path);
 		if (this.state.lastLoadedFilePath == oldPath)
 			this.state.lastLoadedFilePath = file.path;
 	}
@@ -61,23 +77,31 @@ export class PathBookkeeper {
 		this.deferMissing(this.pendingDeletes, file.path, () => this.prune(file.path));
 	}
 
-	// The startup sweep for navigation history: a file deleted while Obsidian
-	// was closed fires no 'delete' event, so its entries would sit in the
-	// browser as dead rows forever — and, worse, hold slots in the capped
-	// stack. Only the history is swept, deliberately: see pendingSweeps.
-	// Deferred through the same window as a live delete, and for the same
-	// reason (a sync plugin that is still downloading the file must not lose
-	// it) — which also means the sweep's vault check runs well after onload,
-	// with the index certainly built.
+	// The startup sweep for the navigation stores: a file deleted while
+	// Obsidian was closed fires no 'delete' event, so its entries would sit in
+	// the stack and the list as dead rows forever — and, worse, hold slots in
+	// their caps. Only the navigation stores are swept, deliberately: see
+	// pendingSweeps. Deferred through the same window as a live delete, and for
+	// the same reason (a sync plugin that is still downloading the file must not
+	// lose it) — which also means the sweep's vault check runs well after
+	// onload, with the index certainly built.
 	sweepMissingHistory() {
-		for (const path of this.nav.knownPaths())
+		// One pass over the union of the paths the stores name, so a path both
+		// of them know is scheduled (and re-checked) once.
+		const paths = new Set<string>();
+		for (const nav of this.navStores)
+			for (const path of nav.knownPaths())
+				paths.add(path);
+		for (const path of paths)
 			if (!this.app.vault.getAbstractFileByPath(path))
 				this.deferMissing(this.pendingSweeps, path, () => {
-					this.nav.deleteFile(path);
+					for (const nav of this.navStores)
+						nav.deleteFile(path);
 					// The prune is the point: don't leave it to the next flush
-					// (the history is device-local, so writing it out cannot
+					// (each store is device-local, so writing it out cannot
 					// race another device).
-					this.nav.persist();
+					for (const nav of this.navStores)
+						nav.persist();
 				});
 	}
 
@@ -97,9 +121,10 @@ export class PathBookkeeper {
 		}, DELETE_PRUNE_GRACE_MS));
 	}
 
-	// The path really is gone: drop it from both stores.
+	// The path really is gone: drop it from every store.
 	private prune(path: string) {
 		this.store.deleteFile(path);
-		this.nav.deleteFile(path);
+		for (const nav of this.navStores)
+			nav.deleteFile(path);
 	}
 }

@@ -10,12 +10,13 @@ import type { TAbstractFile } from 'obsidian';
 
 import { App, TFile } from 'obsidian';
 import { PositionManager } from '@/position/manager';
-import type { NavHistory } from '@/nav-history/history';
+import type { NavFunnel } from '@/nav/funnel';
+import type { NavStack } from '@/nav-history/stack';
 import type { PositionState } from '@/position/state';
 import type { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 // leafStates is private on the store; this is the test seam.
-import { leafStatesOf } from './position-store-seam';
+import { leafStatesOf } from './support/position-store-seam';
 
 // Timing is stated as "a beat" and "long after", never as the grace period
 // itself: the mechanism, not the tuning value, is what these tests pin.
@@ -65,13 +66,16 @@ function makeHarness() {
 		settings,
 	);
 	// The collaborators the manager owns; the tests seed and read them through
-	// the same public API the plugin uses.
-	const nav = (manager as unknown as { nav: NavHistory }).nav;
+	// the same public API the plugin uses. The manager is the composition root,
+	// so it holds both halves: the funnel is the CAPTURE surface the tests record
+	// through, the stack is the reader that keeps the steps they assert on.
+	const funnel = (manager as unknown as { funnel: NavFunnel }).funnel;
+	const stack = (manager as unknown as { stack: NavStack }).stack;
 	const state = (manager as unknown as { state: PositionState }).state;
 	const store = (manager as unknown as { store: PositionStore }).store;
 	const file = (path: string): TAbstractFile => Object.assign(new TFile(), { path }) as TAbstractFile;
-	const paths = () => nav.entries.map(e => (e.kind !== 'view' ? e.path : undefined));
-	return { manager, nav, state, store, database, files, file, paths, settings };
+	const paths = () => stack.entries.map(e => (e.kind !== 'view' ? e.path : undefined));
+	return { manager, funnel, stack, state, store, database, files, file, paths, settings };
 }
 
 afterEach(() => {
@@ -82,7 +86,7 @@ afterEach(() => {
 describe('PositionManager vault path changes', () => {
 	it('a rename re-keys the position record, the history steps and the current-file pointer', () => {
 		const h = makeHarness();
-		h.nav.recordOpen('a.md', 'leaf-1');
+		h.funnel.recordOpen('a.md', 'leaf-1');
 		h.state.lastLoadedFilePath = 'a.md';
 
 		h.manager.renameFile(h.file('b.md'), 'a.md');
@@ -96,8 +100,8 @@ describe('PositionManager vault path changes', () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
-		h.nav.recordOpen('a.md', 'leaf-1');
-		h.nav.recordOpen('b.md', 'leaf-1');
+		h.funnel.recordOpen('a.md', 'leaf-1');
+		h.funnel.recordOpen('b.md', 'leaf-1');
 
 		// The replacement, as the vault reports it: the path is gone (Obsidian
 		// closes its tab) ...
@@ -110,15 +114,15 @@ describe('PositionManager vault path changes', () => {
 
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 		expect(h.paths()).toEqual(['a.md', 'b.md']);
-		expect(h.nav.index).toBe(1);
+		expect(h.stack.index).toBe(1);
 	});
 
 	it('a genuine delete still prunes both stores, once the window closes', () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
-		h.nav.recordOpen('a.md', 'leaf-1');
-		h.nav.recordOpen('b.md', 'leaf-1');
+		h.funnel.recordOpen('a.md', 'leaf-1');
+		h.funnel.recordOpen('b.md', 'leaf-1');
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
@@ -129,7 +133,7 @@ describe('PositionManager vault path changes', () => {
 
 		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.paths()).toEqual(['b.md']);
-		expect(h.nav.index).toBe(0);
+		expect(h.stack.index).toBe(0);
 	});
 
 	// The two layers of the position store are re-keyed and dropped TOGETHER.
@@ -191,23 +195,23 @@ describe('PositionManager navigation history maintenance', () => {
 	it('a changed stack cap trims the stack already in memory', () => {
 		const h = makeHarness();
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
-			h.nav.recordOpen(p, 'leaf-1');
+			h.funnel.recordOpen(p, 'leaf-1');
 
-		h.settings.navStackCap = 2;
-		h.manager.applyNavStackCap();
+		h.settings.navHistoryCap = 2;
+		h.manager.applyNavHistoryCap();
 
 		// Trimmed NOW, not on the next navigation (which would drop a large
 		// chunk at once, long after the setting was changed).
 		expect(h.paths()).toEqual(['c.md', 'd.md']);
-		expect(h.nav.index).toBe(1);
+		expect(h.stack.index).toBe(1);
 	});
 
 	it('the startup sweep drops a missing file\'s history but keeps its position record', () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
-		h.nav.recordOpen('a.md', 'leaf-1');
-		h.nav.recordOpen('gone.md', 'leaf-1'); // deleted while Obsidian was closed
+		h.funnel.recordOpen('a.md', 'leaf-1');
+		h.funnel.recordOpen('gone.md', 'leaf-1'); // deleted while Obsidian was closed
 
 		h.manager.sweepMissingHistory();
 		vi.advanceTimersByTime(LONG_AFTER);
@@ -224,8 +228,8 @@ describe('PositionManager navigation history maintenance', () => {
 		const h = makeHarness();
 		h.files.add('a.md');
 		h.files.add('b.md');
-		h.nav.recordOpen('a.md', 'leaf-1');
-		h.nav.recordOpen('b.md', 'leaf-1');
+		h.funnel.recordOpen('a.md', 'leaf-1');
+		h.funnel.recordOpen('b.md', 'leaf-1');
 
 		h.manager.sweepMissingHistory();
 		vi.advanceTimersByTime(LONG_AFTER);

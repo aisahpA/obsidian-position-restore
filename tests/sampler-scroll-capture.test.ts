@@ -17,7 +17,7 @@ import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 // leafStates is private on the store; this is the test seam.
-import { leafStatesOf } from './position-store-seam';
+import { leafStatesOf } from './support/position-store-seam';
 
 // onScrollCapture is private; tests drive it directly through this alias.
 type ScrollCapture = (ev: Event) => void;

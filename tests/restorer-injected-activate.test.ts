@@ -224,7 +224,7 @@ describe('Restorer.completeInjectedRestore', () => {
 	});
 
 	it('skips the landing cue while a navigation traversal suppresses it', async () => {
-		// NavHistory arms cueSuppressUntil on back/forward: the restore still
+		// NavStack arms cueSuppressUntil on back/forward: the restore still
 		// lands (and anchors) but must not show the position-restored chip.
 		const { state, leaf, restorer } = makeHarness();
 		const show = vi.spyOn(state.cue, 'show');
