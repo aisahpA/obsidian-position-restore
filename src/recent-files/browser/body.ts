@@ -39,10 +39,17 @@ import { t } from '@/i18n';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { RecentFilesReads } from './reads';
 import { RecentFilesList, RecentFilesListOptions } from './list';
+import { PreviewSettle } from './hover-settle';
 import { NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
 
 // Per-body sequence for the list element's id (see RecentFilesBrowser.listId).
 let browserSeq = 0;
+
+// A heading that cannot travel inside a linktext: each of these characters is read as
+// link syntax rather than as part of the section's name — `#` and `^` open a subpath,
+// `|` opens an alias, `[` and `]` delimit the link itself (see RecentFilesBrowser's
+// subpathHeading, which asks whether a heading can be trusted to name a spot).
+const UNTRAVELABLE = /[#^|[\]]/;
 
 // The preferences the browser DRAWS BY, handed to every shell by the plugin that
 // persists them (see PluginSettings and PositionManager.browserPrefs). All are
@@ -139,6 +146,11 @@ export class RecentFilesBrowser {
 	// built per arrival would be an object with no memory — and at most one preview can be
 	// answered for a panel anyway, whichever row asked for it.
 	private readonly hoverParent: HoverParent = { hoverPopover: null };
+	// What hides the popover's own journey to the line it was asked for, when it was
+	// asked for one — and what says whether it was ever opened (see PreviewSettle):
+	// whether the app answered at all is decided outside this panel, several frames
+	// after the row was asked for, so it is watched rather than known.
+	private readonly settle = new PreviewSettle();
 	// The group order the list is being HELD at, while the pointer is on it (see
 	// freezeOrder), or undefined when the list is nobody's business but the places'.
 	// Held as group keys rather than as rows because a rebuild draws new rows: the
@@ -210,9 +222,16 @@ export class RecentFilesBrowser {
 			aliasesFor: path => this.reads.aliasesFor(path),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
-			// The row the pointer arrived on: which FILE it names, handed over for the app's
-			// own page preview to open (see hoverRow). Nothing here travels for it.
-			onHoverRow: (rep, ev, el) => this.hoverRow(rep, ev, el),
+			// The row the pointer arrived on: which FILE it names, and whether the row is
+			// the note's own rather than a spot in it, handed over for the app's own page
+			// preview to open (see hoverRow). Nothing here travels for it.
+			onHoverRow: (rep, ev, el, file) => this.hoverRow(rep, ev, el, file),
+			// …and the two answers the settle is the only one to have: whether a preview
+			// is standing open (the rows' hints ask before they speak — see NavRowTip),
+			// and the moment the pointer leaves the list (the asking is over — see
+			// PreviewSettle.hoverEnded).
+			tipsQuiet: () => this.settle.isOpen(),
+			onHoverEnd: () => this.settle.hoverEnded(),
 			// A right-click asks the APP what it can do with this file; the menu is
 			// built here because the list does not hold the app (see contextRow).
 			onContextRow: (rep, ev) => this.contextRow(rep, ev),
@@ -221,6 +240,10 @@ export class RecentFilesBrowser {
 			onForget: key => this.forgetRow(key),
 		};
 		this.list = new RecentFilesList(this.listOpts);
+		// The settle's two ends, tied once: WHO to watch for the app's answer (the
+		// parent every hoverRow hands over), and WHO TO TELL when it comes — the
+		// rows' hint, which stands aside for the note itself (see NavRowTip.retract).
+		this.settle.attach(this.hoverParent, () => this.list.hideTip());
 		// The pointer is how the body knows the reader is USING this list, which is
 		// the question the held order answers (see frozenOrder). Both listeners are
 		// on the list element and go with it; nothing to undo in destroy.
@@ -343,6 +366,10 @@ export class RecentFilesBrowser {
 		// built beside: a dialog is a new reads object every time it opens, and a
 		// sidebar panel can be closed and reopened many times in one app run.
 		this.reads.dispose();
+		// A popover the app had already built is still the app's, on the document and
+		// not in this body's element — so it outlives us, and uncovering what we hid is
+		// ours to do before we go (see PreviewSettle.stop).
+		this.settle.stop();
 		// The interval and the document listener OUTLIVE the elements they were
 		// registered beside — the timer would go on redrawing a panel that is gone, and
 		// a modal is a new body every time it opens.
@@ -534,19 +561,11 @@ export class RecentFilesBrowser {
 	// implementation this is asking the app to spare us. It is the same line this file
 	// draws for the row's menu (see contextRow): the two things only a FILE row can be
 	// asked for.
-	private hoverRow(rep: number, ev: PointerEvent, row: HTMLElement): void {
+	private hoverRow(rep: number, ev: PointerEvent, row: HTMLElement, file: boolean): void {
 		const entry = this.opts.places.entries[rep];
 		if (!entry || entry.kind === 'view')
 			return;
-		// WHERE IN THE NOTE the preview opens is this panel's to say, and it is the one
-		// thing a preview asked from HERE can offer that a preview asked anywhere else
-		// cannot: the row already prints the spot (see RecentFilesList), so the popover
-		// opens ON THAT LINE instead of at the top of the note. `scroll` is the app's own
-		// name for a markdown view's top visible line (see EphemeralState) — the same
-		// number the position database keeps, said in the vocabulary the view reads it in
-		// — so this is not a new state shape invented for a popover. A preview that pays
-		// it no mind opens at the note's head, which is no worse than not asking.
-		const line = this.reads.describe(rep).lineIndex;
+		const ask = this.previewAsk(entry, entry.path, this.reads.describe(rep), file);
 		this.opts.app.workspace.trigger('hover-link', {
 			event: ev,
 			// Who is asking: the id the plugin registered (see main.ts), which is what lets
@@ -558,17 +577,90 @@ export class RecentFilesBrowser {
 			// beside: the reader is hovering a line of a list, and the popover belongs to
 			// that line rather than to whichever word of it the pointer happens to cross.
 			targetEl: row,
-			// The file, by the path it is opened by — the note's own name on disk rather
+			// The note itself, by the path it is opened by — its own name on disk rather
 			// than the name printed on the row, which is shortened and may be neither
 			// unique nor spelled the way the vault spells it (see displayName).
-			linktext: entry.path,
+			linktext: ask.linktext,
 			// …and the neighbourhood the page's own links are read against: its own file,
 			// since a note previewed from a row here has no other context to resolve them
 			// in. Nothing depends on it being one thing or the other for a preview that
 			// draws no relative link, which is every note this panel lists.
 			sourcePath: entry.path,
-			state: line === undefined ? undefined : { scroll: line },
+			state: ask.state,
 		});
+		// From here the asking is the settle's (see hover-settle.ts): armed with whether
+		// it named a line — the only kind with a journey to cover — it watches for the
+		// app's answer for as long as the HOVER lasts, not for as long as a guess would.
+		// The reader's key can come ten seconds after the row, and the cover, the
+		// flash-stripping and the hint's standing aside all have to still be on duty.
+		this.settle.ask(ask.state !== undefined);
+	}
+
+	// HOW A ROW NAMES ITS SPOT: by the SECTION it sits in, or by its LINE NUMBER. The
+	// app decides which, not taste. Handed a number (state.scroll), the core's popover
+	// does not open at it — it draws the whole note first and moves the scroller there
+	// only once that render lands, flashing the target for three seconds on the way
+	// (see hover-settle.ts), so the note is seen at its head, then jumps, then flashes.
+	// Handed a section (`note.md#Heading`) none of that happens: the loader resolves the
+	// subpath and draws ONLY that section, so there is nothing left to travel to.
+	//
+	// A NOTE'S OWN ROW NEVER NAMES A SECTION, WHATEVER HEADING ITS LINE SITS UNDER, and
+	// what stands behind that is what the row IS: it stands for the FILE (see RecentFilesList.
+	// activeRep), and a click on it opens the file the plain way — the whole note, not a
+	// place in it. Its preview is the same promise in another shape, and "the note" said
+	// as its third section is a promise kept to nobody: a reader hovering "meeting-notes"
+	// and getting three paragraphs of it has not been shown what they pointed at, however
+	// instantly it arrived. It asks for the note at its line and lets the cover pay for
+	// the delayed arrival — which is what the cover is for.
+	//
+	// A LANDING ROW IS THE OTHER CASE, and there the trade goes the way it always did: a
+	// spot is a place IN the note, and a row printing "L412 › Beta" names that place.
+	// Rows whose line has no heading above it, or whose heading cannot be trusted to name
+	// the same place on the other side of the link, fall back to the number and are
+	// covered for the length of the jump: a wrong section delivered without moving once
+	// is worse than the right place arriving late.
+	private previewAsk(
+		entry: NavEntry,
+		path: string,
+		d: NavEntryDescription,
+		file: boolean,
+	): { linktext: string; state?: { scroll: number } } {
+		const heading = file ? undefined : this.subpathHeading(entry, path, d);
+		if (heading !== undefined)
+			return { linktext: `${path}#${heading}` };
+		return {
+			linktext: path,
+			// WHERE IN THE NOTE the preview opens is this panel's to say, and it is the
+			// one thing a preview asked from HERE can offer that one asked anywhere else
+			// cannot: the row already prints the spot, so the popover opens ON THAT LINE
+			// instead of at the note's head. `scroll` is the app's own name for a markdown
+			// view's top visible line (see EphemeralState) — the same number the position
+			// database keeps, said in the vocabulary the view reads it in — so nothing
+			// here invents a state shape for a popover. A row that printed no line names
+			// no spot, and the note opens where the database lands it.
+			state: d.lineIndex === undefined ? undefined : { scroll: d.lineIndex },
+		};
+	}
+
+	// The deepest heading over the row's line, when it can be TRUSTED to name the same
+	// section after the app has resolved `#heading` again. Two guards, each worth more
+	// than the covered jump it replaces: the app takes the FIRST heading with that text,
+	// so a note that says "Notes" twice would open the wrong one; and a heading carrying
+	// `#`, `^`, `|`, `[` or `]` would be read as link syntax instead of as its own name.
+	// What needs no guard is that the heading still exists: the trail is read from the
+	// cache, which is the note as it stands NOW (see reads.headingsFor) — not the note
+	// as it was when the visit was recorded.
+	private subpathHeading(entry: NavEntry, path: string, d: NavEntryDescription): string | undefined {
+		if (entry.kind === 'view' || d.lineIndex === undefined)
+			return undefined;
+		const trail = this.trailFor(entry, d);
+		const deepest = trail[trail.length - 1];
+		if (!deepest || UNTRAVELABLE.test(deepest))
+			return undefined;
+		const headings = this.reads.headingsFor(path);
+		if (headings && headings.filter(h => h.heading === deepest).length !== 1)
+			return undefined;
+		return deepest;
 	}
 
 	// A row was right-clicked: raise the APP's own menu for the file behind it, with

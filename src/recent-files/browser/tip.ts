@@ -52,7 +52,15 @@ export class NavRowTip {
 	private doc: Document;
 	private win: Window;
 
-	constructor(private list: HTMLElement) {
+	// `quiet` answers SHOULD THE HINT SPEAK AT ALL, asked fresh at every hover and
+	// again at the end of its delay: the one thing that silences it — the NOTE
+	// itself standing open over the rows, drawn by the app's own preview (see
+	// RecentFilesBrowser.hoverRow) — is a thing this element cannot see, so the
+	// answer is the browser's to give (see PreviewSettle.isOpen). Asked rather than
+	// remembered because its lifetime is the popover's: a preview that has closed
+	// gives the rows their voice back, wherever the pointer happens to be — no
+	// leaving the list, no rebuild, no flag to forget to clear.
+	constructor(private list: HTMLElement, private quiet?: () => boolean) {
 		// The list's own document, not the top one: a panel may stand in a popout
 		// window, and a tooltip has to be built and placed in the window the reader is
 		// looking at (see RecentFilesView). Its `defaultView` is that window — the
@@ -65,7 +73,6 @@ export class NavRowTip {
 		// each of them. Everything below is the pointer's own reading of where it is.
 		this.list.addEventListener('pointerover', this.onOver);
 		this.list.addEventListener('pointerout', this.onOut);
-		this.list.addEventListener('pointerleave', this.onLeave);
 		// A press is about to travel or to rebuild the list, and a tooltip pinned to the
 		// row it names would be left pointing at a row that is no longer there. The
 		// WRITE half of the panel's reading: the list is click-only, so this is the one
@@ -88,6 +95,22 @@ export class NavRowTip {
 		this.tips.delete(el);
 	}
 
+	// TAKE BACK what was said, and what was about to be: the app has put the NOTE
+	// itself over the rows (see RecentFilesBrowser.hoverRow — it says so the moment
+	// the app opens one), and what a box of small print could add to the page is
+	// nothing. Two boxes answering one question is already one too many: the note
+	// is what the reader was reading the row to get at, and the path, the alias or
+	// the section chain — the things a row cannot print and says here instead —
+	// are all things the page has said better before it has finished appearing.
+	//
+	// What this does NOT do is remember anything: whether the hint speaks is asked
+	// fresh at every hover (see `quiet`, answered by the browser from the app's own
+	// handle), because the answer's lifetime is the popover's — a preview that has
+	// closed gives the rows their voice back, wherever the pointer happens to be.
+	retract(): void {
+		this.forget();
+	}
+
 	// The list is being REBUILT (see RecentFilesList.render): the rows the registered
 	// tips belong to are gone, so the one on screen — which points at a row of the
 	// previous render — has to go with them. The registry itself needs no clearing: it
@@ -101,7 +124,6 @@ export class NavRowTip {
 		this.forget();
 		this.list.removeEventListener('pointerover', this.onOver);
 		this.list.removeEventListener('pointerout', this.onOut);
-		this.list.removeEventListener('pointerleave', this.onLeave);
 		this.list.removeEventListener('pointerdown', this.onLeave);
 		this.list.removeEventListener('scroll', this.onLeave);
 	}
@@ -119,6 +141,14 @@ export class NavRowTip {
 			this.forget();
 			return;
 		}
+		// The NOTE ITSELF is standing over the rows (see retract): the hint's answer
+		// has already been given better, so there is nothing to start a clock for.
+		// Asked rather than remembered — the answer ends with the popover, not with
+		// any journey of the pointer's.
+		if (this.quiet?.()) {
+			this.forget();
+			return;
+		}
 		const target = this.subject(ev.target as Node | null);
 		if (target === this.anchor)
 			return;
@@ -131,13 +161,16 @@ export class NavRowTip {
 		this.anchor = target;
 		this.timer = this.win.setTimeout(() => {
 			this.timer = undefined;
-			if (this.anchor === target)
+			// Asked AGAIN at the end of the delay: a preview that opened while the
+			// pointer sat still answers the hover in the meantime.
+			if (this.anchor === target && !this.quiet?.())
 				this.show(target, content);
 		}, TIP_DELAY_MS);
 	};
 
-	// The pointer left. A move that stays INSIDE the subject is not a leave (the row's
-	// own children fire this on their way past each other), and anything else is.
+	// The pointer left one row for another — or for the list's own edge. A move that
+	// stays INSIDE the subject is not a leave: the row's own children fire this on
+	// their way past each other.
 	private onOut = (ev: PointerEvent): void => {
 		const to = ev.relatedTarget as Node | null;
 		if (this.anchor && to && this.anchor.contains(to))

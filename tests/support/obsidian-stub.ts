@@ -385,6 +385,15 @@ function installDomHelpers(): void {
 	proto.setCssStyles = function (this: HTMLElement, styles: Record<string, string>) {
 		Object.assign(this.style, styles);
 	};
+	// Obsidian's own replacement for `instanceof`, safe across the several windows an
+	// app really has (pop-outs, iframes). Sources use it rather than the operator (see
+	// hover-settle.ts), so it has to exist wherever a test walks a DOM it cannot see.
+	(Element.prototype as unknown as Record<string, unknown>).instanceOf = function (
+		this: Element,
+		ctor: new (...args: never[]) => unknown,
+	) {
+		return this instanceof ctor;
+	};
 	proto.setCssProps = function (this: HTMLElement, props: Record<string, string>) {
 		for (const key of Object.keys(props))
 			this.style.setProperty(key.startsWith('--') ? key : `--${key}`, props[key]);

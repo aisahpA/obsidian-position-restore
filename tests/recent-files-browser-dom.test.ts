@@ -7,11 +7,12 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
+import type { HoverParent } from 'obsidian';
 
 import { RecentFilesModal } from '@/recent-files/browser/modal';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
-import type { PathDisplayMode } from '@/types';
+import type { EphemeralState, PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
@@ -97,9 +98,11 @@ function harnessAll(
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
 	mobile = false,
 	mtimes: Record<string, number> = {},
+	// The saved positions the note rows are read from (see harness's own `saved`).
+	saved: ((path: string) => EphemeralState | undefined) | undefined = undefined,
 ): ReturnType<typeof harness> {
 	return harness(entries, index, files, deleted, live, headingMap, mobile, mtimes,
-		prefs({ landings: 'all' }).browser);
+		prefs({ landings: 'all' }).browser, saved);
 }
 
 // A PLACE of the recent-files list, in the two shapes the store really produces
@@ -212,6 +215,12 @@ function harness(
 	// choice is not the dialog's — and the default is a fresh one per harness, so
 	// tests cannot leak a preference into each other through the settings file.
 	browserPrefs: RecentFilesBrowserPrefs = defaultPrefs(),
+	// The position database's answer for a note (see RecentFilesBrowserOptions.
+	// savedPosition): the line a plain open lands on, which is the line the note's OWN
+	// row asks a preview for. Undefined by default, and deliberately so — a fixture
+	// without one is a panel whose every note has no spot at all, which is what most of
+	// this suite is about.
+	saved: (path: string) => EphemeralState | undefined = () => undefined,
 ) {
 	// The place list's travel: the panel hands it a place index and the list
 	// decides how to go there (a file opens the plain way, a jump lands — see
@@ -316,7 +325,7 @@ function harness(
 	const places = { entries, index, travel: jumpTo, subscribe: () => () => {}, forget };
 	let modal: RecentFilesModal;
 	try {
-		modal = new RecentFilesModal(app as never, places as never, undefined, browserPrefs);
+		modal = new RecentFilesModal(app as never, places as never, saved, browserPrefs);
 	} finally {
 		Platform.isMobile = previous;
 	}
@@ -2536,15 +2545,40 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 40 }),
 		visit('b.md', NOW),
 	];
+	// A note with parsed headings, as the metadata cache reports them: the row eleven
+	// lines down sits inside "Beta", which starts at line 5.
+	const heading = (text: string, line: number) => ({
+		heading: text, level: line === 0 ? 1 : 2, position: { start: { line } },
+	});
+	const withHeadings = (headings: unknown[], saved?: Record<string, EphemeralState>) =>
+		harnessAll(jumped(), 3, files, [], {}, { 'a.md': headings }, false, {},
+			path => saved?.[path]);
 	// The questions the app was asked, in order: the panel hands each one over as the
 	// app's own event, with the request as its second argument (see hoverRow).
 	const asked = (trigger: unknown) =>
 		(trigger as { mock: { calls: unknown[][] } }).mock.calls
 			.filter(c => c[0] === 'hover-link')
 			.map(c => c[1] as {
-				source?: string; targetEl?: HTMLElement;
+				source?: string; targetEl?: HTMLElement; hoverParent?: HoverParent;
 				linktext?: string; sourcePath?: string; state?: { scroll?: number };
 			});
+	// THE APP ANSWERING, as much of it as a test can stand in for: the core writes the
+	// popover it opened back into the HOVER PARENT the panel handed it, and that field is
+	// the whole of the handle this panel has on anything the app drew (see hover-settle.ts)
+	// — there is no PeekPopover in jsdom, and none of what the core does next can happen
+	// here. The panel looks for it between paints, so one turn of that clock is one look.
+	// The card is returned because its END is half of the answer: taking it out of the
+	// document is the preview being closed.
+	const opened = async (h: ReturnType<typeof harness>): Promise<HTMLElement> => {
+		const parent = asked(h.trigger).at(-1)!.hoverParent!;
+		const card = document.body.createDiv({ cls: 'popover' });
+		parent.hoverPopover = { hoverEl: card } as never;
+		await vi.advanceTimersByTimeAsync(150);
+		return card;
+	};
+	// The row's own hint, as the document carries it: the panel draws it there rather than
+	// inside the list, which scrolls and clips (see tip.ts).
+	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
 
 	it('names the file a row stands for, once per arrival', () => {
 		const h = harness(plain(), 1, files);
@@ -2606,10 +2640,74 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('promises no line for a row that printed none', () => {
-		// A file row is an OPEN: what it promises is the note, and where a plain open
-		// lands is the position database's business rather than this asking's (see
-		// RecentFilesList.activeRep). Nothing is invented to fill the silence.
+	it('asks for the WHOLE NOTE for the note’s own row, even where it could name a section', () => {
+		// THE ROW IS THE FILE, so the note is what it asks to see: its click opens the note
+		// the plain way (see RecentFilesList.activeRep), and the preview is that same promise
+		// opening under the pointer instead of in a pane. Its line DOES sit under "Beta" —
+		// but a reader hovering "meeting-notes" and getting its third heading has not been
+		// shown what they pointed at, however instantly it arrived, so the note comes whole
+		// and travels to the line, behind the cover (see hover-settle.ts).
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
+
+		h.note('a').dispatchEvent(pointer('pointerover'));
+
+		const question = asked(h.trigger);
+		expect(question).toHaveLength(1);
+		expect(question[0].linktext).toBe('a.md');
+		// …and the line named is where the note would have been opened anyway: the
+		// position database's own answer, which is what makes this preview agree with the
+		// click standing behind it.
+		expect(question[0].state).toEqual({ scroll: 11 });
+	});
+
+	it('names the SECTION the row stands in, when the note has one there', () => {
+		// Asked for a line, the app's own popover cannot open at it: it draws the whole
+		// note first and moves the scroller only once that render lands — and flashes
+		// the target on the way (see hover-settle.ts). Asked for a section it draws ONLY
+		// that section, so there is nothing left to travel to and nothing to flash.
+		// Naming the section therefore costs no line at all: it is where the row stands.
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)]);
+
+		h.place('L12').dispatchEvent(pointer('pointerover'));
+
+		const question = asked(h.trigger);
+		expect(question).toHaveLength(1);
+		expect(question[0].linktext).toBe('a.md#Beta');
+		// …and there is no second instruction in the same breath: a line number beside a
+		// section would be the app going somewhere it was not asked to go.
+		expect(question[0].state).toBeUndefined();
+	});
+
+	it('falls back to the line for a heading the app could not tell apart', () => {
+		// `#Beta` resolves to the FIRST heading with that text, so a note that says
+		// "Beta" twice would open the wrong one of them — and a wrong section shown
+		// without moving once is worse than the right place arriving late (which the
+		// cover hides anyway, see PreviewSettle).
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5), heading('Beta', 20)]);
+
+		h.place('L12').dispatchEvent(pointer('pointerover'));
+
+		expect(asked(h.trigger)[0].linktext).toBe('a.md');
+		expect(asked(h.trigger)[0].state).toEqual({ scroll: 11 });
+	});
+
+	it('falls back to the line for a heading that cannot travel in a link', () => {
+		// The characters below are link syntax to the parser, not part of a name: each
+		// opens something else (a subpath, an alias, the link itself), so the heading
+		// would arrive as something other than itself.
+		const h = withHeadings([heading('Alpha', 0), heading('Beta | gamma', 5)]);
+
+		h.place('L12').dispatchEvent(pointer('pointerover'));
+
+		expect(asked(h.trigger)[0].linktext).toBe('a.md');
+		expect(asked(h.trigger)[0].state).toEqual({ scroll: 11 });
+	});
+
+	it('promises no line for a row whose note has no spot at all', () => {
+		// Nothing is invented to fill the silence: the line a preview is asked for is a
+		// place the note HAS, and a note the reader never left anywhere — no jump in it,
+		// nothing saved for it — has none to be asked about. What the preview then shows is
+		// the note from its head, which is what opening it plainly would have shown.
 		const h = harness(plain(), 1, files);
 
 		h.note('a').dispatchEvent(pointer('pointerover'));
@@ -2642,5 +2740,54 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 
 		expect(asked(h.trigger)).toHaveLength(0);
 		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	// WHAT THE ROWS SAY FOR THEMSELVES STANDS ASIDE FOR WHAT THE APP IS SHOWING. The hint
+	// answers what the row could not print (see RecentFilesList.fileRow) — the path the
+	// setting left off it, the other names a note goes by — and the note answers all of it
+	// too: better, and on the page rather than in a box beside it. Nothing of this is the
+	// asking being refused; it is two answers to one question being one answer too many.
+	//
+	// And nothing of it is REMEMBERED, either: whether a hint may speak is asked fresh at
+	// every hover (see RecentFilesListOptions.tipsQuiet), so the answer's lifetime is the
+	// popover's — not the pointer's, and not some flag's that a later hover has to clear.
+	it('takes its own words back the moment the note is standing over the rows', async () => {
+		const h = harness(plain(), 1, files);
+		// A hovering that got nothing else to go on is a hovering with something to say.
+		expect(h.hover(h.note('a'))).not.toBeNull();
+
+		// …and then the app opens one: the reader held its key, or has once said that
+		// hovering is enough for every list the app has. What was said is taken back…
+		await opened(h);
+		expect(tip()).toBeNull();
+
+		// …and nothing new is said while the note stands: the page has already answered
+		// "which file is this" better than the box beside it could.
+		expect(h.hover(h.note('b'))).toBeNull();
+	});
+
+	it('keeps what it has to say when the app answers nothing', async () => {
+		// Refusing is not answering either: a preview plugin turned off, or a key still
+		// being held back, is a hovering that got nothing at all — and the row's own words
+		// are then the only thing reading it has earned.
+		const h = harness(plain(), 1, files);
+		h.note('a').dispatchEvent(pointer('pointerover'));
+		await vi.advanceTimersByTimeAsync(2000);
+
+		expect(h.hover(h.note('a'))).not.toBeNull();
+	});
+
+	it('speaks again once the note is gone — the pointer never having left the list', async () => {
+		// The silence ends with the PREVIEW, not with a journey of the pointer's: a hint
+		// that stayed off after the popover closed was the bug this asking is the answer
+		// to (see tip.ts's `quiet`), and "away and back" is no longer part of the bargain.
+		const h = harness(plain(), 1, files);
+		expect(h.hover(h.note('a'))).not.toBeNull();
+		const card = await opened(h);
+		expect(tip()).toBeNull();
+
+		card.remove();
+
+		expect(h.hover(h.note('b'))).not.toBeNull();
 	});
 });

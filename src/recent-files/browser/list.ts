@@ -205,7 +205,21 @@ export interface RecentFilesListOptions {
 	// whether a preview opens at all is the app's decision, made by the same rules it
 	// applies to a link in a note. The ROW INDEX is what travels, and it is this
 	// render's own, which is enough for an answer drawn while the pointer sits still.
-	onHoverRow: (rep: number, ev: PointerEvent, el: HTMLElement) => void;
+	// The row-stands-for-the-NOTE ITSELF rather than for a spot inside it (see fileRow):
+	// a note's own row names the FILE, while a landing's row names a place in it. Handed
+	// over with the arrival because what the row IS decides how it asks the app to open
+	// it, and only the list drew the row (see activeRep for the same distinction, read
+	// from the other direction).
+	onHoverRow: (rep: number, ev: PointerEvent, el: HTMLElement, file: boolean) => void;
+	// Whether the rows' hints should be SILENT right now, asked fresh at every hover
+	// (see NavRowTip): the one thing that silences them — the NOTE ITSELF standing
+	// open over the list, drawn by the app's own preview — is a thing this list
+	// cannot see, so the answer is handed in by the browser (see PreviewSettle.isOpen).
+	tipsQuiet?: () => boolean;
+	// The pointer left the LIST — the same boundary that clears `hovered` (see the
+	// constructor). The browser listens too: a hover session is over, and whatever
+	// the app was asked during it can stand down (see PreviewSettle.hoverEnded).
+	onHoverEnd?: () => void;
 	// The reader took a row off the list, from the × the row carries: WHICH row, by
 	// its identity — the group KEY, which is what a row is here (see
 	// NavFileGroup.key, and nav/entry.ts's navGroupKey). This is the list's one way
@@ -307,7 +321,7 @@ export class RecentFilesList {
 		// position at all (see the class comment) — the rows' own clicks are wired as
 		// the rows are drawn. The tooltip is the one pointer reader, and it answers with
 		// words rather than with a move.
-		this.tip = new NavRowTip(opts.list);
+		this.tip = new NavRowTip(opts.list, opts.tipsQuiet);
 		if (typeof ResizeObserver === 'function') {
 			this.watched = new ResizeObserver(() => this.fitTrails());
 			this.watched.observe(opts.list);
@@ -318,6 +332,7 @@ export class RecentFilesList {
 		// FOR each other — the list is the boundary that means "not on a row at all".
 		this.opts.list.addEventListener('pointerleave', () => {
 			this.hovered = undefined;
+			this.opts.onHoverEnd?.();
 		});
 	}
 
@@ -903,8 +918,11 @@ export class RecentFilesList {
 		const rep = this.activeRep(ref);
 		// A row with nowhere to go has nothing to preview either — the algebra is
 		// `activeRep`'s, which is the one place this class says which record a row acts on.
+		// A file row's identity is the GROUP, a landing's is its own place index — which
+		// of the two this arrival is decides how the app is asked to open it (see the
+		// option above).
 		if (rep >= 0)
-			this.opts.onHoverRow(rep, ev, ref.el);
+			this.opts.onHoverRow(rep, ev, ref.el, ref.group !== undefined);
 	}
 
 	// Put the position away: the list back to the shape it opens in — nothing
@@ -1126,6 +1144,22 @@ export class RecentFilesList {
 		this.selected?.el.setAttr('aria-selected', 'false');
 		this.selected = undefined;
 		this.opts.onActiveRow(undefined);
+	}
+
+	// The NOTE ITSELF is standing over the rows — the app answered the hover (see
+	// RecentFilesBrowser.hoverRow): take the rows' hint off it. What the rows say on
+	// hover is what the row could not print — the path the setting left off it, the
+	// file's other names, the outer half of a section chain — and open over the row,
+	// the note has said all three before it has finished drawing itself: its own
+	// title, its own frontmatter, its own headings read like the outline. A hint
+	// keeping its place beside a page that answered it is not answering anything.
+	//
+	// Nothing is REMEMBERED here: whether a hint may speak after this is asked fresh
+	// at the next hover (see RecentFilesListOptions.tipsQuiet), so the rows get their
+	// voice back the moment the preview is gone — not the next time the pointer
+	// happens to cross some boundary.
+	hideTip(): void {
+		this.tip.retract();
 	}
 
 	// The panel is going (see RecentFilesBrowser.destroy): the tooltip is the one thing
