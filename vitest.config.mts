@@ -6,7 +6,7 @@ export default defineConfig({
 		// The array form is required for both entries: '@/x' needs a regex to
 		// match the segment after the slash, and a bare '@' string would also
 		// capture '@codemirror/...'. '@/x' -> src/ mirrors tsconfig `paths`
-		// and the rollup alias.
+		// — which is the same mapping esbuild resolves from tsconfig while bundling.
 		alias: [
 			{ find: /^@\//, replacement: fileURLToPath(new URL('./src/', import.meta.url)) },
 			// 'obsidian' is a typings-only package with no runnable entry; point

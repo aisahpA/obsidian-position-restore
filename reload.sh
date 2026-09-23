@@ -12,7 +12,7 @@ set -euo pipefail
 # ------------------------------------------------------------------
 VAULT_DIR="${VAULT_DIR:-}"
 
-# Project directory = directory of this script (build output goes to "." per rollup config)
+# Project directory = directory of this script (the build writes to "dist" below it)
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Local (git-ignored) config: reload.local.sh may set VAULT_DIR etc.
@@ -46,17 +46,18 @@ fi
 
 echo "→ Building plugin ($PLUGIN_ID, mode=$BUILD_MODE) ..."
 if [ "$BUILD_MODE" = "dev" ]; then
-  npx rollup --config rollup.config.mjs
+  node esbuild.config.mjs
 else
   npm run build
 fi
 
 echo "→ Copying build outputs to $PLUGIN_DIR ..."
 mkdir -p "$PLUGIN_DIR"
+# `dist/` is the plugin (see esbuild.config.mjs): main.js, manifest.json and the
+# built stylesheet, all made by the build that just ran. The project root holds
+# sources only — styles.css there is the hand-written one, comments and all.
 for f in main.js manifest.json styles.css; do
-  if [ -f "$PROJECT_DIR/$f" ]; then
-    cp "$PROJECT_DIR/$f" "$PLUGIN_DIR/$f"
-  fi
+  cp "$PROJECT_DIR/dist/$f" "$PLUGIN_DIR/$f"
 done
 
 echo "→ Reloading Obsidian plugin $PLUGIN_ID ..."

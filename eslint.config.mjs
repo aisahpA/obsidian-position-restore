@@ -24,7 +24,7 @@ export default defineConfig(
 			},
 			parserOptions: {
 				projectService: {
-					allowDefaultProject: ['eslint.config.mjs', 'manifest.json', 'rollup.config.mjs', 'version-bump.mjs'],
+					allowDefaultProject: ['eslint.config.mjs', 'manifest.json', 'esbuild.config.mjs', 'version-bump.mjs'],
 				},
 				tsconfigRootDir: import.meta.dirname,
 				extraFileExtensions: ['.json'],
@@ -33,7 +33,7 @@ export default defineConfig(
 	},
 	{
 		// Node-only build scripts: Obsidian runtime rules don't apply.
-		files: ['rollup.config.mjs', 'version-bump.mjs'],
+		files: ['esbuild.config.mjs', 'version-bump.mjs'],
 		languageOptions: {
 			globals: { ...globals.node },
 		},
