@@ -2742,6 +2742,24 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
+	it('marks the card the app opened, which is the card this panel has to lift', async () => {
+		// The note answering a hover from the DIALOG shell opens behind it: the core
+		// puts every popover on the document's body and paints it below a modal
+		// container (see body.ts's liftPreview), so the page the dialog asked for is
+		// the one thing its own frame is standing over. Neither the card's paint nor
+		// the layers are here to test — no stylesheet runs in jsdom, and both values
+		// are the app's — but the SEAM is: which cards get marked is exactly which
+		// cards this panel asked the app for, and one it did not ask about is not
+		// this panel's to dress up. Marked rather than styled inline, because how a
+		// popover looks is the theme's answer and always has been.
+		const h = harness(plain(), 1, files);
+		h.note('a').dispatchEvent(pointer('pointerover'));
+
+		const card = await opened(h);
+
+		expect(card.classList.contains('position-restore-nav-preview')).toBe(true);
+	});
+
 	// WHAT THE ROWS SAY FOR THEMSELVES STANDS ASIDE FOR WHAT THE APP IS SHOWING. The hint
 	// answers what the row could not print (see RecentFilesList.fileRow) — the path the
 	// setting left off it, the other names a note goes by — and the note answers all of it

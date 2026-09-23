@@ -46,8 +46,11 @@ export class PreviewSettle {
 	private parent?: HoverParent;
 	// Said the moment the app HAS answered, once per popover: the one thing about
 	// the asking this panel cannot know for itself (whether anything opened at all
-	// is the app's decision — its delay, its key rule, its own switch).
-	private onOpen?: () => void;
+	// is the app's decision — its delay, its key rule, its own switch). The CARD is
+	// handed over with the news, because nothing outside this module has any other
+	// handle on what the app drew (see RecentFilesBrowser.liftPreview: a preview
+	// asked for from a dialog has to be able to clear that dialog).
+	private onOpen?: (el: HTMLElement) => void;
 	// The paint loop, while it runs (see start).
 	private running = false;
 	// Whether the pointer is ON THE LIST: the asking is live, and a popover that
@@ -73,7 +76,7 @@ export class PreviewSettle {
 	// The two things this panel knows and this module cannot: WHO to watch (the
 	// parent handed to the app with every asking), and WHO TO TELL when the app
 	// answers (see RecentFilesBrowser: the rows' hint stands aside for the note).
-	attach(parent: HoverParent, onOpen: () => void): void {
+	attach(parent: HoverParent, onOpen: (el: HTMLElement) => void): void {
 		this.parent = parent;
 		this.onOpen = onOpen;
 	}
@@ -167,7 +170,7 @@ export class PreviewSettle {
 			this.reveal();
 			this.popover = pop;
 			this.coveredEl = undefined;
-			this.onOpen?.();
+			this.onOpen?.(el);
 			if (this.wantCover)
 				this.beginCover(el);
 			return;

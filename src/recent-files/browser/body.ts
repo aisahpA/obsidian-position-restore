@@ -51,6 +51,11 @@ let browserSeq = 0;
 // subpathHeading, which asks whether a heading can be trusted to name a spot).
 const UNTRAVELABLE = /[#^|[\]]/;
 
+// Put on the card the app opens for this panel, and on nothing else (see liftPreview):
+// the popover is the core's object, drawn by the core's own rules, and the one thing
+// this panel ever says about how it looks is WHERE IT STANDS.
+const PREVIEW_CLASS = 'position-restore-nav-preview';
+
 // The preferences the browser DRAWS BY, handed to every shell by the plugin that
 // persists them (see PluginSettings and PositionManager.browserPrefs). All are
 // READERS over the one shared settings object rather than values: a resident panel draws
@@ -241,9 +246,14 @@ export class RecentFilesBrowser {
 		};
 		this.list = new RecentFilesList(this.listOpts);
 		// The settle's two ends, tied once: WHO to watch for the app's answer (the
-		// parent every hoverRow hands over), and WHO TO TELL when it comes — the
-		// rows' hint, which stands aside for the note itself (see NavRowTip.retract).
-		this.settle.attach(this.hoverParent, () => this.list.hideTip());
+		// parent every hoverRow hands over), and WHAT TO DO when it comes — give the
+		// card the room it needs over this panel's own shell (see liftPreview), and
+		// take the rows' hint off a page that has answered every question it would
+		// have answered (see NavRowTip.retract).
+		this.settle.attach(this.hoverParent, card => {
+			this.liftPreview(card);
+			this.list.hideTip();
+		});
 		// The pointer is how the body knows the reader is USING this list, which is
 		// the question the held order answers (see frozenOrder). Both listeners are
 		// on the list element and go with it; nothing to undo in destroy.
@@ -661,6 +671,29 @@ export class RecentFilesBrowser {
 		if (headings && headings.filter(h => h.heading === deepest).length !== 1)
 			return undefined;
 		return deepest;
+	}
+
+	// The card THE APP HAS JUST OPENED, and the one thing about it this panel says.
+	//
+	// A preview asked for from the "Open recent files" DIALOG opens behind that dialog,
+	// and what stands behind it is one line of the app's own stylesheet: the core puts
+	// every popover on the document's body — its `position()` re-parents the card there
+	// itself, whenever it is not already — and paints it at `--layer-popover` (30),
+	// while a modal container sits at `--layer-modal` (50). So the note is there: the
+	// card answered, the pointer can even reach it, and every line of it is covered by
+	// the shell that asked for it.
+	//
+	// The app never had this to solve, which is why nothing upstream answers it: no
+	// surface the core previews from — a note, the file explorer, the search panel —
+	// is itself inside a dialog. Half of THIS panel's surfaces are (see modal.ts), and
+	// the other half is a sidebar leaf standing where no layer comes between the two
+	// anyway. So every card this panel causes is lifted — above the dialog layer
+	// rather than ONTO it, because two elements sharing one z-index are ordered by
+	// which was appended last, and when that happens is the app's business rather
+	// than the asking's. Nothing else about the card is touched: it stays the core's
+	// popover, dressed by the core's rules and by the reader's theme.
+	private liftPreview(card: HTMLElement): void {
+		card.addClass(PREVIEW_CLASS);
 	}
 
 	// A row was right-clicked: raise the APP's own menu for the file behind it, with

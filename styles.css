@@ -836,6 +836,18 @@ body.is-mobile .position-restore-cue {
 	padding: 6px 8px;
 }
 
+/* THE APP'S OWN PAGE PREVIEW, as asked for from THIS PANEL (see body.ts's liftPreview).
+   The core puts every popover on the document's body and paints it at
+   `--layer-popover`, which is BELOW `--layer-modal` — right for a preview asked for
+   from a note, and fatal for one asked for from the "Open recent files" dialog, whose
+   container then covers the very page it asked for. So a card this panel caused is
+   raised above the dialog layer rather than ONTO it: elements sharing one z-index are
+   ordered by whoever was appended last, and the app decides when that is. Nothing else
+   about the card is said here — it stays the core's popover. */
+.popover.hover-popover.position-restore-nav-preview {
+	z-index: calc(var(--layer-modal) + 1);
+}
+
 /* THE RESIDENT SIDEBAR PANEL (RecentFilesView): the same body, standing in a
    workspace leaf. Everything above applies to it unchanged — the rows, the touch
    layout — because the shell carries the same .position-restore-nav-panel class. What

@@ -64,6 +64,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 
 		expect(content.style.opacity).toBe('0');
 		expect(opened).toHaveBeenCalledTimes(1);
+		// …and the CARD travels with the news: it is the only handle anybody outside
+		// this module has on what the app drew (see RecentFilesBrowser.liftPreview).
+		expect(opened).toHaveBeenCalledWith(el);
 	});
 
 	it('reveals when the scroll’s own witness arrives, with the search mark already off', async () => {
