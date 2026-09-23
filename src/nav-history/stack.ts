@@ -39,7 +39,9 @@ import { loadNavHistory, persistNavHistory } from './store';
 // and keeps its own kind of record: whether the focus moving between FILE tabs is
 // worth a step (navRecordActivation — a view's activation always is: a view is a
 // place the reader went to, and one this class has to know they are standing in;
-// see onVisit), whether an inferred cursor jump is (navRecordTeleport),
+// see onVisit), whether an inferred cursor jump is (navTeleportMinLines — how
+// many lines the move crossed; 0 keeps none of them, and on mobile none is ever
+// inferred in the first place),
 // the same-location dedup, and the ceiling. The funnel's other listener keeps a
 // place list instead of steps; neither list knows the other exists, and this one
 // no longer reports on the other's behalf.
@@ -153,7 +155,11 @@ export class NavStack implements NavFunnelSink {
 		if (recording.cause === 'tab' && recording.record.kind !== 'view'
 			&& !this.settings.navRecordActivation)
 			return;
-		if (recording.cause === 'teleport' && !this.settings.navRecordTeleport)
+		// The threshold itself is measured in the sampler — the only place that
+		// knows how far the cursor moved — so a move below it never reaches this
+		// line and 0 publishes nothing at all. Kept here anyway because what
+		// counts as a step is this list's own call, not the funnel's.
+		if (recording.cause === 'teleport' && this.settings.navTeleportMinLines <= 0)
 			return;
 		this.pushIfNew(recording.record, recording.forced);
 	}

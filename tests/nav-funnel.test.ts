@@ -22,7 +22,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
-import { MarkdownView } from 'obsidian';
+import { MarkdownView, Platform } from 'obsidian';
 import { NavFunnel, NavLeave, NavRecording } from '@/nav/funnel';
 import { NavEntry, NewNavEntry } from '@/nav/entry';
 import { Sampler } from '@/position/capture/sampler';
@@ -473,11 +473,30 @@ describe('Sampler in-file teleport detection', () => {
 		expect(h.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 3, expect.anything());
 	});
 
-	it('navRecordTeleport off: the selection event path stays fully silent', () => {
-		const h = makeSamplerHarness({ navRecordTeleport: false });
+	it('on mobile the poll infers nothing: a 57-line cursor move writes the position and pushes no step', () => {
+		// The poll is the only cursor sampler a touch device has, and it has
+		// nothing worth inferring from: a swipe moves no cursor and a tap lands
+		// within the screenful already on screen. So a mobile reader's
+		// back/forward is about which FILE they came from — which is also the
+		// part of it no scroll-back can replace.
+		const origMobile = Platform.isMobileApp;
+		Platform.isMobileApp = true;
+		try {
+			const h = makeSamplerHarness(); // view cursor at 60, poll read at 3
+			h.sampler.sampleActiveView();
+			expect(h.recordTeleport).not.toHaveBeenCalled();
+			expect(h.leave).not.toHaveBeenCalled();
+			expect(h.database.setState).toHaveBeenCalled();
+		} finally {
+			Platform.isMobileApp = origMobile;
+		}
+	});
+
+	it('threshold 0: the selection event path stays fully silent', () => {
+		const h = makeSamplerHarness({ navTeleportMinLines: 0 });
 		h.onSelection(h.view.editor); // baseline: line 60
 		h.cursor.line = 3;
-		h.onSelection(h.view.editor); // 57-line jump, setting off
+		h.onSelection(h.view.editor); // 57-line jump, threshold 0
 		expect(h.recordTeleport).not.toHaveBeenCalled();
 		expect(h.leave).not.toHaveBeenCalled();
 	});

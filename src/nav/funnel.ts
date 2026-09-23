@@ -43,7 +43,8 @@ import { installOutlineCapture as installOutlineCaptureHook } from './outline-ca
 // itself, and the reason two readers can apply different gates to the same fact
 // (the stack's "record tab switches" is keyed on it PLUS the record's kind: a view
 // can only ever arrive this way, so its own gate would swallow the whole kind — see
-// stack.ts's onVisit. "Record large cursor jumps" is keyed on the cause alone.)
+// stack.ts's onVisit. "Cursor jump distance" is keyed on the cause alone — how
+// far a move actually went is the sampler's measurement, not the stack's.)
 //   open     — an ordinary file open (the setViewState patch)
 //   jump     — a keyed jump: an outline item, an anchor link, a search/backlink target
 //   tab      — a tab/pane activation (VSCode records active-editor changes the same way)
@@ -181,11 +182,12 @@ export class NavFunnel {
 		});
 	}
 
-	// Large same-file cursor jump (go-to-line, vim jump, far mouse click): per
-	// selection event on desktop, per poll tick on mobile. An INFERRED move, not a
-	// deliberate jump — whether it is worth a step is the stack's call (its
-	// navRecordTeleport setting); the landing is the post-jump read when one
-	// arrived with the call.
+	// Large same-file cursor jump (go-to-line, vim jump, far mouse click): one
+	// per selection event, desktop only — a swipe moves no cursor and a tap lands
+	// within the screenful, so a touch device has nothing left to infer. An
+	// INFERRED move, not a deliberate jump — whether it is worth a step is the
+	// stack's call (its navTeleportMinLines threshold); the landing is the
+	// post-jump read when one arrived with the call.
 	recordTeleport(path: string, leafId: string, line: number, landing?: NavEntryState) {
 		if (!this.isRecording())
 			return;

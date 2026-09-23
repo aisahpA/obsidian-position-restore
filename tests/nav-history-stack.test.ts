@@ -456,8 +456,8 @@ describe('NavStack recording settings', () => {
 		expect(pathOf(nav.stack.entries[nav.stack.index])).toBe('b.md');
 	});
 
-	it('navRecordTeleport off: cursor jumps record nothing', () => {
-		const nav = makeNav(makeApp(), { navRecordTeleport: false });
+	it('threshold 0: cursor jumps record nothing', () => {
+		const nav = makeNav(makeApp(), { navTeleportMinLines: 0 });
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42);
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 300);
 		expect(nav.stack.entries.length).toBe(0);

@@ -42,11 +42,14 @@ export function navHistorySettingsPage(ctx: SettingsPageContext): SettingDefinit
 					},
 				},
 				{
-					name: t('navHistory.recordTeleport.name'),
-					desc: t('navHistory.recordTeleport.desc'),
+					name: t('navHistory.teleportMinLines.name'),
+					desc: t('navHistory.teleportMinLines.desc'),
 					control: {
-						type: 'toggle',
-						key: 'navRecordTeleport',
+						type: 'number',
+						key: 'navTeleportMinLines',
+						min: 0,
+						max: 500,
+						step: 1,
 					},
 				},
 			],

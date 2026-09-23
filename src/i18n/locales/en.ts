@@ -137,7 +137,7 @@ export const en = {
 	// "Size configurable below" is NOT repeated here: the row it pointed at is
 	// named for that already.
 	'navHistory.intro':
-		'VSCode-style "navigate back" / "navigate forward": opening a file, and jumping inside one — a link, the outline, a search result — each take a step; whether switching tabs and far cursor moves do is what the two switches below decide. A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one — a link, the outline, a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
 	// The two commands that walk it (see settings/page's hotkeys row). Nothing
 	// here repeats the sentence above: the row is named for the keys it holds,
 	// and what back and forward mean has already been said on this page.
@@ -147,8 +147,8 @@ export const en = {
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
 	'navHistory.recordActivation.desc': 'Clicking another tab pushes a back/forward step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps — except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note. It governs the back/forward history only: the recent-files list records those views either way.',
-	'navHistory.recordTeleport.name': 'Record large cursor jumps',
-	'navHistory.recordTeleport.desc': 'A cursor move spanning many lines in one step (far mouse click, go-to-line, vim {/} page jumps) pushes a history step. Turn off if scrolling or misclicks keep polluting the history.',
+	'navHistory.teleportMinLines.name': 'Cursor jump distance',
+	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action — clicking a spot far away in the note, a go-to-line command, a keyboard motion that crosses many lines at once — counts as an in-file jump and pushes a back/forward step. Set 0 to never record one. Desktop only: the phone and tablet apps run no such detection.',
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 

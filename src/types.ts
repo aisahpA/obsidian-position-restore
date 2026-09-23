@@ -119,7 +119,16 @@ interface PluginSettings {
 	// Navigation history (VSCode-style back/forward) tuning.
 	navStackCap: number; // max entries kept in the nav history stack; oldest drop on overflow
 	navRecordActivation: boolean; // a FILE tab's activation records as a navigation entry (a view tab's always does — see nav-history/stack.ts's onVisit)
-	navRecordTeleport: boolean; // large same-file cursor jumps record as navigation entries
+	// How many lines one cursor move must cross before it counts as an in-file
+	// jump and takes a back/forward step: a go-to-line, a far click, a vim page
+	// motion. 0 records none of them. The number replaced a yes/no switch because
+	// the question was never whether such a record exists — it was how big a move
+	// the reader means, and that is a number they can answer and we cannot.
+	// Desktop only: a touch screen has no keyboard jumps, a swipe moves no cursor,
+	// and every deliberate far jump there (an outline item, an anchor link, a
+	// search hit) already arrives as its own keyed entry, so the poll has nothing
+	// left that is worth inferring a step from (see sampler.ts).
+	navTeleportMinLines: number;
 	// The recent-files list's own storage. It is a DIFFERENT thing from the
 	// back/forward stack above (and from the position records): what it holds is
 	// which files the reader has been in and which headings/anchors they jumped
@@ -161,7 +170,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	recordBaseScroll: false,
 	navStackCap: 50,
 	navRecordActivation: true,
-	navRecordTeleport: true,
+	navTeleportMinLines: 10,
 	navRecentCap: 200,
 	navRecentExcludeFolders: [],
 	navLandings: 'last',

@@ -1,6 +1,7 @@
 // Unit tests for the desktop per-selection-event teleport detection
 // (Sampler.onEditorSelection): event granularity replaces the poll's
-// 100ms-tick rule on desktop, with VSCode's 10-line threshold. Covers the
+// 100ms-tick rule on desktop, with the reader's own line threshold (VSCode's 10
+// is where it starts). Covers the
 // rolling baseline contract (refreshed even on gated-off movement), the
 // file-switch reset, the re-anchor epoch (restore landings reset silently),
 // the restore/search-anchor gates, and the landing-position contract: the
@@ -9,8 +10,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-import { MarkdownView } from 'obsidian';
+import { MarkdownView, Platform } from 'obsidian';
 import { Sampler } from '@/position/capture/sampler';
+import { PositionManager } from '@/position/manager';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
@@ -39,14 +41,14 @@ function makeFakeMarkdownView(path: string): MarkdownView {
 // refreshes the top — path+leaf guarded, keyed entries keep/backfill their
 // landing, keyless ones overwritten — and landing replaces the top teleport's
 // landing, exactly as the stack's onLanded does.
-function makeHarness(options?: { entries?: TestEntry[] }) {
+function makeHarness(options?: { entries?: TestEntry[]; settings?: Partial<PluginSettings> }) {
 	const view = makeFakeMarkdownView('a.md');
 	const app = {
 		workspace: {
 			getActiveViewOfType: () => view,
 		},
 	};
-	const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
+	const settings = { ...DEFAULT_SETTINGS, ...options?.settings } as PluginSettings;
 	const state = new PositionState(settings);
 	state.lastLoadedFilePath = 'a.md';
 	const entries = options?.entries ?? [];
@@ -135,6 +137,20 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 20;
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 20, expect.anything());
+	});
+
+	it('the reader’s threshold decides: the same move is nothing below it and a jump above it', () => {
+		const h = makeHarness({ settings: { navTeleportMinLines: 30 } });
+
+		h.cursor.line = 5;
+		h.onSelection(h.editor); // baseline: line 5
+		h.cursor.line = 25; // 20 lines — under the 30 the reader asked for
+		h.onSelection(h.editor);
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
+
+		h.cursor.line = 90; // 65 lines from the rolled baseline, over it
+		h.onSelection(h.editor);
+		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 90, expect.anything());
 	});
 
 	it('resets the baseline on a file switch, then records jumps in the new file', () => {
@@ -363,5 +379,50 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 
 		expect((h.entries[h.index] as { line?: number }).line).toBe(500);
 		expect(h.entries[h.index].st).toBeUndefined();
+	});
+});
+
+// The other half of "mobile records no cursor jumps". The handler above is
+// driven by a workspace listener, and that listener is a DESKTOP-ONLY install
+// (PositionManager.installPatches branches on Platform.isDesktopApp); the
+// mobile poll path is deleted. A touch device therefore has no teleport source
+// at all — which is what the threshold setting's own description promises the
+// reader, so the branch that keeps that promise is pinned here.
+describe('the teleport watcher is installed on desktop only', () => {
+	function installCount(desktop: boolean): number {
+		const wasDesktop = Platform.isDesktopApp;
+		Platform.isDesktopApp = desktop;
+		try {
+			const spy = vi.spyOn(Sampler.prototype, 'installTeleportWatcher');
+			const app = {
+				workspace: {
+					containerEl: document.createElement('div'),
+					on: () => ({}),
+					offref: () => undefined,
+					getActiveViewOfType: () => null,
+					iterateAllLeaves: () => undefined,
+				},
+				metadataCache: { on: () => ({}), offref: () => undefined, getFileCache: () => null },
+				vault: { getName: () => 'Test', getAbstractFileByPath: () => null },
+			};
+			const manager = new PositionManager(
+				app as never,
+				{ db: {} } as never,
+				{ ...DEFAULT_SETTINGS } as PluginSettings,
+			);
+			manager.installPatches(() => undefined);
+			return spy.mock.calls.length;
+		} finally {
+			Platform.isDesktopApp = wasDesktop;
+			vi.restoreAllMocks();
+		}
+	}
+
+	it('desktop installs the per-event watcher', () => {
+		expect(installCount(true)).toBe(1);
+	});
+
+	it('mobile installs nothing — and its poll infers nothing either', () => {
+		expect(installCount(false)).toBe(0);
 	});
 });
