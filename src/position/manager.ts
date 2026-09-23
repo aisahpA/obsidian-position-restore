@@ -362,11 +362,12 @@ export class PositionManager {
 		this.stack.applyStackCap();
 	}
 
-	// The recent-files list's own folder rule changed: drop the places the new
+	// One of the recent-files list's own rules changed — a folder added to the
+	// "do not list" list, or a frontmatter property: drop the places the new
 	// rule excludes. A place the reader can no longer be shown must not keep a
 	// slot in a capped list until they happen to revisit it — and the drop has to
 	// happen while they are looking at the setting they just changed.
-	applyNavRecentFolders(): void {
+	applyNavRecentExclusions(): void {
 		if (this.places.pruneExcluded() > 0)
 			this.places.applyCap();
 	}
@@ -400,8 +401,11 @@ export class PositionManager {
 			this.applyNavStackCap();
 		if (this.settings.navRecentCap !== before.navRecentCap)
 			this.applyNavRecentCap();
-		if (!sameList(this.settings.navRecentExcludeFolders, before.navRecentExcludeFolders))
-			this.applyNavRecentFolders();
+		// Both of the list's own rules: which folders, and which frontmatter, it
+		// refuses. One prune answers either (see NavPlaces.pruneExcluded).
+		if (!sameList(this.settings.navRecentExcludeFolders, before.navRecentExcludeFolders)
+			|| !sameList(this.settings.navRecentExcludeProperties, before.navRecentExcludeProperties))
+			this.applyNavRecentExclusions();
 		// The cache is keyed by path and holds answers that the excluded-folder
 		// and frontmatter rules were consulted to produce, so a change to either
 		// rule invalidates it wholesale (see Sampler.clearExclusionCache).

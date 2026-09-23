@@ -1,5 +1,6 @@
 import { App, TFile } from 'obsidian';
 import { PluginSettings } from '@/types';
+import { frontmatterRuleMatches } from '@/shared/frontmatter';
 
 // Frontmatter-driven recording control, shared by the recording gate
 // (ExclusionChecker) and the db cleaner (CursorPositionDatabase.pruneDb) so a
@@ -21,6 +22,16 @@ import { PluginSettings } from '@/types';
 //    ignored). With a value — `publish: true` — the file is only excluded
 //    when the property matches that value. Both forms can mix in one list.
 //    Empty list = disabled.
+//
+// Only the escape hatch is THIS feature's. The entry form itself — what
+// `prop` and `prop: value` mean, and how a value is compared — is shared with
+// the recent-files list's own rule and lives in shared/frontmatter.ts, so the
+// two pages cannot drift apart in what an entry says.
+//
+// The recent-files list deliberately does NOT read the escape hatch back:
+// `position-restore` answers whether a POSITION is recorded, and a note the
+// reader opted out of position recording is still a place they navigate to
+// (see recent-files/places.ts).
 
 export const ESCAPE_HATCH_PROPERTY = 'position-restore';
 
@@ -29,24 +40,6 @@ export interface FrontmatterDecision {
 	forceRecord: boolean;
 	// `position-restore: false` or any configured B rule matched: never record.
 	skip: boolean;
-}
-
-// Loose value comparison against a typed frontmatter value (the metadata cache
-// already parsed the YAML). Booleans accept yes/no/on/off aliases; numbers and
-// strings compare case-insensitively; arrays match when any element does.
-function valueMatches(cached: unknown, expected: string): boolean {
-	const exp = expected.trim().toLowerCase();
-	if (Array.isArray(cached))
-		return cached.some((v) => valueMatches(v, expected));
-	if (typeof cached === 'boolean') {
-		const aliases: Record<string, boolean> = { true: true, false: false, yes: true, no: false, on: true, off: false };
-		return exp in aliases && aliases[exp] === cached;
-	}
-	if (cached === null || typeof cached === 'object')
-		return false;
-	if (typeof cached !== 'string' && typeof cached !== 'number')
-		return false;
-	return cached.toString().toLowerCase() === exp;
 }
 
 // Normalizes the escape-hatch marker to a strict boolean: booleans pass
@@ -79,23 +72,9 @@ export function evaluateFrontmatter(frontmatter: unknown, settings: PluginSettin
 		decision.forceRecord = true;
 	} else if (marker === false) {
 		decision.skip = true;
-	} else {
-		// B rule: each entry is `prop` (presence-only) or `prop: value`
-		// (value match). Short list (usually 0–3 entries); a plain loop is
-		// faster than allocating a Set per call.
-		for (const entry of settings.frontmatterExcludeProperties) {
-			if (!entry)
-				continue;
-			const sep = entry.indexOf(':');
-			const name = (sep === -1 ? entry : entry.slice(0, sep)).trim();
-			const expected = sep === -1 ? '' : entry.slice(sep + 1).trim();
-			if (!name || !(name in obj))
-				continue;
-			if (expected === '' || valueMatches(obj[name], expected)) {
-				decision.skip = true;
-				break;
-			}
-		}
+	} else if (frontmatterRuleMatches(frontmatter, settings.frontmatterExcludeProperties ?? [])) {
+		// B rule: an entry matched (see shared/frontmatter.ts).
+		decision.skip = true;
 	}
 	return decision;
 }

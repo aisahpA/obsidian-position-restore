@@ -28,6 +28,22 @@ function makeApp(): App {
 	} as unknown as App;
 }
 
+// A vault whose notes carry frontmatter: the list's own property rule reads the
+// metadata cache (see shared/frontmatter.ts), and that is the only part of the
+// app it asks — everything else is still the bare stub above. A path absent from
+// `props` answers like a file the cache has not parsed yet.
+function makeAppWithFrontmatter(props: Record<string, Record<string, unknown>>): App {
+	return {
+		...makeApp(),
+		metadataCache: {
+			getFileCache: (file: TFile) => {
+				const fm = props[file.path];
+				return fm ? { frontmatter: fm } : null;
+			},
+		},
+	} as unknown as App;
+}
+
 function makeSettings(over: Partial<PluginSettings> = {}): PluginSettings {
 	return { ...DEFAULT_SETTINGS, ...over } as PluginSettings;
 }
@@ -287,6 +303,74 @@ describe('NavPlaces — its own folder rule', () => {
 		expect(paths(places)).toEqual(['公开/b.md']);
 		// the place the reader was standing in is gone: nothing is "here"
 		expect(places.index).toBe(-1);
+	});
+});
+
+describe('NavPlaces — its own frontmatter rule', () => {
+	it('skips the files whose frontmatter matches a property rule', () => {
+		const app = makeAppWithFrontmatter({
+			'看板/board.md': { 'kanban-plugin': 'basic' },
+			'published/a.md': { publish: true },
+			'published/b.md': { publish: false },
+			'notes/c.md': { status: 'draft' },
+		});
+		const { places } = makePlaces({ navRecentExcludeProperties: ['kanban-plugin', 'publish: true'] }, app);
+		places.remember(visit('看板/board.md'));
+		places.remember(visit('published/a.md'));
+		places.remember(visit('published/b.md'));
+		places.remember(visit('notes/c.md'));
+
+		// A name on its own keeps out every file carrying it (`kanban-plugin`);
+		// a name with a value only the file whose value equals it (`publish: true`,
+		// so the still-unpublished b.md is listed). The entry form is the one the
+		// position rules already speak (see shared/frontmatter.ts).
+		expect(paths(places)).toEqual(['published/b.md', 'notes/c.md']);
+	});
+
+	it('drops the places a newly excluded property already holds', () => {
+		const app = makeAppWithFrontmatter({
+			'看板/board.md': { 'kanban-plugin': 'basic' },
+			'notes/a.md': { status: 'draft' },
+		});
+		const settings = makeSettings();
+		const places = new NavPlaces(app, settings);
+		places.remember(visit('看板/board.md'));
+		places.remember(jump('看板/board.md', 'outline:## T'));
+		places.remember(visit('notes/a.md'));
+
+		// The whole ROW goes — the note and each jump made inside it — as it does
+		// for a folder that was just excluded (see pruneExcluded).
+		settings.navRecentExcludeProperties = ['kanban-plugin'];
+		expect(places.pruneExcluded()).toBe(2);
+		expect(paths(places)).toEqual(['notes/a.md']);
+	});
+
+	it('does not read the position feature’s per-file marker', () => {
+		// `position-restore: false` answers whether a POSITION is recorded for
+		// this file — it says nothing about whether the reader goes there.
+		const app = makeAppWithFrontmatter({ 'notes/a.md': { 'position-restore': false } });
+		const { places } = makePlaces({ navRecentExcludeProperties: ['status'] }, app);
+		places.remember(visit('notes/a.md'));
+
+		expect(paths(places)).toEqual(['notes/a.md']);
+	});
+
+	it('lists a file whose frontmatter has not been parsed yet', () => {
+		// The metadata cache fills lazily. A place withheld on a guess is a place
+		// the reader cannot get back; the next visit asks again.
+		const { places } = makePlaces({ navRecentExcludeProperties: ['status'] }, makeAppWithFrontmatter({}));
+		places.remember(visit('notes/a.md'));
+
+		expect(paths(places)).toEqual(['notes/a.md']);
+	});
+
+	it('asks the vault nothing while the reader has written no rule', () => {
+		// The default: no rule, no metadata-cache read. makeApp() has no
+		// metadataCache at all, so a lookup here would throw.
+		const { places } = makePlaces();
+		places.remember(visit('notes/a.md'));
+
+		expect(paths(places)).toEqual(['notes/a.md']);
 	});
 });
 

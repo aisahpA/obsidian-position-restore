@@ -3,6 +3,7 @@ import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { NavEntry, NewNavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { normAnchor } from '@/position/capture/ephemeral';
+import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
 import { loadNavPlaces, persistNavPlaces } from './places-store';
 
 // THE RECENT FILES LIST — the panel's (and only the panel's) data.
@@ -82,7 +83,7 @@ export interface PlaceList {
 	// itself, and the position records — a different store, keyed by path (see the
 	// module comment). A file visited again takes its place back, by design: this is
 	// a record of where the reader has been, not a rule about where they may go. A
-	// reader who never wants a file listed wants the folder rule instead (see
+	// reader who never wants a file listed wants one of the rules instead (see
 	// recordable), which is a policy rather than a one-off.
 	forget(key: string): void;
 	// Something a browser would have to redraw for.
@@ -155,12 +156,14 @@ export class NavPlaces implements PlaceList {
 		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.navRecentCap;
 	}
 
-	// Whether a path may be listed at all: this list's OWN rule. The reader's
-	// folder list answers "which visits are worth listing" — a template folder,
-	// an archive, a scratch folder — and is deliberately not the position
-	// recording's excludedFolders, which answers a different question (see
-	// PluginSettings.navRecentExcludeFolders). Vault-internal paths are skipped
-	// outright: they are not notes and a reader never navigates to them.
+	// Whether a path may be listed at all: this list's OWN rules, and no other
+	// feature's. The reader's folder list and property list answer "which visits
+	// are worth listing" — a template folder, an archive, a scratch folder, a
+	// board that another plugin owns — and are deliberately not the position
+	// recording's excludedFolders and frontmatterExcludeProperties, which answer
+	// a different question (see PluginSettings.navRecentExcludeFolders /
+	// navRecentExcludeProperties). Vault-internal paths are skipped outright:
+	// they are not notes and a reader never navigates to them.
 	private recordable(path: string): boolean {
 		if (!path)
 			return false;
@@ -173,10 +176,34 @@ export class NavPlaces implements PlaceList {
 		if (path.startsWith('.trash/'))
 			return false;
 		const folders = this.settings.navRecentExcludeFolders ?? [];
-		return !folders.some(folder => {
+		if (folders.some(folder => {
 			const clean = folder.replace(/\/+$/, '');
 			return !!clean && (path === clean || path.startsWith(`${clean}/`));
-		});
+		}))
+			return false;
+		return !this.excludedByFrontmatter(path);
+	}
+
+	// The property rule (see PluginSettings.navRecentExcludeProperties): `status`
+	// keeps out every file carrying the property whatever its value,
+	// `status: archived` only the files whose value equals it — the one entry
+	// form this plugin writes, shared with the position rules (see
+	// shared/frontmatter.ts).
+	//
+	// Asked LAST, and only when the reader has written a rule, because it is the
+	// one test here that has to reach into the vault: with an empty list — the
+	// default — the answer is "no" without touching the metadata cache, so a
+	// navigation costs nothing it did not already cost.
+	//
+	// A file the cache has not parsed yet IS listed (no frontmatter to read):
+	// the cache fills lazily, and a place withheld on a guess is a place the
+	// reader cannot get back, while a place listed by mistake is one they can
+	// drop — and the next visit asks again.
+	private excludedByFrontmatter(path: string): boolean {
+		const rules = this.settings.navRecentExcludeProperties ?? [];
+		if (rules.length === 0)
+			return false;
+		return frontmatterRuleMatches(frontmatterOfPath(this.app, path), rules);
 	}
 
 	// ===== Reading =====
@@ -344,9 +371,10 @@ export class NavPlaces implements PlaceList {
 		this.changed();
 	}
 
-	// The folder rule changed (the settings tab): drop the places it now
-	// excludes, so a place the reader can no longer be shown does not keep a slot
-	// in the capped list until they happen to revisit it.
+	// One of the list's rules changed (the settings tab — a folder added, or a
+	// property): drop the places it now excludes, so a place the reader can no
+	// longer be shown does not keep a slot in the capped list until they happen
+	// to revisit it.
 	// @returns how many places were dropped.
 	pruneExcluded(): number {
 		const current = this.entries[this.index];

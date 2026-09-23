@@ -163,6 +163,16 @@ export const zh: En = {
 	'recentFiles.folders.desc': '这些文件夹里的文件不会进入最近文件列表。',
 	'recentFiles.folders.list.empty': '所有文件夹都会收录。',
 	'recentFiles.folders.add': '添加文件夹',
+	// 按 frontmatter 排除：和上面的文件夹规则问的是同一件事，只是改由笔记自己回答，
+	// 而不是看它放在哪——别的插件的看板、标了 published 的页面、模板。两种写法各占
+	// 一行，与「最后位置」页的写法一致（理由也一样：几乎所有读者都是来核对该写哪一种）。
+	'recentFiles.frontmatterExclude.name': '不收录的属性',
+	'recentFiles.frontmatterExclude.desc':
+		'按 frontmatter 排除一整类笔记：命中列表里任一条目的文件，不会进入最近文件列表。',
+	'recentFiles.frontmatterExclude.formName': '只写属性名（如 `status`）：文件只要带这个属性就不收录，不论值是多少。',
+	'recentFiles.frontmatterExclude.formValue': '写成 `属性: 值`（如 `status: archived`）：只有值相等才不收录。yes/no/on/off 按布尔比较；数组里任一元素相等即算命中。',
+	'recentFiles.frontmatterExclude.list.empty': '所有文件都会收录。',
+	'recentFiles.frontmatterExclude.add': '添加属性',
 	'recentFiles.cap.name': '保留地点数',
 	'recentFiles.cap.desc': '最近文件列表最多保留多少个地点。调小会立刻丢掉最旧的那些。',
 	// 一个文件在列表里打印几个落点。两档按「列表会变成什么样」写，因为这才是选择本身：

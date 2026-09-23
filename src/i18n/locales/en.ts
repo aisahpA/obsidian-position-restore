@@ -179,6 +179,18 @@ export const en = {
 	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
 	'recentFiles.folders.list.empty': 'Every folder is listed.',
 	'recentFiles.folders.add': 'Add folder',
+	// Which FRONTMATTER the list refuses: the folder rule's own question
+	// answered by the note itself instead of by where it sits — a board another
+	// plugin owns, a page marked published, a template. The two forms get a line
+	// each, exactly as on the position page (and for the same reason: nearly
+	// every reader arrives to check which of the two to type).
+	'recentFiles.frontmatterExclude.name': 'Properties not listed',
+	'recentFiles.frontmatterExclude.desc':
+		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is never added to the recent files list.',
+	'recentFiles.frontmatterExclude.formName': 'A property name on its own (`status`): any file carrying the property is left out, whatever its value.',
+	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
+	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
+	'recentFiles.frontmatterExclude.add': 'Add property',
 	// How far back the list reaches: its own storage knob (see
 	// PluginSettings.navRecentCap), and not the back/forward stack's ceiling below.
 	'recentFiles.cap.name': 'Places to keep',

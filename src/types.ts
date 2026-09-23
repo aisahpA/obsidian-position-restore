@@ -141,6 +141,18 @@ interface PluginSettings {
 	// restores and still be exactly what the reader wants to navigate back to),
 	// while this one answers "which visits are worth listing".
 	navRecentExcludeFolders: string[];
+	// The list's own frontmatter rule, in the same `prop[: value]` form as the
+	// position rules above (see shared/frontmatter.ts): a file whose frontmatter
+	// matches any entry is never added to the list. A list of its own, for the
+	// same reason the folder rule above is — a kanban board or a published page
+	// is exactly the kind of note whose cursor position is not worth keeping and
+	// which the reader still navigates to every day.
+	//
+	// What it does NOT read is the position feature's per-file escape hatch
+	// (`position-restore`): that property answers whether a POSITION is
+	// recorded, and a note the reader opted out of position recording is still a
+	// place they go.
+	navRecentExcludeProperties: string[];
 	// The recent-files browser's own preferences: what a row prints, and how far back the
 	// list reaches. They are persisted rather than held in the panel because all of
 	// them outlive the panel they are read in — a reader who wants one row per note
@@ -173,6 +185,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	navTeleportMinLines: 10,
 	navRecentCap: 200,
 	navRecentExcludeFolders: [],
+	navRecentExcludeProperties: [],
 	navLandings: 'last',
 	navPathDisplay: 'smart',
 	navRowTime: false,
