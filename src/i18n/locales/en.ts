@@ -167,8 +167,15 @@ export const en = {
 	// "Back and forward", and the two stores answer different questions while
 	// looking like two views of one history. Everything else the rows say
 	// about themselves.
+	//
+	// The one fact it DOES borrow from a row below is that row's default: a
+	// reader who never opens "How much it keeps" still has a list that behaves
+	// one way, and this sentence is the only place that can say which way. So
+	// it has to move with LandingsMode's default — 'all', every landing its
+	// own row — and it names the row it borrowed from rather than leaving the
+	// reader to guess which control holds the answer.
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. Whether the headings and blocks you jumped to inside a note are recorded too is the switch below (they are not, by default). It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The headings and blocks you jumped to inside a note get rows of their own as well — how many, is the "How much it keeps" row below, and by default every one of them is kept. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	// The recent-files list's OWN folder rule (see
 	// PluginSettings.recentFilesExcludeFolders): which visits are worth listing.
