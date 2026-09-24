@@ -120,9 +120,10 @@ export class PositionManager {
 		this.backgroundSettler.start(registerCleanup);
 	}
 
+	// The 100ms tick. The view-state read below is NOT part of it: it rides a slower
+	// tick of its own (see main.ts's registerPolling).
 	sampleActiveView() {
 		this.sampler.sampleActiveView();
-		this.sampleActiveViewState();
 	}
 
 	// A view's state is not finished when the reader arrives in it: the built-in browser answers
@@ -133,10 +134,10 @@ export class PositionManager {
 	// leave-read (see funnel.ts's NavFunnelSink.onLanded), with both readers updating in place.
 	//
 	// Quiet on nearly every tick (the comparison is against what the step already holds) except for
-	// a third-party view whose own getState is expensive: it is asked every tick while the reader
-	// sits in it. Hence the order below — the two property reads answering "is this the step?" come
-	// BEFORE isMainAreaLeaf, which walks the workspace's element tree.
-	private sampleActiveViewState(): void {
+	// a third-party view whose own getState is expensive: it is asked once per second while the
+	// reader sits in it. Hence the order below — the two property reads answering "is this the
+	// step?" come BEFORE isMainAreaLeaf, which walks the workspace's element tree.
+	sampleActiveViewState(): void {
 		if (!this.funnel.isRecording())
 			return;
 		const view = this.app.workspace.getActiveViewOfType(View);

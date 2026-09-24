@@ -1,5 +1,6 @@
-// The poll's other half: while the reader sits in a VIEW, the tick keeps the
-// current step's own state true (see manager.ts's sampleActiveViewState).
+// While the reader sits in a VIEW, a tick of its own keeps the current step's state
+// true (see manager.ts's sampleActiveViewState). It is not the 100ms position poll:
+// a slower cadence is all a view's state needs, and it costs the view less.
 //
 // It exists because a view's state is not finished when the reader arrives in it.
 // The built-in browser is the case that shows it: until its page has committed and
@@ -83,7 +84,7 @@ describe('the poll keeps the current step state true', () => {
 		// The page commits: the viewer knows where it is now, and what it is called.
 		state = { title: 'Google 搜索', mode: 'webview', url: 'https://www.google.com/' };
 		title = 'Google 搜索';
-		h.manager.sampleActiveView();
+		h.manager.sampleActiveViewState();
 
 		expect(h.step()).toMatchObject({
 			kind: 'view', viewType: 'webviewer', label: 'Google 搜索',
@@ -105,14 +106,14 @@ describe('the poll keeps the current step state true', () => {
 		h.manager.recordActivation(view.leaf as unknown as WorkspaceLeaf);
 
 		const landing = vi.spyOn(h.funnel, 'landing');
-		h.manager.sampleActiveView();
+		h.manager.sampleActiveViewState();
 		expect(landing).not.toHaveBeenCalled();
 
 		// The reader moves on to a note: the view is no longer what they stand on,
 		// so its (changed) state is nobody's business until they leave it.
 		h.funnel.recordOpen('a.md', 'leaf-1');
 		h.setActiveView({ ...view, getState: () => ({ url: 'https://example.com/', mode: 'webview' }) });
-		h.manager.sampleActiveView();
+		h.manager.sampleActiveViewState();
 		expect(landing).not.toHaveBeenCalled();
 	});
 });

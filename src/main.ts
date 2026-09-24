@@ -1,6 +1,6 @@
 import { Platform, Plugin } from 'obsidian';
 import { SettingTab } from './settings/tab';
-import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, DEFAULT_SETTINGS } from './types';
+import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, VIEW_STATE_POLL_MS, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
 import { PositionManager } from './position/manager';
 import { RECENT_FILES_VIEW_TYPE } from './recent-files/browser/view';
@@ -182,9 +182,15 @@ export default class PositionRestorePlugin extends Plugin {
 	// in-memory getters and never triggers reflow — so its cost is ~0. The event approach
 	// is ~3x more code and needs extra guards (restore-skip, vim-mode, target→leaf
 	// lookup); polling's "full snapshot" never silently drops a change.
+	//
+	// The view-state read is a second, slower tick: it calls a view's own getState, whose
+	// cost belongs to whoever wrote the view, and a slower answer only delays a landing.
 	private registerPolling() {
 		this.registerInterval(
 			window.setInterval(() => this.manager.sampleActiveView(), 100)
+		);
+		this.registerInterval(
+			window.setInterval(() => this.manager.sampleActiveViewState(), VIEW_STATE_POLL_MS)
 		);
 	}
 
@@ -220,8 +226,10 @@ export default class PositionRestorePlugin extends Plugin {
 			// A live search session means the visible spot is a search match, not the
 			// reader's — skip the record step and only persist what is already saved,
 			// keeping the pre-search anchor intact across suspension.
-			if (!this.manager.isSearchAnchored())
+			if (!this.manager.isSearchAnchored()) {
 				this.manager.sampleActiveView();
+				this.manager.sampleActiveViewState();
+			}
 			this.manager.storePositionData();
 		};
 		this.registerDomEvent(document, 'visibilitychange', () => {

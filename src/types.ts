@@ -159,6 +159,11 @@ interface PluginSettings {
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
 
+// A view's state is re-read on a tick of its own, slower than the 100ms position poll:
+// the read asks a third-party view for getState, whose cost we don't own, and an answer
+// arriving late only delays a landing — the leave-read takes the last one.
+export const VIEW_STATE_POLL_MS = 1000;
+
 export const DEFAULT_SETTINGS: PluginSettings = {
 	dbFileName: '',
 	minLinesToRecord: 20,
