@@ -29,6 +29,30 @@ export interface TipContent {
 	// holds instead (the exact moment an age label stands for). Nothing here is
 	// styled per character.
 	text?: string;
+	// Lines QUOTED OUT OF THE NOTE, under everything above: what the row RECORDED
+	// rather than what it names — the words the landing sat among when it was
+	// taken, and, while a query is up, the line the query hit (see list.ts's
+	// landingQuotes).
+	//
+	// They are the one kind of thing a hover says that is the reader's own text:
+	// the path, the aliases and the section chain are all names this plugin
+	// derived, while these are the words the note was made of at the moment the
+	// place was recorded. They are also the only words a search can match that
+	// appear NOWHERE on screen — the row prints a coordinate and a section, and
+	// the search box matched these in silence — which is what a landing's row
+	// could never answer before: why this row is on the list at all.
+	//
+	// Drawn as what they are (see styles.css's .nav-tip-quote): quoted, one line
+	// each, and never cut short — a line clipped in the middle is a line that
+	// says something the note did not say.
+	quotes?: string[];
+	// ONE line under the quotes, and about the note rather than out of it:
+	// whether the file has been written since those words were taken (see
+	// list.ts's landingNote). The quotes are a photograph of the note as it stood
+	// when the place was recorded, and nothing else on the row says whose picture
+	// that is — so this is the line that keeps an old quote from passing for a
+	// current one.
+	note?: string;
 }
 
 // ONE TOOLTIP PER LIST, on screen only while the pointer rests on something that has
@@ -283,6 +307,18 @@ export class NavRowTip {
 			this.pathLine(el, content.path);
 		if (content.text)
 			el.createDiv({ cls: 'nav-tip-text', text: content.text });
+		// The quoted lines, in the order the caller gave them — the match a query
+		// hit first, then the line the landing itself sat on. One element each, so
+		// a block of the note's own words reads as a block and not as a sentence
+		// this panel wrote.
+		for (const quote of content.quotes ?? [])
+			if (quote)
+				el.createDiv({ cls: 'nav-tip-quote', text: quote });
+		// …and the line about them, LAST: it speaks of the quotes above it, so it
+		// stands under them rather than with them — and it is not quoted, being
+		// this panel's words and not the note's.
+		if (content.note)
+			el.createDiv({ cls: 'nav-tip-note', text: content.note });
 		this.el = el;
 		this.place(el, target);
 	}

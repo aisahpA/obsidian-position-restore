@@ -86,6 +86,17 @@ export interface PlaceList {
 	// reader who never wants a file listed wants one of the rules instead (see
 	// recordable), which is a policy rather than a one-off.
 	forget(key: string): void;
+	// Drop ONE LANDING of a note: the places the row UNDER the note's own row stands
+	// for, handed over BY IDENTITY (see placeKey below) rather than by index. A row is
+	// a LINE, and the panel collapses onto it every place that landed on that line (see
+	// list.ts's landingKeys) — so a removal that named the row's own record alone would
+	// leave its twin behind, and the row would be back on screen before the redraw had
+	// finished: a × that does nothing.
+	//
+	// What stays is the note's own record and its OTHER places: what the reader took off
+	// was one spot, and the file's row above still opens the file the plain way. The
+	// file itself and the position database are as untouched as they are for `forget`.
+	forgetLanding(keys: readonly string[]): void;
 	// Something a browser would have to redraw for.
 	subscribe(fn: () => void): () => void;
 }
@@ -378,6 +389,27 @@ export class NavPlaces implements PlaceList {
 	// leaves untouched.)
 	forget(key: string): void {
 		this.dropPlaces(key);
+	}
+
+	// One landing of a note, taken off by the reader (see RecentFilesBrowser's
+	// forgetLanding — the × on a landing's own row). The keys arrive from the panel,
+	// which is the only thing that knows which of its places one row stands for, and
+	// they are matched against the list's OWN identity for a place (see placeKey): a
+	// dialog's snapshot may be a click behind the store, and a key is the one name of a
+	// place that survives both.
+	forgetLanding(keys: readonly string[]): void {
+		const doomed = new Set(keys);
+		if (doomed.size === 0)
+			return;
+		const before = this.entries.length;
+		// …and the "you are here" pointer rides along with the filter, exactly as it
+		// does for every other removal here (see keep): a reader standing ON the spot
+		// they are taking off is a reader whose pointer has nowhere to stand, which is
+		// the honest answer rather than a bug.
+		this.keep(this.entries.filter(e => !doomed.has(placeKey(e))));
+		if (this.entries.length === before)
+			return;
+		this.changed();
 	}
 
 	// The one removal both names above stand for, keyed by ROW (see navGroupKey):

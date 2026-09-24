@@ -239,6 +239,7 @@ export class RecentFilesBrowser {
 			// prunes such a place on its own; this is the list agreeing with it.
 			noteExists: path => this.reads.hasFile(path),
 			trailFor: (entry, d) => this.trailFor(entry, d),
+			mtimeFor: path => this.reads.mtimeOf(path),
 			// The file's other names (see RecentFilesReads.aliasesFor): searchable, and
 			// printed nowhere on the row but its tooltip.
 			aliasesFor: path => this.reads.aliasesFor(path),
@@ -261,6 +262,9 @@ export class RecentFilesBrowser {
 			// A row's own ×: the removal the list asks for and cannot make itself,
 			// because the PLACES are here and not there (see forgetRow).
 			onForget: key => this.forgetRow(key),
+			// …and the same × on a LANDING's row, which drops the spot and leaves the
+			// note standing (see forgetLanding).
+			onForgetLanding: keys => this.forgetLanding(keys),
 			// Whether this device is a TOUCH one (see the option above): the list hears a
 			// finger that stopped on a row only where there is no hover to arm one with
 			// (see RecentFilesList.arm). A desktop's hover already puts the row's controls
@@ -908,6 +912,23 @@ export class RecentFilesBrowser {
 	// the reader cannot see change.
 	private forgetRow(key: string): void {
 		this.opts.places.forget(key);
+		this.render();
+	}
+
+	// ONE LANDING taken off, from the × on its own row (see the list's onForgetLanding).
+	// The store drops the places that row stood for and nothing else — the note's own
+	// record and its other spots stay — and the list is drawn again so the row goes.
+	//
+	// What arrives is a set of place KEYS rather than the row's index, and the panel is
+	// what computed them (see RecentFilesList.landingKeys): which of a note's places one
+	// row stands for is a question about the row as it was DRAWN, and a dialog holding a
+	// snapshot a click behind the store must not be able to drop the wrong one.
+	//
+	// The redraw is asked for here for the same reason it is above: a dialog does not
+	// subscribe to the store, so without it the row would stand until the dialog was
+	// reopened.
+	private forgetLanding(keys: string[]): void {
+		this.opts.places.forgetLanding(keys);
 		this.render();
 	}
 

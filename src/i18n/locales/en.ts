@@ -278,6 +278,15 @@ export const en = {
 	// is the only place a reader ever sees them; the colon is part of the value because
 	// whether to draw one is the language's call.
 	'recentFiles.aka': 'aka:',
+	// What the two QUOTED lines on a landing row's tooltip are introduced by (see
+	// RecentFilesList.landingQuotes). Both are the note's own words, recorded when
+	// the place was taken and printed nowhere else — the one a query hit, and the
+	// line the landing itself sat on. "As recorded" is the whole of the point: the
+	// note may have been edited since, and these are the words as they were, not
+	// as they are. The colon is part of the value, as it is for `aka` above.
+	'recentFiles.matchedLine': 'Matched:',
+	'recentFiles.landingLine': 'As recorded:',
+	'recentFiles.editedSince': 'Edited since this was recorded',
 	'recentFiles.openInNewTab': 'Open in new tab',
 	'recentFiles.openHereInNewTab': 'Open here in a new tab',
 	// The row's own removal, drawn on the row as a × (see RecentFilesBrowser.onForget).
@@ -288,6 +297,11 @@ export const en = {
 	// record, while the file and the position database are untouched, and visiting the
 	// file again puts a place back.
 	'recentFiles.forget': 'Remove from recent files',
+	// The same × as it reads on a LANDING's row (see RecentFilesList.placeRow): what
+	// goes there is one place inside the note, and the note keeps its own row.
+	// "Place" and not "line": the row is the line AND the section it sits in, and a
+	// place that moved in an edit is still the place the reader is taking off.
+	'recentFiles.forgetLanding': 'Remove this place',
 	// The row's second control (see RecentFilesList.menuControl): what it raises is the
 	// APP'S own menu for the file — the one a right-click raises on a desktop, and the one
 	// a long press used to raise here. "More actions" and not "menu": the menu is the

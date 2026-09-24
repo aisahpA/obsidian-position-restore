@@ -275,6 +275,16 @@ export function groupByFile(
 	return out;
 }
 
+// The query as the search box reads it: one token per run of whitespace, lower
+// cased, empties dropped. Two callers and the same split in both — the filter
+// that decides what stays, and the one that says WHICH line a query hit (see
+// matchedContextLine) — because a row that answers "why am I on this list" with
+// a different notion of a word than the filter that put it there answers a
+// question the reader did not ask.
+export function queryTokens(query: string): string[] {
+	return query.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
 // Pure filter predicate for the search box: every whitespace-separated token
 // must appear (case-insensitive) somewhere in the entry's searchable text.
 // Two sources, composed here because only the caller knows both:
@@ -293,7 +303,7 @@ export function groupByFile(
 // that — it is another name for the file, and finding a note by a name the reader
 // half-remembers is the whole reason a search box is here.
 export function matchesNavFilter(entry: NavEntry, query: string, extra?: string): boolean {
-	const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const tokens = queryTokens(query);
 	if (tokens.length === 0)
 		return true;
 	const hay = `${navSearchText(entry)} ${extra ?? ''}`.toLowerCase();
@@ -331,4 +341,41 @@ export function navSearchText(entry: NavEntry): string {
 			parts.push(entry.viaText);
 	}
 	return parts.filter(Boolean).join(' ');
+}
+
+// WHICH LINE OF A LANDING'S CONTEXT THE QUERY HIT — the answer to "why is this
+// row on my list", which is the one question a landing's row cannot answer on
+// its own: the block is what the search box matched (see navSearchText) and it
+// is printed nowhere, so a row that matched on a sentence in the note looks
+// exactly like a row that matched on its name.
+//
+// Which line counts as the hit:
+//   - the first line carrying ALL the tokens. That is the line the reader means:
+//     a query is one word, or a phrase that stands on one line of the note.
+//   - failing that, the first line carrying the FIRST token. The filter matched
+//     over the whole block joined together (see matchesNavFilter), so two tokens
+//     may sit on two different lines and no single line carries the query — and
+//     a row that then said nothing at all would be a row that matched by magic.
+//     The first token's line is where the reader's eye would have gone anyway,
+//     and pointing at it says "here is where I found it" rather than claiming
+//     the whole query was on it.
+//
+// Undefined when the query hit none of the block — a row may match on its name,
+// its path, an alias, its section or a link's words, and every one of those is
+// either on the row already or one hover away for another reason.
+export function matchedContextLine(entry: NavEntry, query: string): string | undefined {
+	const tokens = queryTokens(query);
+	if (!tokens.length || entry.kind === 'view')
+		return undefined;
+	let loose: string | undefined;
+	for (const line of entry.st?.context ?? []) {
+		const hay = line.text.toLowerCase();
+		if (!hay)
+			continue;
+		if (tokens.every(tok => hay.includes(tok)))
+			return line.text;
+		if (loose === undefined && hay.includes(tokens[0]))
+			loose = line.text;
+	}
+	return loose;
 }

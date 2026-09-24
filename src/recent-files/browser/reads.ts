@@ -119,6 +119,20 @@ export class RecentFilesReads {
 	hasFile = (path: string): boolean =>
 		this.app.vault.getAbstractFileByPath(path) instanceof TFile;
 
+	// The file's mtime as it stands NOW — the half of one comparison a landing's
+	// own words cannot make (see list.ts's landingNote): the record keeps the mtime
+	// the file had when those words were taken, and the file keeps the one it has
+	// now. Read off the vault's own file object rather than remembered, because the
+	// question is asked once per row that quotes something and the answer that
+	// matters is the one that changed.
+	//
+	// Undefined for a path with no file behind it, which is the answer `hasFile`
+	// already gives: a place whose note is gone is not on the list at all.
+	mtimeOf(path: string): number | undefined {
+		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+		return file instanceof TFile ? file.stat.mtime : undefined;
+	}
+
 	describe(i: number): NavEntryDescription {
 		let d = this.descCache.get(i);
 		if (!d) {

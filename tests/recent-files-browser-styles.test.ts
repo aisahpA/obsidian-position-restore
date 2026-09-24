@@ -250,6 +250,13 @@ describe('recent-files browser quiet tiers', () => {
 			/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
 		);
 		expect(browser).not.toMatch(/\.nav-row-time\s*\{[^}]*margin-inline-start: auto/);
+		// …and a LANDING's row ends its own age in the SAME column: it is coordinate |
+		// section | age, where the section is the track that takes the slack and gives
+		// way. The times of the two kinds of row then read as one column, which is the
+		// whole point of printing them.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-place\.is-timed\s*\{\s*grid-template-columns: auto minmax\(0, 1fr\) auto/,
+		);
 	});
 
 	// …and the row's controls ride in that SAME far end, out of the row's own flow (see
@@ -551,6 +558,31 @@ describe('recent-files browser quiet tiers', () => {
 		// so it stays a second answer rather than competing with the thing the reader
 		// hovered for.
 		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
+	});
+
+	// A line quoted out of the note (see TipContent.quotes): set off by a rule rather
+	// than by a typeface, and never clipped — a line of the note cut off in the middle
+	// says something the note never said, and this is the one thing on a landing's row
+	// the reader is reading for its own sake.
+	it('draws a quoted line as a quote, and lets it wrap', () => {
+		const quote = browser.match(/\.nav-tip-quote\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(quote).toMatch(/border-inline-start: 2px solid var\(--background-modifier-border\)/);
+		expect(quote).toMatch(/padding-inline-start: 6px/);
+		expect(quote).toMatch(/overflow-wrap: anywhere/);
+		// No line-clamp, and no max-height: the whole line is the answer.
+		expect(quote).not.toMatch(/line-clamp/);
+		expect(quote).not.toMatch(/text-overflow/);
+	});
+
+	// …and the one line a hover says ABOUT those quotes — the note has been written
+	// since they were taken — is set apart by INK and not by a rule: it is this panel
+	// speaking about the note's words, and a reader has to be able to tell the two
+	// apart at a glance. Fainter than a quote, and in the panel's own faint tier
+	// rather than --text-faint, which a theme is free to re-hue.
+	it('sets the line about the quotes apart by ink, not by a rule', () => {
+		const note = browser.match(/\.nav-tip-note\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(note).toMatch(/color: var\(--nav-faint\)/);
+		expect(note).not.toMatch(/border-inline-start/);
 	});
 
 	// The × at the end of the box, and the one rule that makes it a control rather than

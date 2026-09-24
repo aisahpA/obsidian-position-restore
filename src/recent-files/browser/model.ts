@@ -112,6 +112,26 @@ export interface NavEntryDescription {
 	lineIndex?: number;
 }
 
+// The WORDS of the line a landing sat on — the line the capture marked as the
+// landing itself (see NavEntryState.context / contextAt), which is the line
+// landedLine returns the number of. The row prints the number and the section,
+// so this is the one thing about a place that is recorded and never displayed:
+// what the note actually said there.
+//
+// Undefined where there are no words to quote, and that is most of an old list:
+// a place recorded before the block was captured, a landing whose context read
+// came back empty, or the blank line a paragraph was started on and left.
+export function landingText(entry: NavEntry): string | undefined {
+	if (entry.kind === 'view')
+		return undefined;
+	const st = entry.st;
+	if (!st?.context)
+		return undefined;
+	// A blank line is not a quote: it says nothing about the place, and an empty
+	// line in a tooltip is a gap a reader has to explain.
+	return st.context[st.contextAt ?? -1]?.text || undefined;
+}
+
 // Which line a step landed on, or undefined when it recorded none. READ, not
 // derived: the capture recorded the block with the landing line marked (contextAt) —
 // the choice it made from the view mode and the cursor's visibility (see

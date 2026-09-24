@@ -14,6 +14,8 @@ import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { EphemeralState, PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
+import { placeKey } from '@/recent-files/places';
+import { ageLabel } from '@/recent-files/browser/model';
 import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
@@ -348,7 +350,17 @@ function harness(
 		}
 		places.index = current && entries.includes(current) ? entries.indexOf(current) : -1;
 	});
-	const places = { entries, index, travel: jumpTo, subscribe: () => () => {}, forget };
+	// …and the same act on a LANDING's own row (see body.ts's forgetLanding): what goes
+	// is ONE SPOT, named by the identity of every place that row stands for (see
+	// RecentFilesList.landingKeys) — a row is a line, and two records that land on it
+	// are one row, so a removal that named one of them would put the row straight back.
+	const forgetLanding = vi.fn((keys: string[]) => {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			if (keys.includes(placeKey(entries[i])))
+				entries.splice(i, 1);
+		}
+	});
+	const places = { entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding };
 	let modal: RecentFilesModal;
 	try {
 		modal = new RecentFilesModal(app as never, places as never, saved, browserPrefs);
@@ -467,7 +479,7 @@ function harness(
 	const forgetButton = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
-		modal, jumpTo, forget, cachedRead, el: modal.contentEl, entries, list,
+		modal, jumpTo, forget, forgetLanding, cachedRead, el: modal.contentEl, entries, list,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
@@ -1615,12 +1627,221 @@ describe('RecentFilesModal — a landing row', () => {
 		// and the note's name is on the row above it.
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
 
-		// L36 is the other half of the rule: its chain IS two levels, the row prints
-		// both, so hover has nothing to add and says nothing at all.
-		h.unhover(rows[0]);
-		expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
-		expect(h.hover(rows[1])).toBeNull();
-	});
+	// L36 is the other half of the rule: its chain IS two levels, the row prints
+	// both, so hover has nothing to add ABOUT THE CHAIN. The row is not silent,
+	// though — it also says the line the landing was recorded on (see the quote's
+	// own test below), which is the one thing about this place the row has never
+	// printed.
+	h.unhover(rows[0]);
+	expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
+	const plain = h.hover(rows[1])!;
+	expect(plain.querySelector('.nav-tip-text')).toBeNull();
+	expect(plain.querySelector('.nav-tip-quote')?.textContent)
+		.toBe(`${t('recentFiles.landingLine')}最后一段`);
+});
+
+// WHAT A LANDING RECORDED AND NEVER PRINTED (see RecentFilesList.landingQuotes).
+// The row says a coordinate and a section, and the search box matched the words the
+// landing sat among — in silence, because those words are on screen nowhere at all.
+// They are the one thing a query can hit that a reader cannot see, and they are what
+// a landing's row could never answer before: what is this place, and why is it here.
+it('says the line a landing was recorded on', () => {
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+
+	const tip = h.hover(h.place('L7'))!;
+	expect(tip.querySelector('.nav-tip-quote')?.textContent)
+		.toBe(`${t('recentFiles.landingLine')}预览条：悬停显示上下文三行`);
+	// …and the chain stays where it was: a quoted line says what the place WAS,
+	// not what it is called, and the reader still needs to know where it is.
+	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+});
+
+it('says nothing more where nothing was recorded to quote', () => {
+	// A place recorded before the block was captured carries a position and no
+	// words (see NavEntryState.context): a tooltip is not a place to put a blank
+	// line, so the row answers exactly as it did before.
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, { scroll: 6 }),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+
+	const tip = h.hover(h.place('L7'))!;
+	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
+	// …and the other landing, whose row prints the whole of its two-level chain
+	// and was recorded on a line of its own, still has its own words to say.
+	h.unhover(h.place('L7'));
+	expect(h.hover(h.place('L36'))!.querySelector('.nav-tip-quote')?.textContent)
+		.toBe(`${t('recentFiles.landingLine')}最后一段`);
+});
+
+it('names the line the query hit, ahead of the line the landing sat on', () => {
+	// Two landings one line apart, so both of their blocks answer a query that
+	// hits either: a note left with a single landing prints no landing rows at
+	// all (see RecentFilesList.printsLandings), and there would be no row to ask.
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 9)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	const quotes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
+	).map(q => q.textContent);
+
+	// A line of the block that is NOT this landing's own: why this row survived a
+	// query that says nothing about its name, its path or its section.
+	box.value = '预览条';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	h.hover(h.place('L9'));
+	expect(quotes()).toEqual([
+		`${t('recentFiles.matchedLine')}预览条：悬停显示上下文三行`,
+		`${t('recentFiles.landingLine')}正文第 1 行`,
+	]);
+
+	// …and when the hit IS the landing's own line, it is said once: the same words
+	// twice under two labels is a tooltip that has stopped talking.
+	h.unhover(h.place('L9'));
+	box.value = '正文第 1 行';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	h.hover(h.place('L9'));
+	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
+	// The row beside it, whose own line is the NEXT one, says both — the hit is the
+	// same line for the two of them and the landing is not.
+	h.unhover(h.place('L9'));
+	h.hover(h.place('L10'));
+	expect(quotes()).toEqual([
+		`${t('recentFiles.matchedLine')}正文第 1 行`,
+		`${t('recentFiles.landingLine')}正文第 2 行`,
+	]);
+
+	// A query the block never carried — this row matched on its own name.
+	h.unhover(h.place('L10'));
+	box.value = 'a.md';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	h.hover(h.place('L9'));
+	expect(quotes()).toEqual([`${t('recentFiles.landingLine')}正文第 1 行`]);
+});
+
+it('says the note has been written since the line it quotes was taken', () => {
+	// The quoted line is a photograph of the note as it stood the moment the place was
+	// recorded, while the coordinate and the section the row prints are the note's as
+	// it stands NOW. Nothing else on the row says the two may have parted, and an old
+	// quote passing for a current one is the one thing this list can still get wrong
+	// in silence — so the mtime the record kept is compared with the file's own.
+	const taken = 1_000;
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, { ...captured(SPREAD_DOC, 8), mtime: taken }),
+		visit('a.md', NOW - MINUTE, { ...captured(SPREAD_DOC, 9), mtime: taken }),
+		visit('b.md', NOW),
+	];
+	const notes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-note'),
+	).map(n => n.textContent);
+
+	// Written since: the file's clock is ahead of the one the record kept.
+	const edited = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false,
+		{ 'a.md': taken + 5_000 });
+	edited.hover(edited.place('L9'));
+	expect(notes()).toEqual([t('recentFiles.editedSince')]);
+	// …and it stands UNDER the words it is about, and not among them: a quoted line
+	// is the note's, this one is the panel's. (The row also says its whole section
+	// chain here, which is why the note is last of three and not last of two.)
+	const kinds = Array.from(
+		document.querySelector('.position-restore-nav-tip')!.children,
+	).map(c => c.className);
+	expect(kinds.at(-1)).toBe('nav-tip-note');
+	expect(kinds.indexOf('nav-tip-note')).toBeGreaterThan(kinds.lastIndexOf('nav-tip-quote'));
+	edited.unhover(edited.place('L9'));
+
+	// Untouched: the same clock, so the quote is the note as it stands.
+	const same = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false, { 'a.md': taken });
+	same.hover(same.place('L9'));
+	expect(notes()).toEqual([]);
+	same.unhover(same.place('L9'));
+
+	// A clock that ran BACKWARDS — a sync putting an older copy back — says nothing
+	// rather than claiming a rewrite that did not happen.
+	const older = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false,
+		{ 'a.md': taken - 500 });
+	older.hover(older.place('L9'));
+	expect(notes()).toEqual([]);
+});
+
+it('says nothing about the note when the record kept no time of its own', () => {
+	// A record taken before the field existed, or by a read that had no file to stamp:
+	// "unknown" is not "untouched", and a line claiming the note has been written has
+	// nothing to stand on then. What is missing is that one line — the words it would
+	// have spoken about are still there.
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 9)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false, { 'a.md': 99_999 });
+	h.hover(h.place('L9'));
+	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-note')).toHaveLength(0);
+	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote').length)
+		.toBeGreaterThan(0);
+});
+
+it('says the line a query hit on the NOTE\'S ROW, when that row IS the place', () => {
+	// A note's landings are printed under it only from two of them up (see
+	// printsLandings): a note left with ONE place has no landing row at all, and its
+	// own row is what stands for the place — the click goes there (see activeRep). That
+	// is the case every filtered list is made of: a query that hit a sentence in a note
+	// leaves one landing of one note on screen, and the words it matched were printed
+	// nowhere. A row that opens a spot has to be able to say why the spot is here,
+	// which is the whole of what a landing's own row does.
+	const entries = [
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 8)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 1, files, [], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	const quotes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
+	).map(q => q.textContent);
+
+	box.value = '预览条';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	expect(h.rows()).toHaveLength(0);
+	expect(quotes()).toEqual([]);
+	expect(h.hover(h.note('a'))).not.toBeNull();
+	expect(quotes()).toEqual([
+		`${t('recentFiles.matchedLine')}预览条：悬停显示上下文三行`,
+		`${t('recentFiles.landingLine')}正文第 1 行`,
+	]);
+});
+
+it('says nothing on a note\'s own row while that row is the FILE', () => {
+	// The other half of the rule, and the reason the one above is a rule about the
+	// row rather than about the note: a note whose own record is on the list is opened
+	// the plain way by its row, and a plain open has no words recorded about it — the
+	// record that carries them is the landing beside it, whose row is not on screen
+	// because one place is not a list. The row says what it can say about the file.
+	const entries = [
+		visit('a.md', NOW - MINUTE),
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	box.value = 'a.md';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+
+	const tip = h.hover(h.note('a'))!;
+	expect(tip.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
+	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
+});
 
 	// THE SEPARATOR HANGS OFF THE LEVEL IT FOLLOWS rather than standing between the
 	// two as a cell of its own: a cell keeps its width after the level in front of it
@@ -1678,28 +1899,63 @@ describe('RecentFilesModal — a landing row', () => {
 
 			// …and a pane that GREW: the next render prints the level again, and the
 			// words the pass lent the row are the row's own once more — a tooltip left
-			// behind would repeat the row it is standing over.
+			// behind would repeat the row it is standing over. What is left is the
+			// line the landing was recorded on, which was never the pass's to lend.
 			h.unhover(h.rows()[0]);
 			squeezed = false;
 			h.changed();
 			expect(h.rows()[1].classList.contains('is-deep-only')).toBe(false);
-			expect(h.hover(h.rows()[1])).toBeNull();
+			const grown = h.hover(h.rows()[1])!;
+			expect(grown.querySelector('.nav-tip-text')).toBeNull();
+			expect(grown.querySelector('.nav-tip-quote')?.textContent)
+				.toBe(`${t('recentFiles.landingLine')}最后一段`);
 		} finally {
 			restore();
 		}
 	});
 
-	it('puts the coordinate before the section, and no time column anywhere', () => {
+	it('puts the coordinate before the section, with the row\'s own controls after it', () => {
 		// The row used to be name | section | small print (pane, coordinate, age) with
 		// the age in a measured column of its own. The note is the row now, so a landing
-		// is coordinate | section, plus the pane cell only while two live tabs hold that
-		// note — and no time anywhere: nothing in the list prints one.
+		// is coordinate | section | controls — and the controls are last and out of the
+		// flow (see .nav-row-actions), because a landing carries the same × a note does.
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		const row = h.rows()[1];
-		expect([...row.children].map(el => el.className)).toEqual(['nav-row-pos', 'nav-row-trail']);
+		expect([...row.children].map(el => el.className))
+			.toEqual(['nav-row-pos', 'nav-row-trail', 'nav-row-actions']);
+		// …and no time while the reader has not asked for one: the setting is off in
+		// this harness, and nothing in the list prints a time of its own accord.
 		expect(row.querySelector('.nav-row-time')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-list .nav-row-time')).toBeNull();
+	});
+
+	it('gives a landing its OWN time — the last visit to that spot, not to the note', () => {
+		// A note's row is stamped with the NEWEST of its places (see fileRow), which
+		// answers "when was I in this file" and not "when was I here": a spot the
+		// reader has not been back to keeps the time it earned, and that is the moment
+		// the words its row quotes were captured at.
+		const spots = [
+			visit('x.md', NOW - 30 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('x.md', NOW - 10 * MINUTE, captured(SPREAD_DOC, 35)),
+			visit('y.md', NOW),
+		];
+		const h = harness(spots, 2, { 'x.md': '', 'y.md': '' }, [], {}, SPREAD_HEADINGS,
+			false, {}, prefs({ landings: 'all', time: true }).browser);
+		const time = (row: HTMLElement) => row.querySelector<HTMLElement>('.nav-row-time');
+
+		// The note says the newest of the two spots; each spot says its own visit.
+		expect(time(h.note('x'))?.textContent).toBe(ageLabel(NOW - 10 * MINUTE, Date.now()));
+		expect(time(h.place('L7'))?.textContent).toBe(ageLabel(NOW - 30 * MINUTE, Date.now()));
+		expect(time(h.place('L36'))?.textContent).toBe(ageLabel(NOW - 10 * MINUTE, Date.now()));
+		// …and the row's shape follows the label it was built with, as a note's does.
+		expect(h.place('L7').classList.contains('is-timed')).toBe(true);
+
+		// The exact moment is one hover away, ON THE LABEL: hovering anywhere else on
+		// the row says what the place was (see placeRow).
+		h.unhover(h.place('L7'));
+		expect(h.hover(time(h.place('L7'))!)?.textContent)
+			.toBe(new Date(NOW - 30 * MINUTE).toLocaleString());
 	});
 });
 
@@ -3165,27 +3421,66 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('puts the row\'s menu on a note and on its landings, and the × only on the note', () => {
-		// A landing is not a thing this list drops on its own (see onForget) — what a row
-		// takes off it is the note the spot belongs to — but the spot IS a place a reader
-		// can ask for one tab over, and only this panel knows which place that is. So the
-		// menu goes on both, and it is the app's for the FILE the spot belongs to, with
-		// the row's own place as the item on top (see body.ts's contextRow).
+	it('puts the row\'s menu on a note and on its landings, and the × on both', () => {
+		// A landing is a record of its own on this list now, so it carries the same
+		// removal the note's row does — what its × takes off is the SPOT, and the note's
+		// row above stays (see onForgetLanding). The two rows say so differently: the
+		// note's × is "remove from recent files", the spot's is "remove this place", and
+		// a reader pointing at one of them is never guessing which one they got.
+		//
+		// The menu goes on both for the reason it always did: the spot IS a place a
+		// reader can ask for one tab over, and only this panel knows which place that is.
 		const spots = [
 			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
 			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
 			visit('y.md', NOW),
 		];
-		const h = harnessAll(spots, 2, { 'x.md': '', 'y.md': '' }, [], {}, {}, true);
-		const note = h.note('x');
-		const landing = h.rows()[0];
+	const h = harnessAll(spots, 2, { 'x.md': '', 'y.md': '' }, [], {}, {}, true);
+	const note = h.note('x');
+	const landing = h.rows()[0];
 
-		expect(note.querySelector('.nav-row-forget')).not.toBeNull();
-		expect(note.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
-			.toBe(t('recentFiles.rowMenu'));
-		expect(landing.querySelector('.nav-row-forget')).toBeNull();
-		expect(landing.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
-			.toBe(t('recentFiles.rowMenu'));
+	expect(note.querySelector('.nav-row-forget')).not.toBeNull();
+	expect(note.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
+		.toBe(t('recentFiles.rowMenu'));
+	expect(landing.querySelector('.nav-row-forget')?.getAttribute('aria-label'))
+		.toBe(t('recentFiles.forgetLanding'));
+	expect(landing.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
+		.toBe(t('recentFiles.rowMenu'));
+
+	// …and the two controls stand in the SAME ORDER on both: the menu inside, the ×
+	// at the very end. A reader who learned the row's far end on a note's row reads
+	// the same end on a landing's, and the removal never moves inward.
+	const ends = (el: HTMLElement) => Array.from(el.querySelectorAll('.nav-row-actions > *'))
+		.map(c => c.classList.contains('nav-row-forget') ? 'x' : 'menu');
+	expect(ends(note)).toEqual(['menu', 'x']);
+	expect(ends(landing)).toEqual(['menu', 'x']);
+});
+
+	it('takes one spot off the list from the × on its own row, and leaves the note', () => {
+		// What goes is the SPOT: the note keeps its own row, and so does every other
+		// place in it. A row is a LINE, so what the × hands the store is the identity of
+		// every place that landed on it (see landingKeys) — one of them alone would put
+		// the row straight back.
+		const spots = [
+			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
+			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
+			visit('y.md', NOW),
+		];
+		const h = harnessAll(spots, 2, { 'x.md': '', 'y.md': '' });
+		const gone = placeKey(spots[0]);
+
+		h.clickRow(h.forgetButton(h.place('L101')));
+
+		expect(h.forgetLanding).toHaveBeenCalledWith([gone]);
+		// The spot is off the list; the note's own record and the other spot are not.
+		expect(h.entries.map(e => (e.kind === 'jump' ? e.st?.scroll : 'note')))
+			.toEqual([412, 'note']);
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		// …and the redraw is the panel's own (see body.ts's forgetLanding), so the row is
+		// gone from the screen too — with the note's row standing for the spot that is
+		// left, since one place is not a list (see printsLandings).
+		expect(h.rows()).toHaveLength(0);
+		expect(h.note('x')).toBeDefined();
 	});
 });
 

@@ -6,10 +6,10 @@ import { describe, it, expect } from 'vitest';
 
 import {
 	describeNavEntry, headingTrailAtLine, headingsFromText, rowTrail, dropsOuterLevel, baseName,
-	badgeOf, displayName,
+	badgeOf, displayName, landingText,
 	duplicateNames, folderOf, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
-import { groupByFile, matchesNavFilter } from '@/recent-files/browser/listing';
+import { groupByFile, matchesNavFilter, matchedContextLine } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
 import { t } from '@/i18n';
 import { NavEntry } from '@/nav/entry';
@@ -519,6 +519,66 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '来源笔记')).toBe(true);
 		expect(matchesNavFilter(e, '另见')).toBe(true);
 		expect(matchesNavFilter(e, '别的笔记')).toBe(false);
+	});
+});
+
+describe('landingText', () => {
+	const jump = (st?: NavEntryState): NavEntry =>
+		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
+
+	it('is the line the landing sat on, not the line above or below it', () => {
+		// The row prints that line's NUMBER and the section it is in; these are
+		// its words, which are on screen nowhere else (see NavEntryState.context).
+		const e = jump(block(['前一段', '落点这一行', '后一段'], 1));
+		expect(landingText(e)).toBe('落点这一行');
+	});
+
+	it('is undefined where there is nothing to quote', () => {
+		// Most of an old list: a place recorded before the block was captured, and
+		// — the one that matters — a landing taken on a blank line, whose quote
+		// would be an empty line in a tooltip.
+		expect(landingText(jump())).toBeUndefined();
+		expect(landingText(jump({ scroll: 10 }))).toBeUndefined();
+		expect(landingText(jump(block(['前一段', '', '后一段'], 1)))).toBeUndefined();
+	});
+
+	it('is undefined for a view, which is not a place in a note', () => {
+		const e = { kind: 'view', leafId: 'l', viewType: 'graph' } as NavEntry;
+		expect(landingText(e)).toBeUndefined();
+	});
+});
+
+describe('matchedContextLine', () => {
+	const jump = (st?: NavEntryState): NavEntry =>
+		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
+	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区'], 1));
+
+	it('is the line that carries the whole query', () => {
+		expect(matchedContextLine(ctx, '读取死区')).toBe('后一段：读取死区');
+		// A phrase standing on one line, which is what a reader usually types.
+		expect(matchedContextLine(ctx, '后一段 死区')).toBe('后一段：读取死区');
+	});
+
+	it('falls back to the first token\'s line when the tokens are spread over the block', () => {
+		// The filter matched the block joined together (see matchesNavFilter), so
+		// no single line carries the query — and a row that then said nothing
+		// would be a row that matched by magic.
+		expect(matchedContextLine(ctx, '量化 死区')).toBe('前一段：换行与量化');
+	});
+
+	it('is undefined when the query hit none of the block', () => {
+		// A row may match on its name, its path, an alias or its section, and
+		// every one of those is either printed on the row or said on hover
+		// already.
+		expect(matchedContextLine(ctx, '没写过的词')).toBeUndefined();
+		expect(matchedContextLine(ctx, '')).toBeUndefined();
+		expect(matchedContextLine(ctx, '   ')).toBeUndefined();
+		expect(matchedContextLine(jump(), '落点')).toBeUndefined();
+	});
+
+	it('is case-insensitive, as the filter that matched it is', () => {
+		const e = jump(block(['Alpha Beta', 'gamma'], 0));
+		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
 	});
 });
 

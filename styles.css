@@ -484,10 +484,21 @@ body.is-mobile .position-restore-cue {
 	box-shadow: inset 2px var(--background-modifier-border);
 	/* …and it does NOT clip: the ● of "you are here" hangs off the coordinate's START
 	   edge, into the indent this row is set in, and a clip at the row's edge would cut
-	   the marker in half (see .nav-row-here). Nothing here overflows of its own
+	   the 	   marker in half (see .nav-row-here). Nothing here overflows of its own
 	   account — the coordinate is sized to its label and the section is what
 	   ellipsizes — so the clip guarded nothing on this row. */
 	overflow: visible;
+}
+
+/* …and WITH an age the row is three tracks: the coordinate, the section, and the age
+   at the far end — the very column a note's row puts its own age in (see
+   .is-file.is-timed), so the two kinds of row end their times on one x and the list
+   reads as one column of times whatever the row stands for. The SECTION is what gives
+   way, as it does without the age: a coordinate and a time are both short and both
+   are what a reader compares, while the section is the one thing that can be cut
+   short and still name its place. */
+.position-restore-nav-row.is-place.is-timed {
+	grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 /* The note cell: what the row names itself with — the NAME, the type BADGE, and the
@@ -1036,6 +1047,35 @@ body.is-mobile .position-restore-cue {
 	line-height: 1.4;
 	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
 	overflow-wrap: anywhere;
+}
+
+/* A line quoted out of the note — the words a landing sat on when it was taken, or
+   the line the search box hit (see TipContent.quotes). Set off by a rule down its
+   inline start and not by a typeface: what distinguishes these is that they are the
+   reader's own words rather than a name this panel derived, and quoting them in an
+   italic no font here renders well would only make the one line a reader is looking
+   for harder to read. They wrap rather than being clipped — a line of the note cut
+   off in the middle says something the note never said. */
+.position-restore-nav-tip .nav-tip-quote {
+	margin-top: 2px;
+	padding-inline-start: 6px;
+	border-inline-start: 2px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
+}
+
+/* The one line a hover says ABOUT the quotes: the note has been written since
+   they were taken. Fainter than the quotes and unquoted, because it is this
+   panel speaking about them and not the note's own words — a reader has to be
+   able to tell the two apart at a glance. Its ink is the panel's own faint tier
+   (see --nav-faint) and not --text-faint, which a theme is free to re-hue. */
+.position-restore-nav-tip .nav-tip-note {
+	margin-top: 2px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: var(--nav-faint);
 }
 
 .position-restore-nav-panel.is-touch .position-restore-nav-row {

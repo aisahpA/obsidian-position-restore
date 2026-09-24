@@ -1,12 +1,13 @@
 import { Keymap, MenuPositionDef, setIcon } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
+import { placeKey } from '@/recent-files/places';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
-import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
+import { groupByFile, LandingsMode, matchesNavFilter, matchedContextLine } from './listing';
 import { PathDisplayMode } from '@/types';
 import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
-	newestStamp, rowTrail,
+	landingText, newestStamp, rowTrail,
 } from './model';
 import { NavRowTip, TipContent } from './tip';
 import { LongPress } from './long-press';
@@ -151,10 +152,16 @@ interface TrailRow {
 	// match a spot against (see model.ts's rowTrail and dropsOuterLevel).
 	outer: HTMLElement;
 	chain: string[];
-	// Whether the row already says something on hover of its OWN: a chain deeper
-	// than the row prints carries its whole chain as a tooltip from the moment the
-	// row is drawn (see placeRow), and the pass must write over that with nothing.
-	tipped: boolean;
+	// The words the row quotes on hover (see landingQuotes). Carried rather than
+	// recomputed because the pass below REWRITES this row's tooltip when the
+	// layout takes a level off it, and a tooltip written from the chain alone
+	// would take the words the reader was reading away with it.
+	quotes: string[];
+	// …and the one line beside them that is not a quote: whether the note has been
+	// written since the words were taken (see landingNote). Carried for the same
+	// reason the quotes are — the pass rewrites the WHOLE tooltip, and one written
+	// from the chain alone would take the reader's own words away with it.
+	note?: string;
 }
 
 export interface RecentFilesListOptions {
@@ -190,6 +197,12 @@ export interface RecentFilesListOptions {
 	// the row, so the search box and the hover are the only two places they exist for a
 	// reader — and a pathless view has none (the browser answers [] for it).
 	aliasesFor: (path: string) => string[];
+	// The file's mtime as it stands NOW, for the one comparison a landing's own
+	// words cannot make on their own: whether the note has been written since they
+	// were taken (see landingNote). Undefined for a path with no file behind it, and
+	// never asked about one: a place whose note is gone is not drawn at all (see
+	// noteExists).
+	mtimeFor: (path: string) => number | undefined;
 	// The position moved to another row, or off the list (undefined), by either
 	// hand. The focus never leaves the filter box — typing narrows the list from the
 	// same keys that move through it — so this is what makes the current option
@@ -265,6 +278,18 @@ export interface RecentFilesListOptions {
 	// the spot under the pointer is not a gesture this list offers — there is no × on
 	// a landing row at all (see fileRow).
 	onForget: (key: string) => void;
+	// The reader took ONE LANDING off the list, from the × its own row carries: which
+	// places the row stands for, BY IDENTITY (see places.ts's placeKey) rather than by
+	// an index — the row may be the only place a reader can see of two that the store
+	// holds on one line, and a removal that left the other behind would put the row
+	// back the moment it was taken off.
+	//
+	// A landing and not the note: the note's own row stays, with whatever other spots
+	// it holds. A row is one DESTINATION (a line, and the section it sits in), and a
+	// reader who never goes to that place again does not want it listed — which is a
+	// different act from taking the note off the list, and the two × are now on
+	// different rows, so the two never have to be told apart by a gesture.
+	onForgetLanding: (keys: string[]) => void;
 	// How much of a note the list prints (see shownLandings): one row per note — the
 	// plugin's default, the row standing for the last spot the note was left at — or
 	// every distinct spot under the name, one row each.
@@ -603,9 +628,9 @@ export class RecentFilesList {
 		// before — its own row is a destination too (see targetOf), so a history of
 		// one step is a one-row list rather than a list with no way out.
 		this.groups.forEach((group, index) => {
-			this.fileRow(group, index, doubles);
+			this.fileRow(group, index, doubles, query);
 			for (const i of this.shownLandings(group, index))
-				this.placeRow(i, i === group.currentRep);
+				this.placeRow(i, i === group.currentRep, query);
 		});
 		// …and what the LAYOUT did to the rows just drawn, read back now that they
 		// have a width to be measured against (see fitTrails).
@@ -686,7 +711,16 @@ export class RecentFilesList {
 	// went with the expansion, and the gutter control that replaced the caret went with
 	// the details panel it opened (see the class comment). One row, one click, one
 	// destination.
-	private fileRow(group: ReturnType<typeof groupByFile>[number], index: number, doubles: Set<string>): number {
+	private fileRow(
+		group: ReturnType<typeof groupByFile>[number],
+		index: number,
+		doubles: Set<string>,
+		// The query in force, which is what the row's own words are quoted against. A
+		// note's row usually has nothing to quote — it stands for the FILE — but a note
+		// whose landings are not being printed is standing on one of them (see below),
+		// and the reader who found it with a query is owed the line the query hit.
+		query: string,
+	): number {
 		// The note's own record when it has one (see activeRep), else any landing
 		// it holds: the row needs ONE record to read the name and the view kind from.
 		const rep = group.anchor
@@ -803,7 +837,27 @@ export class RecentFilesList {
 			tip.path = group.path;
 		if (aka.length)
 			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
-		if (tip.path || tip.text)
+		// …and, where this row IS one of the note's places, the words that place
+		// recorded. A note's landings are printed under it only from two of them up
+		// (see printsLandings), so a note with ONE place — and every note while the
+		// setting prints none — is standing on that place: the click goes there (see
+		// activeRep), and what the row is for is the spot rather than the file. A row
+		// that opens a spot has to be able to say what the spot was, which is the whole
+		// of what a landing's own row does (see placeRow) — and the only reason the
+		// words were recorded at all. Without this, a query that matched a sentence in
+		// the note left one row on screen that said nothing about why.
+		if (!this.printsLandings(index)) {
+			const spot = this.opts.entries[this.activeRep(ref)];
+			if (spot?.kind === 'jump') {
+				const quotes = this.landingQuotes(spot, query);
+				if (quotes.length)
+					tip.quotes = quotes;
+				const note = this.landingNote(spot);
+				if (note)
+					tip.note = note;
+			}
+		}
+		if (tip.path || tip.text || tip.quotes || tip.note)
 			this.tip.attach(row, tip);
 		// THE ROW'S OWN REMOVAL: the × at the row's far end. It is HERE rather than in
 		// the row's menu because that menu is the APP's and only a file has one — a
@@ -841,14 +895,33 @@ export class RecentFilesList {
 		// contextRow) — a second gesture for what two gestures already do.
 		if (this.opts.touch && repEntry?.kind !== 'view')
 			this.menuControl(actions, ref);
-		const forget = actions.createDiv({ cls: 'nav-row-forget clickable-icon' });
+		this.forgetControl(actions, t('recentFiles.forget'), () => this.opts.onForget(group.key));
+		// NO "you are here" dot on the note's name: the row carries `is-current` for
+		// that, and the list is in recency order whatever the reader is standing in (see
+		// groupByFile), so a dot on the name would only repeat what the row already
+		// says, wherever it happens to sit. The dot survives where it tells something
+		// apart — on the LANDING that holds the current entry (a jump the reader is
+		// standing on), whose note has other rows beside it (see placeRow). A reader who
+		// is in the note but on no jump has no landing to mark, and the row's own
+		// `is-current` is what says where they are.
+		return 1;
+	}
+
+	// THE × AT A ROW'S FAR END, and the one act it carries. Built the same way on a
+	// note's row and on a landing's (see placeRow): the gesture is the reader's and it
+	// must not differ by which kind of row the finger happened to come down on — what
+	// differs is WHAT GOES, and that is the caller's `drop`. It is also the LAST of
+	// the two controls on both kinds of row — behind the menu — so a row's far end
+	// reads the same way round wherever the finger came down.
+	private forgetControl(strip: HTMLElement, label: string, drop: () => void): void {
+		const forget = strip.createDiv({ cls: 'nav-row-forget clickable-icon' });
 		forget.setAttr('role', 'button');
 		// Deliberately outside the tab order: this list's keyboard is the position and
 		// the arrow keys (see move), with the focus never leaving the filter box, and a
 		// button that could be tabbed to would be a second keyboard model standing in
 		// the middle of that one.
 		forget.setAttr('tabindex', '-1');
-		forget.setAttr('aria-label', t('recentFiles.forget'));
+		forget.setAttr('aria-label', label);
 		setIcon(forget, 'x');
 		// A finger coming down here is a new gesture, and it spends the click the
 		// press that put this control on the row may still have been holding for
@@ -869,24 +942,120 @@ export class RecentFilesList {
 			// a reader who stopped on a row did not ask to drop it.
 			if (this.press?.consumeClick())
 				return;
-			this.opts.onForget(group.key);
+			drop();
 		});
-		// NO "you are here" dot on the note's name: the row carries `is-current` for
-		// that, and the list is in recency order whatever the reader is standing in (see
-		// groupByFile), so a dot on the name would only repeat what the row already
-		// says, wherever it happens to sit. The dot survives where it tells something
-		// apart — on the LANDING that holds the current entry (a jump the reader is
-		// standing on), whose note has other rows beside it (see placeRow). A reader who
-		// is in the note but on no jump has no landing to mark, and the row's own
-		// `is-current` is what says where they are.
-		return 1;
+	}
+
+	// The words a landing row RECORDED and never prints: the line it sat on, and —
+	// while a query is up — the line the query hit. Both are the note's own text
+	// (see NavEntryState.context), and neither is on screen anywhere: the row
+	// prints a coordinate and a section, and the search box matched these in
+	// silence. This is the row's answer to "what is this, and why is it here".
+	//
+	// The HIT comes first when there is one, because a reader looking at a
+	// filtered list is asking why this row survived the query — and the hit is
+	// the only answer that is not also on the row. The landing's own line still
+	// follows when it is a different one: the two are often the same line (a
+	// query usually names the sentence that was being read), and saying the same
+	// words twice under two labels is a tooltip that has stopped talking.
+	private landingQuotes(entry: NavEntry, query: string): string[] {
+		if (entry.kind === 'view')
+			return [];
+		const hit = query ? matchedContextLine(entry, query) : undefined;
+		const own = landingText(entry);
+		const out: string[] = [];
+		if (hit)
+			out.push(`${t('recentFiles.matchedLine')}${hit}`);
+		if (own && own !== hit)
+			out.push(`${t('recentFiles.landingLine')}${own}`);
+		return out;
+	}
+
+	// ONE LINE ABOUT THE NOTE ITSELF, and only when it is worth saying: whether the
+	// note has been written since the words above were taken. Those words are a
+	// photograph — the block that stood beside the spot at the moment it was
+	// recorded (see landingQuotes) — and an edit moves the lines under them: the
+	// coordinate the row prints and the section it looks up are both the note's as
+	// it stands NOW, while the quote is the note's as it stood then. Nothing else on
+	// the row says which is which, and a reader matching a remembered sentence
+	// against one that has since moved on is the one case this list can still get
+	// wrong in silence.
+	//
+	// It is not a warning and it offers nothing to do, because there is nothing to
+	// fix: a place is where it was, and a note that has moved on has moved on. What
+	// the line buys is that an old quote reads as an old quote.
+	private landingNote(entry: NavEntry): string | undefined {
+		if (entry.kind === 'view')
+			return undefined;
+		const taken = entry.st?.mtime;
+		// No stamp on the record — one taken before the field existed, or by a read
+		// that had no file to stamp — says nothing rather than guessing: it is not a
+		// note that has been left alone, it is an unknown.
+		if (taken === undefined)
+			return undefined;
+		const now = this.opts.mtimeFor(entry.path);
+		// The file's own clock against the one the record kept, with no tolerance to
+		// speak of: an edit is an edit. A clock that ran BACKWARDS — a sync putting an
+		// older copy back — says nothing rather than claiming a rewrite that did not
+		// happen.
+		if (now === undefined || now <= taken)
+			return undefined;
+		return t('recentFiles.editedSince');
+	}
+
+	// WHICH PLACES ONE LANDING ROW STANDS FOR, by identity (see places.ts's placeKey).
+	// A row is one LINE of a note, and the list collapses onto it every place that
+	// landed on that line (see groupByFile) — so what reads as one row can be two
+	// records: two keys that resolve to the same heading, or a heading and an anchor
+	// an edit moved onto one line. Dropping the row's own record alone would leave the
+	// other standing, and the row would be back before the redraw had finished — a ×
+	// that does nothing.
+	//
+	// Matched through the SAME `describe` the grouping used, which is what keeps the
+	// two from disagreeing about which line a place is on: a place with no recorded
+	// position of its own is described by the file's saved one (see describeNavEntry),
+	// and a second opinion here would sort the note's places differently from the rows
+	// the reader is looking at.
+	private landingKeys(path: string, line: number | undefined): string[] {
+		const entries = this.opts.entries;
+		const out: string[] = [];
+		for (let i = 0; i < entries.length; i++) {
+			const entry = entries[i];
+			if (entry.kind !== 'jump' || entry.path !== path)
+				continue;
+			if (this.opts.describe(i).lineIndex !== line)
+				continue;
+			out.push(placeKey(entry));
+		}
+		return out;
+	}
+
+	// One landing row's hover, whatever the layout has done to it: the WHOLE
+	// section chain when the row is not printing all of it, and the words the row
+	// recorded. One place that assembles it, because two passes write it — the
+	// row's own draw, and the fit pass that reads the layout back (see
+	// fitTrails) — and a tooltip written twice is a tooltip that can disagree
+	// with itself about what the row is for.
+	private placeTip(
+		chain: string[], trail: string[], quotes: string[], note?: string,
+	): TipContent | undefined {
+		const tip: TipContent = {};
+		if (chain.length > trail.length)
+			tip.text = chain.join(' › ');
+		if (quotes.length)
+			tip.quotes = quotes;
+		if (note)
+			tip.note = note;
+		return tip.text !== undefined || tip.quotes !== undefined || tip.note !== undefined
+			? tip
+			: undefined;
 	}
 
 	// One PLACE of a note: the coordinate it landed on, and the section it sits in.
 	// Drawn only under 'all' (see shownLandings), where a note's places are listed
 	// under its name — one row per distinct line, so the row is ONE destination and
 	// nothing about it has to be explained away.
-	private placeRow(i: number, current: boolean): number {
+	private placeRow(i: number, current: boolean, query: string): number {
 		const entry = this.opts.entries[i];
 		const d = this.opts.describe(i);
 		const row = this.opts.list.createDiv({ cls: `${ROW_CLASS} is-place` });
@@ -968,22 +1137,72 @@ export class RecentFilesList {
 		// a row is drawn before anything has been measured — so the pass that reads
 		// the layout back gives the row this tooltip when it takes a level off it
 		// (see fitTrails).
-		if (chain.length > trail.length)
-			this.tip.attach(row, { text: chain.join(' › ') });
+		//
+		// …and the WORDS THE ROW RECORDED ride along with it, whatever the chain
+		// does. They are the half of this row the reader cannot see anywhere: the
+		// section says where the landing is, the coordinate says how far in, and
+		// only these say what was there. A row with no context to quote (a place
+		// recorded before the block was captured, or one taken on a blank line)
+		// says nothing more than it used to.
+		const quotes = this.landingQuotes(entry, query);
+		const note = this.landingNote(entry);
+		const tip = this.placeTip(chain, trail, quotes, note);
+		if (tip)
+			this.tip.attach(row, tip);
 		// …and the row joins the ones the fit pass will ask about, outer level and
 		// all. A row that printed a single level has nothing to give up: the whole
 		// chain is the level it prints.
 		if (outer)
-			this.trails.push({ el: row, outer, chain, tipped: chain.length > trail.length });
-		// NO × ON A LANDING: what a row takes off this list is the note the spot belongs
-		// to (see onForget), and a spot is not a thing this list drops on its own — a
-		// removal that took only the line under the finger is not a gesture it offers.
-		// What an armed landing row DOES carry is the same menu control a note's row
-		// carries, for the same reason (see fileRow): the menu is the app's for the
-		// FILE the spot belongs to, and this panel's own item on top of it opens the
-		// place this row stands for — the spot, and not the note's newest one.
-		if (this.opts.touch && entry.kind !== 'view')
-			this.menuControl(this.actionStrip(row), ref);
+			this.trails.push({ el: row, outer, chain, quotes, note });
+		// HOW LONG AGO THE READER WAS AT THIS PLACE — its own time, and not the note's.
+		// A note's row is stamped with the newest of its places (see fileRow), which is
+		// the answer to "when was I in this file" and not to "when did I land here":
+		// a spot the reader has not been back to keeps the time it earned, and that is
+		// the one fact the row's own words could never carry — the block it quotes was
+		// captured on that visit (see landingQuotes), and the note may have been edited
+		// a dozen times since.
+		//
+		// …and the row's own removal, the same × a note's row carries (see
+		// forgetControl). A SPOT IS A RECORD OF ITS OWN on this list, so what it offers
+		// is its own removal: the note's row above stays, and so do the note's other
+		// spots. What the × hands over is every place this row stands for (see
+		// landingKeys) rather than the row's own — a row is a LINE, and two records
+		// that resolve to it are one row, so dropping one of them would put the row
+		// straight back and the × would look like it had done nothing.
+		//
+		// (Both are written behind `kind !== 'view'` only because the type does not say
+		// what groupByFile guarantees — a view and a note's own record are the row ABOVE
+		// this one, never a landing under it.)
+		const strip = this.actionStrip(row);
+		if (entry.kind !== 'view') {
+			if (this.opts.rowTime()) {
+				const label = row.createSpan({
+					text: ageLabel(entry.t, Date.now()),
+					cls: 'nav-row-time',
+				});
+				// The row's shape follows the label that was built, so the two can never
+				// disagree about whether the second track is there (see fileRow).
+				row.addClass('is-timed');
+				// …and the exact moment, as on a note's row: the label is abbreviated.
+				// It lives on the TIME and not on the row, so hovering the time says
+				// when and hovering anything else says what the place was.
+				this.tip.attach(label, { text: new Date(entry.t).toLocaleString() });
+			}
+			// THE MENU FIRST and THE × LAST — the order a note's row puts them in (see
+			// fileRow). The two controls are the row's far end, and a reader who learned
+			// the order once reads it again here; it is also the order that holds when
+			// one of them is missing, since the removal is the OUTER one and a row
+			// carrying no menu does not pull it inward.
+			//
+			// The menu, on a phone only, raises the app's own menu for the FILE the spot
+			// belongs to, for the same reason a note's row carries one: the menu is the
+			// app's and only a file has one, and this panel's own item on top of it opens
+			// the place this row stands for — the spot, and not the note's newest one.
+			if (this.opts.touch)
+				this.menuControl(strip, ref);
+			this.forgetControl(strip, t('recentFiles.forgetLanding'), () =>
+				this.opts.onForgetLanding(this.landingKeys(entry.path, d.lineIndex)));
+		}
 
 		return 1;
 	}
@@ -1022,16 +1241,21 @@ export class RecentFilesList {
 		// list has a row per note.
 		const dropped = rows.map(r => dropsOuterLevel(r.outer.clientWidth, r.outer.scrollWidth));
 		rows.forEach((r, i) => {
-			if (!dropped[i]) {
-				// The row prints its levels again, so the words it borrowed are the row's
-				// own once more and hover has nothing left to add.
-				if (!r.tipped)
-					this.tip.detach(r.el);
+			// One tooltip, written from what the row prints NOW: a level the layout
+			// took off is a level the hover has to give back, and the words the row
+			// quotes stand whether or not the chain lost anything.
+			const tip = this.placeTip(
+				r.chain, rowTrail(r.chain, dropped[i] ? 1 : undefined), r.quotes, r.note,
+			);
+			if (!tip) {
+				// The row prints its levels again and has nothing recorded to quote:
+				// whatever it was going to say is the row's own once more.
+				this.tip.detach(r.el);
 				return;
 			}
-			r.el.addClass('is-deep-only');
-			if (!r.tipped)
-				this.tip.attach(r.el, { text: r.chain.join(' › ') });
+			if (dropped[i])
+				r.el.addClass('is-deep-only');
+			this.tip.attach(r.el, tip);
 		});
 	}
 

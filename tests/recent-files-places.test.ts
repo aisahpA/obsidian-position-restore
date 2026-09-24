@@ -746,6 +746,87 @@ describe('NavPlaces — forgetting a file', () => {
 	});
 });
 
+describe('NavPlaces — forgetting one landing', () => {
+	// The × on a LANDING's own row (see list.ts's onForgetLanding): what goes is one
+	// spot, and the note's row above stays — the two acts are on two different rows
+	// now, so neither has to be told apart by a gesture.
+	it('drops the spot and leaves the note, and the note\'s other spots', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+		places.remember(visit('b.md'));
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
+
+		// Named through placeKey rather than spelled out: what is pinned is which
+		// places SURVIVED, and a key is the store's own way of naming one.
+		expect(paths(places)).toEqual([
+			'a.md',
+			placeKey(jump('a.md', 'outline:## Two')),
+			'b.md',
+		]);
+	});
+
+	it('drops every place one row stands for, so the row cannot come back', () => {
+		// A row is a LINE, and the panel collapses onto it every place that landed
+		// there — a heading and a block ref an edit moved onto one line are one row to
+		// the reader (see list.ts's landingKeys). A removal that named one of them
+		// would leave the other to draw the row again the moment it was taken off,
+		// which is a × that does nothing.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', '^block-1'));
+		places.remember(visit('b.md'));
+
+		places.forgetLanding([
+			placeKey(jump('a.md', 'outline:## One')),
+			placeKey(jump('a.md', '^block-1')),
+		]);
+
+		expect(paths(places)).toEqual(['b.md']);
+	});
+
+	it('tells the panel, so the row goes while the reader is looking at it', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('says nothing at all for keys the list does not hold', () => {
+		// The keys arrive from a panel that may be a click behind the store (a dialog
+		// holding a snapshot), so a place already gone is not a change to report.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## Gone'))]);
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'outline:## One'))]);
+		expect(seen).not.toHaveBeenCalled();
+	});
+
+	it('stands nowhere when the spot it forgot was the one being read', () => {
+		// "Here" is an index into the list: a place that is gone must not leave one
+		// behind, or the note that arrives next would be named as where the reader is.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.markCurrent(jump('a.md', 'outline:## One'));
+		expect(places.index).toBe(0);
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
+
+		expect(places.entries).toEqual([]);
+		expect(places.index).toBe(-1);
+	});
+});
+
 describe('NavPlaces — bookkeeping', () => {
 	it('re-keys every place that named a renamed file', () => {
 		const { places } = makePlaces();

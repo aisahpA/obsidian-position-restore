@@ -239,6 +239,13 @@ export const zh: En = {
 	// 它们可被搜索、不占任何格子，所以悬停是读者唯一能看到它们的地方；冒号写进值里，因为
 	// 用不用冒号是各语言自己的事。
 	'recentFiles.aka': '别名：',
+	// 落点行 tooltip 上那两行「引文」的引导词（见 RecentFilesList.landingQuotes）。两行都是
+	// 笔记自己的文字——记下时抓的、屏幕上哪里都不印的：搜索命中的那一行，与落点所在的那一行。
+	// 「记下时」这三个字是整句话的重点：笔记后来可能改过，这两行是当时那句话，不是现在这句。
+	// 冒号写进值里（同上）。
+	'recentFiles.matchedLine': '搜到的一行：',
+	'recentFiles.landingLine': '记下时那一行：',
+	'recentFiles.editedSince': '记下之后这篇改过',
 	'recentFiles.openInNewTab': '在新标签页打开',
 	'recentFiles.openHereInNewTab': '在此处打开新标签页',
 	// 行自己的移除控件，也就是行上的那个 ×（见 RecentFilesBrowser.onForget）。它不再挂在行的
@@ -247,6 +254,9 @@ export const zh: En = {
 	// 那一种不一致。用「移除」而不是「删除」：走掉的只是这条记录，文件本身和位置数据库里的落点
 	// 都不动，下次再进这个文件它就回来了。
 	'recentFiles.forget': '从最近文件移除',
+	// 落点行上同一个 × 的说法（见 RecentFilesList.placeRow）：这里走掉的是一个位置，不是整篇笔记。
+	// 用「位置」而不是「行」：读者看到的是那一行与它所在的那一节，落点挪过之后它还是同一个位置。
+	'recentFiles.forgetLanding': '移除这个位置',
 	// 行上第二个控件（见 RecentFilesList.menuControl）：它升起的是 app 对这份文件自己的那张
 	// 菜单——桌面上右键、手机上长按曾经升起的就是它。说「更多操作」而不说「菜单」：那张菜单是
 	// app 的，这一行只是把读者送到它面前；也有别于「在新标签页打开」，那只是菜单里的第一项。
