@@ -736,11 +736,11 @@ export class RecentFilesList {
 		if (group.current)
 			row.addClass('is-current');
 		// WHICH SIDE the folder prints on, as a class rather than as an insertion
-		// order: the DOM order is fixed (name, badge, folder) so that the row reads
-		// in one order however it is drawn, and the visual order is the stylesheet's
-		// (see the `order` rule). The two differ only for 'before' — and that is also
-		// the only case where the name, and not the folder, is what drops to a second
-		// line when the row is too narrow.
+		// order: the DOM order is fixed (the name's own box, then the folder) so that
+		// the row reads in one order however it is drawn, and the visual order is the
+		// stylesheet's (see the `order` rule). The two differ only for 'before' — and
+		// that is also the only case where the name, and not the folder, is what drops
+		// to a second line when the row is too narrow.
 		const mode = this.opts.pathDisplay();
 		if (mode !== 'after')
 			row.addClass('is-path-before');
@@ -758,13 +758,24 @@ export class RecentFilesList {
 		this.refs.push(ref);
 
 		const file = row.createDiv({ cls: 'nav-row-file' });
-		file.createSpan({ text: name, cls: 'nav-row-name' });
+		// The name and whatever marks what kind of thing it is are ONE item of the
+		// wrapping cell, and not two of its own: the cell wraps where it runs out of
+		// room, and a mark that is a SIBLING of the name is the first thing it drops —
+		// which prints the type on a line of its own, below the name it has just been
+		// cut away from. Nothing wraps inside .nav-row-head, so the two are one thing
+		// that breaks off together, and the FOLDER is what takes the second line (see
+		// styles.css).
+		const lead = file.createDiv({ cls: 'nav-row-head' });
+		lead.createSpan({ text: name, cls: 'nav-row-name' });
 		// The type, where the type is worth saying: markdown is what a vault is made
-		// of and prints nothing (see badgeOf). It sits beside the name and BEFORE the
-		// folder, so it stays with the name whichever half wraps.
+		// of and prints nothing (see badgeOf). The CLASS is the app's own tag, the one
+		// the file explorer puts beside a file's name, so the mark is drawn by the
+		// app's stylesheet (and by whatever a theme has done to it) rather than by a
+		// rule of ours: a type that looked like a type everywhere but here was a type
+		// the reader had to learn twice.
 		const badge = badgeOf(group.path);
 		if (badge) {
-			file.createSpan({ text: badge, cls: 'nav-row-badge' });
+			lead.createSpan({ text: badge, cls: 'nav-file-tag' });
 		} else {
 			// A PATHLESS VIEW takes this slot (the two never both apply — a view has
 			// no path, so it has no extension for badgeOf to report): a view is not a
@@ -778,11 +789,11 @@ export class RecentFilesList {
 			if (repEntry?.kind === 'view') {
 				const label = t('recentFiles.viewBadge');
 				if (repEntry.icon) {
-					const mark = file.createSpan({ cls: 'nav-row-view-icon' });
+					const mark = lead.createSpan({ cls: 'nav-row-view-icon' });
 					setIcon(mark, repEntry.icon);
 					mark.setAttr('aria-label', label);
 				} else {
-					file.createSpan({ text: label, cls: 'nav-row-badge' });
+					lead.createSpan({ text: label, cls: 'nav-file-tag' });
 				}
 			}
 		}

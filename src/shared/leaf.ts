@@ -60,7 +60,7 @@ export function viewLabel(view: View | undefined): string | undefined {
 // the row to say "view" in WORDS instead, which is deliberate — an icon id the
 // app's build does not know draws an empty slot, and an empty slot says less
 // than a word does (the same reasoning as the type badge, see the stylesheet's
-// nav-row-badge note).
+// .nav-file-tag note).
 export function viewIcon(view: View | undefined): string | undefined {
 	if (!view)
 		return undefined;

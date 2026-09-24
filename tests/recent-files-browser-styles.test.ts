@@ -191,8 +191,9 @@ describe('recent-files browser quiet tiers', () => {
 	// screen share, or every row — and WHICH HALF of the row gives way when it does not
 	// fit is the same setting's other half: a flex line wraps at the end it is laid out
 	// in, so the item ordered LAST is the one that drops to the second line. The DOM
-	// order never changes (name, badge, folder), so this one class is the whole of the
-	// difference between the two "always" modes (see PathDisplayMode).
+	// order never changes (the name's own box, then the folder), so this one class is
+	// the whole of the difference between the two "always" modes (see
+	// PathDisplayMode).
 	it('prints the folder on the side the setting asks for, and wraps the other half', () => {
 		// The cell wraps, and separates what shares a line with a COLUMN gap: a margin
 		// would indent the line that wrapped, and the two lines would read as unrelated.
@@ -214,18 +215,38 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('nav-row-folder');
 	});
 
-	// The type badge (see badgeOf): TEXT in a box, never an icon. An icon name the
-	// app's build does not have draws an empty slot where the badge should be — worse
-	// than no badge, and invisible in any test that does not render a real theme.
-	it('marks a note\'s type with text in a box, not with an icon', () => {
-		const badge = browser.match(/\.nav-row-badge\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(badge).not.toBe('');
-		expect(badge).toMatch(/border: 1px solid/);
-		expect(badge).toMatch(/font-size: var\(--font-ui-smaller\)/);
-		expect(badge).toMatch(/color: var\(--nav-faint\)/);
-		// it cannot swallow the row however long the extension is
-		expect(badge).toMatch(/max-width: 10ch/);
-		expect(badge).toMatch(/text-overflow: ellipsis/);
+	// The type (see badgeOf) is marked with the APP'S OWN tag — the class the file
+	// explorer puts beside a file's name — and not with a box of our own: a type that
+	// looked like a type everywhere but here was a type the reader had to learn twice,
+	// and a look of ours is a look no theme can reach. Two things the class brings are
+	// right for the explorer and wrong for a name, and both are taken back: the tag
+	// there is pushed to the FAR END of its line (it stands for the whole row) and it
+	// is allowed to shrink (a squeezed tag reads "PD / F").
+	it('marks a note\'s type with the app\'s own tag, and only corrects it', () => {
+		const tag = browser.match(/\.position-restore-nav-row \.nav-file-tag\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(tag).not.toBe('');
+		expect(tag).toMatch(/margin-inline-start: 0/);
+		expect(tag).toMatch(/flex: 0 0 auto/);
+		// …and nothing else is ours to say about how it looks: no colour, no border,
+		// no size of our own.
+		expect(tag).not.toMatch(/color:/);
+		expect(tag).not.toMatch(/border/);
+		expect(tag).not.toMatch(/font-size/);
+		// The old badge is GONE, not kept beside it: a row carrying both would print
+		// the type twice.
+		expect(browser).not.toContain('nav-row-badge');
+	});
+
+	// …and the mark stays ON THE NAME'S LINE: as a sibling of the name it is the first
+	// thing the wrapping cell drops, which prints the type on a line of its own, under
+	// the name it belongs to. The name and its mark are one box that never wraps.
+	it('keeps the name and its mark on one line, whatever the row has room for', () => {
+		const head = browser.match(/\.nav-row-head\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(head).not.toBe('');
+		expect(head).toMatch(/flex-wrap: nowrap/);
+		// …and it is the NAME inside that box which gives way, not the mark: the box
+		// shrinks (see .nav-row-name) and the mark keeps its own width.
+		expect(head).toMatch(/min-width: 0/);
 	});
 
 

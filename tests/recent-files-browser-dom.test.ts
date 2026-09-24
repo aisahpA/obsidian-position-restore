@@ -1994,7 +1994,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 	};
 	const attr = (row: HTMLElement) => ({
 		name: row.querySelector('.nav-row-name')?.textContent,
-		badge: row.querySelector('.nav-row-badge')?.textContent,
+		badge: row.querySelector('.nav-file-tag')?.textContent,
 		path: row.querySelector('.nav-row-path')?.textContent,
 	});
 	// What one file's row says on hover, found by the path the fixture named it with.
@@ -2560,9 +2560,14 @@ describe('RecentFilesModal — same-named notes', () => {
 		// front (see styles.css, and the `after` mode, where it is not applied).
 		const index = h.note('index');
 		expect(index.classList.contains('is-path-before')).toBe(true);
-		// …and with one landing there is no count riding after the name.
+		// …and THE NAME AND ITS MARK are one piece: two siblings would let the cell
+		// wrap between them, printing the type on a line of its own under the name it
+		// belongs to (see styles.css's .nav-row-head). The folder is the cell's other
+		// half.
 		expect([...index.querySelector('.nav-row-file')!.children].map(el => el.className))
-			.toEqual(['nav-row-name', 'nav-row-path']);
+			.toEqual(['nav-row-head', 'nav-row-path']);
+		expect([...index.querySelector('.nav-row-head')!.children].map(el => el.className))
+			.toEqual(['nav-row-name']);
 	});
 
 	it('gives a same-named note at the vault root a folder to show', () => {

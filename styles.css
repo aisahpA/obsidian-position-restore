@@ -501,16 +501,17 @@ body.is-mobile .position-restore-cue {
 	grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
-/* The note cell: what the row names itself with — the NAME, the type BADGE, and the
-   folder — on one line until it does not fit, and on two when it does not. It takes
-   the row's slack, because the name is what a row that is too narrow gives up first
-   (it ellipsizes; the marks beside it do not).
+/* The note cell: what the row names itself with — the name and its mark as ONE
+   piece, and the folder — on one line until it does not fit, and on two when it
+   does not. It takes the row's slack, because the name is what a row that is too
+   narrow gives up first (it ellipsizes; the marks beside it do not).
 
    WHERE it breaks is the reader's setting and not this rule's: the folder's `order`
    below decides which half is laid out first, and the line then wraps after it, so
    the other half is what drops (see PathDisplayMode). Nothing here measures
    anything — a row that fits is one line and a row that does not is two, at whatever
-   width the pane happens to be. */
+   width the pane happens to be. WHAT drops is the folder or the name-with-its-mark,
+   never a mark on its own (see .nav-row-head). */
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
@@ -523,21 +524,34 @@ body.is-mobile .position-restore-cue {
 	column-gap: 0.5em;
 }
 
-/* The type, where the type is worth saying at all (see badgeOf): a boxed label in
-   the faint tier, so it reads as an annotation ON the name rather than as part of
-   it. Text with a border and not an icon — an icon name the app's build does not
-   have draws an empty slot, which is worse than no badge at all. */
-.position-restore-nav-row .nav-row-badge {
+/* THE NAME AND ITS MARK, as one piece (see RecentFilesList.fileRow): this box does
+   NOT wrap — it is the one thing in the cell that would rather be cut in two than
+   moved, because a type printed on a line of its own stops saying what it is a type
+   OF. Being one flex item, it is also one thing for the cell above to break after:
+   a narrow row puts the FOLDER on the second line and keeps these two together.
+   It shrinks (min-width: 0) so that the NAME inside it is what ellipsizes — the mark
+   keeps its own width, see .nav-file-tag below. */
+.position-restore-nav-row .nav-row-head {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: nowrap;
+	min-width: 0;
+	/* Between the name and the mark, the same gap the cell uses between its halves. */
+	column-gap: 0.5em;
+}
+
+/* The type, where the type is worth saying at all (see model.ts's badgeOf): the
+   app's OWN tag class, the one the file explorer puts beside a file's name, so the
+   mark needs no drawing of ours — and a theme that restyles the app's tags restyles
+   this one, which a look of our own could never be. Two things come with that class
+   which are right for the explorer and wrong here, and both are taken back:
+   `margin-inline-start: auto`, which in the explorer pushes the tag to the FAR END of
+   its line (there it stands for the whole row; here it belongs to a name), and a
+   shrinkable box — a tag squeezed below its own text reads "PD / F", and the NAME is
+   the half that gives way (see .nav-row-name). */
+.position-restore-nav-row .nav-file-tag {
+	margin-inline-start: 0;
 	flex: 0 0 auto;
-	padding: 0 0.35em;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	color: var(--nav-faint);
-	font-size: var(--font-ui-smaller);
-	line-height: 1.5;
-	max-width: 10ch;
-	overflow: hidden;
-	text-overflow: ellipsis;
 }
 
 /* A view row's mark: the icon the view itself uses, the one its tab header showed
@@ -576,8 +590,9 @@ body.is-mobile .position-restore-cue {
    keeps the line and the NAME drops below it — the quick switcher's shape, the whole
    path with the file name last. Without the order, the folder is last in the DOM and
    the FOLDER drops: the name stays in the left column and the path becomes a second
-   line under it. The DOM order is the same either way (name, badge, folder), so this
-   one declaration is the whole of the difference between the two "always" modes. */
+   line under it. The DOM order is the same either way (the name's own box, then the
+   folder), so this one declaration is the whole of the difference between the two
+   "always" modes. */
 .position-restore-nav-row.is-file.is-path-before .nav-row-path {
 	order: -1;
 }
