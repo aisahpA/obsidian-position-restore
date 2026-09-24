@@ -5,7 +5,8 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-	describeNavEntry, headingTrailAtLine, rowTrail, dropsOuterLevel, baseName, badgeOf, displayName,
+	describeNavEntry, headingTrailAtLine, headingsFromText, rowTrail, dropsOuterLevel, baseName,
+	badgeOf, displayName,
 	duplicateNames, folderOf, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
 import { groupByFile, matchesNavFilter } from '@/recent-files/browser/listing';
@@ -682,6 +683,48 @@ describe('headingTrailAtLine', () => {
 	it('is empty above the first heading and without headings', () => {
 		expect(headingTrailAtLine([h('A', 1, 5)], 4)).toEqual([]);
 		expect(headingTrailAtLine(undefined, 4)).toEqual([]);
+	});
+});
+
+// …and the same reading taken out of the note's own text, which is where a row gets
+// its chain when the metadata cache has nothing to say about the note (see reads.ts):
+// a sync replaced it, or the app has not re-parsed it, and on a phone neither ends
+// when the note is opened.
+describe('headingsFromText', () => {
+	it('reads ATX headings with the line they stand on', () => {
+		expect(headingsFromText('# 面板设计\n\n## 呈现方案\n\n正文\n'))
+			.toEqual([
+				{ heading: '面板设计', level: 1, line: 0 },
+				{ heading: '呈现方案', level: 2, line: 2 },
+			]);
+	});
+
+	it('names the same section the cache names', () => {
+		// The point of the fallback: it has to be the SAME reading, or a row would say
+		// one thing while the app had not parsed the note and another once it had.
+		const text = '# A\n\n## B\n\n正文\n\n### C\n';
+		expect(headingsFromText(text)).toEqual([
+			{ heading: 'A', level: 1, line: 0 },
+			{ heading: 'B', level: 2, line: 2 },
+			{ heading: 'C', level: 3, line: 6 },
+		]);
+		expect(headingTrailAtLine(headingsFromText(text), 4)).toEqual(['A', 'B']);
+	});
+
+	it('reads no heading out of a tag, a comment or a value', () => {
+		// `#标签` is one of the app's TAGS; a `#` inside a fence is a line of somebody's
+		// shell; `title: # 1` is a frontmatter VALUE. All three were sections to a
+		// reading that split on `#`, and the row would have named a section that is not
+		// there — worse than naming none.
+		expect(headingsFromText('#标签\n')).toEqual([]);
+		expect(headingsFromText('```bash\n# 安装\n```\n')).toEqual([]);
+		expect(headingsFromText('---\ntitle: # 1\n---\n# 真的标题\n'))
+			.toEqual([{ heading: '真的标题', level: 1, line: 3 }]);
+	});
+
+	it('closes the trailing marks of the closed form, and skips a bare one', () => {
+		expect(headingsFromText('## 一 ##\n#\n'))
+			.toEqual([{ heading: '一', level: 2, line: 0 }]);
 	});
 });
 

@@ -40,7 +40,7 @@ import { headingTrailAtLine, NavEntryDescription } from './model';
 import { RecentFilesReads } from './reads';
 import { RecentFilesList, RecentFilesListOptions } from './list';
 import { PreviewSettle } from './hover-settle';
-import { NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
+import { LATE_READ_REDRAW_MS, NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
 
 // Per-body sequence for the list element's id (see RecentFilesBrowser.listId).
 let browserSeq = 0;
@@ -165,6 +165,10 @@ export class RecentFilesBrowser {
 	// TIME_REFRESH_MS). Held because destroy is the one place that can stop it, and
 	// because a shell may mount and destroy a body many times in one app run.
 	private timer?: number;
+	// The redraw owed to a section chain that arrived after the row was drawn (see
+	// redrawAfterLateRead). Coalesced rather than taken per reading: the whole list
+	// asks at once, and every one of them would otherwise rebuild every row.
+	private lateTimer?: number;
 	// The menu this body raised from a row, while one is standing (see contextRow).
 	//
 	// It is the APP's object, put on the app's document, and the app knows how to
@@ -182,6 +186,9 @@ export class RecentFilesBrowser {
 			// The live list, re-pointed per render (see render): a resident panel
 			// describes the places as they stand, not as they stood when it opened.
 			entries: () => opts.places.entries,
+			// A section chain read out of a note's own text lands one render late (see
+			// reads.ts): the row it belongs to was already drawn without it.
+			onLateRead: () => this.redrawAfterLateRead(),
 		});
 	}
 
@@ -381,6 +388,20 @@ export class RecentFilesBrowser {
 		this.render();
 	}
 
+	// A section chain the row was drawn without has been read out of the note's own
+	// text (see RecentFilesReads.onLateRead): the app had not re-parsed the note, so
+	// the cache said nothing at the time — and now the text has, which is the same
+	// answer. Redrawn here — coalesced, see LATE_READ_REDRAW_MS — rather than left for
+	// whatever redraw comes next, which on a resident panel is the five-minute tick.
+	private redrawAfterLateRead(): void {
+		if (this.lateTimer !== undefined)
+			return;
+		this.lateTimer = window.setTimeout(() => {
+			this.lateTimer = undefined;
+			this.render();
+		}, LATE_READ_REDRAW_MS);
+	}
+
 	// Throw away what belongs to this body: everything below was registered beside
 	// elements the shell owns, and each of them outlives those elements (see the
 	// shell's teardown).
@@ -408,6 +429,11 @@ export class RecentFilesBrowser {
 		if (this.timer !== undefined)
 			window.clearInterval(this.timer);
 		this.timer = undefined;
+		// …and the redraw a late reading may still owe this body: it would redraw a
+		// list whose elements are already gone.
+		if (this.lateTimer !== undefined)
+			window.clearTimeout(this.lateTimer);
+		this.lateTimer = undefined;
 		document.removeEventListener('visibilitychange', this.onVisibilityChange);
 	}
 

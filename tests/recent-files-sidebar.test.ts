@@ -139,7 +139,9 @@ class FakeNav {
 function makeApp(paths: string[] = []) {
 	const files: Record<string, TFile> = {};
 	for (const path of paths)
-		files[path] = Object.assign(new TFile(), { path });
+		// A stat, as every TFile has one: a section chain read out of the file's own
+		// text is remembered against its mtime (see reads.ts).
+		files[path] = Object.assign(new TFile(), { path, stat: { ctime: 0, mtime: 0, size: 0 } });
 	// The app's own file-menu event: a row asks the APP what it can do with the file
 	// (see RecentFilesBrowser.contextRow), and what this panel hands the app is the
 	// menu OBJECT — so it is RECORDED rather than merely swallowed. A test that wants

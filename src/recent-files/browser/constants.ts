@@ -109,3 +109,19 @@ export const ROW_PRESS_HOLD_MAX_MS = LONG_PRESS_MS + ROW_PRESS_MARK_MS;
 // who pulls the drawer straight back is shown the old order for the rest of the
 // difference, which is a fraction of a second and is over before the first row is read.
 export const PANEL_EXIT_GRACE_MS = 300;
+
+// How long the panel waits before redrawing for a section chain that arrived LATE (see
+// RecentFilesReads.onLateRead), in milliseconds.
+//
+// Why it waits at all: the chain came out of a note's own text, which is a read the row
+// could not be drawn behind — so a list of notes the cache knows nothing about asks for
+// every one of them at once, and they land one after another in the same tick. A redraw
+// apiece would rebuild every row as many times as there are notes on the list, which is
+// a phone spending a second redrawing a panel the reader is already reading. One redraw
+// at the end of that burst draws all of them.
+//
+// Why it is a number and not a microtask: it only has to be after the last landing and
+// before the reader has read a row, and sixty milliseconds is comfortably both — the
+// burst is over long before it, and a redraw that late is one the reader never sees as
+// a change.
+export const LATE_READ_REDRAW_MS = 60;

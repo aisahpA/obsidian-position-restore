@@ -213,8 +213,18 @@ export class NavFunnel {
 		this.publishLeave({ cause: 'tab', leaf });
 		const view = leaf.view;
 		const leafId = this.state.leafId(leaf);
-		if (view instanceof FileView && view.file) {
-			this.publish({ record: { kind: 'visit', path: view.file.path, leafId, via: 'switch' }, cause: 'tab' });
+		// A FileView is either the visit it names or nothing at all. One with NO file is
+		// not another kind of destination — it is a moment: a sync replaces a note by
+		// removing the file and renaming the download over it (see
+		// position/path-bookkeeping.ts), and for that instant the tab still showing the
+		// note is a FileView whose `file` is null. Recording it as a view used to mint a
+		// phantom place — keyed `view:markdown`, wearing the note's own name and the
+		// FileView's file icon, indistinguishable from a real row — that no delete could
+		// ever clean up, because a view row has no file to go missing. It sat in the list
+		// until the reader took it off by hand.
+		if (view instanceof FileView) {
+			if (view.file)
+				this.publish({ record: { kind: 'visit', path: view.file.path, leafId, via: 'switch' }, cause: 'tab' });
 			return;
 		}
 		// A main-area view is a destination in its own right, whatever its type is:

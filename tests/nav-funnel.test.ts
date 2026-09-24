@@ -22,7 +22,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
-import { MarkdownView, Platform } from 'obsidian';
+import { FileView, MarkdownView, Platform } from 'obsidian';
 import { NavFunnel, NavLeave, NavRecording } from '@/nav/funnel';
 import { NavEntry, NewNavEntry } from '@/nav/entry';
 import { Sampler } from '@/position/capture/sampler';
@@ -239,6 +239,29 @@ describe('NavFunnel — what a capture point publishes', () => {
 		const empty = leafWithFile('leaf-2'); // view type 'empty'
 
 		funnel.recordActivation(empty);
+
+		expect(visits).toEqual([]);
+		expect(leaves).toHaveLength(1);
+	});
+
+	it('a file view whose file has gone is not a place of its own', () => {
+		// A sync replaces a note by removing the file and renaming the download over
+		// it (see position/path-bookkeeping.ts), and for that instant the tab still
+		// showing the note is a FileView whose `file` is null. Recording it as a view
+		// used to mint a phantom place — keyed `view:markdown`, wearing the note's own
+		// name and the file view's icon, indistinguishable from a real row — that no
+		// delete could ever clean up, because a view row has no file to go missing;
+		// it sat in the list until the reader took it off by hand. A FileView is
+		// either the visit it names or nothing at all: an instant is not a
+		// destination. The tab it stands in is still a leave.
+		const { funnel, visits, leaves } = makeFunnel();
+		const emptied = {
+			id: 'leaf-2',
+			containerEl: 'main',
+			view: Object.assign(Object.create(FileView.prototype), { file: null }),
+		} as unknown as WorkspaceLeaf;
+
+		funnel.recordActivation(emptied);
 
 		expect(visits).toEqual([]);
 		expect(leaves).toHaveLength(1);

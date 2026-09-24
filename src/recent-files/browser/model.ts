@@ -298,6 +298,58 @@ export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: num
 	return stack.map(h => h.heading);
 }
 
+// The headings in a note's own text, in document order — the same reading the
+// metadata cache gives (see reads.ts), taken from the file itself.
+//
+// It is the FALLBACK for a note the cache has nothing to say about: one a sync has
+// just replaced (it removes the file and renames the download over it, see
+// position/path-bookkeeping.ts), or one the app has not re-parsed — which on a phone
+// it may not do for a file the reader never edits, and OPENING the file does not make
+// it happen either (the editor reads the text, the cache does not). A row whose note
+// is in that state printed its line alone — `L412` — for as long as the state lasted,
+// which is what this is here for.
+//
+// Deliberately only ATX headings (`#` … `######`), and only where a space or the end
+// of the line follows the marks: a line opening with `#tag` is one of the app's tags
+// and not a section, and a `#` inside a fenced block is a comment in somebody's shell.
+// The frontmatter is skipped for the same reason — `title: # 1` is a value.
+export function headingsFromText(text: string): HeadingRef[] {
+	const out: HeadingRef[] = [];
+	const lines = text.split('\n');
+	// The marks that opened the fence that is still open, if one is: a block closes on
+	// a fence of its own kind, so ``` inside a ~~~ block is an ordinary line of it.
+	let fence: string | undefined;
+	// Whether the frontmatter block is still open. It is the file's FIRST line or
+	// nothing at all, so it cannot start later than that.
+	let frontmatter = lines[0]?.trim() === '---';
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (frontmatter) {
+			if (i > 0 && line.trim() === '---')
+				frontmatter = false;
+			continue;
+		}
+		const marks = line.match(/^ {0,3}(```+|~~~+)/);
+		if (marks) {
+			if (!fence)
+				fence = marks[1];
+			else if (marks[1][0] === fence[0])
+				fence = undefined;
+			continue;
+		}
+		if (fence)
+			continue;
+		const atx = line.match(/^ {0,3}(#{1,6})(?:[ \t]|$)(.*)$/);
+		if (!atx)
+			continue;
+		// Trailing marks are the closing half of the closed form (`## One ##`).
+		const heading = atx[2].replace(/[ \t]+#+[ \t]*$/, '').trim();
+		if (heading)
+			out.push({ heading, level: atx[1].length, line: i });
+	}
+	return out;
+}
+
 // The chain as a ROW prints it: the deepest `depth` levels only, outermost
 // first (a row has one line of width). The deepest level is KEPT even when it is
 // the heading the landing line itself carries: nothing else on the row names the

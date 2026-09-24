@@ -19,6 +19,7 @@ import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
 import {
+	LATE_READ_REDRAW_MS,
 	LONG_PRESS_MS,
 	NAV_SOURCE_ID,
 	PANEL_EXIT_GRACE_MS,
@@ -269,8 +270,9 @@ function harness(
 				if (deleted.includes(path) || !(path in files))
 					return null;
 				const file = Object.assign(new TFile(), { path });
-				if (path in mtimes)
-					file.stat = { ctime: 0, mtime: mtimes[path], size: 0 };
+				// A stat, as every TFile has one: the mtime is what a section chain read
+				// out of the file's own text is remembered against (see reads.ts).
+				file.stat = { ctime: 0, mtime: mtimes[path] ?? 0, size: 0 };
 				return file;
 			},
 			cachedRead,
@@ -1190,6 +1192,61 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		h.changeFile('a.md');
 		search(h, 'weekly');
 		expect(h.cacheReads()).toBe(3); // one path re-read, the other still remembered
+	});
+
+	it('asks again about a file the cache has not answered yet', () => {
+		// A sync replaces a note by removing the file and renaming the download over
+		// it (see position/path-bookkeeping.ts), and the app fires NO 'changed' for a
+		// rename — so a body that remembered the emptiness it saw in that moment went
+		// on drawing a landing with no section chain at all until the body itself was
+		// thrown away: a restart, or the dialog's next opening. Only ANSWERS are kept
+		// now, so the very next render asks again — one map lookup — and the chain
+		// comes back with no event behind it.
+		const headings: Record<string, unknown[] | Record<string, unknown>> = {};
+		const h = harnessAll([
+			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, headings);
+		const trail = () => h.place('L7').querySelector('.nav-row-trail')?.textContent ?? '';
+
+		expect(trail()).toBe(''); // nothing parsed yet: the row is its line alone
+
+		headings['a.md'] = SPREAD_HEADINGS['a.md'];
+		h.changed(); // any redraw will do — nothing told the panel the file changed
+
+		expect(trail()).toBe('呈现方案›预览');
+	});
+
+	it('reads the chain out of the note itself when the cache has nothing', async () => {
+		// The other half of the same sync, and the half that does not end: on a phone the
+		// cache does not merely answer late, it may never answer at all — the note was
+		// replaced under the app, and OPENING it does not make the app parse it either
+		// (the editor reads the text, the cache does not). A body asked again every five
+		// minutes and heard nothing every time, so the row stayed its line alone. The
+		// text is right there, though: the chain is read out of it, one render late.
+		const h = harnessAll([
+			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, {});
+		const trail = () => h.place('L7').querySelector('.nav-row-trail')?.textContent ?? '';
+		const reads = (path: string) => h.cachedRead.mock.calls.filter(c => c[0].path === path);
+
+		expect(trail()).toBe(''); // the cache says nothing, and the row is drawn anyway
+
+		// The read lands, and the redraw it owes the list comes with it (see
+		// LATE_READ_REDRAW_MS).
+		for (let i = 0; i < 10; i++)
+			await Promise.resolve();
+		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
+
+		expect(trail()).toBe('呈现方案›预览');
+		// ONCE, and not again: the reading is remembered against the mtime it was taken
+		// at, which is the only clock an EXTERNAL change keeps — no event announces it.
+		expect(reads('a.md')).toHaveLength(1);
+		h.changed();
+		expect(reads('a.md')).toHaveLength(1);
 	});
 });
 
