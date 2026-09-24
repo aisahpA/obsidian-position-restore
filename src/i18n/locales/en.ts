@@ -125,8 +125,17 @@ export const en = {
 	// recent-files page's two (see settings/page), and a reader looking for one
 	// of them is looking for the key, not for the page.
 	'hotkeys.name': 'Hotkeys',
-	'hotkeys.unbound': 'Not bound — click the button to set it up',
+	// "Not bound" stands alone: the row says once (see settings/page) which
+	// button opens the app's own hotkey settings. It is an extra button, and on
+	// a narrow screen it wraps BELOW the row — so no sentence here may point at
+	// a side the button sits on. What can be named is only what it looks like.
+	'hotkeys.unbound': 'Not bound',
+	// "Physical keyboard", not "external": true on both ends. A soft keyboard
+	// cannot press a combination, and a desktop keyboard is physical already.
+	'hotkeys.hint': 'To bind one: use the keyboard button on this row to open Settings → Hotkeys. A bound key only fires from a physical keyboard.',
 	'hotkeys.open': 'Open hotkey settings',
+	// Fallback when the button never lands on that tab (see settings/page).
+	'hotkeys.openFailed': 'Could not open the hotkey settings. Go to Settings → Hotkeys and find this plugin\'s commands there.',
 
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',

@@ -429,3 +429,24 @@ function installDomHelpers(): void {
 }
 
 installDomHelpers();
+
+// A row describing itself builds into a DocumentFragment (see settings/page),
+// and a fragment is a Node but not an HTMLElement — so the helpers have to be
+// copied onto it as well. Copied rather than declared twice: one definition of
+// what createDiv does, whichever node it is called on.
+const fragmentHelpers = [
+	'createEl', 'createDiv', 'createSpan', 'empty', 'setText', 'appendText',
+	'addClass', 'removeClass', 'toggleClass', 'setAttr', 'setCssStyles', 'setCssProps',
+];
+const fragmentProto = DocumentFragment.prototype as unknown as Record<string, unknown>;
+const elementProto = HTMLElement.prototype as unknown as Record<string, unknown>;
+for (const name of fragmentHelpers)
+	fragmentProto[name] = elementProto[name];
+
+// createFragment is one of Obsidian's globals — declared, never imported — so it
+// belongs on the global object rather than in this module's exports.
+(globalThis as unknown as { createFragment: () => DocumentFragment }).createFragment =
+	function createFragment(): DocumentFragment {
+		installDomHelpers();
+		return document.createDocumentFragment();
+	};

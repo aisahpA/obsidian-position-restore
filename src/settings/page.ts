@@ -1,4 +1,4 @@
-import { App, SettingGroupItem, Hotkey, Modifier, Platform } from 'obsidian';
+import { App, Notice, SettingGroupItem, Hotkey, Modifier, Platform } from 'obsidian';
 import type PositionRestorePlugin from '@/main';
 import { t } from '@/i18n';
 
@@ -65,6 +65,15 @@ export function intro(desc: string): SettingGroupItem {
 // heading about going back and forth. The tab is the only reader of this
 // function's `plugin`: a row draws from what the app reports, so nothing here
 // writes a setting and no page context is needed.
+//
+// The hint is printed ONCE, after the list, instead of being appended to every
+// unbound line: two commands would otherwise repeat the same instruction, which
+// reads as nagging rather than as help. It names the button by what it LOOKS
+// like — a keyboard — and never by which side it stands on. That is deliberate:
+// the button is an extra button, so on a phone-width screen the app's own CSS
+// wraps it BELOW the row, and a sentence pointing right would be pointing at
+// nothing. (What is true on both ends is said instead: a bound key only fires
+// from a physical keyboard.)
 export function hotkeys(
 	plugin: PositionRestorePlugin,
 	desc: string,
@@ -80,6 +89,7 @@ export function hotkeys(
 				list.createEl('li', {
 					text: `${command.name}: ${currentHotkeyText(plugin, command.id)}`,
 				});
+			frag.createDiv({ cls: 'mod-muted', text: t('hotkeys.hint') });
 			setting.setDesc(frag);
 			setting.addExtraButton((btn) => {
 				btn.setIcon('keyboard').setTooltip(t('hotkeys.open'))
@@ -134,8 +144,10 @@ function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): st
 // instance. The tab swap from inside a click handler completes
 // asynchronously (activeTab still points at the old tab when the handler
 // returns), so the query prefill retries until the hotkeys tab is live.
-// All runtime APIs here are untyped — a missing member or exhausted
-// retries degrade silently to an unfiltered list.
+// All runtime APIs here are untyped — a missing member degrades silently to
+// an unfiltered list, but a tab that never arrives is said out loud: a button
+// that does nothing is worse than no button, and the reader is left standing
+// on a row that promised a way to bind a key.
 function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
@@ -143,17 +155,26 @@ function openHotkeySettings(plugin: PositionRestorePlugin): void {
 			activeTab?: { id?: string; setQuery?(query: string): void };
 		};
 	}).setting;
-	if (!setting)
+	// Same sentence either way: what was promised was a way to bind a key, and
+	// it is the outcome — not the reason — the reader is left looking at.
+	if (!setting) {
+		new Notice(t('hotkeys.openFailed'));
 		return;
+	}
 	setting.openTabById('hotkeys');
 	const prefill = (retries: number): void => {
 		const tab = setting.activeTab;
-		if (tab?.id === 'hotkeys' && tab.setQuery) {
-			tab.setQuery(plugin.manifest.name);
+		// Arriving on the tab is the job; the query is only a convenience, so a
+		// tab with no setQuery counts as arrived and says nothing.
+		if (tab?.id === 'hotkeys') {
+			tab.setQuery?.(plugin.manifest.name);
 			return;
 		}
-		if (retries > 0)
+		if (retries > 0) {
 			window.setTimeout(() => prefill(retries - 1), 50);
+			return;
+		}
+		new Notice(t('hotkeys.openFailed'));
 	};
 	prefill(20);
 }
