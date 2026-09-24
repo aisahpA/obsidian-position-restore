@@ -1,16 +1,13 @@
 import { EphemeralState } from '@/types';
 
-// Position-record comparison. Shared by two owners that must agree on what
-// "the same position" means:
-//  - the recorder (Sampler), for change detection against its baseline;
-//  - the store (PositionStore), for deciding whether a leaf's record still
-//    diverges from the file record.
-// It lives in shared/ rather than in capture/ephemeral so the storage layer
-// never has to import the capture layer for two pure functions.
+// Position-record comparison, shared by two owners that must agree on what
+// "the same position" means: the recorder (Sampler, change detection) and the
+// store (PositionStore, whether a leaf's record still diverges). It lives in
+// shared/ so the storage layer never imports the capture layer for two pure
+// functions.
 
-// Cursor-only equality for callers that track cursor movement independently
-// of scroll (e.g. the 100ms poll, whose baseline may carry a scroll field
-// that must not participate in the comparison).
+// For callers tracking cursor movement independently of scroll (the 100ms
+// poll's baseline may carry a scroll field that must not participate).
 export function isCursorStatesEqual(
 	state1?: EphemeralState['cursor'],
 	state2?: EphemeralState['cursor']

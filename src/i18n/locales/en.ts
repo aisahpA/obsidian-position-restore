@@ -2,14 +2,11 @@ export const en = {
 	// ── Feature 1 · Saved positions: what is recorded, how it comes back,
 	//    and where the records live ─────────────────────────────────────
 	'lastPosition.heading': 'Last position',
-	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
-	// what is remembered, and where the record lives. No row below can say either
-	// — none of them is about the cursor being remembered, and none of them knows
-	// whether the record sits inside the vault or outside it. The per-tab memory is
-	// deliberately left out: it is a device-local localStorage overlay (see
-	// position-store's two layers), and saying it beside "kept in a JSON file inside
-	// the vault" would promise that it travels too. The three group headings below
-	// are not repeated here: they name themselves when the reader reaches them.
+	// WHAT THE PAGE IS ABOUT, once at the top (settings/page's intro row):
+	// what is remembered, and where the record lives. No row below can say
+	// either. The per-tab memory is left out on purpose: it is a device-local
+	// overlay, and saying it beside "a JSON file inside the vault" would
+	// promise that it travels too.
 	'lastPosition.intro':
 		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top first, no jump afterwards. Positions are kept in a JSON file inside the vault, by default in the plugin folder — Obsidian Sync does not carry it from there, so to take your positions to another device, point the path inside the vault (under Data storage below).',
 
@@ -120,36 +117,28 @@ export const en = {
 		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
 
 	// ── Shared · what a hotkey row says, on either page that binds one ──
-	// A hotkey row is named for what it HOLDS, not for the page it stands on:
-	// the same word heads the back/forward page's two commands and the
-	// recent-files page's two (see settings/page), and a reader looking for one
-	// of them is looking for the key, not for the page.
+	// Named for what it HOLDS, not for the page it stands on: a reader looking
+	// for one of these is looking for the key, not for the page.
 	'hotkeys.name': 'Hotkeys',
-	// "Not bound" stands alone: the row says once (see settings/page) which
-	// button opens the app's own hotkey settings. It is an extra button, and on
-	// a narrow screen it wraps BELOW the row — so no sentence here may point at
-	// a side the button sits on. What can be named is only what it looks like.
+	// The button that opens the app's hotkey settings is an extra button that
+	// wraps BELOW the row on a narrow screen, so no sentence here may point at
+	// a side — only at what it looks like.
 	'hotkeys.unbound': 'Not bound',
-	// "Physical keyboard", not "external": true on both ends. A soft keyboard
-	// cannot press a combination, and a desktop keyboard is physical already.
+	// "Physical keyboard", not "external": true on both ends.
 	'hotkeys.hint': 'To bind one: use the keyboard button on this row to open Settings → Hotkeys. A bound key only fires from a physical keyboard.',
 	'hotkeys.open': 'Open hotkey settings',
-	// Fallback when the button never lands on that tab (see settings/page).
+	// Fallback when the button never lands on that tab.
 	'hotkeys.openFailed': 'Could not open the hotkey settings. Go to Settings → Hotkeys and find this plugin\'s commands there.',
 
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',
-	// WHAT THE PAGE IS ABOUT, said once at the top (see settings/page's intro
-	// row). What a step is, and where the stack lives — the two things none of
-	// the rows below can say for themselves, and the reason those rows can be
-	// short: a toggle here only has to say whether its own kind of step counts.
-	// "Size configurable below" is NOT repeated here: the row it pointed at is
-	// named for that already.
+	// WHAT THE PAGE IS ABOUT: what a step is, and where the stack lives — the
+	// two things no row below can say for itself, and why those rows can be
+	// short: a toggle only has to say whether its own kind of step counts.
 	'navHistory.intro':
 		'VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one — a link, the outline, a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
-	// The two commands that walk it (see settings/page's hotkeys row). Nothing
-	// here repeats the sentence above: the row is named for the keys it holds,
-	// and what back and forward mean has already been said on this page.
+	// One command per direction. Nothing here repeats the sentence above:
+	// "back" and "forward" have already been said on this page.
 	'navHistory.hotkeys.desc':
 		'One command per direction, walking the steps above. Neither is bound by default — run either by name from the command palette.',
 	'navHistory.stackCap.name': 'Back/forward steps kept',
@@ -162,44 +151,30 @@ export const en = {
 	'navHistory.commands.navigateForward': 'Navigate forward',
 
 	// ── Feature 3 · Recent files: the list of places, and its panel ─────
-	// The modal's own title, where there is no heading above it to repeat.
-	// The PANEL's name. It is a list of places the reader has been — recent
-	// files, plus the headings and anchors they jumped to inside them (see
-	// places.ts) — and NOT the back/forward stack, which is why it is not
-	// called "Navigation history" any more: the two answer different questions
-	// and only one of them is a history of travel.
+	// The modal's own title, and the PANEL's name: a list of places — recent
+	// notes plus the headings and anchors jumped to inside them — and NOT the
+	// back/forward stack. The two answer different questions.
 	'recentFiles.name': 'Recent files',
 
-	// WHAT THE PAGE IS ABOUT, once at the top (see settings/page's intro row):
-	// what one ROW stands for, and what this list is not. The second half is
-	// the half worth saying — the reader arrives here from the page named
-	// "Back and forward", and the two stores answer different questions while
-	// looking like two views of one history. Everything else the rows say
-	// about themselves.
-	//
-	// The one fact it DOES borrow from a row below is that row's default: a
-	// reader who never opens "How much it keeps" still has a list that behaves
-	// one way, and this sentence is the only place that can say which way. So
-	// it has to move with LandingsMode's default — 'all', every landing its
-	// own row — and it names the row it borrowed from rather than leaving the
-	// reader to guess which control holds the answer.
+	// WHAT THE PAGE IS ABOUT: what one ROW stands for, and what this list is
+	// not — the reader arrives here from "Back and forward", and the two stores
+	// answer different questions while looking like two views of one history.
+	// The one fact borrowed from a row below is that row's DEFAULT, so it has
+	// to move with LandingsMode's default ('all'): a reader who never opens
+	// "How much it keeps" still has a list behaving one way.
 	'recentFiles.intro':
 		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The headings and blocks you jumped to inside a note get rows of their own as well — how many, is the "How much it keeps" row below, and by default every one of them is kept. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
-	// The recent-files list's OWN folder rule (see
-	// PluginSettings.recentFilesExcludeFolders): which visits are worth listing.
-	// A list of its own, and not the position records' folder rule — but the two
-	// are not on one page, so the row says what it does and stops there rather
-	// than explaining a rule the reader is not looking at.
+	// This list's OWN folder rule (recentFilesExcludeFolders), and not the
+	// position records' — the two are not on one page, so it says what it does
+	// and stops there.
 	'recentFiles.folders.name': 'Folders not listed',
 	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
 	'recentFiles.folders.list.empty': 'Every folder is listed.',
 	'recentFiles.folders.add': 'Add folder',
-	// Which FRONTMATTER the list refuses: the folder rule's own question
-	// answered by the note itself instead of by where it sits — a board another
-	// plugin owns, a page marked published, a template. The two forms get a line
-	// each, exactly as on the position page (and for the same reason: nearly
-	// every reader arrives to check which of the two to type).
+	// The folder rule's question answered by the note itself instead of by
+	// where it sits. Both forms get a line: nearly every reader arrives to
+	// check which of the two to type.
 	'recentFiles.frontmatterExclude.name': 'Properties not listed',
 	'recentFiles.frontmatterExclude.desc':
 		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is never added to the recent files list.',
@@ -207,52 +182,37 @@ export const en = {
 	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
 	'recentFiles.frontmatterExclude.add': 'Add property',
-	// How many NOTES the list remembers: its own storage knob (see
-	// PluginSettings.recentFilesCap), and not the back/forward stack's ceiling
-	// below. Notes and views only — never the landings inside them, which have
-	// a bound of their own inside the store — so the number the reader set
-	// keeps its meaning whichever stop of the landings setting they are on.
-	//
-	// It has TWO sentences, and the difference is one clause: at the top stop
-	// the landings are drawn as rows, so the list on screen runs longer than
-	// this number even though the number still counts notes.
+	// Counts NOTES and views only — never the landings inside them, so the
+	// number keeps its meaning whichever stop of the landings setting the
+	// reader is on. Hence two sentences: at the top stop landings are drawn as
+	// rows, so the list on screen runs longer than this number.
 	'recentFiles.cap.name': 'Notes to remember',
 	'recentFiles.cap.desc.plain':
 		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
 	'recentFiles.cap.desc.all':
 		'How many notes the recent files list remembers (a view counts as one) — the landings inside a note do not count, but each is drawn as a row of its own, so the list runs longer than this number. Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
-	// HOW MUCH THE LIST KEEPS, AND HOW MUCH OF WHAT IT KEPT IT DRAWS — three
-	// stops along one axis (see LandingsMode), not two controls: how much is
-	// drawn depends on how much was kept, and the stops are monotonic, so a
-	// fourth answer ("keep none, draw every one") never existed as a choice a
-	// reader could mean. Every stop is reversible, which is why the sentence
-	// has no price in it: coming back down to "notes only" stops new landings
-	// being recorded and draws none of the ones already there, but keeps them
-	// — they go when the note they stand in is crowded out (see
-	// NavPlaces.trim).
+	// HOW MUCH IS KEPT, AND HOW MUCH OF IT IS DRAWN — three stops on one axis
+	// (LandingsMode), not two controls: how much is drawn depends on how much
+	// was kept. Every stop is reversible, so the sentence carries no price:
+	// coming back down stops new landings and draws none, but keeps them.
 	'recentFiles.landings.name': 'How much it keeps',
 	'recentFiles.landings.desc':
 		'How finely the list remembers where you have been: the notes you opened only, or the headings and blocks you jumped to inside them as well. And once they are recorded, whether they are drawn: the note still takes one row and its landings only answer the search box, or every landing gets a row of its own. Moving either way costs nothing: coming back to "notes only" merely stops recording new ones — the landings already recorded are kept, and going back down finds them there, until the note they stand in is crowded out.',
 	'recentFiles.landings.options.none': 'Notes only',
 	'recentFiles.landings.options.last': 'Landings, one row per note',
 	'recentFiles.landings.options.all': 'Landings, a row each',
-	// How much of a row's PATH is printed, and on which side of the name (see
-	// PathDisplayMode). The two "always" answers are written as what gives way when
-	// the row runs out of width — that, and not the side, is what the reader is
-	// really choosing: a flex line wraps at its end, so whichever half is laid out
-	// last is the half that drops to a second line. "Only when names repeat" is the
-	// default and the one that says the least: the folder is a disambiguator, so it
-	// is printed where there is something to disambiguate.
+	// What the reader is really choosing is what gives way when the row runs
+	// out of width — a flex line wraps at its end, so whichever half is laid
+	// out last drops to a second line. "Only when names repeat" says the
+	// least: the folder is a disambiguator.
 	'recentFiles.pathDisplay.name': 'Folder path in the list',
 	'recentFiles.pathDisplay.desc': 'Whether a row shows the folder its note sits in — on every row, or only where another row on screen shares the name — and on which side of the name. The side also decides which half gives way when the row runs out of width: the one laid out last drops to a second line.',
 	'recentFiles.pathDisplay.options.smart': 'Only when names repeat',
 	'recentFiles.pathDisplay.options.before': 'Always, before the name',
 	'recentFiles.pathDisplay.options.after': 'Always, after the name',
-	// Whether each row says how long ago it was last visited. The label is the place's
-	// own `t` (see places.ts) — the last time the reader was there, and NOT the file's
-	// modification time, which is a different fact and the one a reader's first guess
-	// at a time printed on a file row would be. The exact moment rides on the label's
-	// own tooltip.
+	// The place's own `t` — the last time the reader was there, and NOT the
+	// file's modification time, which is the first thing a reader guesses at a
+	// time printed on a file row. The exact moment rides on the tooltip.
 	'recentFiles.rowTime.name': 'Time on each row',
 	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited — the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
 	'recentFiles.age.now': 'now',
@@ -262,88 +222,57 @@ export const en = {
 	'recentFiles.age.w': 'w ago',
 	'recentFiles.age.mo': 'mo ago',
 	'recentFiles.age.y': 'y ago',
-	// The two wordings of a row's "open it one tab over" (see RecentFilesBrowser.contextRow
-	// and RecentFilesList.newTabControl). The menu itself is the app's; the ONE item added
-	// is the one the app cannot know, because a row here stands for a PLACE and not merely
-	// for a file: a jump row promises a landing, and "open it in a new tab" has to mean
-	// opening it THERE. Hence two answers rather than one — "the file" and "this spot in
-	// it" are different promises.
-// On a desktop the item stands first in the right-click menu; on a phone that menu gives
-// way to the long press (which now answers "what can be done with THIS row"), so the item
-// moved with the whole menu onto the control the armed row carries — the control raises
-// that menu, and this is still its first item. The key therefore says no `menu`: it is no
-// longer only in one.
-	// The word a file's OTHER names are introduced by, on the row's own tooltip (see
-	// RecentFilesReads.aliasesFor). They are searchable and occupy no cell, so the hover
-	// is the only place a reader ever sees them; the colon is part of the value because
-	// whether to draw one is the language's call.
+	// TWO answers because a row stands for a PLACE, not merely a file: a jump
+	// row promises a landing, so "open in a new tab" has to mean opening it
+	// THERE. The menu it sits in is the app's; this is the one item the app
+	// cannot know.
+	// A file's OTHER names, on the row's own tooltip: searchable, occupying no
+	// cell, so the hover is the only place a reader sees them. The colon is
+	// part of the value — whether to draw one is the language's call.
 	'recentFiles.aka': 'aka:',
-	// What the two QUOTED lines on a landing row's tooltip are introduced by (see
-	// RecentFilesList.landingQuotes). Both are the note's own words, recorded when
-	// the place was taken and printed nowhere else — the one a query hit, and the
-	// line the landing itself sat on. "As recorded" is the whole of the point: the
-	// note may have been edited since, and these are the words as they were, not
-	// as they are. The colon is part of the value, as it is for `aka` above.
+	// The two QUOTED lines on a landing row's tooltip: both the note's own
+	// words, recorded when the place was taken and printed nowhere else. "As
+	// recorded" is the point — the note may have been edited since.
 	'recentFiles.matchedLine': 'Matched:',
 	'recentFiles.landingLine': 'As recorded:',
 	'recentFiles.editedSince': 'Edited since this was recorded',
 	'recentFiles.openInNewTab': 'Open in new tab',
 	'recentFiles.openHereInNewTab': 'Open here in a new tab',
-	// The row's own removal, drawn on the row as a × (see RecentFilesBrowser.onForget).
-	// It is NOT in the row's menu any more: that menu is the APP's, and only a file has
-	// one — a pathless view row (the graph, Thino's memo list) has no file for it to be
-	// about, so a removal offered there was a removal those rows never got, which is the
-	// one inconsistency this leaves behind. "Remove" and not "delete": what goes is the
-	// record, while the file and the position database are untouched, and visiting the
-	// file again puts a place back.
+	// The row's own removal, drawn as a ×. "Remove" and not "delete": what
+	// goes is the record — the file and the position database are untouched,
+	// and visiting the file again puts a place back.
 	'recentFiles.forget': 'Remove from recent files',
-	// The same × as it reads on a LANDING's row (see RecentFilesList.placeRow): what
-	// goes there is one place inside the note, and the note keeps its own row.
-	// "Place" and not "line": the row is the line AND the section it sits in, and a
-	// place that moved in an edit is still the place the reader is taking off.
+	// The same × on a LANDING's row: what goes is one place inside the note
+	// and the note keeps its own row. "Place" and not "line": the row is the
+	// line AND its section, and a place that moved in an edit is still it.
 	'recentFiles.forgetLanding': 'Remove this place',
-	// The row's second control (see RecentFilesList.menuControl): what it raises is the
-	// APP'S own menu for the file — the one a right-click raises on a desktop, and the one
-	// a long press used to raise here. "More actions" and not "menu": the menu is the
-	// app's, and the row only takes the reader to it. Nor is it "open in a new tab", which
-	// is one item ON that menu and not the menu.
+	// What this control raises is the APP'S own menu for the file. "More
+	// actions" and not "menu" — and not "open in a new tab", which is one item
+	// ON that menu.
 	'recentFiles.rowMenu': 'More actions',
 	// "Browse" and not "open": what opens is the LIST, and "open recent files"
-	// reads as opening the one file the reader was last in. It is also the verb the
-	// command's own id carries (see main.ts), and it is what separates the two
-	// commands at a glance in the palette — the other one is "Open …", because
-	// there the thing opened is the panel.
+	// reads as opening the one file the reader was last in. It is also what
+	// separates the two commands in the palette — the other is "Open …".
 	'recentFiles.commands.open': 'Browse recent files',
-	// The resident form of the same browser: a sidebar panel instead of a dialog
-	// (see view.ts). Named as a PLACE rather than as an action, because that is
-	// the difference — the panel stays where it is put.
+	// The resident form: a sidebar panel instead of a dialog. Named as a PLACE
+	// rather than as an action — the panel stays where it is put.
 	'recentFiles.commands.openSidebar': 'Open recent files in sidebar',
-	// The two commands above, as the settings row that binds them (see
-	// settings/page). Their keys stand on the recent files page and NOT beside the
-	// back/forward ones: the two pages answer different questions, and a reader
-	// looking for the key that opens the LIST should not have to know that it
-	// lives under a heading about travel.
+	// Their keys stand on this page and NOT beside the back/forward ones: a
+	// reader looking for the key that opens the LIST should not have to know
+	// it lives under a heading about travel.
 	'recentFiles.hotkeys.desc':
 		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
 
-	// The fallback name for a view step that carries none of its own (see browser/model.ts's
-	// viewName): the graph, which this list has always called this. A view with a name
-	// of its own prints that instead; one without prints its bare view type.
+	// Fallback name for a view step carrying none of its own: the graph. A view
+	// with a name of its own prints that; one without prints its bare type.
 	'recentFiles.graphView': 'Graph view',
-	// What a view row prints in place of an icon when the view named none (see
-	// list.ts's fileRow): a word, and deliberately not a stand-in glyph.
+	// What a view row prints in place of an icon when the view named none.
 	'recentFiles.viewBadge': 'View',
 	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
-	// The × at the end of the filter box (see RecentFilesBrowser.toolbar): the app's own
-	// gesture, named for what it empties. It is the button's accessible name and its
-	// tooltip, so it is written as the action rather than as the glyph.
+	// The × at the end of the filter box: the button's accessible name and
+	// tooltip, so written as the action rather than as the glyph.
 	'recentFiles.clearFilter': 'Clear filter',
 	'recentFiles.noMatch': 'No matching entry.',
-	// There used to be a file scope here: an "only this note" switch plus a chip
-	// listing every note the history had been in. Both asked a question the
-	// search box already answers — a note's name IS text it matches on — and each
-	// cost the toolbar a cell and the dialog a piece of state, so both are gone
-	// (see modal.ts).
 	'recentFiles.empty': 'Nowhere to go.',
 };
 

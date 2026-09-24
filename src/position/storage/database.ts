@@ -7,29 +7,25 @@ import { t } from '@/i18n';
 
 export type CursorDatabase = { [file_path: string]: EphemeralState };
 
-// Hard cap on stored entries. Keeps the data file well under 100 KB regardless
-// of vault size; trimming to 3/4 of the cap adds hysteresis so pruning does not
-// churn on every write once the cap is reached.
+// Keeps the data file well under 100 KB regardless of vault size; trimming to
+// 3/4 of the cap adds hysteresis so pruning doesn't churn on every write.
 const MAX_ENTRIES = 750;
 const TRIM_TARGET = Math.floor(MAX_ENTRIES * 3 / 4);
 
 // On-disk compact record, scroll first, length decides shape (no sentinels):
-//   [scroll]                           -> no cursor (incl. a collapsed cursor at
-//                                          (0,0), which is the editor default)
+//   [scroll]                           -> no cursor (incl. a collapsed cursor
+//                                          at (0,0), the editor default)
 //   [scroll, line, ch]                 -> single-point cursor (from === to)
 //   [scroll, line, ch, to.line, to.ch] -> selection
 // The first slot is dual-meaning: markdown saves the quantized top visible
 // line; the Bases view (the only other recordable FileView, opt-in via
 // recordBaseScroll — pdf/image/canvas are never recorded) saves the
-// scroller's raw scrollTop.
-// A file path is always exactly one kind and only ever produces scroll-only
-// or cursor records — never mixed — so the shape stays unambiguous.
-// A [0] record is a tombstone: nothing to restore, but its presence in the
-// in-memory db marks the file as visited for the rest of the session, so the
-// defaultPosition setting does not kick in again. Tombstones are never
-// persisted: on disk they would be indistinguishable from "never visited",
-// and defaultPosition only matters for a file's first open anyway.
-// Restore only scrolls when scroll > 0, so scroll <= 0 acts as "don't scroll".
+// scroller's raw scrollTop. A path is always exactly one kind, so the shape
+// stays unambiguous. A [0] record is a tombstone: nothing to restore, but its
+// presence marks the file visited for the session, so defaultPosition doesn't
+// kick in again — tombstones are never persisted, since on disk they'd be
+// indistinguishable from "never visited". Restore only scrolls when
+// scroll > 0, so scroll <= 0 means "don't scroll".
 function encodeValue(st: EphemeralState): number[] {
 	const scroll = st.scroll ?? 0;
 	if (!st.cursor)
@@ -42,8 +38,7 @@ function encodeValue(st: EphemeralState): number[] {
 
 function decodeValue(arr: number[]): EphemeralState {
 	// Corrupted disk data must not leak NaN/undefined into records: a
-	// non-finite scroll would silently disable restore, a broken cursor
-	// could be handed to setEphemeralState.
+	// non-finite scroll would silently disable restore.
 	if (!Array.isArray(arr) || arr.some((n) => !Number.isFinite(n)))
 		return {};
 	const st: EphemeralState = {};
@@ -69,46 +64,39 @@ export class CursorPositionDatabase {
 
 	// Monotonic mutation counter. writeDb snapshots it before serializing and
 	// clears dbDirty only when it is unchanged after the write — a setState
-	// that lands mid-flush (during the merge / write / mtime awaits) keeps
-	// the db dirty instead of having its record silently lost.
+	// landing mid-flush keeps the db dirty instead of losing its record.
 	private rev = 0;
 
-	// Multi-device sync support. An external sync client (坚果云 / Remotely
-	// Save / iCloud / Obsidian Sync…) may replace the db file while we run.
-	// lastDiskMtime caches the mtime we last observed after our own read or
-	// write; a different value on the next stat() means the file was changed
-	// behind our back and mergeExternalChanges() must reconcile it. Paired
-	// with keyTouchedAt/lastFlushTime this resolves shared-key conflicts
-	// without changing the on-disk format: a key touched locally after our
-	// last flush is definitely newer than anything on disk, everything else
-	// yields to the (newer) external file.
+	// Multi-device sync: an external sync client may replace the db file while
+	// we run. lastDiskMtime caches the mtime observed after our own read or
+	// write; a different value on the next stat() means the file changed
+	// behind our back. Paired with keyTouchedAt/lastFlushTime this resolves
+	// shared-key conflicts without changing the on-disk format: a key touched
+	// locally after our last flush is definitely newer than anything on disk,
+	// everything else yields to the external file.
 	private lastDiskMtime = 0;
 	private lastFlushTime = 0;
 	private keyTouchedAt = new Map<string, number>();
 
-	// Reentrancy serialization: the flush-tick merge and writeDb()'s
-	// pre-flush merge can overlap; two concurrent read-modify passes over
-	// this.db would interleave and corrupt the mtime bookkeeping. Each
-	// caller queues behind any in-flight pass and runs its own once that
-	// resolves — a concurrent caller is never dropped, which matters for
-	// writeDb(): skipping its pre-flush reconcile would let the whole-file
-	// write clobber a newer foreign file.
+	// Reentrancy serialization: the flush-tick merge and writeDb()'s pre-flush
+	// merge can overlap; two concurrent read-modify passes would interleave and
+	// corrupt the mtime bookkeeping. Each caller queues behind the in-flight
+	// pass — a concurrent caller is never dropped, since skipping writeDb()'s
+	// reconcile would clobber a newer foreign file.
 	private mergeChain: Promise<void> = Promise.resolve();
 
-	// Content of the last unreadable db file we kept a copy of, and whether the
-	// user has been told. Unreadable content (torn write, sync conflict markers,
-	// a foreign file) is never dropped silently: it is copied to a side file and
-	// reported. Deduping on the content keeps the retry loop from spawning one
-	// copy per merge pass while the file stays unreadable; distinct content is a
-	// distinct corruption and gets its own copy. corruptCopySeq keeps two copies
-	// made within the same millisecond from landing on the same path.
+	// Unreadable content (torn write, sync conflict markers, a foreign file) is
+	// never dropped silently: it is copied aside and reported. Deduping on the
+	// content keeps the retry loop from spawning one copy per merge pass;
+	// distinct content is a distinct corruption. corruptCopySeq keeps two
+	// copies made in the same millisecond off the same path.
 	private preservedCorrupt: string | null = null;
 	private corruptNotified = false;
 	private corruptCopySeq = 0;
 
-	// Tracks the last key in insertion order. Used so setState() can skip the
-	// delete+insert (which moves a key to the end to mark it fresh) when the key
-	// is already the most recently touched one — i.e. while editing one file.
+	// Tracks the last key in insertion order, so setState() can skip the
+	// delete+insert (which moves a key to the end to mark it fresh) while
+	// editing one file.
 	private lastKey: string | null = null;
 
 	private app: App;
@@ -134,21 +122,17 @@ export class CursorPositionDatabase {
 		return this.settings.dbFileName || this.defaultDbFileName;
 	}
 
-	// Where the bytes of an unreadable db file are kept: next to the plugin, not
-	// next to the db itself (which usually sits in a synced folder inside the
-	// vault, where a leftover copy would be picked up as content). The sequence
-	// number, not the timestamp, is what makes the name unique.
+	// Next to the plugin, not next to the db (which usually sits in a synced
+	// folder inside the vault, where a leftover copy would be picked up as
+	// content). The sequence number, not the timestamp, makes the name unique.
 	private corruptCopyPath(): string {
 		const base = this.getDbPath().split('/').pop() ?? 'positions.json';
 		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 		return `${this.manifestDir}/${base.replace(/\.json$/i, '')}.corrupt-${stamp}-${++this.corruptCopySeq}.json`;
 	}
 
-	// Ensures the parent folder of the configured db path exists. If it can't
-	// be created, falls back to the default path (manifest folder) and notifies
-	// the user.
-	// @returns true if the configured path is usable unchanged; false if the
-	//          setting was changed to the default (callers should save settings).
+	// If the parent folder can't be created, fall back to the default path and
+	// notify the user.
 	private async ensureDbFolder(): Promise<void> {
 		const dbPath = this.getDbPath();
 		const parentFolder = dbPath.substring(0, dbPath.lastIndexOf("/"));
@@ -168,19 +152,14 @@ export class CursorPositionDatabase {
 	}
 
 	// Switch the database file to newPath; an empty newPath resets to the
-	// default location (manifest folder), keeping settings.dbFileName as ''.
-	// newPath may also be a bare file name, which places the db at the vault
-	// root (adapter paths are vault-relative). Validation first: format check,
-	// then the parent folder is created if missing (recursive mkdir) — only an
-	// unrecoverable failure is surfaced to the user via a Notice here.
-	// If the target file already exists it is usually a db file synced from
-	// another device, so instead of refusing, it is parsed and adopted: its
-	// records are merged into the in-memory db with the same conflict rule as
-	// mergeExternalChanges() (disk wins, except keys touched locally after
-	// our last flush), and the old file is removed — the same end state as a
-	// move. Only an unreadable target still blocks the switch.
-	// On success settings.dbFileName is updated; the caller should persist
-	// settings afterwards.
+	// default location, keeping settings.dbFileName as ''. A bare file name
+	// places the db at the vault root (adapter paths are vault-relative).
+	// A target that already exists is usually a db synced from another device,
+	// so instead of refusing: parse and adopt it, merging its records with the
+	// same conflict rule as mergeExternalChanges() (disk wins, except keys
+	// touched locally after our last flush), then remove the old file — the
+	// same end state as a move. Only an unreadable target blocks the switch.
+	// The caller should persist settings afterwards.
 	// @returns true on success (including "already using newPath").
 	async switchDbFile(newPath: string): Promise<boolean> {
 		const targetPath = newPath === '' ? this.defaultDbFileName : newPath;
@@ -195,27 +174,25 @@ export class CursorPositionDatabase {
 		if (targetPath === currentPath)
 			return true;
 
-		// Parses an already-existing target file and merges it into the
-		// in-memory db; removes the old db file once its records are merged
-		// (move semantics). @returns the number of records adopted from disk,
-		// or null when the target is unreadable — then the caller refuses.
+		// @returns the number of records adopted, or null when the target is
+		// unreadable — then the caller refuses.
 		const adoptExisting = async (): Promise<number | null> => {
 			try {
 				// Strict shape check first: a wrong JSON file picked by mistake
-				// (package.json, a snippet, …) would otherwise be read as a
+				// (package.json, a snippet) would otherwise be read as a
 				// near-empty db and the real file deleted below — data loss.
 				const diskDb = this.parseDbStrict(await adapter.read(targetPath));
 				if (diskDb === null)
 					return null;
 				// The old file must go, or its stale copy would linger next to
-				// the adopted one; do it before mutating in-memory state so a
+				// the adopted one; before mutating in-memory state, so a
 				// failure here aborts the whole switch cleanly.
 				if (await adapter.exists(currentPath))
 					await adapter.remove(currentPath);
 
 				const adopted = this.mergeDiskDb(diskDb);
-				// The merged records must reach the new file; flush happens on
-				// the next natural write (the settings save that follows).
+				// The merged records reach the new file on the next natural
+				// write (the settings save that follows).
 				this.markDirty();
 				return adopted;
 			} catch (e) {
@@ -272,8 +249,8 @@ export class CursorPositionDatabase {
 		return removed;
 	}
 
-	// Always drop records for files in excluded folders: restore does not
-	// check exclusions, so stale records there would wrongly re-position.
+	// Restore does not check exclusions, so stale records there would wrongly
+	// re-position.
 	private removeExcludedFolders(): void {
 		const excludedFolders = this.settings.excludedFolders;
 		if (excludedFolders.length === 0)
@@ -287,11 +264,9 @@ export class CursorPositionDatabase {
 		}
 	}
 
-	// Same rationale as removeExcludedFolders for frontmatter-based exclusion
-	// (escape hatch `position-restore: false` or the configured B property
-	// present): restore does not check frontmatter, so a stale record would
-	// wrongly re-position. Files the metadata cache has not parsed yet (lazy
-	// parsing) are skipped here — the recording gate drops their record on the
+	// Same rationale for frontmatter exclusion (`position-restore: false`, or
+	// the configured B property present). Files the metadata cache has not
+	// parsed yet are skipped — the recording gate drops their record on the
 	// next open/poll once the metadata lands.
 	private removeFrontmatterExcluded(): void {
 		for (const key of Object.keys(this.db)) {
@@ -304,18 +279,17 @@ export class CursorPositionDatabase {
 		}
 	}
 
-	// Marks a mutation as needing a flush. Every site that dirties the db goes
-	// through here so writeDb can detect a mutation that lands while it is
-	// mid-flush (see the rev comment above).
+	// Every site that dirties the db goes through here so writeDb can detect a
+	// mutation landing mid-flush (see rev).
 	private markDirty(): void {
 		this.dbDirty = true;
 		this.rev++;
 	}
 
-	// Record a position for filePath. If the key is already the most recently
-	// touched (lastKey), overwrite in place — no delete+insert, which would
-	// needlessly churn the V8 object shape. Otherwise delete+insert to move it
-	// to the end of insertion order, so trimToLimit keeps it as "fresh".
+	// If the key is already the most recently touched (lastKey), overwrite in
+	// place — no delete+insert, which would needlessly churn the V8 object
+	// shape. Otherwise delete+insert to move it to the end of insertion order,
+	// so trimToLimit keeps it as "fresh".
 	setState(filePath: string, st: EphemeralState): void {
 		const existed = this.db[filePath] !== undefined;
 		if (existed && filePath === this.lastKey) {
@@ -329,11 +303,9 @@ export class CursorPositionDatabase {
 		this.markDirty();
 	}
 
-	// If the database exceeds MAX_ENTRIES, drops the oldest entries down to
-	// TRIM_TARGET (3/4 of the cap) to add hysteresis. Recency is the insertion
-	// order: setState() always moves a touched key to the end, so the tail holds
-	// the most-recently-modified files. Keeping the tail is equivalent to the
-	// old lastModified-based LRU but needs no timestamp.
+	// Recency is the insertion order: setState() always moves a touched key to
+	// the end, so the tail holds the most-recently-modified files — no
+	// timestamp needed.
 	private trimToLimit(): void {
 		if (Object.keys(this.db).length <= MAX_ENTRIES)
 			return;
@@ -343,8 +315,7 @@ export class CursorPositionDatabase {
 		this.db = Object.fromEntries(kept);
 
 		// Dropped entries leave orphans in the touch-stamp map; prune them so
-		// it can't grow without bound across long sessions in vaults far
-		// larger than the cap.
+		// it can't grow without bound across long sessions.
 		for (const key of this.keyTouchedAt.keys())
 			if (this.db[key] === undefined)
 				this.keyTouchedAt.delete(key);
@@ -362,8 +333,8 @@ export class CursorPositionDatabase {
 		try {
 			data = await this.app.vault.adapter.read(this.getDbPath());
 		} catch (e) {
-			// Unreadable (permissions, a folder in the way): there is no content
-			// to preserve, and no copy could be written either.
+			// Unreadable (permissions, a folder in the way): there is no
+			// content to preserve, and no copy could be written either.
 			console.error("Can't read database:", e);
 			this.db = {};
 			return;
@@ -373,21 +344,19 @@ export class CursorPositionDatabase {
 			this.db = this.parseDb(data);
 			await this.cacheDiskMtime();
 		} catch (e) {
-			// The file exists but holds something else than a db. Clearing the
-			// in-memory db is unavoidable (the records are unreachable), but it
-			// must not happen silently: keep the bytes aside so they stay
-			// recoverable, then start empty — the next flush writes a valid file,
-			// which also repairs what the sync client merged.
+			// The file exists but holds something else: clearing the in-memory
+			// db is unavoidable (the records are unreachable), but the bytes
+			// are kept aside first — the next flush writes a valid file, which
+			// also repairs what the sync client merged.
 			console.error("Can't read database:", e);
 			this.db = {};
 			await this.preserveUnreadableDb(data, e);
 		}
 	}
 
-	// Parses raw db file content into the in-memory map. Shared by the startup
-	// read and the external-change merge. Throws on anything that is not a JSON
-	// object (torn write, conflict markers, a foreign file): the callers decide
-	// what an unreadable file means, it never quietly becomes an empty db.
+	// Shared by the startup read and the external-change merge. Throws on
+	// anything that is not a JSON object (torn write, conflict markers, a
+	// foreign file): it never quietly becomes an empty db.
 	private parseDb(data: string): CursorDatabase {
 		const parsed: unknown = JSON.parse(data);
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
@@ -402,16 +371,13 @@ export class CursorPositionDatabase {
 		return db;
 	}
 
-	// Keeps the bytes of a db file we cannot parse and tells the user about it.
-	// A parse failure makes the records in that file unreachable for this
-	// session, and the next flush overwrites the file with what we do have — so
-	// this copy (plus the sync client's version history) is what keeps the loss
-	// recoverable. Called from the two read paths; the copy is written before
-	// the notice, so the notice can point at a file that exists. A failed copy
-	// is reported as well: that is the one case where the records really are
-	// gone, so it must not be the quiet one. Both notices are sticky — this can
-	// happen while the user is elsewhere in the app, and the outcome (records
-	// lost, or a file to go look at) outlives any toast.
+	// A parse failure makes those records unreachable for this session, and the
+	// next flush overwrites the file with what we do have — so this copy (plus
+	// the sync client's version history) is what keeps the loss recoverable.
+	// The copy is written before the notice, so the notice can point at a file
+	// that exists. A failed copy is reported too: that is the one case where
+	// the records really are gone. Both notices are sticky — this can happen
+	// while the user is elsewhere, and the outcome outlives any toast.
 	private async preserveUnreadableDb(data: string, reason: unknown): Promise<void> {
 		if (data === this.preservedCorrupt)
 			return;
@@ -437,13 +403,12 @@ export class CursorPositionDatabase {
 			: t('dataStorage.corruptDb.noticeNoCopy'));
 	}
 
-	// Strict shape check for adopting an existing target file: accepts only a
-	// JSON object whose every value is an array of finite numbers AND whose
-	// every key is a recordable note path (.md / .base) — exactly what writeDb
-	// emits (an empty `{}` included). The outer key check is what rejects a
-	// foreign JSON that happens to hold numeric arrays (chart series, vectors,
-	// …); the value check alone would let it through as a near-empty db and
-	// delete the real file.
+	// Strict shape check for adopting a target file: accepts only a JSON
+	// object whose every value is an array of finite numbers AND whose every
+	// key is a recordable note path (.md / .base) — exactly what writeDb emits
+	// (an empty `{}` included). The key check is what rejects a foreign JSON
+	// that happens to hold numeric arrays (chart series, vectors); the value
+	// check alone would let it through and delete the real file.
 	// @returns the parsed db, or null when the content is not a position db.
 	private parseDbStrict(data: string): CursorDatabase | null {
 		let parsed: unknown;
@@ -477,9 +442,8 @@ export class CursorPositionDatabase {
 	//   disk-only keys   -> adopted
 	//   memory-only keys -> kept (ours, incl. session-only tombstones)
 	//   shared keys      -> disk wins, unless the key was touched locally
-	//                       after our last flush (then ours is definitely
-	//                       newer — the disk copy predates our flush)
-	// Replaces this.db with the merged result and resets lastKey.
+	//                       after our last flush (then ours is newer — the
+	//                       disk copy predates our flush)
 	// @returns the number of disk records that survived the merge.
 	private mergeDiskDb(diskDb: CursorDatabase): number {
 		let adopted = Object.keys(diskDb).length;
@@ -496,23 +460,19 @@ export class CursorPositionDatabase {
 		return adopted;
 	}
 
-	// Picks up a db file replaced externally by a device-sync client while we
-	// run. A stat() whose mtime differs from our cached value means the file
-	// changed behind our back; read it and reconcile per key (see
-	// mergeDiskDb for the conflict rule).
+	// Picks up a db file replaced externally while we run: a stat() whose mtime
+	// differs from our cached value means it changed behind our back.
 	// Never marks the db dirty: adopted records are already on disk, and kept
-	// local records ride out on the next natural flush. merge is a no-op (one
-	// stat call) when nothing changed. A file that is torn mid-sync fails
-	// JSON.parse, keeps its old mtime cache, and is retried on a later check.
+	// local records ride out on the next natural flush. A file torn mid-sync
+	// fails JSON.parse, keeps its old mtime cache, and is retried later.
 	async mergeExternalChanges(): Promise<void> {
 		const pass = this.mergeChain.then(() => this.runMergePass());
 		this.mergeChain = pass.catch(() => {});
 		await pass;
 	}
 
-	// One reconcile pass: stat the db file and merge any change since we last
-	// observed it. Guarded so it never throws (torn file / unreadable); the
-	// chain wrapper only serializes, it does not add retry semantics.
+	// Guarded so it never throws (torn file / unreadable); the chain wrapper
+	// only serializes, it does not add retry semantics.
 	private async runMergePass(): Promise<void> {
 		let mtime: number;
 		try {
@@ -539,9 +499,9 @@ export class CursorPositionDatabase {
 			this.lastDiskMtime = mtime;
 		} catch (e) {
 			// Someone replaced the file with content we cannot parse (a torn
-			// download, conflict markers, a half-written push). Keep our records
-			// and keep a copy of theirs: the flush that follows replaces the file
-			// with ours, so the copy would otherwise be the only thing lost.
+			// download, conflict markers, a half-written push). Keep our
+			// records and a copy of theirs: the flush that follows replaces the
+			// file with ours.
 			console.error("Can't merge external db changes:", e);
 			await this.preserveUnreadableDb(data, e);
 		}
@@ -554,18 +514,16 @@ export class CursorPositionDatabase {
 		// merge first so our whole-file write doesn't clobber its records.
 		await this.mergeExternalChanges();
 
-		// Keep the file bounded even across long sessions (pruning also runs on
-		// startup); no-op unless the cap is exceeded.
+		// No-op unless the cap is exceeded.
 		this.trimToLimit();
 
-		// Snapshot the mutation revision and wall-clock moment right before
-		// serializing. Everything mutated at or before this instant IS in
-		// `data`. Anything that lands during the awaits below — a synchronous
-		// setState from the poll / scroll capture / suspend flush interleaving
-		// at any await point — must not be cleared by this flush, and must
-		// still read as "touched after our last flush" for the next external
-		// merge. rev catches the former (dbDirty below); lastFlushTime stamped
-		// HERE, not after the write, makes the latter hold.
+		// Snapshot the revision and wall-clock moment right before
+		// serializing: everything mutated at or before this instant IS in
+		// `data`, anything landing during the awaits below must not be cleared
+		// by this flush and must still read as "touched after our last flush"
+		// for the next merge. rev catches the former (dbDirty below);
+		// lastFlushTime stamped HERE, not after the write, makes the latter
+		// hold.
 		const flushedThrough = Date.now();
 		const rev = this.rev;
 
@@ -573,9 +531,8 @@ export class CursorPositionDatabase {
 		for (const key of Object.keys(this.db)) {
 			const st = this.db[key];
 			// Skip empty records (no cursor, no positive scroll): restoring
-			// them is a no-op, same as having no record at all. The only thing
-			// they would preserve is "this file was already visited" for
-			// defaultPosition — not worth dead entries on disk.
+			// them is a no-op. The only thing they'd preserve is "already
+			// visited" for defaultPosition — not worth dead entries on disk.
 			if (!st.cursor && (st.scroll ?? 0) <= 0)
 				continue;
 			encoded[key] = encodeValue(st);
@@ -587,8 +544,8 @@ export class CursorPositionDatabase {
 			// Fast path: the folder (almost always) already exists.
 			await this.app.vault.adapter.write(dbPath, data);
 		} catch {
-			// Slow path: folder likely missing — ensure it (or fall back to the
-			// default path) and retry once.
+			// Slow path: folder likely missing — ensure it (or fall back to
+			// the default path) and retry once.
 			await this.ensureDbFolder();
 			try {
 				await this.app.vault.adapter.write(this.getDbPath(), data);
@@ -600,15 +557,12 @@ export class CursorPositionDatabase {
 			}
 		}
 
-		// Our own write changed the file on disk — re-cache its mtime so our
-		// next external-change check doesn't mistake this write for someone
-		// else's. lastFlushTime marks "everything captured in `data`" (see the
-		// snapshot above): only keys touched after it may override disk copies
-		// during a merge. dbDirty is cleared only when no mutation landed
-		// while the flush was in flight — a mid-flush setState keeps the db
-		// dirty so its record is persisted by the next flush, and its
-		// keyTouchedAt stays beyond lastFlushTime so it wins any intervening
-		// external merge.
+		// Our own write changed the file — re-cache its mtime so the next
+		// external-change check doesn't mistake this write for someone else's.
+		// dbDirty is cleared only when no mutation landed while the flush was
+		// in flight: a mid-flush setState keeps the db dirty so the next flush
+		// persists it, and its keyTouchedAt stays beyond lastFlushTime so it
+		// wins any intervening external merge.
 		await this.cacheDiskMtime();
 		this.lastFlushTime = flushedThrough;
 		this.dbDirty = rev !== this.rev;

@@ -17,9 +17,8 @@ interface OpenViewState {
 	};
 }
 
-// The same ephemeral-state argument also carries caller-submitted targets
-// (search match, outline/backlinks' is-flashing) on top of the position
-// fields.
+// The same argument also carries caller-submitted targets (search match,
+// outline/backlinks' is-flashing) on top of the position fields.
 type OpenEphemeralState = EphemeralState & {
 	match?: unknown;
 	'is-flashing'?: unknown;
@@ -33,12 +32,10 @@ type SetViewState = (
 
 type OpenLinkText = (this: Workspace, ...args: unknown[]) => Promise<void>;
 
-// Installs the patches restore relies on — setViewState (inject saved
-// position into the open's ephemeral state; the primary flicker-free
-// source-mode restore) and openLinkText (flag heading/block link navigations
-// so saved positions yield to link targets) — and the injection helpers that
-// run inside them. All cross-phase coordination flags are owned by the
-// shared PositionState this class takes.
+// Installs the patches restore relies on — setViewState (inject the saved
+// position into the open's ephemeral state) and openLinkText (flag
+// heading/block link navigations so saved positions yield to link targets).
+// All cross-phase coordination flags live on the shared PositionState.
 export class OpenPatcher {
 	private app: App;
 	private settings: PluginSettings;
@@ -56,8 +53,7 @@ export class OpenPatcher {
 		this.state = state;
 	}
 
-	// Installs the patches the restore relies on. registerCleanup must undo
-	// both on plugin unload.
+	// registerCleanup must undo both on plugin unload.
 	installPatches(registerCleanup: (fn: () => void) => void) {
 		this.patchSetViewState(registerCleanup);
 		this.patchOpenLinkText(registerCleanup);
@@ -70,8 +66,8 @@ export class OpenPatcher {
 		const originalSetViewState = leafProto.setViewState;
 		if (!originalSetViewState)
 			return;
-		// Arrow keeps `this` lexical (no-this-alias): the wrapper below must
-		// stay a plain function so core's `this` (the leaf) is preserved.
+		// Arrow keeps `this` lexical; the wrapper below must stay a plain
+		// function so core's `this` (the leaf) is preserved.
 		const injectOnOpen = (leaf: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) =>
 			this.injectEphemeralStateOnOpen(leaf, viewState, eState);
 		leafProto.setViewState = function (this: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) {
@@ -85,26 +81,21 @@ export class OpenPatcher {
 
 	private patchOpenLinkText(registerCleanup: (fn: () => void) => void) {
 		const workspace = this.app.workspace as Workspace & { openLinkText: OpenLinkText };
-		// Intentionally captured unbound: the wrapper re-binds it per call
-		// (`originalOpenLinkText.apply(this, args)`) so core's chosen `this`
-		// is preserved.
+		// Captured unbound on purpose: the wrapper re-binds it per call
+		// (`apply(this, args)`) so core's chosen `this` (the workspace) wins.
 		// eslint-disable-next-line @typescript-eslint/unbound-method -- intentional capture for per-call rebinding
 		const originalOpenLinkText = workspace.openLinkText;
 		if (typeof originalOpenLinkText !== 'function')
 			return;
-		// Capture the dependencies directly (no-this-alias: don't alias `this`
-		// itself) — the wrapper must stay a plain function so core's `this`
-		// (the workspace) is preserved for openLinkText.
 		const state = this.state;
 		const settings = this.settings;
 		workspace.openLinkText = async function (this: Workspace, ...args: unknown[]) {
-			// Stash the link kind in the transient pendingLinkKind slot
-			// (openLinkText doesn't know the target leaf yet) — promoted onto
-			// pendingOpenKind by the setViewState patch in this call stack.
-			// 'anchorLink' = heading/block target; 'startPlainLink' = 'start' setting
-			// (open at file start, leave saved record untouched). Clear first
-			// so a stale entry from a previous openLinkText that never reached
-			// setViewState can't contaminate this one.
+			// Transient slot: openLinkText doesn't know the target leaf yet, so
+			// the setViewState patch in this call stack promotes it onto
+			// pendingOpenKind. 'anchorLink' = heading/block target;
+			// 'startPlainLink' = the 'start' setting (open at file start, leave
+			// the saved record untouched). Cleared first so a stale entry from an
+			// open that never reached setViewState can't leak into this one.
 			state.pendingLinkKind = undefined;
 			state.pendingLinkText = undefined;
 			state.pendingViaPath = undefined;
@@ -113,11 +104,10 @@ export class OpenPatcher {
 			const sourcePath: unknown = args[1];
 			const hasTarget = typeof linktext === 'string'
 				&& (linktext.includes('#') || linktext.includes('^'));
-			// The link's origin, for the nav history's search and badge: which
-			// note it was clicked in and what it said. Recorded for EVERY link
-			// open — including a plain [[note]] with no target, which is exactly
-			// the case pendingLinkText ignores (and which stays a keyless visit:
-			// this slot never feeds the key/dedup regime below).
+			// The link's origin for nav history (search + badge): which note it
+			// was clicked in and what it said. Recorded for EVERY link open,
+			// including a plain [[note]] — that case stays a keyless visit and
+			// never feeds the key/dedup regime below.
 			if (typeof linktext === 'string') {
 				state.pendingViaText = linktext;
 				if (typeof sourcePath === 'string')
@@ -146,12 +136,12 @@ export class OpenPatcher {
 		});
 	}
 
-	// Injects the saved position into an open request's ephemeral-state
-	// argument, so core applies it in the exact pipeline slot it uses for its
-	// own position restore: synchronously with the content swap, before any
-	// paint. This is the ONLY place a source-mode restore can be flicker-free
-	// — 'file-open' is emitted through a debounced (setTimeout 0) callback,
-	// i.e. after the note has already been painted at its default position.
+	// Injects the saved position into the open's ephemeral-state argument, so
+	// core applies it in the exact pipeline slot it uses for its own restore:
+	// synchronously with the content swap, before any paint. The ONLY place a
+	// source-mode restore can be flicker-free — 'file-open' is emitted through
+	// a debounced callback, i.e. after the note was painted at its default
+	// position.
 	private injectEphemeralStateOnOpen(leaf: WorkspaceLeaf, viewState: OpenViewState, eState: OpenEphemeralState | undefined): OpenEphemeralState | undefined {
 		if (!viewState || typeof viewState.type !== 'string')
 			return eState;
@@ -160,71 +150,57 @@ export class OpenPatcher {
 			return eState;
 		const leafId = this.state.leafId(leaf);
 
-		// A setViewState for an already-handled leaf+file is Obsidian
-		// REPLAYING the leaf's own cached view state, not a new open: the
-		// deferred-view rebuild when an inactive tab is first activated (its
-		// cached eState — which includes the position injected at startup —
-		// comes back here), or a same-file re-assert (quick switcher re-pick:
-		// setViewState with an empty eState and NO following file-open).
-		// (leaf.view can't detect this: at patch time the tab's view is not
-		// installed yet, so a view-based check never matches.) Keep the
-		// handled marker — no resetLeafOpenState — and drop any pending open
-		// kind that never met its file-open.
+		// A setViewState for an already-handled leaf+file is core REPLAYING the
+		// leaf's cached view state, not a new open — the deferred rebuild of an
+		// inactive tab, or a quick-switcher re-pick of the current file.
+		// leaf.view can't detect it: at patch time the tab's view isn't
+		// installed yet. Keep the handled marker; drop a pending kind that
+		// never met its file-open.
 		const isReplay = this.state.handledLeafIdMap.get(leafId) === filePath;
 		if (isReplay) {
 			this.state.pendingOpenKind.delete(leaf);
 		} else {
-			// Any other setViewState replaces this leaf's content (a
-			// different file, or no file at all — the 'empty' state after
-			// closing the last tab): prior open bookkeeping is stale, drop
-			// it so a later reopen of the same file restores again.
+			// Anything else replaces this leaf's content (a different file, or
+			// the 'empty' state after closing the last tab): drop the stale
+			// bookkeeping so a later reopen of the same file restores again.
 			this.resetLeafOpenState(leaf);
 		}
 
-		// Navigation history: every open that changes this leaf's file is a
-		// jump (native per-tab history records the same open); a replay is a
-		// jump only when it carries a same-file target (heading/block link,
-		// search match — outline/backlinks clicks on the open note fire no
-		// file-open). recordOpen applies its own gates (setting, traversal
-		// execution, startup, dedup keys).
-		// "Update on leave" first: the view being swapped away still holds
-		// the position the user is jumping from (for a same-file jump it IS
-		// the current view) — refresh the top entry so a later back/forward
-		// targeting it lands there. No-op when the top entry moved on.
+		// Every open that changes this leaf's file is a jump; a replay is one
+		// only when it carries a same-file target (outline/backlinks clicks on
+		// the open note fire no file-open). recordOpen applies its own gates.
+		// "Update on leave" first: the view being swapped away still holds the
+		// position the user jumps from — refresh the top entry so a later
+		// traversal targeting it lands there. No-op once the top moved on.
 		const leavingView = leaf.view;
 		if (leavingView instanceof MarkdownView && leavingView.file) {
-			// Nav read (low frequency): the entry's display fields are
-			// assembled here, at the save moment.
 			const fromSt = readNavEntryState(leavingView);
 			if (fromSt) {
 				this.funnel.leave(leavingView.file.path, leafId, fromSt);
 				// The record's regular writers lag (poll tick, debounced
-				// scroll capture): a move + quick jump-away inside that
-				// window loses the final position. Flush the exact leaving
-				// state to the record; dedup makes no-movement a no-op.
+				// capture): a move + quick jump-away inside that window loses
+				// the final position. Dedup makes no-movement a no-op.
 				this.sampler.flushOnLeave(leavingView, leavingView.file.path, fromSt);
 			}
 		}
 		const sameFileTarget = !!eState?.match || !!eState?.['is-flashing'];
-		// The link origin of this open, if it came from a click (see the
-		// openLinkText patch). Consumed here — first setViewState in the click's
-		// own call stack — so a stale slot cannot label a later, unrelated open.
+		// The link origin, if this open came from a click. Consumed here —
+		// first setViewState in the click's own call stack — so a stale slot
+		// cannot label a later, unrelated open. Only a keyless open keeps it:
+		// a #/^ link is a keyed jump whose key already names the target.
 		const viaPath = this.state.pendingViaPath;
 		const viaText = this.state.pendingViaText;
 		this.state.pendingViaPath = undefined;
 		this.state.pendingViaText = undefined;
-		// …and only a KEYLESS open keeps it: a #/^ link is recorded as a keyed
-		// jump, whose key already names the target, and the caller targets below
-		// are not link clicks at all.
 		const fromLink = !this.state.pendingLinkText && !!viaText;
-		// Main-area leaves only — a sidebar panel's state re-assertion
-		// (outline/backlinks carrying the tracked file) is not a jump.
+		// Main-area leaves only — a sidebar panel re-asserting the tracked
+		// file (outline/backlinks) is not a jump.
 		if (isMainAreaLeaf(this.app, leaf))
 			this.funnel.recordOpen(filePath, leafId, {
-				// Caller-target jumps (search match, backlinks is-flashing)
-				// carry no linktext: key them uniquely so the entry takes the
-				// keyed precise-landing regime — the settle-capture backfills
-				// the landing, and later leaves never overwrite it.
+				// Caller targets (search match, backlinks is-flashing) carry no
+				// linktext: key them uniquely so the entry takes the keyed
+				// precise-landing regime — the settle-capture backfills the
+				// landing and later leaves never overwrite it.
 				key: this.state.pendingLinkText ?? (sameFileTarget ? `caller:${Date.now()}` : undefined),
 				force: sameFileTarget,
 				via: fromLink ? 'link' : undefined,
@@ -232,23 +208,15 @@ export class OpenPatcher {
 				viaText: fromLink ? viaText : undefined,
 			});
 
-		// A history traversal (the stack armed pendingHistoryNav, consumed
-		// here — single shot): inject THIS plugin's saved position over the
-		// native entry's eState, which carries only the cursor (no scroll).
-		// Bypasses the callerTarget yield and the glide choice on purpose:
-		// history traversal must land instantly, and its target is the
-		// per-file record, not the native cursor. No saved record → native
-		// target stands (callerTarget absorbs the landing below). Non-markdown
+		// A stack traversal (pendingHistoryNav, consumed here — single shot):
+		// inject OUR saved position over the native entry's eState, which
+		// carries only the cursor. Bypasses the callerTarget yield and the
+		// glide choice on purpose — traversal must land instantly, on the file
+		// record (or the entry's own landing when it carries one), not on the
+		// native cursor. No record → the native target stands. Non-markdown
 		// traversals fall through untouched — their positions are native.
-		//
-		// The landing is the TRAVERSAL TARGET's own position when the entry
-		// carries one (pendingHistoryNavState — a keyed jump's precise
-		// landing, the spot the browser row shows) and the file record only
-		// as the fallback. Both are handed to the restorer through
-		// injectedLeafStates: the injected settle must verify the line core
-		// was actually given. The landing is file-guarded: the flag is global,
-		// so an unrelated open that stole it must not be handed another
-		// file's position.
+		// File-guarded: the flag is global, so an unrelated open that stole it
+		// must not be handed another file's position.
 		if (this.state.pendingHistoryNav) {
 			const navLanding = this.state.pendingHistoryNavPath === filePath
 				? this.state.pendingHistoryNavState
@@ -273,31 +241,26 @@ export class OpenPatcher {
 		}
 
 		if (this.takeOverridingOpenKind(leaf, eState, isReplay)) {
-			// A yielded open (link/caller target) needs no file-open restore
-			// body — record the pair so later switches and re-asserts dedup
-			// into tracking-only updates, even when this open never fires
-			// 'file-open' (a background target open).
+			// A yielded open needs no file-open restore body — record the pair
+			// so later switches and re-asserts dedup into tracking-only
+			// updates, even when this open never fires 'file-open'.
 			this.state.handledLeafIdMap.set(leafId, filePath);
-			// Arm the landing absorb synchronously with the open: the jump to
-			// core's target lands asynchronously (file load + scroll/cursor
-			// to the match or link), and recording must stay in absorb mode
-			// until it settles or the jump itself gets written as user
-			// movement. This MUST live here, not in the restorer's file-open
-			// handler: a same-file search-result click fires no 'file-open',
-			// so the restorer never runs and the jump would be recorded.
-			// See PositionState.searchAnchorUntil / Sampler stability expiry.
+			// Arm the landing absorb synchronously with the open: core's target
+			// lands asynchronously, and recording must stay absorbing until it
+			// settles. MUST live here and not in the file-open handler — a
+			// same-file search click fires no 'file-open', so the restorer
+			// never runs and the jump itself would be recorded.
 			this.state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 			return eState;
 		}
 
-		// Non-markdown FileViews (pdf, image, ...): their restore is
-		// scroll-only, applied by restoreFileViewScroll from the file-open
-		// handler — nothing to inject here.
+		// Non-markdown FileViews (pdf, image, ...): scroll-only restore,
+		// applied by restoreFileViewScroll from the file-open handler.
 		if (viewState.type !== 'markdown')
 			return eState;
 
 		// Reading view never injects: it renders asynchronously and the
-		// file-open handler restores (masked/glide) from the top.
+		// file-open handler restores from the top.
 		const isSourceMode = this.isSourceModeOpen(leaf, viewState);
 		if (!isSourceMode)
 			return eState;
@@ -313,26 +276,20 @@ export class OpenPatcher {
 			return eState;
 
 		// A replay re-injects (re-covering the deferred rebuild's editor gap)
-		// only when the replayed eState echoes the saved record — the
-		// signature of our own earlier injection (or an equal native cache)
-		// coming back through core's leaf cache. Anything else stays native:
-		// an eState-less re-assert would cover an open that never fires
-		// 'file-open' (cover stuck until the safety timer — e.g. the quick
-		// switcher re-picking the current file), and a diverged position must
-		// not yank the user back to the record.
+		// only when the replayed eState echoes the saved record — the signature
+		// of our own earlier injection coming back through core's leaf cache.
+		// Anything else stays native: an eState-less re-assert would cover an
+		// open that never fires 'file-open' (cover stuck until the safety
+		// timer), and a diverged position must not yank the user back.
 		//
-		// EXCEPTION — the startup rebuild (debugged 2026-09): before
-		// layout-ready, core re-asserts the ACTIVE leaf's state through a
-		// second setViewState whose eState is EMPTY (it re-opens the file
-		// fresh instead of replaying the leaf cache, unlike a background
-		// tab's replay, which echoes the cached eState back). The rebuilt
-		// editor lands at the top and the injection is lost; the following
-		// file-open's restore can't recover it (its settle only fine-tunes
-		// a rendered target line, never launches an off-viewport landing).
-		// Pre-layout-ready the user cannot have diverged yet and no
-		// quick-switcher re-assert can occur, so an empty eState there is
-		// always that rebuild — re-inject; the file-open that follows for
-		// the active leaf runs the settle/reveal.
+		// EXCEPTION — the startup rebuild: before layout-ready core re-asserts
+		// the active leaf through a second setViewState whose eState is EMPTY
+		// (it reopens the file fresh instead of replaying the cache). The
+		// rebuilt editor lands at the top and the injection is lost; the
+		// following file-open can't recover it, since its settle only
+		// fine-tunes an already-rendered line. Pre-layout-ready the user
+		// cannot have diverged yet, so an empty eState there is always that
+		// rebuild — re-inject.
 		const replayIsEmptyRebuild = !this.app.workspace.layoutReady
 			&& !eState?.scroll && !eState?.cursor;
 		if (isReplay && !(
@@ -346,30 +303,23 @@ export class OpenPatcher {
 
 		// Let the file-open handler know the restore was applied here, so it
 		// re-anchors bookkeeping without re-applying (bookkeeping ownership
-		// stays in restoreEphemeralState). Keyed by leaf id: with the same
-		// file open in two tabs, each tab's file-open must consume its own
-		// marker and run its own settle/reveal.
+		// stays in restoreEphemeralState). Keyed by leaf id: with the same file
+		// open in two tabs, each tab's file-open must consume its own marker
+		// and run its own settle/reveal. Recording the pair now also keeps
+		// later activations deduped when this open is a background one whose
+		// file-open never fires.
 		this.state.injectedOpenLeafIds.add(leafId);
-		// The injected open's file-open runs restoreInjectedSource (settle +
-		// cover reveal) via the injected marker; recording the pair NOW keeps
-		// later activations deduped even when this open is a background one
-		// whose file-open never fires.
 		this.state.handledLeafIdMap.set(leafId, filePath);
 
 		return { ...merged, ...eState };
 	}
 
-	// Every content change on this leaf supersedes its prior open bookkeeping
-	// — markdown and other FileViews alike. setViewState ALSO fires when
-	// Obsidian re-asserts an already-open tab's cached state (tab switch);
-	// injectEphemeralStateOnOpen takes its replay branch before this for that
-	// same-file case, keeping the handled marker so the switch dedups to a
-	// tracking-only update in restoreEphemeralState. Here (different file, or
-	// no file): dropping the handled entry lets a close-and-reopen of the
-	// same file restore again instead of being wrongly deduped, and dropping
-	// a stale pendingOpenKind marker from an open that never fired 'file-open'
-	// can't misdirect this open's restore. Per-leaf only — other leaves'
-	// markers stay until their tab is activated.
+	// Every content change on this leaf supersedes its prior open
+	// bookkeeping, markdown and other FileViews alike. Dropping the handled
+	// entry lets a close-and-reopen of the same file restore again instead of
+	// being wrongly deduped; dropping a stale pendingOpenKind can't misdirect
+	// this open. Per-leaf only — other leaves' markers stay until their tab
+	// is activated.
 	private resetLeafOpenState(leaf: WorkspaceLeaf) {
 		this.state.handledLeafIdMap.delete(this.state.leafId(leaf));
 		this.state.pendingOpenKind.delete(leaf);
@@ -383,15 +333,13 @@ export class OpenPatcher {
 			&& !!st && (st.scroll ?? 0) > 0;
 	}
 
-	// Consumes the overriding open kind (anchorLink/startPlainLink/callerTarget)
-	// for this open: returns it when the open should yield to a non-saved target,
-	// and as a side effect sets pendingOpenKind so restoreEphemeralState can
-	// dispatch. Otherwise clears nothing and returns undefined.
+	// Consumes the overriding open kind (anchorLink/startPlainLink/
+	// callerTarget): returns it when the open should yield to a non-saved
+	// target, and sets pendingOpenKind so restoreEphemeralState can dispatch.
 	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: OpenEphemeralState | undefined, isReplay: boolean): OpenKind | undefined {
-		// Promote the transient link kind (set by the openLinkText patch, which
-		// doesn't know the target leaf yet) onto this leaf's pending entry,
-		// then clear the transient slot. Link nav wins over the saved position
-		// and over a coincidental eState cursor/scroll — core's link target is
+		// Promote the transient link kind onto this leaf's pending entry, then
+		// clear the slot. Link nav wins over the saved position and over a
+		// coincidental eState cursor/scroll — core's link target is
 		// authoritative. Checked before callerTarget for that reason.
 		const linkKind = this.state.pendingLinkKind;
 		if (linkKind) {
@@ -403,13 +351,11 @@ export class OpenPatcher {
 		}
 
 		// Caller-submitted target (search match in eState.match, or
-		// cursor/scroll/is-flashing from outline/backlinks): core put it in
-		// the ephemeral-state argument meaning "open here", so merging the
-		// saved position on top would override it. Anchor at core's target
-		// instead of restoring (see anchorToTargetSettled).
-		// On a replay the eState is the leaf's OWN cached ephemeral state, so
-		// its bare cursor/scroll is that cached position, not a caller target
-		// — only the distinctive markers (match / is-flashing) count there.
+		// cursor/scroll/is-flashing from outline/backlinks): core put it in the
+		// ephemeral-state argument meaning "open here", so merging the saved
+		// position on top would override it. On a replay the eState is the
+		// leaf's OWN cached state, so its bare cursor/scroll is that cached
+		// position — only the distinctive markers count there.
 		if (this.hasCallerTarget(eState, isReplay)) {
 			this.state.pendingOpenKind.set(leaf, 'callerTarget');
 			return 'callerTarget';
@@ -428,10 +374,10 @@ export class OpenPatcher {
 		return !!(eState.cursor || eState.scroll != null);
 	}
 
-	// Build the merged state to inject: saved position wins when present;
-	// otherwise apply the configured default (only 'fileEnd' has an injection
-	// form, and only in source mode). The placeholder cursor is clamped to
-	// the last line by the editor; content length is unknown here.
+	// Saved position wins when present; otherwise apply the configured default
+	// (only 'fileEnd' has an injection form, and only in source mode). The
+	// placeholder cursor is clamped to the last line by the editor — content
+	// length is unknown here.
 	private buildMergedState(st: EphemeralState | undefined, isSourceMode: boolean): Partial<EphemeralState> {
 		const merged: Partial<EphemeralState> = {};
 		if (st) {
@@ -447,24 +393,19 @@ export class OpenPatcher {
 		return merged;
 	}
 
-	// Cover opens whose first frames could otherwise paint the un-restored
-	// top or the settle's corrections. EVERY source-mode open with a scroll
-	// injection is covered — brand-new leaves AND same-leaf switches alike:
-	//  - a brand-new leaf's editor is constructed later, measures its
-	//    document, then the injected scroll lands — the first frame would
-	//    show the default top;
-	//  - a same-leaf switch rides core's staged open pipeline (its own
-	//    position, then the injected one) and its post-swap re-measure can
-	//    shift pixels after the atomic apply — the settle corrections that
-	//    fix this must run hidden, or each reads as a visible jump.
-	// A cursor-only injection never moves the viewport (the note opens at
-	// its top and stays there), so the first frame is already the final
-	// state and covering it would only add a blank period. Reading opens
-	// are never covered — the note renders visibly from the top and
-	// glideRestore scrolls to the saved line, so masking would only add a
-	// blank period. The injected branch of restoreEphemeralState waits for
-	// the position to settle, then lifts the cover; the safety timer bounds
-	// it for background opens.
+	// Cover opens whose first frames would otherwise paint the un-restored top
+	// or the settle's corrections. EVERY source-mode open with a scroll
+	// injection is covered, brand-new leaves and same-leaf switches alike:
+	//  - a brand-new leaf's editor is built later, measures its document, then
+	//    the injected scroll lands — the first frame shows the default top;
+	//  - a same-leaf switch rides core's staged pipeline, and its post-swap
+	//    re-measure can shift pixels after the atomic apply; the settle that
+	//    fixes this must run hidden or each correction reads as a jump.
+	// A cursor-only injection never moves the viewport, so the first frame is
+	// already the final state and covering would only add a blank period;
+	// reading opens are never covered either. The injected branch of
+	// restoreEphemeralState settles then lifts the cover; the safety timer
+	// bounds it for background opens.
 	private maybeCoverOpen(leaf: WorkspaceLeaf, hasScroll: boolean) {
 		if (!hasScroll)
 			return;

@@ -3,136 +3,93 @@ import { NavEntry } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { HeadingRef, NavEntryDescription, describeNavEntry, headingsFromText } from './model';
 
-// Everything the browser reads out of the vault, cached: an entry's display
-// pieces (one render's worth) and, per path, the two things a file's metadata cache
-// answers — its parsed headings and the other names it goes by. All of them are
-// metadata-cache lookups, and every one of them is answered WITHOUT the file's text.
-// The landing lines a row or the panel prints come from the entries themselves (see
-// NavEntryState.context).
+// Everything the browser reads out of the vault, cached: an entry's display pieces
+// (one render's worth) and, per path, what the file's metadata cache answers — its
+// headings and the other names it goes by. None of these needs the file's text.
 //
-// ONE question may still go to the file's text, and only after the cache has been
-// asked and said nothing: the section chain of a note the app has not re-parsed — a
-// sync replaced it, or a phone's indexer has not got round to it. That reading is
-// what a row falls back on instead of printing its line alone (see headingsFor).
+// ONE question may go to the text, and only after the cache has been asked and said
+// nothing: the section chain of a note the app has not re-parsed (see headingsFor).
 
 export interface RecentFilesReadsOptions {
-	// The file's saved record: the position source for a place that carries none
-	// of its own — which, on the recent-files list, is every FILE record (see
-	// places.ts). The line such a row prints is therefore the line a plain open
-	// will land on, which is exactly the promise the row makes.
+	// A file record carries no position of its own, so the line such a row prints is
+	// the line a plain open will land on — which is the promise the row makes.
 	savedPosition?: (path: string) => EphemeralState | undefined;
-	// The places as they stand: a reader, not a snapshot, because the list is
-	// re-pointed on every render of a resident panel (see body.ts's render).
+	// A reader, not a snapshot: a resident panel is re-pointed on every render.
 	entries: () => NavEntry[];
-	// Called when a reading that was NOT there the moment a row was drawn arrives
-	// afterwards — the section chain taken out of a note's own text (see
-	// headingsFor). The list is the only thing that can show it, and only a redraw
-	// shows it; this is how the panel hears that it has something to redraw.
+	// A reading that was not there when a row was drawn has landed. The list is the
+	// only thing that can show it, and only a redraw does.
 	onLateRead?: () => void;
 }
 
-// What the browser takes from ONE file's metadata cache: the section chain a
-// landing's row prints, and the other names the file goes by, which the search box
-// matches on. One record for both because `getFileCache` answers both in a single
-// call (see readMeta): two maps would only mean asking twice.
+// What one file's metadata says: the section chain a landing row prints, and the
+// other names the file goes by, which the search box matches on. One record for both
+// because `getFileCache` answers both in a single call.
 export interface FileMeta {
-	// The file's parsed headings, in document order — undefined when Obsidian has not
-	// parsed it yet, which is a file with no section chain.
+	// Undefined while Obsidian has not parsed the file — which is not the same answer
+	// as a file whose chain is empty (see readMeta).
 	headings?: HeadingRef[];
-	// The other names the file goes by, in the order the frontmatter lists them (see
-	// readMeta): the `title` first, then `aliases`.
+	// `title` first, then `aliases`, in frontmatter order.
 	aliases: string[];
 }
 
 export class RecentFilesReads {
-	// Per-render describe cache: filtering re-renders on every keystroke, so
-	// the vault lookups behind describeNavEntry are not repeated per row.
+	// Filtering re-renders on every keystroke, so the vault lookups behind
+	// describeNavEntry are not repeated per row.
 	private descCache = new Map<number, NavEntryDescription>();
-	// path → what the file's metadata says. Cheap to hold (tens of small records) and
-	// otherwise re-mapped on every row render… and NOT dropped per render, unlike the
-	// describe cache above: it is keyed by PATH, so it survives the list being
-	// filtered, re-ordered and rebuilt (see aliasesFor).
+	// Keyed by PATH, so unlike the cache above it survives the list being filtered and
+	// rebuilt.
 	//
-	// NOTHING IS KEPT UNTIL THE CACHE ANSWERS. `getFileCache` is null for a file
-	// Obsidian has not parsed yet — which is exactly the moment a sync is replacing
-	// one: it removes the file and renames the download over it (see
-	// position/path-bookkeeping.ts), and the app does NOT fire 'changed' for a rename,
-	// so a remembered miss then has no event left to invalidate it. It outlived the
-	// sync itself: every later render of this body re-read the same emptiness, the row
-	// lost its section chain and printed only `L412`, and it stayed that way until the
-	// body was thrown away — a restart, or the dialog's next opening. So a miss is
-	// asked again on the next render instead. What that costs is one map lookup, which
-	// is all `getFileCache` is; the work this map actually spares — walking the
-	// headings and flattening the frontmatter — only happens once there is an answer
-	// to spare it on.
+	// NOTHING IS KEPT UNTIL THE CACHE ANSWERS: `getFileCache` is null while a file is
+	// unparsed — exactly the moment a sync is replacing one — and a rename fires no
+	// 'changed', so a remembered miss would have no event left to invalidate it; it
+	// would outlive the sync itself and cost the row its chain until the body died. So
+	// a miss is asked again next render, which is one map lookup, while the work this
+	// map spares only happens once there is an answer to spare it on.
 	private meta = new Map<string, FileMeta>();
-	// A file's own TEXT, for the two questions the metadata cache cannot answer: the
-	// section chain of a note it has not re-parsed (see headingsFor), and the line a
-	// stale line number has moved to (see linesFor). ONE reading serves both — a note's
-	// lines are the lines its headings sit on — so the second question costs nothing
-	// the first has not already paid.
+	// The file's own TEXT, for the two questions the cache cannot answer: the chain of
+	// a note it has not re-parsed (see headingsFor), and the line a stale number has
+	// moved to (see linesFor). One reading serves both — a note's lines are the lines
+	// its headings sit on.
 	//
-	// Kept beside the mtime the reading was taken at rather than invalidated by an
-	// event: the change that makes such a reading stale is an EXTERNAL one — a sync —
-	// and an external change fires no 'changed' (that is the whole reason this
-	// fallback exists), so the mtime is the only clock this reading has, and it is a
-	// clock the file keeps itself.
+	// Remembered against mtime rather than invalidated by an event: what makes such a
+	// reading stale is an EXTERNAL change, and an external change fires no 'changed' —
+	// that is the whole reason this fallback exists.
 	private text = new Map<string, { mtime: number; headings: HeadingRef[]; lines: string[] }>();
-	// The paths whose text is being read right now: however many renders ask before a
-	// reading lands, the file is read once.
+	// Paths being read right now: however many renders ask, the file is read once.
 	private reading = new Set<string>();
-	// The metadataCache listener that keeps those other names honest (see the
-	// constructor). Held so the panel can stop listening when it goes.
 	private metaRef?: EventRef;
 
 	constructor(
 		private app: App,
 		private opts: RecentFilesReadsOptions,
 	) {
-		// A renamed alias is exactly when a stale memory is worst: the reader is typing
-		// the name they just changed. What a change invalidates is ONE file's record and
-		// not the whole map — clearing everything would make the next keystroke re-read
-		// every path on the list. (The same watch, for the same reason, in
-		// position/capture/sampler.ts's installFrontmatterWatch.) It is also the ONLY
-		// watch, and a rename fires no 'changed' — which is why this map never records a
-		// miss in the first place (see `meta`).
+		// A renamed alias is when a stale memory is worst — the reader is typing the
+		// name they just changed. What a change invalidates is ONE file's record, not
+		// the whole map.
 		this.metaRef = app.metadataCache?.on?.('changed', (file: TFile) => {
 			this.meta.delete(file.path);
 		});
 	}
 
-	// Stop listening. Called by the browser's own destroy (see body.ts): both shells
-	// close through it, so this is the one place a listener that outlives the panel's
-	// DOM can be forgotten — and a dialog is a new reads object every time it opens.
+	// Both shells close through the browser's destroy, and a dialog is a new reads
+	// object every time it opens.
 	dispose(): void {
 		if (this.metaRef)
 			this.app.metadataCache?.offref?.(this.metaRef);
 		this.metaRef = undefined;
 	}
 
-	// Whether the note is still on disk. This is the browser's ONE question about a
-	// file's existence, and `RecentFilesList` is its only asker: a place whose file is
-	// gone is filtered out before a row is drawn (see the list's `keep`), so nothing
-	// downstream — a row, the sheet, the describe cache — ever has to wonder whether
-	// the thing it names is there. An arrow field rather than a method so it can be
-	// handed to the list as a plain predicate.
-	//
-	// The recent-files store prunes such a place itself, on the vault's own delete
-	// event and on a startup sweep (see PathBookkeeper). What this predicate covers is
-	// the window before that lands, and a record that arrived from another device: a
-	// name the list cannot open is not a row.
+	// The browser's ONE question about a file's existence, and RecentFilesList is its
+	// only asker: a place whose file is gone is filtered out before a row is drawn, so
+	// nothing downstream has to wonder. The store prunes such a place itself on the
+	// vault's delete event; this covers the window before that lands. An arrow field so
+	// it can be handed over as a plain predicate.
 	hasFile = (path: string): boolean =>
 		this.app.vault.getAbstractFileByPath(path) instanceof TFile;
 
-	// The file's mtime as it stands NOW — the half of one comparison a landing's
-	// own words cannot make (see list.ts's landingNote): the record keeps the mtime
-	// the file had when those words were taken, and the file keeps the one it has
-	// now. Read off the vault's own file object rather than remembered, because the
-	// question is asked once per row that quotes something and the answer that
-	// matters is the one that changed.
-	//
-	// Undefined for a path with no file behind it, which is the answer `hasFile`
-	// already gives: a place whose note is gone is not on the list at all.
+	// Half of landingNote's comparison: the record keeps the mtime the quoted words
+	// were taken at, and the file keeps the one it has now. Read off the vault's own
+	// file object rather than remembered, because what matters is the one that changed.
 	mtimeOf(path: string): number | undefined {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		return file instanceof TFile ? file.stat.mtime : undefined;
@@ -151,9 +108,7 @@ export class RecentFilesReads {
 		this.descCache.clear();
 	}
 
-	// What the file's metadata says, mapped once per path — and only once the cache
-	// has answered (see `meta`): a miss is asked again next render rather than kept
-	// as "this file has no section chain".
+	// Mapped once per path — and only once the cache has answered (see `meta`).
 	metaFor(path: string): FileMeta {
 		const known = this.meta.get(path);
 		if (known)
@@ -165,19 +120,11 @@ export class RecentFilesReads {
 		return read;
 	}
 
-	// The file's parsed headings — a file Obsidian has not parsed yet simply has no
-	// section chain (see FileMeta.headings).
-	//
-	// TWO ways to know them, and the second is only for when the first says nothing:
-	// the metadata cache, which has them parsed already, and the note's own text (see
-	// textHeadings). What counts as "says nothing" is not only a missing record: a
-	// note a sync has just put back can have been parsed while it was still being
-	// written, which is a record with NO headings in it, and on a phone that record
-	// can stand for the rest of the session — the row printed `L412` alone the whole
-	// time. So an empty chain is an unanswered question too, and the text is asked.
-	//
-	// The text is only ever the fallback: a cache that has answered is the same
-	// reading, already done, and free.
+	// TWO ways to know a chain: the metadata cache, already parsed, and the note's own
+	// text. The text is only for when the first says nothing — and "nothing" includes
+	// an EMPTY chain: a note a sync has just put back can have been parsed while it was
+	// still being written, and on a phone that record can stand for the rest of the
+	// session.
 	headingsFor(path: string): HeadingRef[] | undefined {
 		const fromCache = this.metaFor(path).headings;
 		if (fromCache && fromCache.length)
@@ -185,36 +132,28 @@ export class RecentFilesReads {
 		return this.textHeadings(path);
 	}
 
-	// The section chain read out of the note's own text, for a note the metadata cache
-	// has nothing to say about (see headingsFor).
-	//
 	// ASKING IS FREE AND ANSWERING IS NOT: the text sits behind an await, so the row
-	// being drawn now is drawn without the chain, and the body hears about the reading
-	// when it lands (see RecentFilesReadsOptions.onLateRead). Until then what it shows
-	// is the last reading taken at this mtime, if there is one — a chain one sync old
-	// still names the section, which is more than a line number does.
+	// being drawn now is drawn without the chain. Until the reading lands, what shows
+	// is the last reading taken at this mtime — a chain one sync old still names the
+	// section, which is more than a line number does.
 	private textHeadings(path: string): HeadingRef[] | undefined {
 		return this.ensureText(path)?.headings ?? this.text.get(path)?.headings;
 	}
 
-	// The note's lines as they stand NOW — what a stale line number is re-found in (see
-	// recent-files/browser/now-line.ts). Undefined when they are not in hand, and
-	// NEVER a reading taken at an older mtime: the lines are the thing being compared
-	// against, so a stale copy of them is not an approximation of the answer, it is
-	// the absence of one.
+	// The lines a stale line number is re-found in (see nowLineFor). Never a reading
+	// taken at an older mtime: the lines are the thing being compared against, so a
+	// stale copy of them is not an approximation of the answer but its absence.
 	//
-	// `prime` is whether a reading may be STARTED to answer the question. One hover may
-	// — the answer is one await away and nothing is drawn with it. A render of fifty
-	// rows may NOT: fifty files read to label fifty rows is not a price a redraw pays,
-	// and what those rows print they can print from the numbers they already have.
+	// `prime` is whether a reading may be STARTED. One hover may — the answer is one
+	// await away. A render of fifty rows may not: fifty files read to label fifty rows
+	// is not a price a redraw pays.
 	linesFor(path: string, prime: boolean): string[] | undefined {
 		return this.ensureText(path, prime)?.lines;
 	}
 
-	// The file's text, when it is already in hand at the file's current mtime. When it
-	// is not, start reading it — unless `prime` says the asker will not wait — and
-	// answer undefined: the caller draws (or asks the app) with what it had, and hears
-	// about the reading when it lands (see RecentFilesReadsOptions.onLateRead).
+	// The text when it is in hand at the file's current mtime. Otherwise start reading
+	// it — unless `prime` says the asker will not wait — and answer undefined: the
+	// caller draws with what it had and hears about the reading when it lands.
 	private ensureText(path: string, prime = true) {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		if (!(file instanceof TFile))
@@ -230,11 +169,10 @@ export class RecentFilesReads {
 		return undefined;
 	}
 
-	// One file's headings and lines, out of its text, remembered against the mtime they
-	// were read at (see `text`). A read that FAILS is remembered as no headings and no
-	// lines at that mtime rather than left to be asked again: a file that will not read
-	// is one this list is about to stop drawing anyway (see hasFile), and a question
-	// left open would be asked again on every redraw for as long as the body lived.
+	// Remembered against the mtime it was read at. A read that FAILS is remembered as
+	// no headings and no lines rather than left open: a file that will not read is one
+	// this list is about to stop drawing anyway (see hasFile), and an open question
+	// would be asked again on every redraw for as long as the body lived.
 	private async readText(path: string, file: TFile, mtime: number): Promise<void> {
 		let headings: HeadingRef[] = [];
 		let lines: string[] = [];
@@ -250,34 +188,21 @@ export class RecentFilesReads {
 		this.opts.onLateRead?.();
 	}
 
-	// The other names the file goes by: what the search box matches on, and what the
-	// row's own tooltip prints (see list.ts). Read LIVE from the metadata cache rather
-	// than stored on a place, which is the rule types.ts already states for everything
-	// the vault can still answer (see NavEntryState): an alias is the vault's word for
-	// a file NOW, not part of a visit that happened last week — and a place list that
-	// froze it would be wrong exactly when the reader goes looking for a name they
-	// just changed. Empty for a pathless view, which is not a file.
+	// Read LIVE from the cache rather than stored on a place: an alias is the vault's
+	// word for a file NOW, not part of a visit that happened last week — and a frozen
+	// list would be wrong exactly when the reader looks for a name they just changed.
+	// Empty for a pathless view, which is not a file.
 	aliasesFor(path: string): string[] {
 		return path ? this.metaFor(path).aliases : [];
 	}
 }
 
-// Read one path's metadata, through the cache and never the disk. `path` is empty
-// for a pathless view (the graph, Thino's memo list): there is no file to look up.
+// Read one path's metadata, through the cache and never the disk. `path` is empty for
+// a pathless view: there is no file to look up.
 //
 // NULL means "Obsidian has not parsed this file yet" — one it is still indexing, or
 // one a sync has just put back — which is NOT the same answer as a file with no
-// headings: that is a real reading, and it is kept (see RecentFilesReads.metaFor).
-//
-//   - `aliases` is Obsidian's own property, and its value may be a string OR a list
-//     of them, so both are taken (a hand-written `aliases: weekly` is as valid as the
-//     usual block list). It is the same vocabulary the app's quick switcher and its
-//     `[[` suggestions match on, which is the point: this search agrees with them
-//     rather than inventing a second rule.
-//   - `title` is not a native property but a community convention (Front Matter
-//     Title). Reading it costs nothing when it is absent, and a vault that uses the
-//     key for something else makes that text searchable too — a known cost of
-//     hard-coding the pair instead of offering a setting (see the plan).
+// headings: that is a real reading, and it is kept (see metaFor).
 function readMeta(app: App, path: string): FileMeta | null {
 	const file = path ? app.vault.getAbstractFileByPath(path) : null;
 	const cache = file instanceof TFile ? app.metadataCache?.getFileCache?.(file) : null;
@@ -305,15 +230,18 @@ function readMeta(app: App, path: string): FileMeta | null {
 				push(item);
 		}
 	};
-	// `title` first: of the two it is the one that reads as "the name of this note".
+	// `aliases` is Obsidian's own property and may be a string OR a list — a
+	// hand-written `aliases: weekly` is as valid as the block list. It is the same
+	// vocabulary the quick switcher and `[[` suggestions match on: this search agrees
+	// with the app rather than inventing a second rule.
+	// `title` is not native but a community convention (Front Matter Title).
 	push(fm?.title);
 	push(fm?.aliases);
 	return { headings, aliases };
 }
 
-// The reading for a file Obsidian has not parsed yet: no section chain, no other
-// names. Fresh each time, because nothing owns it — and deliberately NOT put in the
-// map (see RecentFilesReads.metaFor).
+// The reading for a file Obsidian has not parsed yet. Fresh each time, and
+// deliberately NOT put in the map (see metaFor).
 function noMeta(): FileMeta {
 	return { headings: undefined, aliases: [] };
 }

@@ -1,20 +1,13 @@
 import { App } from 'obsidian';
 import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 
-// Device-local, per-vault navigation-history persistence (mirrors the position
-// overlay): the startup read, the debounced write, and the per-entry shape
-// check.
+// Device-local, per-vault navigation-history persistence: the startup read,
+// the debounced write, and the per-entry shape check.
 
-// Persisted nav-history format version: a mismatched stored blob is
-// dropped whole on load — the history is disposable, no migrations.
-// v3 added the recorded context block / mtime / link origin (see NavEntryState
-// and NavVisit). It also added a line count, dropped again afterwards without a
-// bump: the field was optional, nothing but the details panel ever read it, and a
-// stored v3 blob that still carries one loads fine.
-//
-// It lives here, with the blob it describes, rather than in the shared entry
-// vocabulary: the recent-files list has its own version in its own store, and
-// either list must stay droppable without the other.
+// A mismatched stored blob is dropped whole on load — the history is
+// disposable, no migrations. It lives here, with the blob it describes, not in
+// the shared entry vocabulary: the recent-files list has its own version in
+// its own store, and either list must stay droppable without the other.
 export const NAV_HISTORY_VERSION = 3;
 
 // Desktop localStorage is shared across vaults (same app origin); appId is
@@ -30,20 +23,18 @@ export function loadNavHistory(app: App): { entries: NavEntry[]; index: number }
 		if (!raw)
 			return { entries: [], index: -1 };
 		const parsed = JSON.parse(raw) as { v?: unknown; entries?: unknown; index?: unknown };
-		// Version gate: a pre-versioned (legacy) or foreign blob is
-		// dropped whole — the history is disposable, no legacy formats
-		// are migrated. Bump NAV_HISTORY_VERSION on format changes.
+		// Version gate: a pre-versioned or foreign blob is dropped whole. Bump
+		// NAV_HISTORY_VERSION on format changes.
 		if (parsed.v !== NAV_HISTORY_VERSION)
 			return { entries: [], index: -1 };
 		const entries = Array.isArray(parsed.entries)
 			? parsed.entries.filter((e): e is NavEntry => isNavEntry(e))
 			: [];
-		// What a view entry CLAIMS about itself — its state, its name, its icon — is
-		// read back out into a replay and into the DOM, and this blob is device-local
-		// storage that a hand edit, a sync or a truncation can put anything in (see
-		// pruneViewSnapshot). Fields that are not what they claim to be are dropped
-		// here, while the ENTRY stays: all three have a working fallback — the view
-		// is rebuilt at its defaults and the row prints its own view type — so a bad
+		// What a view entry CLAIMS about itself — state, name, icon — is read
+		// back into a replay and into the DOM, and a hand edit, a sync or a
+		// truncation can put anything here. Fields that are not what they claim
+		// are dropped while the ENTRY stays: all three have a working fallback
+		// (view rebuilt at defaults, row prints its own view type), so a bad
 		// field costs a detail, never the place.
 		for (const entry of entries)
 			pruneViewSnapshot(entry);
@@ -58,11 +49,11 @@ export function loadNavHistory(app: App): { entries: NavEntry[]; index: number }
 	}
 }
 
-// Per-entry shape check (the storage may hold hand-edited or truncated
-// data): the kind tag first, then that variant's required fields — an
-// untagged or junk entry drops instead of passing a property coincidence.
-// `t` (the push timestamp, see NavEntryBase) is required too: the browser
-// labels every row with a relative time, so an unstamped entry is junk.
+// Per-entry shape check (the storage may hold hand-edited or truncated data):
+// the kind tag first, then that variant's required fields — an untagged or
+// junk entry drops instead of passing a property coincidence. `t` is required
+// too: the browser labels every row with a relative time, so an unstamped
+// entry is junk.
 export function isNavEntry(e: unknown): e is NavEntry {
 	if (!e || typeof e !== 'object')
 		return false;
@@ -91,11 +82,10 @@ export function serializeNavHistory(entries: NavEntry[], index: number): string 
 
 // Writes the history unless the blob is byte-identical to `previous` — the
 // dedup that lets the 5s flush round cost one stringify when nothing moved.
-// Returns the blob now on disk, which the CALLER keeps and passes back next
-// time: the dedup state belongs to the owner of the history (one per plugin
-// instance), never to this module. Held here it would be shared by every
-// instance in the page — a second vault would inherit the first one's blob and
-// skip a write it owes — and by every test in a suite.
+// Returns the blob now on disk, which the CALLER keeps and passes back: the
+// dedup state belongs to the owner of the history (one per plugin instance).
+// Held here it would be shared by every instance in the page — a second vault
+// would inherit the first one's blob and skip a write it owes.
 // A failed write returns `previous` unchanged, so the next round retries.
 export function persistNavHistory(
 	app: App,

@@ -6,93 +6,56 @@ import { RestoreCue } from './ui/cue';
 
 export type OpenKind = 'anchorLink' | 'startPlainLink' | 'callerTarget';
 
-// How long recording stays in absorb mode after an open-kind jump
-// (anchorLink/startPlainLink/callerTarget) is dispatched at setViewState
-// time (patcher.injectEphemeralStateOnOpen). The jump lands asynchronously
-// (file load + scroll/cursor to the match or link target); during this
-// window the poll re-baselines lastEphemeralState without writing and scroll
-// capture skips, so the landing itself is never recorded as user movement.
-// The sampler additionally expires the absorb early once the view stops
-// moving (stability check), so this is a ceiling, not a hard delay.
+// How long recording stays in absorb mode after an open-kind jump is dispatched at
+// setViewState time: the jump lands asynchronously, and during this window the poll
+// re-baselines without writing, so the landing is never recorded as user movement. A
+// ceiling, not a hard delay — the sampler expires it early once the view stops moving.
 export const LANDING_ABSORB_MS = 3000;
 
-// Single owner of the cross-phase coordination state shared by recording,
-// restore, and the open patches. The transient flags below are read and
-// written across restore, inject, and the polling loop — fragmenting them
-// across classes would let recording observe a half-applied restore, so they
-// all live here and the collaborators (Restorer / OpenPatcher) take this
-// instance.
+// Single owner of the cross-phase coordination state shared by recording, restore and
+// the open patches: fragmenting it would let recording observe a half-applied restore.
 export class PositionState {
-	// Leaves whose saved position was injected into the open's ephemeral state
-	// (setViewState patch) and therefore must not be restored a second time by
-	// the file-open handler. Keyed by LEAF ID, not file path: with the same
-	// file open in two tabs each tab injects its own (per-tab) position and
-	// needs its own settle/reveal on first activation — a shared path key let
-	// the first tab's file-open consume the marker and dedup the second's.
-	// Consumed when the matching file-open arrives; a background open
-	// (active:false) produces no file-open, so its entry stays until that tab
-	// is activated — which is exactly when it is needed.
+	// Leaves whose saved position was injected into the open's ephemeral state and
+	// therefore must not be restored a second time. Keyed by LEAF ID, not path: with one
+	// file in two tabs each tab injects its own per-tab position. A background open
+	// produces no file-open, so its entry stays until that tab is activated.
 	injectedOpenLeafIds = new Set<string>();
 
-	// File path of the leaf active before the most recent 'active-leaf-change'.
-	// The event fires with only the NEW leaf — there is no oldLeaf argument —
-	// so Restorer.completeInjectedRestore needs this sliding track to tell a
-	// same-file activation (no 'file-open' will follow; restore here) from a
-	// genuine file switch (its own 'file-open' owns the restore). Slid on every
-	// activation, markdown or not.
+	// The path active before the last 'active-leaf-change'. The event fires with only the
+	// NEW leaf, so completeInjectedRestore needs this track to tell a same-file activation
+	// from a genuine file switch.
 	lastActiveFilePath: string | undefined = undefined;
 
 	// ===== Restore run tracking =====
-	// Monotonic source of restore run ids. Supersession itself is decided per
-	// leaf via inFlightRestoreLeafRuns (see beginLeafRestore /
-	// isCurrentLeafRestore); the counter only guarantees a run id is never
-	// reused within a session, which is all the per-leaf cleanup matching
-	// needs.
 	restoreRun = 0;
-	private activeRestores = 0; // restore chains in flight
+	// A counter, so the flag stays up while superseded restores unwind.
+	private activeRestores = 0;
 
-	// Leaf id -> { filePath, run } of the restore currently in flight for
-	// that leaf (restoreOpen entry until its chain unwinds). Lets a duplicate
-	// re-assert for the same leaf+file detect that the restore is already
-	// running and skip instead of superseding it — a second entry would
-	// otherwise take the non-injected path and reveal the first-paint cover
-	// mid-settle. This is the guard between the two restore entry points
-	// ('file-open' and the 'active-leaf-change' completion), which can both
-	// fire for one open. Keyed by leaf because rapid file switching reuses
-	// the same view; the run discriminates the winning restore on cleanup.
+	// Leaf id -> { filePath, run } of the restore in flight for that leaf. Lets a
+	// duplicate re-assert for the same leaf+file skip instead of superseding — a second
+	// entry would take the non-injected path and reveal the first-paint cover mid-settle.
 	inFlightRestoreLeafRuns: Map<string, { filePath: string; run: number }> = new Map();
 
-	// Starts a restore for leafId+filePath and installs it as that leaf's
-	// current (occupying) in-flight restore. Returns the run id. run needs
-	// only to be unique per leaf over time, so one shared counter suffices.
 	beginLeafRestore(leafId: string, filePath: string): number {
 		const run = ++this.restoreRun;
 		this.inFlightRestoreLeafRuns.set(leafId, { filePath, run });
 		return run;
 	}
 
-	// Whether the restore that got run is still the current one for its leaf.
-	// Staleness is scoped per leaf on purpose: only a newer restore on the
-	// SAME leaf (rapid file switching reuses the same view) or the winner
-	// finishing and clearing this leaf's entry makes it stale. A restore
-	// running concurrently on a DIFFERENT leaf must never supersede it — the
-	// old single global counter did, leaving that leaf's restore cover up
-	// forever (see Restorer.restoreOpen).
+	// Scoped per leaf on purpose: only a newer restore on the SAME leaf makes a run
+	// stale. A restore on a DIFFERENT leaf must never supersede it — that would leave
+	// this leaf's cover up forever.
 	isCurrentLeafRestore(leafId: string, run: number): boolean {
 		const cur = this.inFlightRestoreLeafRuns.get(leafId);
 		return !!cur && cur.run === run;
 	}
 
-	// True while any file restore is in flight (from open until the landing is
-	// anchored). Recording (polling + scroll capture) skips while this holds,
-	// because restore's own glide/apply fires scroll events that would
-	// otherwise overwrite the saved position.
+	// Recording skips while this holds: restore's own glide fires scroll events that
+	// would otherwise overwrite the saved position.
 	isRestoringFile(): boolean {
 		return this.activeRestores > 0;
 	}
 
-	// Called by Restorer around its restore chain; the counter (not a plain
-	// boolean) keeps the flag up while superseded restores unwind.
 	restoreStarted() {
 		this.activeRestores++;
 	}
@@ -101,134 +64,81 @@ export class PositionState {
 		this.activeRestores--;
 	}
 
-	// Leaf id -> whose restore must skip the anchor (background restores:
-	// the recording baseline belongs to the active leaf only). Set by
-	// BackgroundSettler, cleared in its finally; anchorToSettledState reads it.
+	// Whose restore must skip the anchor (background restores: the recording baseline
+	// belongs to the active leaf only). Set by BackgroundSettler, cleared in its finally.
 	noAnchorLeafIds = new Set<string>();
 
 	// ===== Recording baseline: written by restore, read by polling =====
 	lastEphemeralState: EphemeralState | undefined;
 	lastLoadedFilePath: string | undefined;
 
-	// Timestamp of the last recording re-anchor (a restore landed, or a
-	// dedup/jump re-anchored). Starts the mobile "post-open reflow window":
-	// the sampler treats scroll-only deltas within SCROLL_SETTLE_GUARD_MS of
-	// this stamp that no user touch accounts for as passive layout shift and
-	// absorbs them instead of overwriting the saved record.
+	// Starts the mobile "post-open reflow window": the sampler absorbs scroll-only deltas
+	// within SCROLL_SETTLE_GUARD_MS of this stamp that no user touch accounts for.
 	lastAnchorAt = 0;
 
-	// Timestamp of the last user touch on the workspace (mobile only).
-	// Written by the sampler's touchstart listener; read by the sampler's
-	// poll guard and the restorer's drift correction (which must never fight
-	// a user scroll). Lives here because both collaborators share this
-	// coordination state.
+	// Last user touch (mobile only), and last user input (desktop: wheel / pointerdown /
+	// keydown) — each the signal its platform's scroll guard reads.
 	lastTouchAt = 0;
-
-	// Timestamp of the last user input on the workspace (desktop: wheel /
-	// pointerdown / keydown, written by the sampler's input tracker). Lets
-	// the desktop scroll capture separate user-driven scrolls from
-	// programmatic movement (dynamic re-render layout shifts, plugin-driven
-	// scrolls), mirroring the mobile touch-based guard.
 	lastUserInputAt = 0;
-	// leaf.id -> filePath whose open is fully handled: restored, injected, or
-	// yielded to a caller/link target. Written by the file-open dedup path
-	// AND by the setViewState patch (yielded opens, injected opens) so pairs
-	// whose open never fires 'file-open' (background opens, startup restore)
-	// still dedup later switches and re-asserts — the replay recognition the
-	// patch depends on.
+
+	// leaf.id -> filePath whose open is fully handled. Written by the file-open dedup path
+	// AND by the setViewState patch, so pairs whose open never fires 'file-open'
+	// (background opens, startup restore) still dedup later switches.
 	handledLeafIdMap: Map<string, string> = new Map();
 
 	// ===== Open-kind tracking (transient flags passed between patches) =====
 
-	// Per-leaf pending open kind: the source of the most recent open on a leaf
-	// when it overrides the saved position. Set by injectEphemeralStateOnOpen
-	// (which has the leaf in hand), consumed at the top of restoreEphemeralState
-	// to dispatch anchorLink/startPlainLink/callerTarget early returns instead of restoring.
-	// Per-leaf because a caller-target open that never fires 'file-open' (e.g. a
-	// search-result click on an already-open file) must not leak onto another
-	// leaf's restore — also reset at the top of every setViewState patch so a
-	// stale entry on the same leaf can't either.
+	// Per-leaf pending open kind. Per-leaf because a caller-target open that never fires
+	// 'file-open' must not leak onto another leaf's restore.
 	pendingOpenKind: Map<WorkspaceLeaf, OpenKind> = new Map();
 
-	// Transient slot written by the openLinkText patch (which doesn't know the
-	// target leaf yet) and promoted onto pendingOpenKind by
-	// injectEphemeralStateOnOpen, which runs synchronously inside the same
-	// openLinkText call stack. Cleared on promotion; the timeout is a safety net
-	// for openLinkText calls that never reach setViewState.
+	// Written by the openLinkText patch (which does not know the target leaf yet) and
+	// promoted onto pendingOpenKind by injectEphemeralStateOnOpen, synchronously inside
+	// the same call stack. The timeout is a safety net for calls that never reach
+	// setViewState.
 	pendingLinkKind: OpenKind | undefined;
 	pendingLinkKindTimeout = 0;
-	// The raw linktext of the pending openLinkText call, stashed alongside
-	// pendingLinkKind. Used as the navigation-history dedup key for same-file
-	// anchor jumps (repeated outline clicks to the same heading push only
-	// one entry). Cleared together with pendingLinkKind.
+
+	// The raw linktext, stashed alongside: the nav-history dedup key for same-file anchor
+	// jumps. Cleared together with pendingLinkKind.
 	pendingLinkText: string | undefined;
 
-	// The same call's ORIGIN, for the navigation history: the note the link
-	// was clicked in and the link's text as written. Separate from
-	// pendingLinkText because it must not touch the dedup/landing regime
-	// (a plain [[note]] link stays a keyless visit) and because it is wanted
-	// for links WITHOUT a target, which pendingLinkText deliberately ignores.
-	// Cleared and timed out together with it.
+	// The same call's ORIGIN, for the nav history. Separate because it must not touch the
+	// dedup regime (a plain [[note]] link stays a keyless visit) and because it is wanted
+	// for links WITHOUT a target, which pendingLinkText ignores.
 	pendingViaPath: string | undefined;
 	pendingViaText: string | undefined;
 
-	// One-shot flag armed by NavStack right before it invokes the native
-	// app:go-back / app:go-forward command: the resulting setViewState must
-	// inject THIS plugin's saved position over the native entry's eState
-	// (which carries only the cursor, never the scroll). Consumed by the
-	// setViewState patch; the timeout is the safety net for a command that
-	// never reached setViewState.
+	// Armed by NavStack right before it invokes app:go-back / app:go-forward: the
+	// resulting setViewState must inject THIS plugin's saved position over the native
+	// entry's eState, which carries only the cursor.
 	pendingHistoryNav = false;
 	pendingHistoryNavTimeout = 0;
 
-	// The landing the pending traversal's open must be given, when the target
-	// entry carries its own recorded position (see NavStack.landingFor): the
-	// setViewState patch injects THIS over the file record, and the injected
-	// restore settles to the same value. undefined = the traversal has no
-	// entry landing of its own, and the file record ("where the user actually
-	// was") stands. Cleared together with the flag, never separately: a
-	// landing left behind by a command that never reached setViewState would
-	// otherwise be injected into an unrelated later open.
+	// The landing the pending traversal's open must be given, when the target entry carries
+	// its own recorded position. undefined = the file record stands. Cleared together with
+	// the flag — a landing left behind would be injected into an unrelated later open.
 	pendingHistoryNavState: EphemeralState | undefined;
 
-	// The file that landing belongs to. The flag is global (one open in
-	// flight), so a landing is applied only to the open it was armed for: a
-	// setViewState for any other file — the flag stolen by an unrelated open
-	// inside the arming window — reads no landing and falls back to the file
-	// record, which is always about the file it is actually being read for.
+	// The file that landing belongs to: the flag is global, so a landing applies only to
+	// the open it was armed for.
 	pendingHistoryNavPath: string | undefined;
 
-	// leafId -> the landing the last injected open on that leaf was handed.
-	// The restorer's injected-source settle must verify the SAME line core was
-	// given; settling to the file record instead would fight the line core
-	// actually applied (after a cross-file history jump the two deliberately
-	// differ — the record is where the user had drifted to, the entry's
-	// landing is what the browser row promises). Keyed by leaf for the same
-	// reason injectedOpenLeafIds is: with one file in two tabs, each tab
-	// injects its own landing. Consumed by the restore that owns the open, and
-	// dropped with the injected marker for closed leaves.
+	// leafId -> the landing the last injected open on that leaf was handed. The
+	// restorer's injected-source settle must verify the SAME line core was given — after
+	// a cross-file history jump the two deliberately differ.
 	injectedLeafStates: Map<string, EphemeralState> = new Map();
 
-	// Deadline until which a restore's landing cue is suppressed: NavStack
-	// arms it at each moment a traversal triggers a restore (same-file
-	// historyJumpApply, delegateNative, openInLeaf), so back/forward hops
-	// land without the "position restored" chip — the user chose the
-	// destination themselves. Deadline-based (not a boolean) because the
-	// cross-file restore runs from the debounced 'file-open' handler, AFTER
-	// the traversal's own bracket has closed.
+	// Until when a restore's landing cue is suppressed: NavStack arms it whenever a
+	// traversal triggers a restore, so back/forward hops land without the chip — the
+	// reader chose the destination. Deadline-based because the cross-file restore runs
+	// from the debounced 'file-open' handler, AFTER the traversal's bracket closed.
 	cueSuppressUntil = 0;
 
 	// ===== Search anchor (search-driven jump guard) =====
-	// Deadline until which recording treats view movement as not the user's:
-	// while a search input (editor find, quick switcher, search panel) holds
-	// focus this is Infinity, and the sampler keeps it there for a short
-	// grace window after the input blurs before expiring it to Date.now().
-	// The patcher also sets it to a finite future value (LANDING_ABSORB_MS)
-	// when an open-kind jump (anchorLink/startPlainLink/callerTarget — a
-	// search-result match or link target) is dispatched, so the async landing
-	// is absorbed into the baseline instead of recorded. The sampler expires
-	// the finite value early once the view stops moving. The poll arms/clears
-	// it — see Sampler.installSearchAnchor.
+	// Until when recording treats view movement as not the reader's: Infinity while a
+	// search input holds focus, then a short grace after it blurs. The patcher also sets a
+	// finite value (LANDING_ABSORB_MS) when an open-kind jump is dispatched.
 	searchAnchorUntil = 0;
 
 	isSearchAnchored(): boolean {
@@ -236,20 +146,17 @@ export class PositionState {
 	}
 
 	// ===== Cover (pre-first-paint mask) =====
-	// Safety timers that lift the pre-first-paint cover of opens if the restore
-	// never runs (background open, skipped restore). The restore's own reveal
-	// clears the cover earlier.
 	cover = new OpenCover();
 
-	// ===== Post-restore orientation cue (landing highlight + breadcrumb) =====
+	// ===== Post-restore orientation cue =====
 	cue: RestoreCue;
 
 	constructor(settings: PluginSettings) {
 		this.cue = new RestoreCue(settings);
 	}
 
-	// leaf.id is part of Obsidian's runtime API but absent from its public
-	// typings, so the cast collapses the per-site @ts-ignore noise.
+	// leaf.id is runtime API absent from the public typings; the cast collapses the
+	// per-site @ts-ignore noise.
 	leafId(leaf: WorkspaceLeaf): string {
 		return leafIdOf(leaf);
 	}

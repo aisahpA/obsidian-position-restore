@@ -2,17 +2,15 @@ import { FileView, MarkdownView } from 'obsidian';
 import { EphemeralState } from '@/types';
 import { applyEphemeralState, readEphemeralState } from '@/position/capture/ephemeral';
 
-// Fix wait after a restore before anchoring change detection. Covers
+// Fix wait after a restore before anchoring change detection: covers
 // post-restore layout shifts (image decode, block resizing).
 export const ANCHOR_SETTLE_DELAY = 100;
 
-// Bounded max for the pre-restore wait for the reading renderer to produce
-// the note (replaces the removed delayAfterFileOpening setting): covers
-// notes whose async render is unusually slow. Recent Obsidian versions
-// re-render a reading note asynchronously on every open — large notes can
-// take seconds before the renderer reports any scrollable content — so this
+// Bounded max for the pre-restore wait for the reading renderer. Recent
+// Obsidian versions re-render a reading note asynchronously on every open —
+// large notes take seconds before any scrollable content exists — so this
 // budget is generous; waitForRestorePainted carries the restore the rest of
-// the way once content actually lands.
+// the way once content lands.
 export const CONTENT_READY_MAX_MS = 2000;
 
 // Bounded deadline for confirming a restore has settled under cover before
@@ -23,9 +21,9 @@ export function delay(ms: number): Promise<void> {
 	return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
-// Resolves on the next animation frame — the earliest moment a pending
-// paint has certainly been composited. rAF stalls while the window is
-// hidden, so race it with a timeout to avoid hanging restores.
+// Resolves on the next animation frame — the earliest moment a pending paint
+// has certainly been composited. rAF stalls while the window is hidden, so
+// race it with a timeout to avoid hanging restores.
 export function nextPaint(): Promise<void> {
 	return new Promise(resolve => {
 		let done = false;
@@ -37,8 +35,8 @@ export function nextPaint(): Promise<void> {
 		window.requestAnimationFrame(() => {
 			if (done) return;
 			done = true;
-			// The rAF won the race: drop the dangling timeout so restore
-			// loops that call this every frame don't pile up dead timers.
+			// The rAF won the race: drop the dangling timeout so restore loops
+			// that call this every frame don't pile up dead timers.
 			window.clearTimeout(timeout);
 			resolve();
 		});
@@ -46,11 +44,9 @@ export function nextPaint(): Promise<void> {
 }
 
 // Resolves once the reading renderer has produced the note's content, or
-// after a bounded wait for views that never catch up. Reading view renders
-// asynchronously: the saved scroll can only be applied — and the
-// link-highlight span can only appear — once that render lands. Polling
-// render state instead of sleeping a fixed delay keeps the covered blank
-// time equal to the real render time, with no arbitrary minimum on top.
+// after a bounded wait for views that never catch up. Polling render state
+// instead of sleeping a fixed delay keeps the covered blank time equal to
+// the real render time, with no arbitrary minimum on top.
 export async function waitForContentReady(view: MarkdownView, isCurrent: () => boolean): Promise<void> {
 	const deadline = Date.now() + CONTENT_READY_MAX_MS;
 	while (isCurrent() && Date.now() < deadline) {
@@ -65,33 +61,28 @@ function isContentReady(view: MarkdownView): boolean {
 	if (view.getMode() === 'source')
 		return true;
 	// The preview sizer holds the rendered blocks; before the async render
-	// completes it is empty or not yet laid out. The reading renderer also
-	// reports no scroll (currentMode.getScroll() === null) until it has
-	// caught up with the new note — a reused leaf can briefly show the
-	// previous note's layout, so require the renderer to be usable before
-	// restoring into it.
+	// completes it is empty or not yet laid out. The renderer also reports no
+	// scroll until it has caught up — a reused leaf can briefly show the
+	// previous note's layout — so require a usable renderer before restoring.
 	const sizer = view.containerEl.querySelector<HTMLElement>('.markdown-preview-sizer');
 	return !!sizer && sizer.children.length > 0 && sizer.scrollHeight > 0
 		&& view.currentMode?.getScroll() != null;
 }
 
 // Whether the state requested in setEphemeralState() is what the view now
-// reports. Scroll is compared exactly: applyScroll lands within ~0.04 line
-// of the request and Math.round's ±0.5 dead zone absorbs that. A missing
-// readback cursor means a collapsed (0,0) cursor — the editor's default —
-// so it matches a saved (0,0) cursor.
+// reports. Scroll is compared exactly: applyScroll lands within ~0.04 line of
+// the request and Math.round's ±0.5 dead zone absorbs that. A missing
+// readback cursor means a collapsed (0,0) cursor — the editor's default — so
+// it matches a saved (0,0) cursor.
 function isRestoreStuck(view: MarkdownView, st: EphemeralState): boolean {
 	const now = readEphemeralState(view);
 	if (!now)
 		return false;
 	if ((st.scroll ?? 0) > 0 && (
 		now.scroll !== st.scroll
-		// Reading view reports the requested scroll before it has actually
-		// scrolled (the renderer is still catching up with the new note), so a
-		// matching readback alone would confirm an un-landed top. Require the
-		// real scroller to have moved when a scroll was requested — this is what
-		// distinguishes "rendered and scrolled to the line" from "renderer says
-		// it will get there eventually".
+		// Reading view echoes the requested scroll before it has actually
+		// scrolled, so a matching readback alone would confirm an un-landed
+		// top. Require the real scroller to have moved too.
 		|| (view.getMode() === 'preview' && !hasPreviewScrolled(view))
 	))
 		return false;
@@ -104,11 +95,10 @@ function isRestoreStuck(view: MarkdownView, st: EphemeralState): boolean {
 }
 
 // Resolves once the restored position has STAYED put for three consecutive
-// frames (or after a bounded wait for views whose async rendering never
-// catches up). Reading view applies a scroll only once its renderer has
-// produced the target lines, and Obsidian's staged open pipeline can reset
-// the scroll after it first lands — so keep re-applying on drift while
-// covered, and only uncover once nothing is fighting us anymore.
+// frames (or after a bounded wait for views that never catch up). Reading
+// view applies a scroll only once its renderer has produced the target lines,
+// and the staged open pipeline can reset it after it first lands — so keep
+// re-applying on drift while covered, and uncover only when nothing fights.
 export async function waitForRestorePainted(view: MarkdownView, st: EphemeralState, isCurrent: () => boolean) {
 	const deadline = Date.now() + RESTORE_PAINT_DEADLINE;
 	let stableFrames = 0;
@@ -126,18 +116,14 @@ export async function waitForRestorePainted(view: MarkdownView, st: EphemeralSta
 	}
 }
 
-// The element that actually scrolls the view in its CURRENT mode: the
-// editor's .cm-scroller in source, the .markdown-preview-view container in
-// reading, or the .bases-view root container for base views — the only
-// non-markdown FileView ever recorded/restored (pdf/image/canvas are never
-// recorded). Markdown and base containers verified in devtools (each carries
-// overflow-y: auto and holds the saved scroll); querySelector returns the
-// outermost match in document order, so embedded notes (.markdown-embed)
-// inside a preview never shadow the real container. Unlike the old ancestor
-// walk this also returns the container for short notes that don't scroll;
-// callers treat that case identically (scrollTop stays 0). Reading-only
-// callers (hasPreviewScrolled, cue's previewTopBlock) are guarded by
-// getMode() === 'preview' at their call sites.
+// The element that actually scrolls the view in its CURRENT mode: .cm-scroller
+// in source, .markdown-preview-view in reading, .bases-view for base views —
+// the only non-markdown FileView ever recorded/restored (pdf/image/canvas
+// never are). Containers verified in devtools (each carries overflow-y: auto
+// and holds the saved scroll); querySelector returns the outermost match in
+// document order, so embedded notes never shadow the real container. Also
+// returned for short notes that don't scroll — callers treat scrollTop 0
+// identically. Reading-only callers are guarded by getMode() at their sites.
 export function getScroller(view: FileView): HTMLElement | null {
 	if (view instanceof MarkdownView)
 		return view.getMode() === 'source'
@@ -146,23 +132,19 @@ export function getScroller(view: FileView): HTMLElement | null {
 	return view.containerEl.querySelector<HTMLElement>('.bases-view');
 }
 
-// Whether a reading (preview) view's real scroller has actually moved
-// (found and scrollTop > 0). Callers guard with getMode() === 'preview'
-// before using it. A reading renderer can report the requested scroll in
-// getScroll() before any pixel moves, so this distinguishes "rendered and
-// scrolled to the line" from "renderer says it will get there eventually".
+// Whether a reading view's real scroller has actually moved. A reading
+// renderer can report the requested scroll in getScroll() before any pixel
+// moves, so this distinguishes "rendered and scrolled" from "will get there".
 export function hasPreviewScrolled(view: MarkdownView): boolean {
 	const scroller = getScroller(view);
 	return !!scroller && scroller.scrollTop > 0;
 }
 
-// Animates a scroll container's scrollTop from `from` to `to` over `duration`
-// ms with easeInOutSine, so reading-view restores move at a legible,
-// user-controlled pixel speed instead of stepping line-by-line through
-// Obsidian's render pipeline. Writing scrollTop directly is what native
-// scrolling does, so lazy-rendered content paints smoothly as it comes into
-// view. Resolves on completion; a timeout races the rAF loop so a hidden
-// window can't stall the restore.
+// Animates a scroll container's scrollTop with easeInOutSine, so reading-view
+// restores move at one legible speed instead of stepping through Obsidian's
+// render pipeline. Writing scrollTop directly is what native scrolling does,
+// so lazy-rendered content paints smoothly as it comes into view. A timeout
+// races the rAF loop so a hidden window can't stall the restore.
 export async function animateScrollTop(
 	el: HTMLElement,
 	from: number,

@@ -1,21 +1,21 @@
 import { CachedMetadata } from 'obsidian';
 import { normAnchor } from '@/position/capture/ephemeral';
 
-// How far a keyed entry's anchor has DRIFTED: its line in the file NOW minus the
-// line it sat on when the entry was recorded (see NavJump.keyLine, which is what
-// the second number is). One number, asked of the metadata cache and of nothing
-// else — no file is read — so it is the cheap half of re-anchoring and the only
-// half a caller without the file's text in hand can run at all.
+// How far a keyed entry's anchor has DRIFTED: its line in the file NOW minus
+// the line it sat on when the entry was recorded (NavJump.keyLine). One
+// number, asked of the metadata cache and of nothing else — no file is read —
+// so it is the cheap half of re-anchoring and the only half a caller without
+// the file's text can run at all.
 //
-// Shared, because two callers have to agree on it: the traversal that is about to
-// open the file (see nav-history/stack.ts's landingFor, where no editor exists
-// yet) and the browser's own preview of a place it is not opening (see
-// recent-files/browser/now-line.ts). A drift read differently by the two would put
-// the same row's preview and its click on two different lines.
+// Shared because two callers must agree on it: the traversal about to open
+// the file (nav-history/stack.ts's landingFor, where no editor exists yet)
+// and the browser's preview of a place it is not opening
+// (recent-files/browser/now-line.ts). A drift read differently by the two
+// would put one row's preview and its click on two different lines.
 //
-// Undefined when the anchor cannot be resolved — a renamed or removed heading, an
-// entry that never settled into a keyLine: the caller falls back to the text
-// snippet remap (remapAnchorLine) or says nothing.
+// Undefined when the anchor cannot be resolved — renamed or removed heading,
+// or an entry that never settled into a keyLine: the caller falls back to the
+// text-snippet remap or says nothing.
 export function anchorLineShift(
 	cache: CachedMetadata | null,
 	key: string,
@@ -25,30 +25,24 @@ export function anchorLineShift(
 	return line === undefined ? undefined : line - keyLine;
 }
 
-// Structural re-anchor for a keyed NavJump: instead of guessing the line
-// from a text snippet (±30-line window in remapAnchoredState), resolve the
-// jump's own anchor — a heading or block id the key already carries — to its
-// CURRENT line in the file. Survives arbitrary insert/delete shifts (the
-// heading still exists, so its line is authoritative) and never guesses: a
-// renamed/removed anchor returns undefined and the caller falls back to the
-// snippet remap. Cost is a metadataCache lookup + a scan of the (bounded)
-// headings array — faster than remap's per-line doc reads, and only ever
-// runs on a back/forward/jump-to apply.
+// Structural re-anchor for a keyed NavJump: resolve the jump's own anchor —
+// a heading or block id the key already carries — to its CURRENT line,
+// instead of guessing from a text snippet. Survives arbitrary
+// insert/delete shifts (a heading that still exists is authoritative) and
+// never guesses: a renamed/removed anchor returns undefined and the caller
+// falls back to remapAnchoredState. Only runs on a back/forward/jump apply.
 //
 // Key forms (see NavFunnel.recordOpen / OpenPatcher):
 //   outline:<heading text>      raw heading text (outline panel click)
 //   <file>#<slug> | #<slug>     heading link (anchor/caller linktext)
 //   <file>^<block> | ^<block>   block reference
 //   caller:<timestamp>          no anchor — not structural, returns undefined.
-// The leading file path (if the linktext carried one) is stripped: a NavJump
-// is always the same-file in-file jump, so we resolve against the entry's
-// own file.
+// A leading file path is stripped: a NavJump is always a same-file in-file
+// jump, so it resolves against the entry's own file.
 //
-// Duplicate anchors: a heading text (or block id, rarer) can appear more
-// than once. The recorded base line disambiguates — the correct instance is
-// the one nearest the position the jump originally landed on — mirroring
-// remapAnchoredState's "nearest duplicate" rule. With no base, the first
-// (document-order) match wins.
+// Duplicate anchors: the recorded base line disambiguates — the right
+// instance is the one nearest the position the jump originally landed on,
+// mirroring remapAnchoredState's "nearest duplicate" rule.
 export function resolveAnchorLine(
 	cache: CachedMetadata | null,
 	key: string,
@@ -58,13 +52,12 @@ export function resolveAnchorLine(
 		return undefined;
 
 	// outline:<heading> — two key forms:
-	//   "outline:## My Heading"  UPGRADED (NavStack.upgradeKeyLine): the
-	//     # count is the heading's absolute level, the rest is
-	//     HeadingCache.heading's exact source — exact pass filtered by level
-	//     (also disambiguates same-text headings at different depths);
-	//     normalization only a fallback (e.g. the 80-char read truncation).
-	//   "outline:T"              rendered text (pre-upgrade keys, or a landing
-	//     that never settled): the plain two-pass match below.
+	//   "outline:## My Heading"  upgraded (NavStack.upgradeKeyLine): the #
+	//     count is the heading's absolute level, the rest is
+	//     HeadingCache.heading's exact source — exact pass filtered by level,
+	//     which also disambiguates same-text headings at different depths;
+	//   "outline:T"              rendered text (pre-upgrade keys, or a
+	//     landing that never settled): the plain two-pass match below.
 	if (key.startsWith('outline:')) {
 		const text = key.slice('outline:'.length).trim();
 		const m = /^(#{1,6})\s+(.+)$/.exec(text);
@@ -89,11 +82,10 @@ export function resolveAnchorLine(
 		return undefined;
 
 	if (hashIdx !== -1) {
-		// The link anchor is a SLUG — a normalized form of the heading
-		// ("My Heading" -> "my-heading") that decodeAnchor only URL-unwraps.
-		// A plain-text compare against HeadingCache.heading can essentially
-		// never hit it, so the exact pass would be a guaranteed-miss sweep:
-		// go straight to the normalized scan.
+		// The link anchor is a SLUG ("My Heading" -> "my-heading") that
+		// decodeAnchor only URL-unwraps, so a plain-text compare against
+		// HeadingCache.heading can essentially never hit it: go straight to
+		// the normalized scan.
 		const target = normAnchor(decodeAnchor(anchor));
 		return target
 			? nearestLine(cache.headings ?? [], (h) => normAnchor(h.heading) === target, baseLine)
@@ -105,15 +97,12 @@ export function resolveAnchorLine(
 	return block?.position.start.line;
 }
 
-// Heading resolution for OUTLINE keys, two passes: plain text first — the
-// common unedited case, nothing but string compares over all headings — and
-// the normalized scan only when plain found nothing. A per-heading
-// `exact || norm` predicate would NOT buy this: the unmatching majority
-// (most headings) pays the regex on every scan. An exact hit outranks a
-// nearer normalized one — an unedited heading is more credible than an
-// edited lookalike. `level` (from an upgraded key's `#` count) filters both
-// passes; link-slug keys skip this helper: their anchor is already a
-// normalized form, the exact pass can never hit it.
+// Heading resolution for OUTLINE keys, two passes: plain text first (the
+// common unedited case, nothing but string compares), the normalized scan
+// only when plain found nothing — the unmatching majority would otherwise
+// pay the regex on every scan. An exact hit outranks a nearer normalized one:
+// an unedited heading is more credible than an edited lookalike. Link-slug
+// keys skip this helper — their anchor is already normalized.
 function headingLine(
 	cache: CachedMetadata,
 	raw: string,
@@ -139,10 +128,9 @@ export function decodeAnchor(s: string): string {
 	}
 }
 
-// What a heading-cache hit carries back to the caller: the cache line (the
-// authoritative RECORD-TIME line for a NavJump.keyLine upgrade), the level
-// (rebuilds the upgraded outline key's # prefix), and the heading's exact
-// source text.
+// What a heading-cache hit carries back: the cache line (the authoritative
+// record-time line for a NavJump.keyLine upgrade), the level (rebuilds the
+// upgraded outline key's # prefix), and the heading's exact source text.
 export interface HeadingHit {
 	line: number;
 	level: number;
@@ -150,10 +138,9 @@ export interface HeadingHit {
 }
 
 // Locates a heading by normalized text (a rendered outline label or a link
-// slug), `nearLine` breaking ties between same-text duplicates — the
-// recorded view line only has to pick WHICH duplicate, so viewport drift
-// (top-of-viewport vs. the heading itself) is harmless here. No match →
-// undefined (the caller keeps its un-upgraded key/behavior).
+// slug), `nearLine` breaking ties between same-text duplicates — the recorded
+// view line only has to pick WHICH duplicate, so viewport drift is harmless
+// here.
 export function findHeading(
 	cache: CachedMetadata | null,
 	text: string,
@@ -178,10 +165,8 @@ export function findHeading(
 	return best;
 }
 
-// Picks the matching heading nearest `baseLine` (undefined base → first in
-// document order). `headings` is document-ordered, so a plain "first match"
-// would always hit the earliest duplicate, not the one the jump actually
-// targeted; proximity to the recorded landing is the right tiebreak.
+// `headings` is document-ordered, so a plain "first match" would always hit
+// the earliest duplicate, not the one the jump targeted.
 function nearestLine<T extends { position: { start: { line: number } } }>(
 	items: T[],
 	matches: (it: T) => boolean,
@@ -203,17 +188,17 @@ function nearestLine<T extends { position: { start: { line: number } } }>(
 	}
 	return best;
 }
+
 // The outline path of `line`: the chain of ATX headings the line falls under,
 // outermost first. A heading ON the line itself is included as the deepest
 // segment, so the path names the target line rather than skipping to its
 // parent section. Empty when the line is under no heading.
 //
-// `lines` is the file split by '\n' — callers that only need this for one
-// line can pass a slice ending there (the scan stops at the line anyway).
-// Block-level states that hide heading-looking lines are honoured: fenced
-// code, HTML comments, and Obsidian %% comments. A fence closes only on a
-// same-type run at least as long as its opener (CommonMark backtick rule);
-// comment blocks close at the next marker anywhere in a line.
+// `lines` is the file split by '\n' — callers needing this for one line can
+// pass a slice ending there. Block-level states that hide heading-looking
+// lines are honoured: fenced code, HTML comments, Obsidian %% comments. A
+// fence closes only on a same-type run at least as long as its opener
+// (CommonMark); comment blocks close at the next marker anywhere in a line.
 export function outlinePathAtLine(lines: string[], line: number): string[] {
 	const stack: { level: number; text: string }[] = [];
 	let fence: { char: string; len: number } | null = null;

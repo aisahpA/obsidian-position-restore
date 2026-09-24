@@ -2,45 +2,36 @@ import { App, Notice, SettingGroupItem, Hotkey, Modifier, Platform } from 'obsid
 import type PositionRestorePlugin from '@/main';
 import { t } from '@/i18n';
 
-// A SETTINGS PAGE IS A FUNCTION OF ITS CONTEXT. Each of the tab's three pages is
-// built by a function that lives beside the feature it configures — position/,
-// nav-history/, recent-files/ — which is the rule this repository already
-// follows for UI everywhere else (see position/ui, recent-files/browser): UI is
-// found next to the thing it serves, never in a folder named after the layer it
-// belongs to. So `src/settings/` keeps only what is about the settings SURFACE
-// itself: the tab, these two row builders, and the pickers a page reaches for.
+// A SETTINGS PAGE IS A FUNCTION OF ITS CONTEXT. Each page is built by a
+// function living beside the feature it configures (position/, nav-history/,
+// recent-files/), so `src/settings/` keeps only what is about the settings
+// SURFACE itself: the tab, these two row builders, and the pickers a page
+// reaches for.
 //
 // The context is deliberately small, and every member is a permission a page
-// cannot do without: read the settings (they live on the plugin), put a modal
-// up (that needs the app), write ONE setting — the one the reader just chose
-// from a row standing on this page — and, for the one modal that writes without
-// going through a row, draw the page again.
+// cannot do without: read the settings, put a modal up, write ONE setting,
+// and — for the one modal that writes without going through a row — draw the
+// page again.
 export interface SettingsPageContext {
 	app: App;
 	plugin: PositionRestorePlugin;
-	// Write one setting and draw the page again. Every caller is a row that has
-	// just edited a list which stands on this page, so the list has to show the
-	// edit. What the KEY owes in consequence is deliberately NOT here: a lowered
-	// ceiling trims, a new folder rule drops, and both are applied in one place
-	// — PositionManager.applyChangedSettings, diffed off the snapshot the tab
-	// hands it (see settings/tab.ts). A page that applied them itself would be
-	// the second copy of that table, which is the copy this refactor deleted.
+	// Write one setting and draw the page again. Every caller is a row that
+	// just edited a list standing on this page. What the KEY owes in
+	// consequence is deliberately NOT here: a lowered ceiling trims, a new
+	// folder rule drops, and both are applied in one place —
+	// PositionManager.applyChangedSettings, diffed off the tab's snapshot.
 	setValue(key: string, value: unknown): Promise<void>;
-	// Draw the page again without writing anything. Only the database path modal
-	// needs this: it edits the setting itself, since it holds the plugin and has
-	// a database to re-point, and then asks the page to catch up (see
-	// DbPathModal's onApply). Every other redraw in a page comes through
-	// setValue, because every other redraw follows a write.
+	// Draw the page again without writing anything. Only the database path
+	// modal needs this: it edits the setting itself and then asks the page to
+	// catch up (see DbPathModal's onApply). Every other redraw follows a
+	// write, so it comes through setValue.
 	refresh(): void;
 }
 
-// A PAGE'S OWN SENTENCE, standing above every row that asks something of
-// the reader: what this page is about, in the words none of its rows can
-// say for themselves. It is NOT a row's help text, so it has no control
-// beside it and no name of its own — the name would be the page's name
-// said again, which the page's own title already says. `searchable: false`
-// keeps it out of the settings search, where a nameless hit would be a
-// line with nothing above it naming where it came from.
+// A PAGE'S OWN SENTENCE, standing above every row that asks something of the
+// reader: what this page is about, which none of its rows can say. It is not
+// a row's help text, so it has no control beside it and no name of its own.
+// `searchable: false` keeps a nameless hit out of the settings search.
 export function intro(desc: string): SettingGroupItem {
 	return {
 		name: '',
@@ -52,28 +43,18 @@ export function intro(desc: string): SettingGroupItem {
 	};
 }
 
-// ONE HOTKEY ROW, built for a page: its own sentence, then the commands that
-// belong to THAT page and the key each of them is bound to, as the app itself
-// reports them (see currentHotkeyText). A command with nothing bound says so,
-// which is the whole point of the row — the feature needs a key, and this is
-// where a reader learns whether it has one. The button beside it opens the
-// app's own hotkey settings, already filtered to this plugin.
+// ONE HOTKEY ROW, built for a page: its own sentence, then the commands
+// belonging to THAT page and the key each is bound to, as the app reports
+// them. A command with nothing bound says so, which is the whole point of the
+// row — this is where a reader learns whether the feature has a key. The
+// button beside it opens the app's own hotkey settings, filtered to this
+// plugin.
 //
-// A page's commands stand on the page they belong to rather than in one list:
-// "open the list of places I have been" is not a question about travel, and a
-// reader looking for that key should not have to know it was filed under a
-// heading about going back and forth. The tab is the only reader of this
-// function's `plugin`: a row draws from what the app reports, so nothing here
-// writes a setting and no page context is needed.
-//
-// The hint is printed ONCE, after the list, instead of being appended to every
-// unbound line: two commands would otherwise repeat the same instruction, which
-// reads as nagging rather than as help. It names the button by what it LOOKS
-// like — a keyboard — and never by which side it stands on. That is deliberate:
-// the button is an extra button, so on a phone-width screen the app's own CSS
-// wraps it BELOW the row, and a sentence pointing right would be pointing at
-// nothing. (What is true on both ends is said instead: a bound key only fires
-// from a physical keyboard.)
+// The hint is printed ONCE, after the list — two commands would otherwise
+// repeat the same instruction, which reads as nagging. It names the button by
+// what it LOOKS like, never by which side it stands on: on a phone-width
+// screen the app's CSS wraps it BELOW the row, so a sentence pointing right
+// would point at nothing. A bound key only fires from a physical keyboard.
 export function hotkeys(
 	plugin: PositionRestorePlugin,
 	desc: string,
@@ -99,8 +80,8 @@ export function hotkeys(
 	};
 }
 
-// Formats one hotkey for display: modifier symbols on macOS, text elsewhere,
-// in Obsidian's canonical modifier order.
+// Formats one hotkey: modifier symbols on macOS, text elsewhere, in
+// Obsidian's canonical modifier order.
 function formatHotkey(hk: Hotkey): string {
 	const isMac = Platform.isMacOS;
 	const symbol: Record<Modifier, string> = {
@@ -124,9 +105,7 @@ function formatHotkey(hk: Hotkey): string {
 	return text ? `${text}${isMac ? ' ' : '+'}${keyShow}` : keyShow;
 }
 
-// Reads the user-configured hotkeys for one of this plugin's commands.
-// (hotkeyManager is runtime API absent from the public typings — same cast
-// family as MetadataCache.getAllPropertyInfos in pickers.ts.)
+// (hotkeyManager is runtime API absent from the public typings.)
 function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): string {
 	const manager = (plugin.app as unknown as {
 		hotkeyManager?: { getHotkeys(id: string): Hotkey[] | null };
@@ -137,17 +116,13 @@ function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): st
 	return hotkeys.map(formatHotkey).join(' / ');
 }
 
-// Opens Obsidian's hotkey settings on this plugin's commands. Only
-// reachable from this plugin's settings row, so the settings modal is
-// already open — calling open() again would stack a second modal (Obsidian
-// does not guard re-entry) and the tab swap would land on the invisible
-// instance. The tab swap from inside a click handler completes
-// asynchronously (activeTab still points at the old tab when the handler
-// returns), so the query prefill retries until the hotkeys tab is live.
-// All runtime APIs here are untyped — a missing member degrades silently to
-// an unfiltered list, but a tab that never arrives is said out loud: a button
-// that does nothing is worse than no button, and the reader is left standing
-// on a row that promised a way to bind a key.
+// Opens Obsidian's hotkey settings on this plugin's commands. Only reachable
+// from a settings row, so the settings modal is already open — calling open()
+// again would stack a second modal (Obsidian does not guard re-entry) and the
+// tab swap would land on the invisible instance. The swap from inside a click
+// handler completes asynchronously, so the query prefill retries until the
+// hotkeys tab is live. A tab that never arrives is said out loud: a button
+// that does nothing is worse than no button.
 function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
@@ -155,8 +130,8 @@ function openHotkeySettings(plugin: PositionRestorePlugin): void {
 			activeTab?: { id?: string; setQuery?(query: string): void };
 		};
 	}).setting;
-	// Same sentence either way: what was promised was a way to bind a key, and
-	// it is the outcome — not the reason — the reader is left looking at.
+	// Same sentence either way: what was promised was a way to bind a key,
+	// and it is the outcome — not the reason — the reader is left looking at.
 	if (!setting) {
 		new Notice(t('hotkeys.openFailed'));
 		return;
