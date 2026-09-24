@@ -1,4 +1,4 @@
-import { Keymap, setIcon } from 'obsidian';
+import { Keymap, MenuPositionDef, setIcon } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
@@ -9,6 +9,8 @@ import {
 	newestStamp, rowTrail,
 } from './model';
 import { NavRowTip, TipContent } from './tip';
+import { LongPress } from './long-press';
+import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX } from './constants';
 
 // What a row is, for the one lookup that has to find it from a pointer event: the
 // pointer is never over the row itself but over one of the boxes inside it (the name,
@@ -195,15 +197,27 @@ export interface RecentFilesListOptions {
 	// the app's own answer for the gesture, never a modifier this module read
 	// itself (see PaneTarget and onPress / onClick).
 	onTravel: (rep: number, target?: PaneTarget) => void;
-	// A row was right-clicked: WHICH place, and the event, so the browser can raise
-	// the app's own file menu over it (see body.ts's contextRow). The list does not
-	// build the menu because it does not hold the app, and a row here is a row of
+	// A row was right-clicked — or, on a phone, the menu control on its armed row was
+	// tapped: WHICH place, and WHERE ON SCREEN the menu is to open, so the browser can
+	// raise the app's own file menu over it (see body.ts's contextRow). The list does
+	// not build the menu because it does not hold the app, and a row here is a row of
 	// PLACES, not of files: which of them has a file behind it is the browser's
 	// question (a pathless view has none). What the menu holds is not this list's
 	// business either — it is the app's actions plus the panel's own, and the app
 	// decides both — so the row is handed over, and nothing is drawn again here.
 	// Nothing in this file writes.
-	onContextRow: (rep: number, ev: MouseEvent) => void;
+	//
+	// A POINT and not the event, because the two doors do not agree about one: a
+	// right-click is answered where the pointer is, while a tap on the row's control is
+	// answered where that control STANDS — a click the platform delivers for a finger
+	// carries coordinates it is free to leave at zero, and a menu opened at the corner
+	// of the screen is a menu the reader has to go and look for.
+	onContextRow: (rep: number, at: MenuPositionDef) => void;
+	// Whether a menu raised from a row is standing — and if one is, TAKE IT BACK (see
+	// body.ts's takeMenuBack). The control that raised it is the one door the app cannot
+	// close it from, because the control stops its own press so that reaching for it
+	// does not open the note.
+	takeMenuBack: () => boolean;
 	// The pointer MOVED ONTO a row: which row, the event it moved with, and the row's
 	// own element — handed over once, per row, per visit (see
 	// RecentFilesList.hoverAt). Moved, and not merely arrived: a row the list
@@ -271,6 +285,12 @@ export interface RecentFilesListOptions {
 	// has been rebuilt underneath it (see onClick) — an INDEX cannot serve, since
 	// the whole reason for the re-find is that indices moved.
 	keyOf: (rep: number) => string | undefined;
+	// Whether this device is a TOUCH one (see RecentFilesBrowserOptions.touch). Not a
+	// preference and not a setting: it is the device's own, and what it decides here is
+	// which of the two ways of pointing at a row exists at all — a pointer resting on
+	// one, or a finger stopping on one (see arm). A desktop needs nothing from it: the
+	// controls are already on the row its pointer is over.
+	touch: boolean;
 }
 
 // How far the list has to scroll to show a step the KEYBOARD took: undefined while
@@ -336,6 +356,21 @@ export class RecentFilesList {
 	// seen the pointer once, since where it was before the panel existed was never
 	// the panel's to know (see hoverAt).
 	private pointerAt?: { x: number; y: number };
+	// THE ROW A FINGER STOPPED ON (see arm), and the one piece of state a press leaves
+	// behind. It is a ROW and not a MODE: one row, answered once, over the moment the
+	// reader does anything else — so unlike a mode there is nothing to forget to leave,
+	// and no second meaning for a tap to have while it stands.
+	private armed?: RowRef;
+	// Whether the press now landing on a row's menu control is one that TAKES A STANDING
+	// MENU BACK rather than one that asks for a menu (see menuControl). Remembered
+	// between the press and the click it delivers, because the two are halves of one
+	// gesture and only the press knows which one it is.
+	private menuTapCloses = false;
+	// The gesture that arms it, heard only where there is no hover to arm it with (see
+	// the `touch` option). A desktop has no use for one: a press that never rests costs
+	// a timer and nothing else, and a mouse that rests is a hover, which the rows
+	// already answer.
+	private press?: LongPress;
 
 	constructor(private opts: RecentFilesListOptions) {
 		// Nothing is listened to here for the LIST's own sake: a pointer moves no
@@ -346,6 +381,24 @@ export class RecentFilesList {
 		if (typeof ResizeObserver === 'function') {
 			this.watched = new ResizeObserver(() => this.fitTrails());
 			this.watched.observe(opts.list);
+		}
+		// A FINGER THAT STOPPED ON A ROW is the only thing that arms one (see arm), and
+		// it is heard only where a hover cannot do the job.
+		if (opts.touch) {
+			this.press = new LongPress(opts.list, {
+				ms: LONG_PRESS_MS,
+				slop: LONG_PRESS_SLOP_PX,
+				onArm: target => this.armAt(target),
+			});
+			// …and a long press is over the moment the reader does anything else. A
+			// CLICK anywhere on the list is the reader having moved on — to another row,
+			// to one of the armed row's own controls (which stop the click before it can
+			// get here, see fileRow), or to the list's own background — and a SCROLL
+			// takes the rows out from under words that are standing still (see tip.ts on
+			// the same rule). Both are heard on the list and not per row: what ends is
+			// the press, and the press belongs to no row in particular.
+			this.opts.list.addEventListener('click', () => this.disarm());
+			this.opts.list.addEventListener('scroll', () => this.disarm(), { passive: true });
 		}
 		// THE POINTER COMING TO BE OVER A ROW is the only thing that asks the app for a
 		// page (see hoverAt), and there are two events that say it: the move that carried
@@ -426,6 +479,12 @@ export class RecentFilesList {
 
 	// (Re)draw the rows; the toolbar and the panel persist around them.
 	render(): void {
+		// A LONG PRESS DOES NOT OUTLIVE A REDRAW: the row the finger stopped on is about
+		// to be thrown away, and a × standing on the row drawn in its place would be a
+		// control for a row nobody armed. The words go with it for the same reason (see
+		// tip.reset below) — the two arrived together, and a half of a pair left behind
+		// is the one kind of state a reader cannot read.
+		this.disarm();
 		// Whatever the pointer was resting on is about to be thrown away: the tooltip
 		// it earned points at a row of the previous render, and leaving it up would
 		// leave the panel describing a row that is no longer on screen (see tip.ts).
@@ -595,6 +654,10 @@ export class RecentFilesList {
 			?? group.indices.find(i => i !== group.currentRep)
 			?? group.indices[0];
 		const head = rep === undefined ? undefined : this.opts.describe(rep);
+		// …and the record the row was drawn from, where the row has one: whether it is a
+		// VIEW decides two things below — which mark takes the badge's slot, and whether
+		// the row carries a second act at all (see the controls at its far end).
+		const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
 		const name = head?.name ?? displayName(group.path);
 		const row = this.opts.list.createDiv({ cls: `${ROW_CLASS} is-file` });
 		if (group.current)
@@ -639,7 +702,6 @@ export class RecentFilesList {
 			// icon gets the WORD instead, and not a stand-in glyph: an icon id the
 			// app's build does not know draws an empty slot, and an empty slot says
 			// less than a word does (the same reasoning as the badge above).
-			const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
 			if (repEntry?.kind === 'view') {
 				const label = t('recentFiles.viewBadge');
 				if (repEntry.icon) {
@@ -704,12 +766,13 @@ export class RecentFilesList {
 			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
 		if (tip.path || tip.text)
 			this.tip.attach(row, tip);
-		// THE ROW'S OWN REMOVAL: the × at the row's far end, and the only control this
-		// list draws. It is HERE rather than in the row's menu because that menu is the
-		// APP's and only a file has one — a pathless view row (the graph, Thino's memo
-		// list) has no file for a file menu to be about, so a removal offered there is a
-		// removal those rows never get. Drawn on THIS row, both kinds get it from one
-		// line. (See RecentFilesBrowser.onForget for what the click asks for.)
+		// THE ROW'S OWN REMOVAL: the × at the row's far end. It is HERE rather than in
+		// the row's menu because that menu is the APP's and only a file has one — a
+		// pathless view row (the graph, Thino's memo list) has no file for a file menu
+		// to be about, so a removal offered there is a removal those rows never get.
+		// Drawn on THIS row, both kinds get it from one line. (See
+		// RecentFilesBrowser.onForget for what the click asks for.) What it shares the
+		// row's far end with is the second act below, and only on a phone.
 		//
 		// It is not the second TARGET the class comment refuses — the × that put a
 		// control a stray pixel from the row's own click. It is laid out OUT of the
@@ -717,11 +780,29 @@ export class RecentFilesList {
 		// still lands on the row over every pixel a reader can see a row on, and the
 		// control arriving under the pointer moves nothing.
 		//
+		// …and both of them stand in ONE BOX, out of the flow and at the far end: two
+		// boxes each placed of its own would have to be told apart by the width each
+		// happens to take, and a row carrying only one of them would leave the other's
+		// strip standing empty.
+		//
 		// Its own events are STOPPED rather than left to bubble, and that is the whole
 		// of what keeps the two acts apart: with the press let through, reaching for the
 		// × would record the row as pressed (see onPress) and the click would open the
 		// note (see onClick) — a reader asking to drop a row would get the file.
-		const forget = row.createDiv({ cls: 'nav-row-forget clickable-icon' });
+		const actions = this.actionStrip(row);
+		// "WHAT CAN BE DONE WITH THIS ROW", and only on a TOUCH device. A right-click
+		// raises the app's menu on a desktop; here the long press that used to raise it
+		// arms THIS row instead (see onContextMenu), so the menu is raised from the row
+		// itself — by the second control the arm put on it (see menuControl). One
+		// gesture there, two here, and the same answer out of both: the app's own
+		// actions for the file, with this panel's one item on top of them.
+		//
+		// Only a row with a FILE behind it: a pathless view opens by a click like
+		// anything else on the list, and its menu was never raised either (see
+		// contextRow) — a second gesture for what two gestures already do.
+		if (this.opts.touch && repEntry?.kind !== 'view')
+			this.menuControl(actions, ref);
+		const forget = actions.createDiv({ cls: 'nav-row-forget clickable-icon' });
 		forget.setAttr('role', 'button');
 		// Deliberately outside the tab order: this list's keyboard is the position and
 		// the arrow keys (see move), with the focus never leaving the filter box, and a
@@ -730,10 +811,25 @@ export class RecentFilesList {
 		forget.setAttr('tabindex', '-1');
 		forget.setAttr('aria-label', t('recentFiles.forget'));
 		setIcon(forget, 'x');
-		forget.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+		// A finger coming down here is a new gesture, and it spends the click the
+		// press that put this control on the row may still have been holding for
+		// (see long-press.ts's release) — a claim that outlived its own press would
+		// swallow this tap, and the tap after it would land on a row that has been
+		// disarmed under it.
+		forget.addEventListener('pointerdown', (ev) => {
+			ev.stopPropagation();
+			this.press?.release();
+		});
 		forget.addEventListener('click', (ev) => {
 			ev.preventDefault();
 			ev.stopPropagation();
+			// The click a long press delivers when the finger lifts can land on a
+			// control the press itself put under that finger — the controls appear
+			// where the reader is already touching. It is the press's own tail and not
+			// a second gesture (see onClick), and the one it must not be is THIS one:
+			// a reader who stopped on a row did not ask to drop it.
+			if (this.press?.consumeClick())
+				return;
 			this.opts.onForget(group.key);
 		});
 		// NO "you are here" dot on the note's name: the row carries `is-current` for
@@ -840,6 +936,15 @@ export class RecentFilesList {
 		// chain is the level it prints.
 		if (outer)
 			this.trails.push({ el: row, outer, chain, tipped: chain.length > trail.length });
+		// NO × ON A LANDING: what a row takes off this list is the note the spot belongs
+		// to (see onForget), and a spot is not a thing this list drops on its own — a
+		// removal that took only the line under the finger is not a gesture it offers.
+		// What an armed landing row DOES carry is the same menu control a note's row
+		// carries, for the same reason (see fileRow): the menu is the app's for the
+		// FILE the spot belongs to, and this panel's own item on top of it opens the
+		// place this row stands for — the spot, and not the note's newest one.
+		if (this.opts.touch && entry.kind !== 'view')
+			this.menuControl(this.actionStrip(row), ref);
 
 		return 1;
 	}
@@ -918,9 +1023,169 @@ export class RecentFilesList {
 // which raises no menu at all — see contextRow.)
 	private onContextMenu(ev: MouseEvent, ref: RowRef): void {
 		ev.preventDefault();
+		// ON A TOUCH DEVICE this event is the same gesture the clock is waiting for: a
+		// WebView reports a long press as a `contextmenu` carrying the left button's
+		// number (see the comment above), and which of the two arrives first is the
+		// platform's business. So the row is armed here as well, and the arm is
+		// idempotent — a press that comes in by both doors is one press, and the row
+		// does not care which one got there first.
+		if (this.opts.touch) {
+			this.arm(ref, ev.target instanceof Node ? ev.target : ref.el);
+			return;
+		}
 		const rep = this.activeRep(ref);
 		if (rep >= 0)
-			this.opts.onContextRow(rep, ev);
+			this.opts.onContextRow(rep, { x: ev.clientX, y: ev.clientY });
+	}
+
+	// A FINGER STOPPED ON A ROW, which on a device with no hover is what a hover is
+	// (see long-press.ts): the row answers for itself. Two things come of it, and they
+	// are the two things a hover gives a desktop — the words the row cannot print
+	// (see tip.ts's speak), and the controls at its far end, which the stylesheet
+	// keeps out of sight until a row is armed.
+	//
+	// ONE ROW AT A TIME, because that is what a finger can stop on: arming another row
+	// answers the first one on the way. And it ends with the press rather than with the
+	// finger (see disarm) — the reader lifts the finger to reach for what the arm put
+	// on the row, so the lift is the beginning of the answer, not the end of it.
+	private armAt(target: Node): void {
+		const ref = this.rowAt(target);
+		if (ref)
+			this.arm(ref, target);
+	}
+
+	private arm(ref: RowRef, target: Node): void {
+		if (this.armed && this.armed !== ref)
+			this.disarm();
+		this.armed = ref;
+		ref.el.addClass('is-armed');
+		// The click the finger may still deliver when it lifts belongs to this gesture
+		// and not to the reader (see onClick).
+		this.press?.markArmed();
+		// …and the row says what it cannot print, asked of the element the finger came
+		// down on rather than of the row as a whole: a finger resting on the TIME is
+		// asking for the moment behind "5m", and one resting anywhere else is asking
+		// which file this is. The same two answers a pointer gets (see tip.ts).
+		this.tip.speak(target);
+	}
+
+	// The press is over: the reader tapped somewhere, scrolled, or the list was drawn
+	// again under the finger. The words go with it (see tip.ts's retract) — an armed
+	// row with nothing to say is a row the reader has to guess at.
+	private disarm(): void {
+		if (!this.armed)
+			return;
+		this.armed.el.removeClass('is-armed');
+		this.armed = undefined;
+		this.tip.retract();
+	}
+
+	// THE STRIP THE ROW'S CONTROLS STAND IN: out of the row's flow, at its far end
+	// (see styles.css), and answerable for one thing beyond holding them — a press
+	// that landed inside it but on NEITHER control was a MISS, and a miss travels
+	// nowhere.
+	//
+	// The reason is the browser's own and not merely a matter of small targets: a
+	// finger that comes down on one control and lifts over its NEIGHBOUR has clicked
+	// neither, and what the browser clicks instead is their nearest common ancestor —
+	// which is the ROW. So a reader who aimed at a control and slid off it was sent
+	// to the note, and on a phone the drawer folds away behind them. The controls stop
+	// their own clicks (see fileRow), so what lands here is what landed BESIDE them:
+	// the gap between the two, on the device where there are two.
+	//
+	// A miss leaves the arm STANDING. The reader was reaching for the row's answer
+	// when they missed it, and a row that took its controls away mid-reach is a row
+	// that made them aim a second time.
+	private actionStrip(host: HTMLElement): HTMLElement {
+		const strip = host.createDiv({ cls: 'nav-row-actions' });
+		strip.addEventListener('click', (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			// …and the click the press earned is spent here too, if it was this one:
+			// the strip is where the controls APPEAR, so it is where a finger that
+			// stopped on a row may already be resting when it lifts. Answered by
+			// nobody, and left holding nothing — a claim that survived its press
+			// would swallow the reader's next tap on a control (see the × in
+			// fileRow, and long-press.ts's release).
+			this.press?.consumeClick();
+		});
+		return strip;
+	}
+
+	// THE ROW'S SECOND ACT, as a control at its far end (see fileRow / placeRow): the
+	// one of the two that is not on every row, and the one that only a touch device
+	// draws. It RAISES THE APP'S MENU for the file behind the row — the same menu a
+	// right-click raises on a desktop, and the same one the long press raised here
+	// before the press became the row's own gesture (see onContextMenu) — with this
+	// panel's one item on top of it: the place the row stands for, one tab over.
+	//
+	// NOT A SHORTCUT FOR THAT TRAVEL, which is what this control was at first. A
+	// control that answered with a jump could only ever answer with that jump, while
+	// what the row stands behind is a file the app already has a whole menu about —
+	// open it beside, copy a link, reveal it, rename it, whatever the app's own
+	// version of that menu holds — and a desktop, which has that menu on a right-click,
+	// never had the shortcut either. One tap more buys every answer the shortcut could
+	// not give, and the one it did give is the first item on the menu.
+	//
+	// ITS OWN EVENTS ARE STOPPED, for the reason the ×'s are: with the press let
+	// through, reaching for it would record the row as pressed (see onPress) and the
+	// click that followed would open the note in the Tab the reader is already in — a
+	// menu asked for and a jump delivered.
+	private menuControl(host: HTMLElement, ref: RowRef): void {
+		const more = host.createDiv({ cls: 'nav-row-menu clickable-icon' });
+		more.setAttr('role', 'button');
+		// Outside the tab order, exactly as the × is: the keyboard's way through this
+		// list is the position and the arrow keys, and a menu is a pointer's question.
+		more.setAttr('tabindex', '-1');
+		more.setAttr('aria-label', t('recentFiles.rowMenu'));
+		// THE GLYPH THAT PROMISES A LIST, and the only one that does: `file-plus` reads
+		// as a new file, which nothing here creates, and `external-link` promises a
+		// place outside, which is one of the menu's items and not the menu. Three dots
+		// promise neither — they promise that there are more answers than the row shows.
+		setIcon(more, 'more-vertical');
+		more.addEventListener('pointerdown', (ev) => {
+			ev.stopPropagation();
+			// The claim the press is still holding, spent by the finger arriving here
+			// (see fileRow's ×, and long-press.ts's release): without this, a press
+			// whose tail click never came swallows the reader's first tap on this
+			// control, and the tap after it opens the note instead.
+			this.press?.release();
+			// A menu this control already raised: THIS press takes it back, and the click
+			// it delivers must not put it straight back up (see below). Asked HERE and not
+			// on the click because by the click the app's menu may be standing over this
+			// very control — moved up by its own height when the row sat too low on the
+			// screen — and a press that lands on the menu reaches nobody.
+			this.menuTapCloses = this.opts.takeMenuBack();
+		});
+		more.addEventListener('click', (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			// The press's own tail, exactly as the × refuses it (see fileRow): the
+			// controls arrive under the finger that earned them, so a lift can land on
+			// this one.
+			if (this.press?.consumeClick())
+				return;
+			// The press took a standing menu back: it was not asking for another one.
+			if (this.menuTapCloses) {
+				this.menuTapCloses = false;
+				return;
+			}
+			const rep = this.activeRep(ref);
+			// …and a row with nowhere to go raises no menu, exactly as a desktop's
+			// right-click on one does not (see onContextMenu).
+			if (rep < 0)
+				return;
+			// WHERE IT OPENS is the CONTROL'S OWN BOX and not the tap's: a click the
+			// platform delivers for a finger carries coordinates it is free to leave at
+			// zero, and a menu opened at the corner of the screen is a menu the reader
+			// has to go and look for. The box is where their finger already is.
+			const box = more.getBoundingClientRect();
+			this.opts.onContextRow(rep, { x: box.left + box.width / 2, y: box.bottom });
+			// THE ARM STAYS. A menu is a question and not an answer, and the row's own
+			// answers — the ×, the words it cannot print — may still be the ones the
+			// reader wants when the menu closes: a row that dropped them behind a menu
+			// the reader dismissed is a row they have to arm again.
+		});
 	}
 
 	// THE POINTER IS OVER A ROW: hand it to the app, ONCE (see
@@ -1039,6 +1304,16 @@ export class RecentFilesList {
 		// This row answers the click, whatever its answer turns out to be: nothing
 		// further up is asked to answer it again (see onUnansweredClick).
 		ev.preventDefault();
+		// …unless it is the TAIL OF A LONG PRESS. The finger that stopped on this row
+		// delivers a click when it comes up, and the row under it was armed by that very
+		// gesture (see arm): a reader who stopped on a row did not ask to go there, so
+		// the click is consumed here — and kept from the list's own listener too, which
+		// would take the arm off the row the reader is about to reach into.
+		if (this.press?.consumeClick()) {
+			this.pressed = undefined;
+			ev.stopPropagation();
+			return;
+		}
 		// WHERE it opens is the app's call, not this module's: `Keymap.isModEvent` is
 		// the documented answer for a user event (Cmd/Ctrl = a tab, +Alt = a split,
 		// +Alt+Shift = a window, a middle-click = a tab), and it is the same function
@@ -1241,6 +1516,11 @@ export class RecentFilesList {
 	// come off with it.
 	destroy(): void {
 		this.tip.destroy();
+		// …and the finger is listened for no longer. The listeners are on the LIST
+		// element, which outlives this object — a body is destroyed and rebuilt every
+		// time the dialog opens — so a gesture left listening would keep arming rows
+		// nobody can see, on a clock nobody is waiting for.
+		this.press?.destroy();
 		// The width is watched no longer: the list it was watching goes with the panel.
 		this.watched?.disconnect();
 	}

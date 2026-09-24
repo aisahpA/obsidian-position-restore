@@ -265,7 +265,11 @@ export class MenuItem {
 
 export class Menu {
 	items: MenuItem[] = [];
-	shownAt: MouseEvent | undefined;
+	// Where it was asked to open, whichever of the two doors the panel came in by (see
+	// RecentFilesBrowser.contextRow): a right-click is placed by its event's coordinates
+	// and a phone's menu control by its own box, and what a test wants to know is that
+	// the menu was placed at all rather than merely built.
+	shownAt: { x: number; y: number } | undefined;
 	addItem(build: (item: MenuItem) => unknown): this {
 		const item = new MenuItem();
 		build(item);
@@ -276,14 +280,38 @@ export class Menu {
 		return this;
 	}
 	showAtMouseEvent(ev: MouseEvent): this {
-		this.shownAt = ev;
+		this.shownAt = { x: ev.clientX, y: ev.clientY };
+		return this;
+	}
+	showAtPosition(position: { x: number; y: number }): this {
+		this.shownAt = position;
 		return this;
 	}
 	setNoIcon(): this {
 		return this;
 	}
-	hide(): void {}
-	close(): void {}
+	// Whether it went off the screen at all, and whether THIS PANEL was the one that
+	// took it there (see RecentFilesBrowser.closeMenu). The two are told apart
+	// because only one of them is this plugin's promise: the app takes a menu off
+	// the screen for its own gestures — an item chosen, a click away, Escape — and
+	// none of those is a drawer folding.
+	hidden = false;
+	closed = false;
+	// Who to tell when the app has taken it off the screen itself: a menu the app has
+	// closed is not one the panel is still holding (see RecentFilesBrowser).
+	private hideCbs: (() => void)[] = [];
+	onHide(cb: () => void): void {
+		this.hideCbs.push(cb);
+	}
+	hide(): void {
+		this.hidden = true;
+		for (const cb of [...this.hideCbs])
+			cb();
+	}
+	close(): void {
+		this.closed = true;
+		this.hide();
+	}
 }
 
 // ---------------------------------------------------------------------------

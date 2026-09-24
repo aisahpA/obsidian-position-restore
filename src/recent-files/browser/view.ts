@@ -177,6 +177,11 @@ export class RecentFilesView extends ItemView {
 	private standAside(): void {
 		if (!Platform.isMobile)
 			return;
+		// The menu goes FIRST, before anything moves: it was raised from a row of this
+		// panel and stands on the document, so the app has no way to hear that the
+		// panel is leaving — folding a drawer is not one of the gestures it takes a
+		// menu off the screen for (see RecentFilesBrowser.closeMenu).
+		this.browser?.closeMenu();
 		this.dismissOnMobile();
 		this.suspendRedraws();
 	}

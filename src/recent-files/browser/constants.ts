@@ -38,6 +38,27 @@ export const TIP_DELAY_MS = 1000;
 // How far the tooltip stands off the row it is about, in pixels (see tip.ts).
 export const TIP_GAP_PX = 6;
 
+// How long a finger has to REST on a row before the row is armed (see long-press.ts) —
+// long enough that a finger put down on its way to a scroll is not one, short enough
+// that a reader who meant it is answered while they are still looking at the row.
+//
+// The two ways of getting it wrong are not equally visible, and the number sits between
+// them rather than near either: too short and a list that is being dragged arms the row
+// the drag started on, so a reader who meant to move the list finds a × under their
+// thumb; too long and the gesture stops answering at all, because a reader who meant it
+// has decided nothing is coming and lifted their finger first. 500ms is what the
+// platform's own long press waits, which is also what makes the gesture one a reader
+// has already tried.
+export const LONG_PRESS_MS = 500;
+
+// How far the finger may drift and still be resting on the row it came down on, in
+// pixels (see long-press.ts). A finger is not a mouse: it rolls, and the skin around
+// the point of contact moves with it, so a press that is perfectly still to its owner
+// reports a pixel or two of drift — and a threshold of zero would arm nothing at all.
+// Ten is the number the platform's own touch slop uses, and it is far below the
+// distance a list has to be dragged before it scrolls.
+export const LONG_PRESS_SLOP_PX = 10;
+
 // How long the RESIDENT panel holds its redraws back after a travel on a PHONE (see
 // RecentFilesView.standAside), in milliseconds.
 //

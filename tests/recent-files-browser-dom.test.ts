@@ -18,7 +18,7 @@ import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
-import { NAV_SOURCE_ID, TIP_DELAY_MS } from '@/recent-files/browser/constants';
+import { LONG_PRESS_MS, NAV_SOURCE_ID, TIP_DELAY_MS } from '@/recent-files/browser/constants';
 
 // jsdom has no PointerEvent, and `pointerType` is the one field the panel reads to tell a
 // mouse from a finger: a MouseEvent stands in for it, with the kind written on afterwards.
@@ -2105,9 +2105,9 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
 		const menu = menuOf(h.trigger);
 		expect(menu.items).toHaveLength(1);
-		expect(menu.items[0].title).toBe(t('recentFiles.menu.openInNewTab'));
+		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
-		expect(menu.items[0].icon).toBe('file-plus');
+		expect(menu.items[0].icon).toBe('external-link');
 		// The context asked for is a LINK's, not the file explorer's: the app decides
 		// what belongs there, and the file-managing actions do not (see contextRow).
 		expect(h.trigger).toHaveBeenCalledWith(
@@ -2164,7 +2164,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		h.rightClick(h.note('a'));
 
 		const menu = menuOf(h.trigger);
-		expect(menu.items[0].title).toBe(t('recentFiles.menu.openHereInNewTab'));
+		expect(menu.items[0].title).toBe(t('recentFiles.openHereInNewTab'));
 		menu.items[0].click!();
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
@@ -2539,6 +2539,476 @@ describe('RecentFilesModal — a finger in the list', () => {
 		vi.advanceTimersByTime(TIP_DELAY_MS);
 
 		expect(document.querySelector('.position-restore-nav-tip')).toBeNull();
+	});
+});
+
+// A FINGER THAT STOPPED ON A ROW — what a hover is on a device that has none (see
+// long-press.ts). The row answers for itself: the words it cannot print, and the two
+// things THIS panel knows about it that the app cannot. Everything below is heard from
+// a TOUCH harness, because a desktop's hover already answers all of it and needs none
+// of this — which is what the last-but-one test here says.
+describe('RecentFilesModal — a finger that stopped on a row', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
+	const phone = () => harness(entries(), 1, files, [], {}, {}, true);
+	const timed = () =>
+		harness(entries(), 1, files, [], {}, {}, true, {}, prefs({ time: true }).browser);
+	// The three events a long press is made of, placed by hand: the gesture is judged by
+	// WHERE the finger came down and whether it stayed there (see long-press.ts), so a
+	// test cannot borrow the pointer helper that walks the cursor along.
+	const finger = (el: HTMLElement, type: string, at = { x: 40, y: 40 }) =>
+		el.dispatchEvent(
+			new MouseEvent(type, { bubbles: true, button: 0, clientX: at.x, clientY: at.y }),
+		);
+	const down = (el: HTMLElement) => finger(el, 'pointerdown');
+	const lift = (el: HTMLElement) => finger(el, 'pointerup');
+	// …and the clock, which is the whole of what makes a press a long one rather than a
+	// tap or the beginning of a scroll.
+	const rest = () => vi.advanceTimersByTime(LONG_PRESS_MS);
+	// The menu the panel handed the app, as the app's own event carries it (see
+	// RecentFilesBrowser.contextRow): the armed row's second control is the only door a
+	// phone has to it, the long press having become the row's own gesture.
+	const menuOf = (trigger: unknown) => {
+		const calls = (trigger as { mock: { calls: unknown[][] } }).mock.calls;
+		expect(calls).toHaveLength(1);
+		return calls[0][1] as {
+			items: { title: string; icon: string; click?: () => void }[];
+			shownAt?: { x: number; y: number };
+			hidden: boolean;
+			closed: boolean;
+			hide(): void;
+		};
+	};
+	it('arms the row a finger stopped on, and says what the row cannot print', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+
+		expect(row.classList.contains('is-armed')).toBe(true);
+		// The words are the ones a hover earns, and they are up AT ONCE: the finger has
+		// already been resting for the whole of the press, which is longer than a mouse
+		// is ever asked to wait (see tip.ts's speak).
+		expect(tip()?.querySelector('.nav-tip-path')?.textContent).toBe('b.md');
+		// …and ONE row is armed, because one finger can only stop on one.
+		expect(h.note('a').classList.contains('is-armed')).toBe(false);
+	});
+
+	it('says the moment behind the age, when the finger stopped on the time', () => {
+		// Which element the finger came down on decides WHICH of the two things the row
+		// says, exactly as it does for a pointer (see tip.ts's subject): the time answers
+		// for the moment behind it, and the row answers for which file this is.
+		const h = timed();
+
+		down(h.note('b').querySelector<HTMLElement>('.nav-row-time')!);
+		rest();
+
+		expect(tip()?.querySelector('.nav-tip-path')).toBeNull();
+		expect(tip()?.querySelector('.nav-tip-text')?.textContent)
+			.toBe(new Date(NOW).toLocaleString());
+	});
+
+	it('opens nothing on the click a long press delivers when the finger lifts', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		// The finger coming up is not the pointer leaving the row — a touch pointer
+		// ceases to exist when it does, and the browser says `out` all the same — so the
+		// words the press earned have to outlive it: the reader lifted the finger to
+		// reach for what the press put on the row, not because they stopped looking.
+		lift(row);
+		row.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+		expect(tip()).not.toBeNull();
+
+		// …and the click the browser may still deliver is the press's own tail rather
+		// than a second gesture: a reader who stopped on a row did not ask to go there.
+		h.clickRow(row);
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('arms nothing when the finger was only beginning to scroll', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		// A drag and not a rest: the finger left the spot it came down on by more than
+		// the slop a resting finger is allowed (see LONG_PRESS_SLOP_PX).
+		finger(row, 'pointermove', { x: 240, y: 240 });
+		rest();
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('takes the row off the list from the × the arm put on it', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		// The press's own tail, which the lift delivers before any tap of the reader's
+		// (see the test below): it is answered by nobody.
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(h.forgetButton(row));
+
+		// The row's own identity, carried by the control rather than worked out from an
+		// index a redraw may have moved (see RecentFilesList.fileRow).
+		expect(h.forget).toHaveBeenCalledWith('b.md');
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('raises the app\'s menu from the control the arm put on it', () => {
+		// The menu a desktop gets from a right-click (see body.ts's contextRow): the app's
+		// own actions for the file, with this panel's one item on top of them. On a phone
+		// the long press that used to raise it arms the row instead, so the menu comes
+		// back on the armed row's own control rather than behind the press.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		// The finger comes up, and the browser clicks whatever is under it — the
+		// press's own tail, which opens nothing (see the test above).
+		lift(row);
+		h.clickRow(row);
+		// …and THEN the reader taps the control the press put on the row.
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+
+		const menu = menuOf(h.trigger);
+		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
+		// …and it was OPENED, and placed at the control the reader tapped rather than at
+		// wherever the platform said the tap happened: a menu merely built is a menu
+		// nobody can see, and one placed at the screen's corner is a menu to go looking
+		// for (see RecentFilesList.menuControl).
+		expect(menu.shownAt).toBeDefined();
+		// NOTHING TRAVELLED, and that is the whole of the difference from the shortcut
+		// this control used to be: the menu is a question, and opening the row one tab
+		// over is one of its answers rather than the tap's.
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		// …and the arm stays on the row behind the menu: it is still the row the reader
+		// was reaching into when the menu closes.
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('opens the row one tab over from the menu\'s own item, on a phone as on a desktop', () => {
+		// The one thing the app cannot know about this row (see body.ts's contextRow) is
+		// still one tap away: it is the first item of the menu the control raises.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+
+		menuOf(h.trigger).items[0].click!();
+		expect(h.jumpTo).toHaveBeenCalledWith(1, 'tab');
+	});
+
+	it('takes the menu with it when the panel itself closes', () => {
+		// The menu is put on the DOCUMENT and not into the panel's element, so a shell
+		// that closes takes none of it with it: a dialog closed under an open menu
+		// would leave the app's menu standing over nothing at all (see
+		// RecentFilesBrowser.destroy).
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+		const menu = menuOf(h.trigger);
+
+		h.modal.close();
+
+		expect(menu.closed).toBe(true);
+	});
+
+	it('takes the menu back when the control that raised it is tapped again', () => {
+		// ONE DOOR, TWO ENDS. The app cannot answer this tap: the control stops its own
+		// press so that reaching for it does not open the note (see menuControl), and a
+		// press the document never hears is a press that cannot close the app's menu
+		// from outside it. So the tap is the answer itself — and raising the menu again
+		// in the same breath would be a menu that never went away, which reads as a
+		// control that does nothing.
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(more());
+		const menu = menuOf(h.trigger);
+		expect(menu.closed).toBe(false);
+
+		// …and the SAME control again — a finger comes DOWN on it first, which is where
+		// the question is asked and not at the click it delivers.
+		down(more());
+		h.clickRow(more());
+
+		expect(menu.closed).toBe(true);
+		// …and the app was not asked for a second one: a tap that took the menu back is
+		// not a tap that asked for another.
+		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
+		// …and the ARM IS STILL ON THE ROW: the menu was a question, and the × may yet
+		// be the answer the reader was reaching for.
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('takes the menu back when the press lands on the menu\'s own surface', () => {
+		// THE TABLET CASE, and the whole of why the control cannot answer it alone. When
+		// there is no room below the point it was given, the app moves a menu UP BY ITS
+		// OWN HEIGHT — over the row, and over the very control that raised it. A finger
+		// aiming at the control then lands on the menu, and the app answers a press there
+		// with nothing: only the backdrop beside the menu closes it, and only on a click.
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(more());
+		const menu = menuOf(h.trigger);
+		expect(menu.closed).toBe(false);
+
+		// …and the menu is standing where the control was, so the finger lands on it.
+		const surface = document.body.createDiv({ cls: 'menu' });
+		down(surface);
+
+		expect(menu.closed).toBe(true);
+		surface.remove();
+	});
+
+	it('leaves the menu alone when the press lands on one of its items', () => {
+		// The one press that must NOT take the menu away: choosing an item is the menu's
+		// own answer, and a menu pulled out from under the press would take the item with
+		// it — a tap that resolves to nothing at all.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+		const menu = menuOf(h.trigger);
+
+		const item = document.body.createDiv({ cls: 'menu-item' });
+		down(item);
+
+		expect(menu.closed).toBe(false);
+		item.remove();
+	});
+
+	it('raises a menu again after the app took the last one off itself', () => {
+		// An item chosen on it, or a tap away from it: the app's own gestures, and the
+		// app's own menu to take off the screen. From that moment the panel owes it
+		// nothing — and the control goes back to RAISING one, because a tap that takes a
+		// menu back only means that while one is standing (see contextRow).
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(more());
+		menuOf(h.trigger).hide();
+
+		// …and the same control again, now asking for a menu rather than for one to go.
+		h.clickRow(more());
+
+		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+	});
+
+	it('opens nothing when the press\'s own click lands on a control it put there', () => {
+		// The controls arrive at the row's far end — which is where the finger may
+		// already be resting. The click the lift then delivers is the press's tail and
+		// not a second gesture: a reader who stopped on a row did not ask for its menu,
+		// and above all did not ask to DROP it (see the × in fileRow).
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		h.clickRow(more());
+
+		expect(h.trigger).not.toHaveBeenCalled();
+		expect(h.forget).not.toHaveBeenCalled();
+		// …and the arm is still on the row: the reader was reaching for it.
+		expect(row.classList.contains('is-armed')).toBe(true);
+
+		// The NEXT tap is the reader's own — and a tap is a finger coming DOWN first,
+		// which is what spends the claim the press was holding (see long-press.ts's
+		// release, and the test below).
+		down(more());
+		h.clickRow(more());
+		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
+	});
+
+	it('answers the first tap after a press whose own click NEVER came', () => {
+		// Whether the tail of a long press is delivered at all is the platform's
+		// business: a WebView that raised a menu for the press, or a finger that
+		// drifted past the slop on its way up, may deliver no click with it. The
+		// claim then OUTLIVES the press that made it — and the controls stop their
+		// own presses from reaching the gesture (see RecentFilesList.fileRow), so
+		// nothing reset it: the reader's first tap on a control did nothing, and the
+		// tap after it landed on a row that had been disarmed under them and opened
+		// the note. A finger arriving anywhere on the row's controls spends it.
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		// …and no click: the platform delivered nothing for the finger coming up.
+
+		down(more());
+		h.clickRow(more());
+
+		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
+	});
+
+	it('answers the first tap on the × after such a press, too', () => {
+		// The same claim, on the control that is not survivable: a reader who stopped
+		// on a row and then aimed at its × got nothing, and the tap after it opened
+		// the note they were trying to drop.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+
+		down(h.forgetButton(row));
+		h.clickRow(h.forgetButton(row));
+
+		expect(h.forget).toHaveBeenCalledWith('b.md');
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('opens nothing when a tap lands on the strip beside the controls', () => {
+		// Two targets side by side are missed by a finger that drifts — and a finger
+		// that comes down on one and lifts over the other has clicked NEITHER: the
+		// browser clicks their nearest common ancestor, which without the strip's own
+		// answer is the ROW (see RecentFilesList.actionStrip). A miss is a miss:
+		// nothing opens, and the arm waits for the reader to aim again.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-actions')!);
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('disarms the row when the reader taps another one', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		h.pressRow(h.note('a'));
+		h.clickRow(h.note('a'));
+
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+		// One row at a time, and the words go with it: an armed row that has stopped
+		// saying anything is a row the reader has to guess at.
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('disarms it on a scroll, and on a redraw', () => {
+		// A scroll takes the rows out from under words that are standing still, and a
+		// redraw throws away the row the finger stopped on: a × left standing on the row
+		// drawn in its place would be a control for a row nobody armed.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		h.list().dispatchEvent(new Event('scroll'));
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+
+		down(row);
+		rest();
+		h.changed();
+		expect(h.note('b').classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('arms it from the menu event a WebView raises for the same finger', () => {
+		// A long press arrives as a `contextmenu` on some platforms and not on others
+		// (see long-press.ts), so both doors are open and the arm is idempotent: what
+		// matters is that the row is armed either way, and that the app's file menu is
+		// NOT raised — on a phone the press is the ROW's answer, not the file's.
+		const h = phone();
+		const row = h.note('b');
+
+		const ev = h.longPress(row);
+
+		expect(row.classList.contains('is-armed')).toBe(true);
+		// …and the press is still refused, or the platform's own selection callout would
+		// come up over the row while the reader is waiting for it to answer.
+		expect(ev.defaultPrevented).toBe(true);
+		expect(h.trigger).not.toHaveBeenCalled();
+	});
+
+	it('arms nothing on a desktop, where a rest is a hover', () => {
+		// The gesture is not heard at all where a pointer can hover: the controls are
+		// already on the row the pointer is over, and so are the words.
+		const h = harness(entries(), 1, files);
+		const row = h.note('b');
+
+		down(row);
+		rest();
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('puts the row\'s menu on a note and on its landings, and the × only on the note', () => {
+		// A landing is not a thing this list drops on its own (see onForget) — what a row
+		// takes off it is the note the spot belongs to — but the spot IS a place a reader
+		// can ask for one tab over, and only this panel knows which place that is. So the
+		// menu goes on both, and it is the app's for the FILE the spot belongs to, with
+		// the row's own place as the item on top (see body.ts's contextRow).
+		const spots = [
+			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
+			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
+			visit('y.md', NOW),
+		];
+		const h = harnessAll(spots, 2, { 'x.md': '', 'y.md': '' }, [], {}, {}, true);
+		const note = h.note('x');
+		const landing = h.rows()[0];
+
+		expect(note.querySelector('.nav-row-forget')).not.toBeNull();
+		expect(note.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
+			.toBe(t('recentFiles.rowMenu'));
+		expect(landing.querySelector('.nav-row-forget')).toBeNull();
+		expect(landing.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
+			.toBe(t('recentFiles.rowMenu'));
 	});
 });
 

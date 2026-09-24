@@ -46,6 +46,12 @@ export class NavRowTip {
 	// The element on screen, while there is one, and the element it belongs to.
 	private el?: HTMLElement;
 	private anchor?: HTMLElement;
+	// Whether what is on screen was asked for by a LONG PRESS rather than by a pointer
+	// resting (see speak). A finger that lifts delivers the same `pointerout` a mouse
+	// leaving the row does, and the hint a long press earned has to outlive it: the
+	// reader lifted the finger to reach for the row's controls, not because they had
+	// stopped looking at the row. Only an explicit taking-back ends it (see retract).
+	private held = false;
 	// The hover's own clock: a pointer crossing the list on its way somewhere else
 	// must not flash a tooltip under every row it passed (see TIP_DELAY_MS).
 	private timer?: number;
@@ -111,6 +117,42 @@ export class NavRowTip {
 		this.forget();
 	}
 
+	// A FINGER STOPPED ON A ROW, which on a device with no hover is what a hover is
+	// (see long-press.ts), and which asks for exactly what a hover asks for: the words
+	// the row could not print. Which of them it says is the element's, decided the
+	// same way a pointer's is (see `subject`) — a finger resting on the TIME is asking
+	// for the moment behind "5m", and one resting anywhere else on the row is asking
+	// which file this is.
+	//
+	// There is NO DELAY here, and the reason is that the wait already happened: the
+	// finger has been down for the whole of the long press, which is longer than
+	// TIP_DELAY_MS asks of a mouse. Waiting again would put the words on screen just
+	// as the reader's attention left the row.
+	//
+	// What is said is HELD (see `held`) rather than left to the pointer's own coming
+	// and going: a long press is answered once and taken back once, and the taking
+	// back belongs to whatever ended the press (see retract) — a tap somewhere else, a
+	// scroll, a redraw, or the panel going away.
+	speak(target: Node | null): void {
+		// The note itself standing over the rows still answers better (see `quiet`). It
+		// cannot happen on a touch device — this panel never asks the app for a preview
+		// there (see RecentFilesList.hoverAt) — but the question is asked for the same
+		// reason it is on a hover: whether the hint may speak is never this element's
+		// to remember.
+		if (this.quiet?.())
+			return;
+		const subject = this.subject(target);
+		if (!subject)
+			return;
+		const content = this.tips.get(subject);
+		if (!content)
+			return;
+		this.forget();
+		this.anchor = subject;
+		this.held = true;
+		this.show(subject, content);
+	}
+
 	// The list is being REBUILT (see RecentFilesList.render): the rows the registered
 	// tips belong to are gone, so the one on screen — which points at a row of the
 	// previous render — has to go with them. The registry itself needs no clearing: it
@@ -171,7 +213,15 @@ export class NavRowTip {
 	// The pointer left one row for another — or for the list's own edge. A move that
 	// stays INSIDE the subject is not a leave: the row's own children fire this on
 	// their way past each other.
+	//
+	// A FINGER LIFTING IS NOT A LEAVE EITHER, and that is the one exception here: a
+	// touch pointer ceases to exist when it comes up, so the browser reports the same
+	// `out` a mouse leaving the row would — while the hint on screen is the one the
+	// long press earned, and the reader is about to reach for the row's controls (see
+	// speak). A held hint ends when the press's answer ends, not when the finger does.
 	private onOut = (ev: PointerEvent): void => {
+		if (this.held)
+			return;
 		const to = ev.relatedTarget as Node | null;
 		if (this.anchor && to && this.anchor.contains(to))
 			return;
@@ -206,6 +256,7 @@ export class NavRowTip {
 		this.clearTimer();
 		this.hide();
 		this.anchor = undefined;
+		this.held = false;
 	}
 
 	private clearTimer(): void {

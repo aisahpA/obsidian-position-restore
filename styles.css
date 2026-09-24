@@ -151,6 +151,19 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-panel {
 	--nav-muted: color-mix(in srgb, var(--text-normal) 88%, transparent);
 	--nav-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
+	/* WHAT A FINGER HAS TO LAND IN: the width of ONE of the row's controls on a
+	   touch device, and — twice over — the room the armed row gives up for them
+	   (see the armed row below). ONE NUMBER, because the room and the target are
+	   the same measurement taken from opposite ends: reserve less than the two
+	   controls take and they stand on the name again, which is what a strip
+	   painted over the row did.
+
+	   Smaller than the app's own --touch-size-m (44px), which wraps an icon in so
+	   much air that two of them read as two separate buttons with a lane between
+	   them; 36px keeps the pair a PAIR, and is still a box a thumb lands in
+	   rather than a glyph it has to aim at — the row's whole height is behind it
+	   besides (see `align-self: stretch`). */
+	--nav-action-target: 36px;
 	/* THE PANEL OWNS ITS TOOLTIPS, and this is how it says so. The app hangs a tooltip
 	   off every element that carries an `aria-label` (see its own tooltip listener),
 	   and an accessible name is not a hover hint: the listbox is named "Recent files"
@@ -544,17 +557,22 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* THE ROW'S OWN REMOVAL — the × over the row's far end, and the only control this list
-   draws (see RecentFilesList.fileRow). It is OUT OF THE FLOW, and that is the whole of
-   why it may exist: laid out inside the row, it would take its width from the name and
-   the row would move under the pointer that summoned it — the one thing this list never
-   does (see the hover rule above) — and it would be a second thing the pointer can be
+/* THE ROW'S OWN CONTROLS — its removal, and on a phone its second act (see
+   RecentFilesList.fileRow) — over the row's far end, and the only controls this list
+   draws. They are OUT OF THE FLOW, and that is the whole of why they may exist: laid
+   out inside the row, they would take their width from the name and the row would
+   move under the pointer that summoned them — the one thing this list never does
+   (see the hover rule above) — and they would be a second thing the pointer can be
    aiming at on the gesture a reader makes a thousand times.
-   It says nothing until the pointer is on the row: a reader aiming at a row is not
+   ONE BOX HOLDS BOTH, and the box is what is placed: two boxes each placed of its
+   own would have to be told apart by the width each happens to take, and a row that
+   carries only one of them would leave the other's strip standing empty.
+   They say nothing until the row is pointed at: a reader aiming at a row is not
    asking what can be done with it.
-   `background: inherit` is what keeps it seamless — the strip under the icon is painted
-   with the row's own wash (the hover tint, or the position's accent), so the × looks
-   like part of the row rather than a patch laid over it.
+   `background: inherit` is what keeps it seamless — the strip under the icons is
+   painted with the row's own wash (the hover tint, the arm's own tint, or the
+   position's accent), so a control looks like part of the row rather than a patch
+   laid over it.
 
    ITS INK IS STATED HERE, and not left to the skin the element already carries. It
    is built with the app's own icon class (`clickable-icon`, see list.ts), and that
@@ -571,19 +589,36 @@ body.is-mobile .position-restore-cue {
    still a mark ON the row rather than a second thing to read on it. Deepening the
    ink is also what the × deserves over the label it replaces: that label is an
    annotation, and this is the one control in the list. */
-.position-restore-nav-row .nav-row-forget {
+.position-restore-nav-row .nav-row-actions {
 	position: absolute;
 	inset-inline-end: 4px;
 	top: 50%;
 	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	background: inherit;
+	/* THE STRIP IS THE CONTROLS', and while there are none on screen it is not there
+	   either: it stands over the AGE, which is a cell of the row with something of
+	   its own to say — the moment behind "5m", one hover away (see list.ts's
+	   fileRow). A strip that swallowed the pointer while invisible would answer for
+	   the row instead, and "which file" is not what a reader pointing at a time
+	   asked. It becomes reachable again with the controls themselves (see the rule
+	   below), and for the same reason: a hit inside the strip is a hit on a control,
+	   or it is a miss. */
+	pointer-events: none;
+}
+
+.position-restore-nav-row .nav-row-forget,
+.position-restore-nav-row .nav-row-menu {
+	display: flex;
+	align-items: center;
 	justify-content: center;
 	padding: 1px;
 	border-radius: var(--radius-s);
-	background: inherit;
-	--nav-forget-ink: var(--nav-muted);
-	color: var(--nav-forget-ink);
+	--nav-action-ink: var(--nav-muted);
+	color: var(--nav-action-ink);
 	--icon-size: var(--icon-xs);
 	opacity: 0;
 	pointer-events: none;
@@ -599,9 +634,9 @@ body.is-mobile .position-restore-cue {
    carrying the stroke width as an ATTRIBUTE of its own does not take the value
    from the element above it — inheritance only fills in what nothing states — so a
    width written on the root alone is a width the lines never see. */
-.position-restore-nav-row .nav-row-forget svg,
-.position-restore-nav-row .nav-row-forget svg * {
-	color: var(--nav-forget-ink);
+.position-restore-nav-row .nav-row-actions svg,
+.position-restore-nav-row .nav-row-actions svg * {
+	color: var(--nav-action-ink);
 	stroke: currentColor;
 	stroke-width: 2.25;
 }
@@ -614,7 +649,7 @@ body.is-mobile .position-restore-cue {
    reason the row's own hover tint is: a finger's tap leaves `:hover` stuck on the
    last thing it touched. */
 .position-restore-nav-panel:not(.is-touch) .position-restore-nav-row .nav-row-forget:hover {
-	--nav-forget-ink: var(--text-normal);
+	--nav-action-ink: var(--text-normal);
 	background-color: var(--background-modifier-hover);
 }
 
@@ -628,24 +663,114 @@ body.is-mobile .position-restore-cue {
 	color: transparent;
 }
 
-.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-forget {
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-actions > * {
 	opacity: 1;
 	pointer-events: auto;
 }
 
-/* A FINGER HAS NO HOVER TO SUMMON IT WITH, so on touch the × simply stands — the row is
-   the only way to drop it there, since a long press raises the app's own file menu and a
-   view row has no file for that menu to be about (see body.ts's contextRow). The age
-   gives way to it for the same reason and by the same means as above: one far end, one
-   thing printed on it. */
-.position-restore-nav-panel.is-touch .position-restore-nav-row .nav-row-forget {
+/* …and the STRIP answers with them, on either device and only while they are on
+   screen: a press that landed inside it but on NEITHER control was a MISS, and a miss
+   opens nothing. This is not a nicety. Two small targets side by side are missed by a
+   finger that drifts — and a finger that drifts off one of them and onto the other has
+   clicked neither: the browser hands the click to their nearest common ancestor, which
+   without this rule is the ROW, so a reader aiming at a control would be sent to the
+   note instead (see RecentFilesList.actionStrip, which stops what lands here). */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-actions,
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions {
+	pointer-events: auto;
+}
+
+/* A LONG PRESS ON A ROW IS NOT A SELECTION. On a touch device the press is this
+   panel's own gesture (see long-press.ts), and the platform's answer to a finger
+   resting on text — a selection callout, or a magnifier — would be a second thing
+   happening under the reader's finger while they are waiting for the row to answer it.
+   Nothing on a row is text worth copying either: it is a name, shortened, and the
+   whole of it is one long press away (see tip.ts's speak). */
+.position-restore-nav-panel.is-touch .position-restore-nav-row {
+	-webkit-touch-callout: none;
+	user-select: none;
+}
+
+/* ON A TOUCH DEVICE THE LONG PRESS IS THE HOVER: what a pointer coming to rest on a
+   row is on a desktop, a finger stopping on one is here (see long-press.ts), and the
+   row answers with the same two things — its controls, and the words it cannot print
+   (see tip.ts's speak). The ONE difference is how long the reader is entitled to
+   them: a hover is over the moment the pointer moves on, while a long press has to
+   OUTLIVE the finger that made it, because the reader lifts that finger in order to
+   reach for what the press put on the row. So the arm is a class the row carries
+   rather than a state of the pointer's, and it comes off only when the reader does
+   something else (see RecentFilesList.disarm).
+
+   THE × STILL TAKES THE AGE'S PLACE rather than standing beside it, exactly as it
+   does under a hover: both are the row's far end, and a × drawn over a timestamp
+   leaves the two of them half-legible. Only the label's COLOUR goes, so the track it
+   stands in keeps its width and nothing moves as the two swap — which is the same
+   reason the controls are out of the flow in the first place.
+
+   THE ARMED ROW GIVES THEM THE ROOM, and only the armed row: what is reserved is
+   two targets' worth of the row's own far end, so the icons stand beside the name
+   rather than on top of it. A strip painted over a row is a strip painted over
+   whatever the row was printing there — the folder, and then the name — and two
+   icons legible over text are two things read at once and neither of them read.
+   Nothing is reserved while the row is NOT armed, which is what lets the age have
+   the row's far end to itself (see the rowTime setting): a control that only ever
+   exists on one row at a time does not need a strip of every row kept empty for it.
+   Reserving one on every row was the arrangement this replaces — and it silenced
+   the one setting that puts a time on every row, on the one device where this list
+   IS the reader's history.
+
+   TWO CONTROLS WHERE A DESKTOP HAS ONE, and they are the two things THIS panel knows
+   about a row and the app does not: take it off the list, and open the place the row
+   stands for one tab over (see list.ts's newTabControl — on a desktop that one is the
+   first item of the row's menu). A FINGER-SIZED TARGET each, and not an icon-sized
+   one: a hand that has already held still for half a second is not a hand to make
+   aim, and an icon 16px wide is a target a thumb slides off — which is worse than
+   missing it, because what the thumb lands on is the row (see the rule below). */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed {
+	background: var(--background-modifier-hover);
+	/* Two targets, the 8px between the name and the first of them, and the 4px the
+	   last stands off the row's edge — which is exactly as wide as the strip itself
+	   (see its paddings below), so the room ends where the strip begins and there
+	   is no lane between them for a finger to fall through onto the row. Taken from
+	   the SAME number the targets are: a reservation and a target that disagreed
+	   would put the second icon back on the name, or leave the row showing
+	   through beside it. */
+	padding-inline-end: calc(2 * var(--nav-action-target) + 12px);
+}
+
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-time {
+	color: transparent;
+}
+
+/* …and while the row is armed the strip IS the row's whole far end: as tall as the row
+   (the row clips it — see its `overflow`), and reaching from the row's very edge to
+   where the reserved room begins, so the strip is the only thing there is to hit
+   there. The paddings are what make it that wide, and they are the strip's own rather
+   than air beside it: a lane between the name and the first control — or between the
+   last one and the row's edge — is a lane a finger falls through onto the ROW, and
+   what the row does with a tap is open the note (see RecentFilesList.actionStrip,
+   which answers a hit inside the strip with nothing). The two controls themselves
+   meet EDGE TO EDGE for the same reason. */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions {
+	inset-block: 0;
+	inset-inline-end: 0;
+	transform: none;
+	gap: 0;
+	padding-inline: 8px 4px;
+}
+
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions > * {
 	opacity: 1;
 	pointer-events: auto;
 	--icon-size: var(--icon-s);
-}
-
-.position-restore-nav-panel.is-touch .position-restore-nav-row .nav-row-time {
-	color: transparent;
+	/* A target a finger can land in (see --nav-action-target), taken as a MINIMUM
+	   WIDTH and not as padding: the icon keeps its own size and is centred in the
+	   box, so what grew is the box a thumb has to land in and not the mark it
+	   reads. The HEIGHT is the row's — the strip above is stretched to it, and a
+	   button taller than the row is a button the row clips — so the width is the
+	   whole of the difference. */
+	align-self: stretch;
+	min-width: var(--nav-action-target);
 }
 
 /* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing

@@ -30,7 +30,7 @@
 // shows the history as it stands rather than as it stood when the panel opened, and one that
 // lives for a second (the modal) is not asked for anything more.
 
-import { App, HoverParent, Menu, TFile, setIcon, Keymap } from 'obsidian';
+import { App, HoverParent, Menu, MenuPositionDef, TFile, setIcon, Keymap } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList, placeKey } from '@/recent-files/places';
@@ -165,6 +165,16 @@ export class RecentFilesBrowser {
 	// TIME_REFRESH_MS). Held because destroy is the one place that can stop it, and
 	// because a shell may mount and destroy a body many times in one app run.
 	private timer?: number;
+	// The menu this body raised from a row, while one is standing (see contextRow).
+	//
+	// It is the APP's object, put on the app's document, and the app knows how to
+	// take it off the screen for a click outside it, an item chosen on it, or
+	// Escape. Held here for the two ends the app cannot see, which are the panel's
+	// to close because raising the menu was the panel's: the control that raised
+	// it, whose own press the app never hears (see list.ts's menuControl), and a
+	// shell that steps out of the reader's way (see destroy, and
+	// RecentFilesView.standAside).
+	private menu?: Menu;
 
 	constructor(private opts: RecentFilesBrowserOptions) {
 		this.reads = new RecentFilesReads(opts.app, {
@@ -240,9 +250,16 @@ export class RecentFilesBrowser {
 			// A right-click asks the APP what it can do with this file; the menu is
 			// built here because the list does not hold the app (see contextRow).
 			onContextRow: (rep, ev) => this.contextRow(rep, ev),
+			takeMenuBack: () => this.takeMenuBack(),
 			// A row's own ×: the removal the list asks for and cannot make itself,
 			// because the PLACES are here and not there (see forgetRow).
 			onForget: key => this.forgetRow(key),
+			// Whether this device is a TOUCH one (see the option above): the list hears a
+			// finger that stopped on a row only where there is no hover to arm one with
+			// (see RecentFilesList.arm). A desktop's hover already puts the row's controls
+			// and its words on the row the pointer is resting on, so there is nothing for
+			// a press to do there.
+			touch: this.opts.touch,
 		};
 		this.list = new RecentFilesList(this.listOpts);
 		// The settle's two ends, tied once: WHO to watch for the app's answer (the
@@ -368,6 +385,11 @@ export class RecentFilesBrowser {
 	// elements the shell owns, and each of them outlives those elements (see the
 	// shell's teardown).
 	destroy(): void {
+		// The menu this body raised, if one is standing: it is on the DOCUMENT rather
+		// than in the panel's element, so a shell that closes takes nothing of it with
+		// it — and it is the app's, so the app is the one that has to be told (see
+		// closeMenu).
+		this.closeMenu();
 		// The list put one thing OUTSIDE the panel's element — the tooltip it draws on
 		// the document (see tip.ts) — so a body that goes without this leaves a stray
 		// element behind for every dialog ever opened.
@@ -723,7 +745,14 @@ export class RecentFilesBrowser {
 	// list — rows this panel draws like any other — could never be taken off the list at
 	// all. It is the × on the row instead, which every row carries (see list.ts's fileRow,
 	// and onForget below).
-	private contextRow(rep: number, ev: MouseEvent): void {
+	//
+	// A TOUCH DEVICE GETS HERE BY ANOTHER DOOR: a WebView reports a long press as the same
+	// event this answers (see RecentFilesList.onContextMenu), and on a phone that press arms
+	// the row instead — so the menu is raised from the armed row's own control (see list.ts's
+	// menuControl) rather than by the press. The two doors meet in the same place, which is
+	// why the menu is placed by a POINT and not by the event: the press is answered where
+	// the pointer is, and the control where it stands.
+	private contextRow(rep: number, at: MenuPositionDef): void {
 		const entry = this.opts.places.entries[rep];
 		// A pathless view has no file: the app's own menu for one has no subject.
 		if (!entry || entry.kind === 'view')
@@ -731,6 +760,16 @@ export class RecentFilesBrowser {
 		const file = this.opts.app.vault.getAbstractFileByPath(entry.path);
 		if (!(file instanceof TFile))
 			return;
+		// ONE DOOR, TWO ENDS, and which one this tap is depends on whether a menu is
+		// already standing. THE APP CANNOT ANSWER THIS TAP: the control stops its own
+		// press (see menuControl), so the press never reaches the document and the
+		// app never hears the click-away-from-it that would close its menu. Without
+		// this the tap would take the standing menu off and put it back in the same
+		// breath — which reads as a control that does nothing at all.
+		if (this.menu) {
+			this.closeMenu();
+			return;
+		}
 		const menu = new Menu();
 		// Our own item goes FIRST (section 'action', which the app sorts ahead of its
 		// own sections), because it is nothing the app can offer for THIS row: core's
@@ -739,12 +778,89 @@ export class RecentFilesBrowser {
 		menu.addItem(item => item
 			.setSection('action')
 			.setTitle(t(entry.kind === 'jump'
-				? 'recentFiles.menu.openHereInNewTab'
-				: 'recentFiles.menu.openInNewTab'))
-			.setIcon('file-plus')
+				? 'recentFiles.openHereInNewTab'
+				: 'recentFiles.openInNewTab'))
+			// The arrow leaving its box, and not the glyph for a new file: nothing is
+			// created here, and what opens is the row's own place one tab over.
+			.setIcon('external-link')
 			.onClick(() => this.jump(rep, 'tab')));
 		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
-		menu.showAtMouseEvent(ev);
+		this.menu = menu;
+		// …and when the app takes it off by one of ITS OWN gestures — an item chosen,
+		// a click away from it, Escape — it is off, and the control goes back to
+		// raising one rather than taking one back.
+		menu.onHide(this.forgetMenu);
+		menu.showAtPosition(at);
+		this.hearPresses(true);
+	}
+
+	// Take the menu this body raised off the screen, if one is standing. Asked by the
+	// control that raised it (see contextRow), by the shell that steps out of the
+	// reader's way (see RecentFilesView.standAside), and by destroy — everything ELSE a
+	// menu does is the app's own business (see `menu`), and these are the parts of it
+	// the app cannot know about, because they are the parts that are about this panel
+	// rather than about the file.
+	closeMenu(): void {
+		this.hearPresses(false);
+		const menu = this.menu;
+		this.menu = undefined;
+		menu?.close();
+	}
+
+	// The app closed it itself. It is no longer ours to close: the panel goes back to
+	// owing the menu nothing, and the control goes back to raising one.
+	private forgetMenu = (): void => {
+		this.hearPresses(false);
+		this.menu = undefined;
+	};
+
+	// Whether a menu this body raised is standing — and if one is, TAKE IT BACK.
+	//
+	// ASKED BY THE CONTROL THAT RAISED IT, and asked at the PRESS rather than at the
+	// click, for one reason: by the time the click arrives, the app's menu may be
+	// standing over the control that raised it. When there is no room below the point it
+	// was given, the app moves a menu UP BY ITS OWN HEIGHT (see showAtPosition), which
+	// puts it over the row — and a press that lands on the menu's own surface reaches
+	// nobody, because the menu answers a `mousedown` on itself with nothing but a
+	// `preventDefault`. So the press has to be the answer, while the control is still
+	// the thing under the finger.
+	takeMenuBack(): boolean {
+		if (!this.menu)
+			return false;
+		this.closeMenu();
+		return true;
+	}
+
+	// While a menu stands, a press ANYWHERE that is not one of its own items takes it
+	// back — including a press on the menu's own blank surface, which is the one place
+	// the app answers with nothing at all: only the backdrop it puts beside the menu
+	// closes it, and only on a click.
+	//
+	// HEARD IN THE CAPTURE PHASE AND AT THE DOCUMENT, which is the only place it can be
+	// heard before the menu swallows it: the menu is put on the document's body rather
+	// than into this panel, so a press on it never reaches the panel underneath. A
+	// reader aiming at the control that raised the menu is often aiming at the menu.
+	private onAnyPress = (ev: Event): void => {
+		if (!this.menu)
+			return;
+		const el = ev.target instanceof Element ? ev.target : null;
+		// …but not on one of its ITEMS: that is the menu's own answer to give, and a
+		// menu taken out from under the press would take the item with it. Nor on the
+		// control that raised it, which answers for itself (see takeMenuBack) — and
+		// which must find the menu still standing when it asks.
+		if (el?.closest('.menu-item, .nav-row-menu'))
+			return;
+		this.closeMenu();
+	};
+
+	private hearPresses(on: boolean): void {
+		const doc = this.opts.host.ownerDocument;
+		if (!doc)
+			return;
+		if (on)
+			doc.addEventListener('pointerdown', this.onAnyPress, true);
+		else
+			doc.removeEventListener('pointerdown', this.onAnyPress, true);
 	}
 
 	// The reader asked for a row to go, from the × on it (see the list's onForget): the

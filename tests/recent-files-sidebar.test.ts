@@ -140,6 +140,11 @@ function makeApp(paths: string[] = []) {
 	const files: Record<string, TFile> = {};
 	for (const path of paths)
 		files[path] = Object.assign(new TFile(), { path });
+	// The app's own file-menu event: a row asks the APP what it can do with the file
+	// (see RecentFilesBrowser.contextRow), and what this panel hands the app is the
+	// menu OBJECT — so it is RECORDED rather than merely swallowed. A test that wants
+	// to know who took a menu off the screen has to be able to find it again.
+	const trigger = vi.fn();
 	const app = {
 		vault: {
 			getAbstractFileByPath: (path: string) => files[path] ?? null,
@@ -149,14 +154,10 @@ function makeApp(paths: string[] = []) {
 		workspace: {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
-			// The app's own file-menu event: a row's right-click asks the APP what it can
-			// do with the file (see RecentFilesBrowser.contextRow), and this panel is not
-			// what is being tested by it. Without an answer here the right-click tests
-			// threw out of the listener instead of asserting what they came for.
-			trigger: () => undefined,
+			trigger,
 		},
 	};
-	return app as never;
+	return { app: app as never, trigger };
 }
 
 async function mount(
@@ -171,7 +172,7 @@ async function mount(
 	const nav = new FakeNav();
 	nav.entries = entries;
 	nav.index = index;
-	const app = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
+	const { app, trigger } = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
 	// jsdom lays nothing out, so the pane reports width 0 — which is the INLINE
 	// presentation, the one that needs no second column (see RecentFilesView.measure).
@@ -185,7 +186,7 @@ async function mount(
 	// The listbox itself: what the pointer events that decide whether the list is
 	// being READ arrive on (see RecentFilesBrowser.freezeOrder).
 	const list = () => el.querySelector<HTMLElement>('.position-restore-nav-list')!;
-	return { view, el, nav, rows, names, list };
+	return { view, el, nav, rows, names, list, trigger };
 }
 
 describe('RecentFilesView — the resident panel', () => {
@@ -395,6 +396,41 @@ describe('RecentFilesView — the resident panel', () => {
 			Platform.isMobile = wasMobile;
 		}
 		expect(nav.jumped).toHaveLength(2);
+	});
+
+	it('takes the menu it raised off the screen before it folds the drawer away', async () => {
+		// The menu stands on the DOCUMENT and not in this panel's element, and it is the
+		// app's: what the app takes one off the screen for is a click outside it, an
+		// item chosen on it, or Escape. Folding a drawer is none of those, so a panel
+		// that steps out of the reader's way has to take its own menu with it (see
+		// RecentFilesBrowser.closeMenu).
+		const wasMobile = Platform.isMobile;
+		// …and the row's menu control is a PHONE's (see RecentFilesList.menuControl),
+		// which is decided while the panel is being mounted.
+		Platform.isMobile = true;
+		try {
+			const { el, trigger, view } = await mount(
+				[visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1);
+			const pane = drawer();
+			(view.leaf as unknown as { parent?: unknown }).parent = pane;
+			const click = (on: HTMLElement) =>
+				on.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			const row = Array
+				.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+				.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
+
+			click(row.querySelector<HTMLElement>('.nav-row-menu')!);
+			const menu = trigger.mock.calls[0][1] as { closed: boolean };
+			expect(menu.closed).toBe(false);
+
+			// …and then the reader travels, and the drawer folds.
+			click(row);
+
+			expect(pane.collapsed).toBe(true);
+			expect(menu.closed).toBe(true);
+		} finally {
+			Platform.isMobile = wasMobile;
+		}
 	});
 
 	it('travels even when the shell\'s reaction throws', async () => {

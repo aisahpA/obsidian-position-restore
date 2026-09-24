@@ -253,18 +253,24 @@ export const en = {
 	'recentFiles.age.w': 'w ago',
 	'recentFiles.age.mo': 'mo ago',
 	'recentFiles.age.y': 'y ago',
-	// The row's right-click menu (see RecentFilesBrowser.contextRow). The menu itself is
-	// the app's; the ONE item added is the one the app cannot know, because a row here
-	// stands for a PLACE and not merely for a file: a jump row promises a landing, and
-	// "open it in a new tab" has to mean opening it THERE. Hence two answers rather than
-	// one — "the file" and "this spot in it" are different promises.
+	// The two wordings of a row's "open it one tab over" (see RecentFilesBrowser.contextRow
+	// and RecentFilesList.newTabControl). The menu itself is the app's; the ONE item added
+	// is the one the app cannot know, because a row here stands for a PLACE and not merely
+	// for a file: a jump row promises a landing, and "open it in a new tab" has to mean
+	// opening it THERE. Hence two answers rather than one — "the file" and "this spot in
+	// it" are different promises.
+// On a desktop the item stands first in the right-click menu; on a phone that menu gives
+// way to the long press (which now answers "what can be done with THIS row"), so the item
+// moved with the whole menu onto the control the armed row carries — the control raises
+// that menu, and this is still its first item. The key therefore says no `menu`: it is no
+// longer only in one.
 	// The word a file's OTHER names are introduced by, on the row's own tooltip (see
 	// RecentFilesReads.aliasesFor). They are searchable and occupy no cell, so the hover
 	// is the only place a reader ever sees them; the colon is part of the value because
 	// whether to draw one is the language's call.
 	'recentFiles.aka': 'aka:',
-	'recentFiles.menu.openInNewTab': 'Open in new tab',
-	'recentFiles.menu.openHereInNewTab': 'Open here in a new tab',
+	'recentFiles.openInNewTab': 'Open in new tab',
+	'recentFiles.openHereInNewTab': 'Open here in a new tab',
 	// The row's own removal, drawn on the row as a × (see RecentFilesBrowser.onForget).
 	// It is NOT in the row's menu any more: that menu is the APP's, and only a file has
 	// one — a pathless view row (the graph, Thino's memo list) has no file for it to be
@@ -273,6 +279,12 @@ export const en = {
 	// record, while the file and the position database are untouched, and visiting the
 	// file again puts a place back.
 	'recentFiles.forget': 'Remove from recent files',
+	// The row's second control (see RecentFilesList.menuControl): what it raises is the
+	// APP'S own menu for the file — the one a right-click raises on a desktop, and the one
+	// a long press used to raise here. "More actions" and not "menu": the menu is the
+	// app's, and the row only takes the reader to it. Nor is it "open in a new tab", which
+	// is one item ON that menu and not the menu.
+	'recentFiles.rowMenu': 'More actions',
 	// "Browse" and not "open": what opens is the LIST, and "open recent files"
 	// reads as opening the one file the reader was last in. It is also the verb the
 	// command's own id carries (see main.ts), and it is what separates the two

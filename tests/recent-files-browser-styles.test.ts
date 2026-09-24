@@ -27,10 +27,17 @@
 //    the coordinate and the age below 480px and left the list saying nothing but
 //    file names.
 //
-// 4. The × that takes a row off the list FLOATS over the row's far end, out of the
-//    row's own flow, so summoning it moves nothing — and what gives way when the two
-//    trade places is the age's colour, not the track it stands in. On touch there is
-//    no hover to summon it with, so it stands there instead.
+// 4. The row's controls — the × that takes it off the list, and on a phone the tab
+//    that opens it one over — FLOAT over the row's far end, in ONE box out of the
+//    row's own flow, so summoning them moves nothing; and what gives way when they
+//    trade places with the age is the age's colour, not the track it stands in. On
+//    touch there is no hover to summon them with: a LONG PRESS arms the row instead,
+//    and the row carries the arm as a class of its own, because a press has to outlive
+//    the finger that made it. A HOVER is one row at a time and moves nothing, so what
+//    the age gives up is its colour; an ARMED row on a phone gives up the ROOM as
+//    well, because two icons standing over a name are two things read at once — and
+//    nothing is reserved while the row is not armed, so the age keeps the row's far
+//    end to itself, as the setting asks.
 //
 // 5. A landing row's section chain collapses FROM THE OUTSIDE IN, and ONLY from there:
 //    the outer level carries every pixel of a deficit, while the deepest level is not a
@@ -245,44 +252,103 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toMatch(/\.nav-row-time\s*\{[^}]*margin-inline-start: auto/);
 	});
 
-	// …and the × that takes the row off the list rides in that SAME far end, out of the
-	// row's own flow (see list.ts's fileRow). Being absolutely positioned is the
-	// load-bearing part: laid out inside the row it would take its width from the name,
-	// and the row would move under the pointer that summoned it — the one thing this list
-	// never does (see the hover tint below). The age gives up its COLOUR and not its
-	// track when the two trade places, so nothing moves there either.
-	it('floats the row\'s × over that far end, and moves nothing to show it', () => {
-		const forget =
-			browser.match(/\.position-restore-nav-row \.nav-row-forget\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(forget).not.toBe('');
-		expect(forget).toMatch(/position: absolute/);
-		expect(forget).toMatch(/inset-inline-end: 4px/);
+	// …and the row's controls ride in that SAME far end, out of the row's own flow (see
+	// list.ts's fileRow). Being absolutely positioned is the load-bearing part: laid out
+	// inside the row they would take their width from the name, and the row would move
+	// under the pointer that summoned them — the one thing this list never does (see the
+	// hover tint below). The age gives up its COLOUR and not its track when the two trade
+	// places, so nothing moves there either.
+	it('floats the row\'s controls over that far end, and moves nothing to show them', () => {
+		const actions =
+			browser.match(/\.position-restore-nav-row \.nav-row-actions\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(actions).not.toBe('');
+		expect(actions).toMatch(/position: absolute/);
+		expect(actions).toMatch(/inset-inline-end: 4px/);
 		// Painted with the ROW's own wash rather than a colour of this file's, so the strip
-		// under the icon is the row it stands on — the hover tint, or the position's accent.
-		expect(forget).toMatch(/background: inherit/);
-		// …and it says nothing until the pointer is on the row.
-		expect(forget).toMatch(/opacity: 0/);
-		expect(forget).toMatch(/pointer-events: none/);
+		// under the icons is the row they stand on — the hover tint, the arm's own tint, or
+		// the position's accent.
+		expect(actions).toMatch(/background: inherit/);
+		// ONE BOX HOLDS BOTH, so a row that carries only one of them leaves no gap where
+		// the other would have stood.
+		const controls = browser.match(
+			/\.position-restore-nav-row \.nav-row-forget,\s*\.position-restore-nav-row \.nav-row-menu\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(controls).not.toBe('');
+		// …and they say nothing until the row is pointed at.
+		expect(controls).toMatch(/opacity: 0/);
+		expect(controls).toMatch(/pointer-events: none/);
+		// THE STRIP THEY STAND IN IS NOT THERE EITHER while they are not: it lies over
+		// the age, and the age is a cell with an answer of its own (the moment behind
+		// "5m", see list.ts's fileRow) — a strip that swallowed the pointer while
+		// invisible would answer for the ROW instead, and "which file" is not what a
+		// reader pointing at a time asked.
+		expect(actions).toMatch(/pointer-events: none/);
+		// …and it comes back WITH them, on either device, so that a press landing inside
+		// it but on neither control is a MISS and not a click on the row: a finger that
+		// drifts from one control to the next has clicked neither, and what the browser
+		// clicks is their common ancestor (see RecentFilesList.actionStrip).
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-actions,\s*\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions\s*\{[^}]*pointer-events: auto/,
+		);
 
 		// The age keeps its track and gives up only its colour…
 		expect(browser).toMatch(
 			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-time\s*\{[^}]*color: transparent/,
 		);
-		// …the × arrives on the very same terms, scoped away from touch exactly as the
-		// hover tint is (a finger's tap leaves `:hover` stuck on the row it touched)…
+		// …the controls arrive on the very same terms, scoped away from touch exactly as
+		// the hover tint is (a finger's tap leaves `:hover` stuck on the row it touched)…
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-forget\s*\{[^}]*opacity: 1/,
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-actions > \*\s*\{[^}]*opacity: 1/,
 		);
-		// …and on touch it simply STANDS there instead, with the age giving way to it: a
-		// finger has no hover to summon it with, and the row is the only way to drop it
-		// there — a long press raises the app's own file menu, and a view row has no file
-		// for that menu to be about (see body.ts's contextRow).
+		// …and ON TOUCH THEY ARRIVE FOR A LONG PRESS INSTEAD, which is what a hover is on
+		// a device that has none (see long-press.ts): the row carries the arm as a class of
+		// its own rather than as a state of the pointer's, because a press has to OUTLIVE
+		// the finger that made it — the reader lifts that finger to reach for what the
+		// press put on the row.
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row \.nav-row-forget\s*\{[^}]*opacity: 1/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions > \*\s*\{[^}]*opacity: 1/,
 		);
+		// …with a target a finger can hit without aiming, taken as a MINIMUM WIDTH so
+		// the icon keeps its size and only the box around it grows — and named once
+		// (--nav-action-target) so the room the row gives up cannot disagree with it.
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row \.nav-row-time\s*\{[^}]*color: transparent/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions > \*\s*\{[^}]*min-width: var\(--nav-action-target\)/,
 		);
+		// …and WHILE THE ROW IS ARMED THE STRIP IS THE ROW'S WHOLE FAR END: as tall as
+		// the row (which clips it), and with the two controls meeting EDGE TO EDGE —
+		// the gap between them was a lane a finger fell through onto the row.
+		// (The strip is named by two rules — this one, and the one that makes it
+		// reachable — so the one being asserted here is the one that sizes it.)
+		const armedStrip = (browser.match(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions\s*\{[^}]*\}/g,
+		) ?? []).find(rule => rule.includes('inset-block')) ?? '';
+		expect(armedStrip).not.toBe('');
+		expect(armedStrip).toMatch(/inset-block: 0/);
+		expect(armedStrip).toMatch(/gap: 0/);
+		// …and the gutters either side of the two controls are the STRIP's own padding
+		// rather than room beside it, so a finger landing there lands in the strip —
+		// which answers nothing — and not on the row, which opens the note.
+		expect(armedStrip).toMatch(/padding-inline: 8px 4px/);
+		expect(armedStrip).toMatch(/inset-inline-end: 0/);
+		// …and an armed row says WHICH ONE it is: nothing else on a phone tints a row.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed\s*\{[^}]*background: var\(--background-modifier-hover\)/,
+		);
+		// …and the ARMED ROW GIVES THE TWO OF THEM THE ROOM, measured from the same
+		// number the targets are: a strip painted over the row was a strip painted
+		// over the folder and the name, and two icons legible over text are two
+		// things read at once.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed\s*\{[^}]*padding-inline-end: calc\(2 \* var\(--nav-action-target\)/,
+		);
+		// The arm takes the age's PLACE rather than standing beside it, exactly as a hover
+		// does — and NOTHING IS RESERVED while the row is not armed, so a phone, where
+		// this list is the whole of the reader's history, keeps the times the setting
+		// asked for (see recentFilesRowTime).
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-time\s*\{[^}]*color: transparent/,
+		);
+		expect(browser).not.toMatch(/is-touch [^{]*\.is-file\s*\{[^}]*padding-inline-end/);
 	});
 
 	// "You are here" is a dot on the note and on the landing the current entry
@@ -375,8 +441,10 @@ describe('recent-files browser quiet tiers', () => {
 	// saying nothing but file names. What is worth pinning is that nothing is hidden
 	// on touch, and that the row is a finger's target.
 	it('gives a phone the desktop rows, one line each and never a hidden cell', () => {
+		// The ROOM a row gives a finger, and not the first rule the selector matches —
+		// a phone's rows carry more than one (see the long press's own rule above).
 		const touch = browser.match(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\s*\{[^}]*\}/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\s*\{[^}]*padding: 6px 8px[^}]*\}/,
 		)?.[0] ?? '';
 		expect(touch).toMatch(/padding: 6px 8px/);
 		// …and no landing gets a second line of its own: the coordinate and the
