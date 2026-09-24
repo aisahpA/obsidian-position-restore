@@ -84,8 +84,7 @@ export class PositionManager {
 		// Search anchor: armed by focus on a search input so search-driven jumps don't overwrite
 		// the saved position. Platform-neutral: both the desktop and the mobile poll take the guard.
 		this.sampler.installSearchAnchor(registerCleanup);
-		// Frontmatter recording rules: keep the exclusion memo in sync with metadata re-parses and
-		// drop records the moment a file opts out.
+		// Frontmatter recording rules: drop a file's records the moment it opts out.
 		this.sampler.installFrontmatterWatch(registerCleanup);
 		if (Platform.isDesktopApp) {
 			this.sampler.installScrollCapture(registerCleanup);
@@ -313,23 +312,15 @@ export class PositionManager {
 		if (!sameList(this.settings.recentFilesExcludeFolders, before.recentFilesExcludeFolders)
 			|| !sameList(this.settings.recentFilesExcludeProperties, before.recentFilesExcludeProperties))
 			this.applyRecentFilesExclusions();
-		// The cache is keyed by path and holds answers the exclusion rules were consulted to
-		// produce, so a change to either invalidates it wholesale.
 		if (!sameList(this.settings.excludedFolders, before.excludedFolders)
-			|| !sameList(this.settings.frontmatterExcludeProperties, before.frontmatterExcludeProperties)) {
-			this.clearExclusionCache();
+			|| !sameList(this.settings.frontmatterExcludeProperties, before.frontmatterExcludeProperties))
 			this.prunePositions();
-		}
 	}
 
 	// Prune the records the current settings exclude (and, incidentally, the ones over the entry
 	// cap). Routed through the store so the file layer and the leaf layer are pruned together.
 	prunePositions(): number {
 		return this.store.pruneDatabase();
-	}
-
-	clearExclusionCache() {
-		this.sampler.clearExclusionCache();
 	}
 }
 

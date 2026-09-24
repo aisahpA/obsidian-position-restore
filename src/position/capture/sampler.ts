@@ -508,22 +508,14 @@ export class Sampler {
 		});
 	}
 
-	// Called when settings change, since the excluded-folders list may have changed.
-	clearExclusionCache() {
-		this.exclusions.clearPathCache();
-		this.exclusions.clearFrontmatterCache();
-	}
-
-	// Frontmatter reactivation, two jobs on one event: the memoized decisions must follow
-	// re-parses (metadata cache 'changed' fires after a file's metadata lands), and the
-	// moment a file becomes frontmatter-excluded its records are dropped right away
-	// instead of waiting for the next poll tick or a scroll — editing a file to
+	// A file that becomes frontmatter-excluded drops its records the moment that lands
+	// (metadata cache 'changed' fires after the file's metadata is parsed), rather than
+	// waiting for the next poll tick or a scroll — editing a file to
 	// `position-restore: false` must not leave a record that restores once later.
 	// Non-frontmatter exclusions are unchanged: the poll / scroll-capture gate handles
 	// them.
 	installFrontmatterWatch(registerCleanup: (fn: () => void) => void) {
 		const onCacheChanged = (file: TFile) => {
-			this.exclusions.invalidateFrontmatter(file.path);
 			const decision = frontmatterDecisionFor(this.app, file, this.settings);
 			if (decision?.skip)
 				this.store.deleteFile(file.path);
