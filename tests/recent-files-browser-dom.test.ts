@@ -18,7 +18,14 @@ import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
-import { LONG_PRESS_MS, NAV_SOURCE_ID, TIP_DELAY_MS } from '@/recent-files/browser/constants';
+import {
+	LONG_PRESS_MS,
+	NAV_SOURCE_ID,
+	PANEL_EXIT_GRACE_MS,
+	ROW_PRESS_HOLD_MAX_MS,
+	ROW_PRESS_MARK_MS,
+	TIP_DELAY_MS,
+} from '@/recent-files/browser/constants';
 
 // jsdom has no PointerEvent, and `pointerType` is the one field the panel reads to tell a
 // mouse from a finger: a MouseEvent stands in for it, with the kind written on afterwards.
@@ -2580,6 +2587,119 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 			hide(): void;
 		};
 	};
+	// A FINGER HAS NO HOVER TO GO BY: between the finger coming down and the travel
+	// going through, nothing on the row changes at all — and the travel is not the end
+	// of it either, because on a phone the drawer folds away behind it. So the press
+	// itself is what the row answers with (see list.ts's markPressed).
+	it('marks the row a finger pressed, for as long as the reader can still see it', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+
+		expect(row.classList.contains('is-pressed')).toBe(true);
+		// …and NOT the row beside it: one finger, one press, one mark.
+		expect(h.note('a').classList.contains('is-pressed')).toBe(false);
+
+		// The finger comes up and the travel goes through, and the mark is STILL there
+		// while the drawer folds away behind it (see PANEL_EXIT_GRACE_MS) — that is the
+		// whole of the time the reader has to see which line they hit.
+		lift(row);
+		vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and then it goes BY ITSELF rather than waiting for anything else: a mark
+		// that stayed would be a mark on a row the reader is no longer pointing at.
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS);
+		expect(row.classList.contains('is-pressed')).toBe(false);
+
+		// …and a gesture the platform took AWAY is not one the reader finished, so it
+		// takes the mark with it at once rather than leaving the row lit for a beat it
+		// did not earn.
+		down(row);
+		finger(row, 'pointercancel');
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
+	// The mark is ended by the LIFT and not by a moment fixed when the finger went
+	// down: a finger that is still resting on its way to becoming a long press is a
+	// finger the reader is still pointing with, and a mark that blinked out halfway
+	// through would say the row had stopped answering (see list.ts's releaseMark).
+	it('keeps the mark lit for the whole of a long press', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		// The beat a TAP's mark is given, and not the end of this one: the finger is
+		// still down.
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and then the press becomes an arm, with the mark still on the row.
+		rest();
+		expect(row.classList.contains('is-armed')).toBe(true);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and the finger coming UP does not take it: the reader lifted it to reach for
+		// what the arm put on the row, so the mark lasts as long as the arm does.
+		lift(row);
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS * 2);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+	});
+
+	// …while a finger the platform never reported coming up does not leave a row lit
+	// for good: the mark has a latest moment of its own (see ROW_PRESS_HOLD_MAX_MS).
+	it('lets the mark go when the finger never came up at all', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		// Not a long press after all: the finger left the spot it came down on (see
+		// LONG_PRESS_SLOP_PX), so nothing arms the row and nothing holds the mark.
+		finger(row, 'pointermove', { x: 240, y: 240 });
+		vi.advanceTimersByTime(ROW_PRESS_HOLD_MAX_MS);
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
+	// …and it belongs to the ROW and not to the list, so it does not outlive one: the
+	// travel the press asked for redraws the list, and the row drawn in its place is a
+	// row the reader never pressed.
+	it('takes the mark off with the row it was put on', () => {
+		const h = phone();
+		down(h.note('b'));
+		expect(h.note('b').classList.contains('is-pressed')).toBe(true);
+
+		h.clickRow(h.note('b'));
+
+		expect(h.jumpTo).toHaveBeenCalled();
+		expect(h.note('b').classList.contains('is-pressed')).toBe(false);
+	});
+
+	// …and a press does not stop being a press when it becomes an arm: the finger is
+	// still on the row the whole time the arm is standing.
+	it('keeps the mark under a finger that rested, and lets it go with the arm', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+
+		// The clock that was going to take the mark off was set for a tap (see
+		// ROW_PRESS_MARK_MS), and this was not one.
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS * 2);
+		expect(row.classList.contains('is-armed')).toBe(true);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and the two go together: tapping another row takes the arm off this one, and
+		// a mark left standing on it would be a mark on a row nobody is pointing at.
+		h.pressRow(h.note('a'));
+		h.clickRow(h.note('a'));
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
 	it('arms the row a finger stopped on, and says what the row cannot print', () => {
 		const h = phone();
 		const row = h.note('b');

@@ -59,6 +59,37 @@ export const LONG_PRESS_MS = 500;
 // distance a list has to be dragged before it scrolls.
 export const LONG_PRESS_SLOP_PX = 10;
 
+// How long the row a finger PRESSED keeps the mark that says so (see
+// RecentFilesList.markPressed), in milliseconds.
+//
+// Why it is held past the finger at all: a phone has no hover, so nothing on a row
+// changes between the finger coming down and the travel going through — and the travel
+// is not the end of it either, because on a phone this panel is a drawer that folds
+// away behind it (see PANEL_EXIT_GRACE_MS below). A mark that went with the finger
+// would be a mark the reader never saw, on a row they were never sure they hit.
+//
+// Why it is a number and not the finger coming up: a press is also the beginning of a
+// scroll, and the lift that ends a press is not the lift that ends a tap — the two are
+// the same event, and only the clock tells them apart. 320 is a beat longer than the
+// drawer's own grace, so the row is still saying "this one" for exactly as long as it
+// is still on screen.
+export const ROW_PRESS_MARK_MS = 320;
+
+// The CEILING on that mark while the finger is still down (see
+// RecentFilesList.markPressed), in milliseconds: one long press plus one tap's worth of
+// mark.
+//
+// Why it exists: the mark is ended by the finger coming UP, which is an event the
+// platform does not always deliver — a drawer may take the gesture, a second finger may
+// land, the phone may turn. A row left lit because a lift was never heard is a row the
+// reader has to explain away, so the mark has a latest moment of its own.
+//
+// Why it is this long: it has to outlast a finger that is resting all the way through a
+// long press without ending it — a ceiling that ran out before the arm arrived would
+// blink the mark out halfway through the very gesture it was drawn for. The ordinary
+// press ends far below it, on the lift.
+export const ROW_PRESS_HOLD_MAX_MS = LONG_PRESS_MS + ROW_PRESS_MARK_MS;
+
 // How long the RESIDENT panel holds its redraws back after a travel on a PHONE (see
 // RecentFilesView.standAside), in milliseconds.
 //

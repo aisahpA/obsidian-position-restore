@@ -396,9 +396,36 @@ body.is-mobile .position-restore-cue {
    Scoped away from touch, by the same class the panel's own layout reads (see
    `is-touch`): a finger's tap leaves `:hover` stuck on whatever it last touched, so
    without this a row stays tinted after the finger is gone — a mark for a pointer that
-   is not there. */
-.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover:not(.is-selected) {
+   is not there.
+   Left out for a row being PRESSED (see .is-pressed below): a press and a hover are
+   the same pointer on the same row, and the press is the louder of the two, so the
+   tint the press asks for has to be free to win. */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover:not(.is-selected):not(.is-pressed) {
 	background-color: var(--background-modifier-hover);
+}
+
+/* THE PRESS ITSELF, which on a phone is the ONLY thing a row can answer a finger
+   with: nothing hovers on a device that has no pointer, and the travel the tap asked
+   for is a moment away and happens somewhere else — a note opening, a drawer folding
+   away (see list.ts's markPressed, and PANEL_EXIT_GRACE_MS) — so until it does, the
+   row says "this one" by taking the tint a hover would have given it, and keeps it
+   for as long as the row is still on screen.
+   DEEPER than that tint where the theme has one, so that a press is not mistaken for
+   the arm's own wash (see .is-armed below), which is the same question a moment
+   later: an arm is what a press becomes when the finger rests.
+   NOT scoped to touch: a desktop's hover already says which row the pointer is on,
+   but a mouse that is DOWN on a row is a press too, and a button held on a row that
+   answered nothing is the one case a hover cannot tell apart from a miss. */
+.position-restore-nav-panel .position-restore-nav-row.is-pressed {
+	background-color: var(--background-modifier-active, var(--background-modifier-hover));
+}
+
+/* …and the POSITION'S OWN ROW deepens under a press exactly as it does under a hover:
+   the accent wash is the louder statement, and a press that replaced it with the
+   neutral tint would take the reader's own place off the screen at the moment they
+   touched it. */
+.position-restore-nav-row.is-selected.is-pressed {
+	background-color: color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }
 
 /* THE POSITION: the row the reader is on, whichever hand put them there — a click
@@ -725,9 +752,13 @@ body.is-mobile .position-restore-cue {
    first item of the row's menu). A FINGER-SIZED TARGET each, and not an icon-sized
    one: a hand that has already held still for half a second is not a hand to make
    aim, and an icon 16px wide is a target a thumb slides off — which is worse than
-   missing it, because what the thumb lands on is the row (see the rule below). */
+   missing it, because what the thumb lands on is the row (see the rule below).
+   An ARMED row that is still being pressed gives its WASH to the press (see .is-pressed
+   above) — the two are one gesture half a second apart, and the wash is what the row
+   keeps AFTER the finger has gone. It does NOT give up the room: a strip painted over a
+   name that had not stepped aside is two things read at once, and the press's own tint
+   is as thin a wash as the arm's, so neither of them hides what is under it. */
 .position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed {
-	background: var(--background-modifier-hover);
 	/* Two targets, the 8px between the name and the first of them, and the 4px the
 	   last stands off the row's edge — which is exactly as wide as the strip itself
 	   (see its paddings below), so the room ends where the strip begins and there
@@ -736,6 +767,12 @@ body.is-mobile .position-restore-cue {
 	   would put the second icon back on the name, or leave the row showing
 	   through beside it. */
 	padding-inline-end: calc(2 * var(--nav-action-target) + 12px);
+}
+
+/* …and the wash is the one thing that does give way, and only while the finger is
+   still down (see .is-pressed above). */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed:not(.is-pressed) {
+	background: var(--background-modifier-hover);
 }
 
 .position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-time {

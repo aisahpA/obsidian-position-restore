@@ -10,7 +10,12 @@ import {
 } from './model';
 import { NavRowTip, TipContent } from './tip';
 import { LongPress } from './long-press';
-import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX } from './constants';
+import {
+	LONG_PRESS_MS,
+	LONG_PRESS_SLOP_PX,
+	ROW_PRESS_HOLD_MAX_MS,
+	ROW_PRESS_MARK_MS,
+} from './constants';
 
 // What a row is, for the one lookup that has to find it from a pointer event: the
 // pointer is never over the row itself but over one of the boxes inside it (the name,
@@ -361,6 +366,21 @@ export class RecentFilesList {
 	// reader does anything else — so unlike a mode there is nothing to forget to leave,
 	// and no second meaning for a tap to have while it stands.
 	private armed?: RowRef;
+	// THE MARK A PRESS LEAVES ON THE ROW IT LANDED ON, and the clock that is going to
+	// take it off. A finger gets nothing else to go on: no hover arrives ahead of a tap
+	// on a device that has none, and what the tap asks for happens a moment later and
+	// somewhere else (a note opening, a drawer folding away), so until it does the row
+	// itself is the only thing that can say "this one". It is a class on the row and
+	// not a mode of the list — one row, one press, gone by itself (see markPressed).
+	private marked?: HTMLElement;
+	// …and when it goes, which is NOT when the finger comes up: a press that ended in
+	// a travel ends with the row leaving the reader's sight, and a mark that went with
+	// the finger would be a mark they never saw (see ROW_PRESS_MARK_MS).
+	private markFade?: number;
+	// …and the document the panel stands in, which is where a finger coming up is
+	// heard: a lift can happen anywhere, including off the row it started on (see
+	// onLift).
+	private doc: Document;
 	// Whether the press now landing on a row's menu control is one that TAKES A STANDING
 	// MENU BACK rather than one that asks for a menu (see menuControl). Remembered
 	// between the press and the click it delivers, because the two are halves of one
@@ -398,7 +418,13 @@ export class RecentFilesList {
 			// the same rule). Both are heard on the list and not per row: what ends is
 			// the press, and the press belongs to no row in particular.
 			this.opts.list.addEventListener('click', () => this.disarm());
-			this.opts.list.addEventListener('scroll', () => this.disarm(), { passive: true });
+			this.opts.list.addEventListener('scroll', () => {
+				this.disarm();
+				// …and the mark goes too: a press that was only ever the beginning of a
+				// scroll is not a reader pointing at a row, and a mark riding the row
+				// out of the reader's sight would be one they had to explain away.
+				this.unmark();
+			}, { passive: true });
 		}
 		// THE POINTER COMING TO BE OVER A ROW is the only thing that asks the app for a
 		// page (see hoverAt), and there are two events that say it: the move that carried
@@ -421,6 +447,15 @@ export class RecentFilesList {
 			this.pointerAt = { x: ev.clientX, y: ev.clientY };
 			this.opts.onHoverEnd?.();
 		});
+		// THE FINGER COMING UP is what ends the mark a press left — one beat after the
+		// lift, and not at a moment fixed when the finger went down, because a press
+		// that is still on its way to becoming a long press is a press the reader is
+		// still pointing with (see markPressed, and releaseMark). Heard on the DOCUMENT
+		// and not on the rows: a row is rebuilt on every render, and a finger that slid
+		// off the list before it lifted is still a finger that came up.
+		this.doc = this.opts.list.ownerDocument;
+		this.doc.addEventListener('pointerup', this.onLift);
+		this.doc.addEventListener('pointercancel', this.onLift);
 	}
 
 	// The place index a row acts on: a landing is itself; a NOTE is the note's OWN
@@ -485,6 +520,10 @@ export class RecentFilesList {
 		// tip.reset below) — the two arrived together, and a half of a pair left behind
 		// is the one kind of state a reader cannot read.
 		this.disarm();
+		// …and so does the mark a press left on one of them (see markPressed): the row
+		// carrying it is about to be thrown away with all the others, and a mark that
+		// outlived it would be standing on whichever row was drawn in its place.
+		this.unmark();
 		// Whatever the pointer was resting on is about to be thrown away: the tooltip
 		// it earned points at a row of the previous render, and leaving it up would
 		// leave the panel describing a row that is no longer on screen (see tip.ts).
@@ -1059,6 +1098,15 @@ export class RecentFilesList {
 			this.disarm();
 		this.armed = ref;
 		ref.el.addClass('is-armed');
+		// …and the mark comes back, and stays while the arm stands. Marked AGAIN rather
+		// than merely held, because a long press is longer than the mark a tap is given
+		// (see ROW_PRESS_MARK_MS): by the time the row is armed the clock has very
+		// likely taken the mark off already, and the finger that earned both is still on
+		// the row. The clock that would take it off again is dropped with it (see
+		// holdMark) — what ends the mark from here is the reader letting go of the row,
+		// and not a number.
+		this.markPressed(ref.el);
+		this.holdMark();
 		// The click the finger may still deliver when it lifts belongs to this gesture
 		// and not to the reader (see onClick).
 		this.press?.markArmed();
@@ -1078,7 +1126,81 @@ export class RecentFilesList {
 		this.armed.el.removeClass('is-armed');
 		this.armed = undefined;
 		this.tip.retract();
+		// …and so does the mark it was holding up: whatever the reader did instead, the
+		// row is no longer the one they are pointing at.
+		this.unmark();
 	}
+
+	// THE PRESS ITSELF, SAID ON THE ROW: a tap and a long press look exactly alike for
+	// half a second, and neither of them changes anything on a phone until the travel
+	// goes through and the drawer folds away — long enough to wonder whether the tap
+	// landed at all, and on which row. So the row answers the press before the press
+	// has been answered: it takes the mark a pointer's hover would have given it.
+	//
+	// ONE ROW AT A TIME, for the reason the arm is: one finger, one press.
+	//
+	// …and it stays lit for the WHOLE of the press and not for a beat of it. The clock
+	// set here is a CEILING for a finger that never comes up at all (see
+	// ROW_PRESS_HOLD_MAX_MS) and not when the mark goes: a finger still resting on its
+	// way to becoming a long press is a finger the reader is still pointing with, and a
+	// mark that blinked out halfway through would say the row had stopped answering.
+	// The ordinary mark is ended by the LIFT (see releaseMark), which is also what
+	// covers the drawer folding away on a phone — the reader is not waiting for the
+	// mark to go, they are waiting to see that it was ever there.
+	private markPressed(el: HTMLElement): void {
+		if (this.marked && this.marked !== el)
+			this.marked.removeClass('is-pressed');
+		this.marked = el;
+		el.addClass('is-pressed');
+		if (this.markFade !== undefined)
+			window.clearTimeout(this.markFade);
+		this.markFade = window.setTimeout(() => this.unmark(), ROW_PRESS_HOLD_MAX_MS);
+	}
+
+	// The press became an ARM: it is no longer going to be answered by a travel, so
+	// the clock that was going to take the mark off has nothing to time. The mark now
+	// lasts as long as the arm does (see disarm).
+	private holdMark(): void {
+		if (this.markFade === undefined)
+			return;
+		window.clearTimeout(this.markFade);
+		this.markFade = undefined;
+	}
+
+	// The mark goes: the tap was answered, or it was a scroll, or the row was redrawn
+	// away. Nothing about it outlives the row it was put on.
+	private unmark(): void {
+		this.holdMark();
+		this.marked?.removeClass('is-pressed');
+		this.marked = undefined;
+	}
+
+	// THE FINGER CAME UP, and the press it was holding is answered: the mark gets one
+	// more beat to be seen in and then goes by itself (see ROW_PRESS_MARK_MS).
+	//
+	// AN ARM IS NOT ENDED BY THE LIFT: the reader lifted the finger to reach for what
+	// the arm put on the row (see arm), so the mark stays as long as the arm does, and
+	// the clock that was going to take it off is dropped here rather than re-set.
+	private releaseMark(): void {
+		if (this.markFade !== undefined)
+			window.clearTimeout(this.markFade);
+		if (this.armed) {
+			this.markFade = undefined;
+			return;
+		}
+		this.markFade = window.setTimeout(() => this.unmark(), ROW_PRESS_MARK_MS);
+	}
+
+	// …and a gesture the platform took AWAY — a scroll beginning, a second finger, the
+	// phone turning — was never a press the reader finished, so it takes the mark with
+	// it at once rather than leaving a row lit for a beat it did not earn.
+	private onLift = (ev: Event): void => {
+		if (ev.type === 'pointercancel') {
+			this.unmark();
+			return;
+		}
+		this.releaseMark();
+	};
 
 	// THE STRIP THE ROW'S CONTROLS STAND IN: out of the row's flow, at its far end
 	// (see styles.css), and answerable for one thing beyond holding them — a press
@@ -1390,6 +1512,11 @@ export class RecentFilesList {
 			return;
 		const rep = this.activeRep(ref);
 		this.pressed = rep < 0 ? undefined : this.opts.keyOf(rep);
+		// …and the row says so, where there is somewhere for the press to go: a row
+		// standing for nothing answers a press with nothing, and marking it would
+		// promise a travel that is not coming (see markPressed).
+		if (rep >= 0)
+			this.markPressed(ref.el);
 	}
 
 	// The row holding a place, found by identity rather than by index — or -1 when this
@@ -1521,7 +1648,14 @@ export class RecentFilesList {
 		// time the dialog opens — so a gesture left listening would keep arming rows
 		// nobody can see, on a clock nobody is waiting for.
 		this.press?.destroy();
+		// …and nothing is owed the row a finger pressed: the mark goes with the panel,
+		// and the clock that was going to take it off goes with it.
+		this.unmark();
 		// The width is watched no longer: the list it was watching goes with the panel.
+		// …and the finger coming up is heard no longer: the listeners are on the
+		// DOCUMENT, which outlives every panel this class will ever draw.
+		this.doc.removeEventListener('pointerup', this.onLift);
+		this.doc.removeEventListener('pointercancel', this.onLift);
 		this.watched?.disconnect();
 	}
 

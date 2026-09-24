@@ -332,7 +332,7 @@ describe('recent-files browser quiet tiers', () => {
 		expect(armedStrip).toMatch(/inset-inline-end: 0/);
 		// …and an armed row says WHICH ONE it is: nothing else on a phone tints a row.
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed\s*\{[^}]*background: var\(--background-modifier-hover\)/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed:not\(\.is-pressed\)\s*\{[^}]*background: var\(--background-modifier-hover\)/,
 		);
 		// …and the ARMED ROW GIVES THE TWO OF THEM THE ROOM, measured from the same
 		// number the targets are: a strip painted over the row was a strip painted
@@ -340,6 +340,14 @@ describe('recent-files browser quiet tiers', () => {
 		// things read at once.
 		expect(browser).toMatch(
 			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed\s*\{[^}]*padding-inline-end: calc\(2 \* var\(--nav-action-target\)/,
+		);
+		// …and the room is reserved WHETHER OR NOT the finger is still on the row: what
+		// gives way to a press is the arm's wash, never the space the controls stand in.
+		// A strip is painted with the row's own wash, which is a thin one (see the
+		// `background: inherit` above) — over a name that had not stepped aside it is
+		// two things read at once, and neither of them read.
+		expect(browser).not.toMatch(
+			/\.is-armed:not\(\.is-pressed\)\s*\{[^}]*padding-inline-end/,
 		);
 		// The arm takes the age's PLACE rather than standing beside it, exactly as a hover
 		// does — and NOTHING IS RESERVED while the row is not armed, so a phone, where
@@ -394,7 +402,7 @@ describe('recent-files browser quiet tiers', () => {
 	it('tints the row under the pointer, without touching the position or a finger', () => {
 		const hover =
 			browser.match(
-				/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\)\s*\{[^}]*\}/,
+				/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\):not\(\.is-pressed\)\s*\{[^}]*\}/,
 			)?.[0] ?? '';
 		expect(hover).not.toBe('');
 		expect(hover).toMatch(/background-color: var\(--background-modifier-hover\)/);
@@ -402,6 +410,41 @@ describe('recent-files browser quiet tiers', () => {
 		// be mistaken for the row the keyboard is on.
 		expect(browser).toMatch(
 			/\.position-restore-nav-row\.is-selected\s*\{[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\) 12%/,
+		);
+	});
+
+	// A FINGER HAS NO HOVER TO GO BY, and the travel a tap asked for is a moment away
+	// and happens somewhere else — a note opening, a drawer folding away — so the press
+	// itself is the only thing a row can answer with (see list.ts's markPressed).
+	it('marks the row a press landed on, and outranks the two tints it could lose to', () => {
+		const pressed =
+			browser.match(
+				/\.position-restore-nav-panel \.position-restore-nav-row\.is-pressed\s*\{[^}]*\}/,
+			)?.[0] ?? '';
+		expect(pressed).not.toBe('');
+		// The app's own ACTIVE tint where its theme has one, so a press reads as the
+		// deeper of the two things a pointer does to a row — and where it has none the
+		// mark still lands on the hover tint rather than on nothing at all.
+		expect(pressed).toMatch(
+			/background-color: var\(--background-modifier-active, var\(--background-modifier-hover\)\)/,
+		);
+		// …NOT scoped to touch: a desktop answers a mouse with a hover already, but a
+		// button held down on a row is a press, and a hover cannot tell that from a
+		// pointer that simply happens to be there.
+		expect(pressed).not.toMatch(/is-touch/);
+		// …and it WINDOWS over both of the tints that would otherwise paint the row at
+		// the same moment: the hover's, whose pointer is on the row in either case, and
+		// the arm's, whose wash is what the row keeps once the finger has GONE.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\):not\(\.is-pressed\)\s*\{/,
+		);
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed:not\(\.is-pressed\)\s*\{/,
+		);
+		// …and the POSITION'S own row deepens under a press rather than losing its
+		// accent to a neutral tint, exactly as it does under a hover.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-selected\.is-pressed\s*\{[^}]*color-mix\(in srgb, var\(--interactive-accent\)/,
 		);
 	});
 
