@@ -229,6 +229,12 @@ export class NavPlaces implements PlaceList {
 		if (at >= 0)
 			this.entries.splice(at, 1);
 		this.entries.push(record);
+		// The reader is standing in the place they just went to, which every
+		// navigation this list hears sets — the funnel's `here` broadcast
+		// reaches it from a traversal alone. Set before the trim, so its
+		// exemption (see dropOldestRows / dropOldestLandings) protects this
+		// place and not a stale one.
+		this.index = this.entries.length - 1;
 		this.trim();
 		this.changed();
 	}

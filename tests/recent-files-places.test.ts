@@ -389,12 +389,18 @@ describe('NavPlaces — the ceiling', () => {
 	});
 
 	it('never drops the place the reader is standing in', () => {
-		const { places } = makePlaces({ recentFilesCap: 2 });
+		const settings = makeSettings({ recentFilesCap: 3 });
+		const places = new NavPlaces(makeApp(), settings);
 		places.remember(visit('a.md'));
 		places.remember(visit('b.md'));
-		// the reader goes back to the oldest place, then a new one arrives
-		places.markCurrent(visit('a.md'));
 		places.remember(visit('c.md'));
+		// Back to the oldest place — a traversal, which visits nothing new.
+		places.markCurrent(visit('a.md'));
+
+		// …and THEN the list has to give a row up: the ceiling came down
+		// under a reader who has not moved since.
+		settings.recentFilesCap = 2;
+		places.applyCap();
 
 		// Removal stops at the current index: 'a.md' is the row they are on.
 		expect(paths(places)).toEqual(['a.md', 'c.md']);
@@ -437,12 +443,18 @@ describe('NavPlaces — the ceiling', () => {
 	});
 
 	it('never drops the row the reader is standing in, landings and all', () => {
-		const { places } = makePlaces({ recentFilesCap: 2 });
+		const settings = makeSettings({ recentFilesCap: 3 });
+		const places = new NavPlaces(makeApp(), settings);
 		places.remember(visit('a.md'));
 		places.remember(jump('a.md', 'h1'));
 		places.remember(visit('b.md'));
-		places.markCurrent(visit('a.md'));
 		places.remember(visit('c.md'));
+		// Back to the oldest row: the note AND the landing inside it are the
+		// row the ceiling has to step over.
+		places.markCurrent(visit('a.md'));
+
+		settings.recentFilesCap = 2;
+		places.applyCap();
 
 		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'c.md']);
 		expect(places.index).toBe(0);
@@ -565,6 +577,18 @@ describe('NavPlaces — the current place', () => {
 		places.markCurrent(visit('a.md'));
 
 		expect(places.index).toBe(0);
+	});
+
+	it('follows a plain visit and a jump, neither of which publishes "here"', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		expect(places.index).toBe(1);
+
+		// …and a jump stands on the LANDING, not on the note — that is the
+		// difference the panel's dot is drawn for.
+		places.remember(jump('b.md', 'outline:## T'));
+		expect(places.index).toBe(2);
 	});
 
 	it('marks the FILE for an inferred step, which is not a place of its own', () => {
