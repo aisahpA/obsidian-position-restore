@@ -1,4 +1,4 @@
-import { App, View, WorkspaceLeaf } from 'obsidian';
+import { App, MarkdownView, View, WorkspaceLeaf } from 'obsidian';
 
 // Workspace-leaf helpers that are not specific to any one feature: the leaf
 // identity used as a map key by both the position state and the nav history,
@@ -19,6 +19,24 @@ export function isMainAreaLeaf(app: App, leaf: WorkspaceLeaf): boolean {
 	const root = app.workspace.rootSplit as { containerEl?: HTMLElement } | undefined;
 	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
 	return !!root?.containerEl && !!el && root.containerEl.contains(el);
+}
+
+// The markdown view SHOWING one path right now, if any — the only place a note's
+// lines can be read that is guaranteed to be the note as the reader has it, saved
+// or not: the editor's buffer is ahead of the file on disk by whatever they have
+// typed, and a position compared against the disk would be a position compared
+// against a version of the note nobody is looking at.
+//
+// One answer for the whole workspace rather than a first-match walk of the reader's
+// own tabs: which of several tabs showing the same note is "the" one is not a
+// question this helper was asked, and all of them hold the same text.
+export function markdownViewFor(app: App, path: string): MarkdownView | undefined {
+	for (const leaf of app.workspace.getLeavesOfType('markdown')) {
+		const view = leaf.view as MarkdownView | undefined;
+		if (view?.file?.path === path && typeof view.editor?.getLine === 'function')
+			return view;
+	}
+	return undefined;
 }
 
 // A leaf's id. Runtime API, absent from the public typings — the single place

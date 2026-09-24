@@ -219,11 +219,13 @@ function harness(
 	// the vault no longer has (see the "a file that is gone" suite). It wins over
 	// `files`, so a test can say "this was there, and is not any more".
 	deleted: string[] = [],
-	// paths held open in an editor: the panel describes a place from the ENTRY it
-	// was recorded in and never from a live editor, so nothing here is ever read
-	// for the panel. The fake app exposes them anyway, because a fixture that
-	// could not show a leaf holding a note would not be the app the browser was
-	// written against.
+	// paths held open in an editor. The panel's ROWS are drawn from the entries and
+	// from nothing else — but a row's line number is re-found in the note as it stands
+	// TODAY (see recent-files/browser/now-line.ts), and an open note's own buffer is the
+	// best answer to that there is: it is ahead of the file on disk by whatever the
+	// reader has typed and not saved. So the fake app hands these out through
+	// `getLeavesOfType`, and a test that wants a note edited since the record was taken
+	// says so here — which need not be the same text `files` holds for that path.
 	live: Record<string, string> = {},
 	// parsed headings per path, as metadataCache would report them
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
@@ -328,6 +330,23 @@ function harness(
 					});
 				}
 			},
+			// The leaves showing a markdown view: where a note's lines are read from when
+			// it is OPEN (see shared/leaf.ts's markdownViewFor). The same tabs the walk
+			// above sees, each with an editor that answers line by line.
+			getLeavesOfType: (type: string) => type !== 'markdown' ? [] : tabs.map((tab) => {
+				const lines = (live[tab.path] ?? '').split('\n');
+				return {
+					id: tab.leafId,
+					view: Object.assign(Object.create(MarkdownView.prototype), {
+						file: { path: tab.path },
+						editor: {
+							getValue: () => live[tab.path] ?? '',
+							getLine: (n: number) => lines[n] ?? '',
+							lastLine: () => lines.length - 1,
+						},
+					}),
+				};
+			}),
 		},
 	};
 	// The modal reads Platform once, at construction: flip it for exactly that
@@ -3814,5 +3833,81 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		card.remove();
 
 		expect(h.hover(h.note('b'))).not.toBeNull();
+	});
+});
+
+// A ROW'S LINE NUMBER IS AN ADDRESS, AND THE NOTE MOVES UNDER IT. What the app is
+// asked for from here is a SPOT, and a spot recorded last week may have had the ground
+// shift under its own number since: a paragraph written above it moves every line below.
+// So the number handed over is the one the note's own text answers to TODAY — or none at
+// all (see now-line.ts), which is the honest asking: a preview that opens the note without
+// naming a line was never wrong about where the spot was.
+describe('RecentFilesModal — a hover asks for the spot as it stands today', () => {
+	// The note as it was when the record was taken, and the spot: line 11 of it.
+	const SPOT = 11;
+	const st = captured(SPREAD_DOC, SPOT);
+	// …and as it stands now, with two lines written in above the spot: everything below
+	// has moved down by two, and the spot's own text has moved down with it.
+	const edited = [...SPREAD_DOC.slice(0, 2), '补记一行', '', ...SPREAD_DOC.slice(2)].join('\n');
+	const files = { 'a.md': SPREAD_DOC.join('\n') };
+	// The questions the app was asked, in order (see the suite above).
+	const asked = (trigger: unknown) =>
+		(trigger as { mock: { calls: unknown[][] } }).mock.calls
+			.filter(c => c[0] === 'hover-link')
+			.map(c => c[1] as { linktext?: string; state?: { scroll?: number } });
+	const one = (): NavEntry[] => [visit('a.md', NOW, st)];
+
+	it('names the line the spot stands at now, when the note is open', () => {
+		// The buffer of a note that is OPEN is the only source that cannot be behind: it
+		// is the text the reader is looking at, saved or not — and the file's own clock
+		// says the note has been written since the record was taken.
+		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 });
+
+		movedOnto(h.note('a'));
+
+		expect(asked(h.trigger)[0]).toMatchObject({
+			linktext: 'a.md',
+			state: { scroll: SPOT + 2 },
+		});
+	});
+
+	it('reads the note off the disk when no tab holds it, and names the line one hover later', async () => {
+		// Nothing is in hand the first time — the lines sit behind an await, and an asking
+		// is not going to wait for a file — so that hover asks for the note with NO number,
+		// and the reading it started is what lets the next one name the spot.
+		const h = harness(one(), 0, { 'a.md': edited }, [], {}, {}, false, { 'a.md': 9 });
+
+		movedOnto(h.note('a'));
+		expect(asked(h.trigger)[0].state).toBeUndefined();
+
+		// The reading lands, and the panel redraws with it (see redrawAfterLateRead).
+		await vi.advanceTimersByTimeAsync(LATE_READ_REDRAW_MS * 2);
+		movedOnto(h.note('a'));
+
+		expect(asked(h.trigger).at(-1)!.state).toEqual({ scroll: SPOT + 2 });
+	});
+
+	it('keeps the recorded number when the note has not been written since', () => {
+		// The file's clock says what the record says: nothing has been written, so the
+		// recorded line is still the line.
+		const h = harness([visit('a.md', NOW, { ...st, mtime: 4 })], 0, files, [], {}, {}, false,
+			{ 'a.md': 4 });
+
+		movedOnto(h.note('a'));
+
+		expect(asked(h.trigger)[0].state).toEqual({ scroll: SPOT });
+	});
+
+	it('names no line at all where the spot cannot be found again', () => {
+		// The note was rewritten: nothing left in it is the line the record's anchor names.
+		const h = harness(one(), 0, files, [], { 'a.md': '全新的一段\n'.repeat(20) }, {}, false,
+			{ 'a.md': 9 });
+
+		movedOnto(h.note('a'));
+
+		const question = asked(h.trigger)[0];
+		expect(question.state).toBeUndefined();
+		// …and no SECTION either: a heading belongs to a line, and there is no line.
+		expect(question.linktext).toBe('a.md');
 	});
 });

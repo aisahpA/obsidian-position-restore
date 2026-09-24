@@ -30,12 +30,15 @@
 // shows the history as it stands rather than as it stood when the panel opened, and one that
 // lives for a second (the modal) is not asked for anything more.
 
-import { App, HoverParent, Menu, MenuPositionDef, TFile, setIcon, Keymap } from 'obsidian';
+import { App, CachedMetadata, HoverParent, Menu, MenuPositionDef, TFile, setIcon, Keymap } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList, placeKey } from '@/recent-files/places';
 import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
 import { t } from '@/i18n';
+import { linesSource } from '@/position/capture/ephemeral';
+import { markdownViewFor } from '@/shared/leaf';
+import { nowLineFor, NowLineFacts } from './now-line';
 import { headingTrailAtLine, NavEntryDescription } from './model';
 import { RecentFilesReads } from './reads';
 import { RecentFilesList, RecentFilesListOptions } from './list';
@@ -180,6 +183,11 @@ export class RecentFilesBrowser {
 	// RecentFilesView.standAside).
 	private menu?: Menu;
 
+	// The three facts the vault has to answer for a line number to be re-found (see
+	// now-line.ts). Built once, and read through on every asking: the vault is where
+	// the answers live, and a copy of them would be a copy that goes stale.
+	private nowLines: NowLineFacts;
+
 	constructor(private opts: RecentFilesBrowserOptions) {
 		this.reads = new RecentFilesReads(opts.app, {
 			savedPosition: opts.savedPosition,
@@ -190,6 +198,26 @@ export class RecentFilesBrowser {
 			// reads.ts): the row it belongs to was already drawn without it.
 			onLateRead: () => this.redrawAfterLateRead(),
 		});
+		this.nowLines = {
+			mtimeOf: path => this.reads.mtimeOf(path),
+			cacheFor: (path: string): CachedMetadata | null => {
+				const file = this.opts.app.vault.getAbstractFileByPath(path);
+				return file instanceof TFile
+					? this.opts.app.metadataCache.getFileCache(file)
+					: null;
+			},
+			// A note that is OPEN is the only source that cannot be behind: its own
+			// buffer is what the reader is looking at, saved or not. Everything else is
+			// read off the disk, and only when the asker will wait for it (see
+			// RecentFilesReads.linesFor).
+			linesOf: (path, prime) => {
+				const open = markdownViewFor(this.opts.app, path);
+				if (open)
+					return open.editor;
+				const lines = this.reads.linesFor(path, prime);
+				return lines ? linesSource(lines) : undefined;
+			},
+		};
 	}
 
 	// Build the toolbar and the list inside the shell's element. One call per body: the
@@ -578,10 +606,33 @@ export class RecentFilesBrowser {
 
 	// The heading chain the entry's landing sits in. Empty for a view entry or an
 	// entry with no recorded line.
+	// The section chain a place sits in, read at the line it is at NOW rather than at
+	// the line it was recorded at (see now-line.ts) — the two halves of that sentence
+	// have to come from the same "now".
+	//
+	// A chain read out of the note as it stands today but at a line number the file has
+	// moved out from under names the section a DIFFERENT spot is in — and it names it
+	// without moving, without flashing and without anything else that would give it
+	// away, so the row quietly says "Beta" about a line that is now under "Alpha", and
+	// the preview asked for from that row opens Alpha. That was the whole disease, and
+	// re-finding the line first is the whole cure.
+	//
+	// WHERE THE ROW'S OWN WORDS ARE CONCERNED the recorded number still stands: a
+	// section is a coarse answer, and a few lines of drift inside one is not a
+	// different section. So a place this panel cannot re-find keeps the chain its own
+	// line number gives — more than a row with no chain at all, and never read by
+	// anything that opens the note (see previewAsk, which takes the strict answer).
+	//
+	// `prime` is false: a render of fifty rows must not read fifty files to label them
+	// (see RecentFilesReads.linesFor). What is already in hand is used, and a chain
+	// that arrives a render late arrives with the reading (see redrawAfterLateRead).
 	private trailFor(entry: NavEntry, d: NavEntryDescription): string[] {
-		if (entry.kind === 'view' || d.lineIndex === undefined)
+		if (entry.kind === 'view')
 			return [];
-		return headingTrailAtLine(this.reads.headingsFor(entry.path), d.lineIndex);
+		const line = nowLineFor(entry, d, this.nowLines, false) ?? d.lineIndex;
+		if (line === undefined)
+			return [];
+		return headingTrailAtLine(this.reads.headingsFor(entry.path), line);
 	}
 
 	private jump(i: number, target?: PaneTarget): void {
@@ -627,7 +678,18 @@ export class RecentFilesBrowser {
 		const entry = this.opts.places.entries[rep];
 		if (!entry || entry.kind === 'view')
 			return;
-		const ask = this.previewAsk(entry, entry.path, this.reads.describe(rep), file);
+		// WHERE THE ROW'S LINE IS TODAY, which is not always where it was when the row
+		// was recorded: the note may have been edited since (see now-line.ts), and a line
+		// number is an address rather than a place. The app is asked for the note at that
+		// line — and when this panel cannot say where it is, the asking simply carries no
+		// line at all (see previewAsk): the note opens at the app's own default instead of
+		// at a number this panel knows has moved under it.
+		//
+		// `prime` is true here, and only here: one hover may wait one await for one file,
+		// and nothing is drawn with the answer — a reader who gets the note a second too
+		// late to name its line gets the note, which is what they were pointing at.
+		const line = nowLineFor(entry, this.reads.describe(rep), this.nowLines);
+		const ask = this.previewAsk(entry, entry.path, file, line);
 		this.opts.app.workspace.trigger('hover-link', {
 			event: ev,
 			// Who is asking: the id the plugin registered (see main.ts), which is what lets
@@ -681,13 +743,19 @@ export class RecentFilesBrowser {
 	// the same place on the other side of the link, fall back to the number and are
 	// covered for the length of the jump: a wrong section delivered without moving once
 	// is worse than the right place arriving late.
+	//
+	// AND A ROW WHOSE LINE THIS PANEL CANNOT FIND NAMES NEITHER (see now-line.ts). A note
+	// rewritten past recognition has no spot left to be shown at, and the honest asking
+	// is the app's own plain one: the note opens, at whatever place the app opens it,
+	// rather than at a number that has the shape of a coordinate and none of its meaning.
+	// A preview that says nothing is not a preview that lied.
 	private previewAsk(
 		entry: NavEntry,
 		path: string,
-		d: NavEntryDescription,
 		file: boolean,
+		line: number | undefined,
 	): { linktext: string; state?: { scroll: number } } {
-		const heading = file ? undefined : this.subpathHeading(entry, path, d);
+		const heading = file || line === undefined ? undefined : this.subpathHeading(entry, path, line);
 		if (heading !== undefined)
 			return { linktext: `${path}#${heading}` };
 		return {
@@ -698,28 +766,35 @@ export class RecentFilesBrowser {
 			// instead of at the note's head. `scroll` is the app's own name for a markdown
 			// view's top visible line (see EphemeralState) — the same number the position
 			// database keeps, said in the vocabulary the view reads it in — so nothing
-			// here invents a state shape for a popover. A row that printed no line names
-			// no spot, and the note opens where the database lands it.
-			state: d.lineIndex === undefined ? undefined : { scroll: d.lineIndex },
+			// here invents a state shape for a popover.
+			//
+			// The number handed over is TODAY's (see nowLineFor), not the one the record
+			// carries: that one is the address the note had on the day it was taken.
+			state: line === undefined ? undefined : { scroll: line },
 		};
 	}
 
-	// The deepest heading over the row's line, when it can be TRUSTED to name the same
-	// section after the app has resolved `#heading` again. Two guards, each worth more
-	// than the covered jump it replaces: the app takes the FIRST heading with that text,
-	// so a note that says "Notes" twice would open the wrong one; and a heading carrying
-	// `#`, `^`, `|`, `[` or `]` would be read as link syntax instead of as its own name.
+	// The deepest heading over a line, when it can be TRUSTED to name the same section
+	// after the app has resolved `#heading` again. Two guards, each worth more than the
+	// covered jump it replaces: the app takes the FIRST heading with that text, so a note
+	// that says "Notes" twice would open the wrong one; and a heading carrying `#`, `^`,
+	// `|`, `[` or `]` would be read as link syntax instead of as its own name.
+	//
 	// What needs no guard is that the heading still exists: the trail is read from the
-	// cache, which is the note as it stands NOW (see reads.headingsFor) — not the note
-	// as it was when the visit was recorded.
-	private subpathHeading(entry: NavEntry, path: string, d: NavEntryDescription): string | undefined {
-		if (entry.kind === 'view' || d.lineIndex === undefined)
+	// cache, which is the note as it stands NOW (see reads.headingsFor). What DID need
+	// one, and did not have it, is the LINE the trail is read at — it used to be the
+	// recorded number, so a note edited above the spot handed the chain of a different
+	// section to a link that would go on to resolve it perfectly well and open it. Hence
+	// `line`, and hence this method taking one instead of a description: a heading is
+	// only ever read here at a line this panel has already re-found.
+	private subpathHeading(entry: NavEntry, path: string, line: number): string | undefined {
+		if (entry.kind === 'view')
 			return undefined;
-		const trail = this.trailFor(entry, d);
+		const headings = this.reads.headingsFor(path);
+		const trail = headingTrailAtLine(headings, line);
 		const deepest = trail[trail.length - 1];
 		if (!deepest || UNTRAVELABLE.test(deepest))
 			return undefined;
-		const headings = this.reads.headingsFor(path);
 		if (headings && headings.filter(h => h.heading === deepest).length !== 1)
 			return undefined;
 		return deepest;

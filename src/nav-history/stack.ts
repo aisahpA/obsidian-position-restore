@@ -3,7 +3,7 @@ import { EphemeralState, NavEntryState, PluginSettings, DEFAULT_SETTINGS } from 
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
 import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
-import { resolveAnchorLine, findHeading, decodeAnchor } from '@/position/restore/anchor';
+import { anchorLineShift, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
 	NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
@@ -1066,8 +1066,7 @@ export class NavStack implements NavFunnelSink {
 		const file = this.app.vault.getAbstractFileByPath(target.path);
 		if (!(file instanceof TFile))
 			return undefined;
-		const line = resolveAnchorLine(this.app.metadataCache.getFileCache(file), target.key, target.keyLine);
-		return line === undefined ? undefined : line - target.keyLine;
+		return anchorLineShift(this.app.metadataCache.getFileCache(file), target.key, target.keyLine);
 	}
 
 	// ===== Bookkeeping (this stack's own records — see PathBookkeeper) =====

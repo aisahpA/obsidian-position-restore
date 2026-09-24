@@ -1,6 +1,30 @@
 import { CachedMetadata } from 'obsidian';
 import { normAnchor } from '@/position/capture/ephemeral';
 
+// How far a keyed entry's anchor has DRIFTED: its line in the file NOW minus the
+// line it sat on when the entry was recorded (see NavJump.keyLine, which is what
+// the second number is). One number, asked of the metadata cache and of nothing
+// else — no file is read — so it is the cheap half of re-anchoring and the only
+// half a caller without the file's text in hand can run at all.
+//
+// Shared, because two callers have to agree on it: the traversal that is about to
+// open the file (see nav-history/stack.ts's landingFor, where no editor exists
+// yet) and the browser's own preview of a place it is not opening (see
+// recent-files/browser/now-line.ts). A drift read differently by the two would put
+// the same row's preview and its click on two different lines.
+//
+// Undefined when the anchor cannot be resolved — a renamed or removed heading, an
+// entry that never settled into a keyLine: the caller falls back to the text
+// snippet remap (remapAnchorLine) or says nothing.
+export function anchorLineShift(
+	cache: CachedMetadata | null,
+	key: string,
+	keyLine: number,
+): number | undefined {
+	const line = resolveAnchorLine(cache, key, keyLine);
+	return line === undefined ? undefined : line - keyLine;
+}
+
 // Structural re-anchor for a keyed NavJump: instead of guessing the line
 // from a text snippet (±30-line window in remapAnchoredState), resolve the
 // jump's own anchor — a heading or block id the key already carries — to its

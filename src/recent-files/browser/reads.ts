@@ -66,13 +66,18 @@ export class RecentFilesReads {
 	// headings and flattening the frontmatter — only happens once there is an answer
 	// to spare it on.
 	private meta = new Map<string, FileMeta>();
-	// The section chains taken out of a file's own text, for the notes the metadata
-	// cache has nothing to say about (see headingsFor). Kept beside the mtime the
-	// reading was taken at rather than invalidated by an event: the change that makes
-	// such a reading stale is an EXTERNAL one — a sync — and an external change fires
-	// no 'changed' (that is the whole reason this fallback exists), so the mtime is
-	// the only clock this reading has, and it is a clock the file keeps itself.
-	private text = new Map<string, { mtime: number; headings: HeadingRef[] }>();
+	// A file's own TEXT, for the two questions the metadata cache cannot answer: the
+	// section chain of a note it has not re-parsed (see headingsFor), and the line a
+	// stale line number has moved to (see linesFor). ONE reading serves both — a note's
+	// lines are the lines its headings sit on — so the second question costs nothing
+	// the first has not already paid.
+	//
+	// Kept beside the mtime the reading was taken at rather than invalidated by an
+	// event: the change that makes such a reading stale is an EXTERNAL one — a sync —
+	// and an external change fires no 'changed' (that is the whole reason this
+	// fallback exists), so the mtime is the only clock this reading has, and it is a
+	// clock the file keeps itself.
+	private text = new Map<string, { mtime: number; headings: HeadingRef[]; lines: string[] }>();
 	// The paths whose text is being read right now: however many renders ask before a
 	// reading lands, the file is read once.
 	private reading = new Set<string>();
@@ -189,34 +194,59 @@ export class RecentFilesReads {
 	// is the last reading taken at this mtime, if there is one — a chain one sync old
 	// still names the section, which is more than a line number does.
 	private textHeadings(path: string): HeadingRef[] | undefined {
+		return this.ensureText(path)?.headings ?? this.text.get(path)?.headings;
+	}
+
+	// The note's lines as they stand NOW — what a stale line number is re-found in (see
+	// recent-files/browser/now-line.ts). Undefined when they are not in hand, and
+	// NEVER a reading taken at an older mtime: the lines are the thing being compared
+	// against, so a stale copy of them is not an approximation of the answer, it is
+	// the absence of one.
+	//
+	// `prime` is whether a reading may be STARTED to answer the question. One hover may
+	// — the answer is one await away and nothing is drawn with it. A render of fifty
+	// rows may NOT: fifty files read to label fifty rows is not a price a redraw pays,
+	// and what those rows print they can print from the numbers they already have.
+	linesFor(path: string, prime: boolean): string[] | undefined {
+		return this.ensureText(path, prime)?.lines;
+	}
+
+	// The file's text, when it is already in hand at the file's current mtime. When it
+	// is not, start reading it — unless `prime` says the asker will not wait — and
+	// answer undefined: the caller draws (or asks the app) with what it had, and hears
+	// about the reading when it lands (see RecentFilesReadsOptions.onLateRead).
+	private ensureText(path: string, prime = true) {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		if (!(file instanceof TFile))
 			return undefined;
 		const known = this.text.get(path);
 		const mtime = file.stat.mtime;
 		if (known && known.mtime === mtime)
-			return known.headings;
-		if (!this.reading.has(path)) {
+			return known;
+		if (prime && !this.reading.has(path)) {
 			this.reading.add(path);
 			void this.readText(path, file, mtime);
 		}
-		return known?.headings;
+		return undefined;
 	}
 
-	// One file's headings, out of its text, remembered against the mtime they were read
-	// at (see `text`). A read that FAILS is remembered as no headings at that mtime
-	// rather than left to be asked again: a file that will not read is one this list is
-	// about to stop drawing anyway (see hasFile), and a question left open would be
-	// asked again on every redraw for as long as the body lived.
+	// One file's headings and lines, out of its text, remembered against the mtime they
+	// were read at (see `text`). A read that FAILS is remembered as no headings and no
+	// lines at that mtime rather than left to be asked again: a file that will not read
+	// is one this list is about to stop drawing anyway (see hasFile), and a question
+	// left open would be asked again on every redraw for as long as the body lived.
 	private async readText(path: string, file: TFile, mtime: number): Promise<void> {
 		let headings: HeadingRef[] = [];
+		let lines: string[] = [];
 		try {
-			headings = headingsFromText(await this.app.vault.cachedRead(file));
+			const content = await this.app.vault.cachedRead(file);
+			headings = headingsFromText(content);
+			lines = content.split('\n');
 		} catch {
 			// Nothing to say about it, then: the row keeps its line number.
 		}
 		this.reading.delete(path);
-		this.text.set(path, { mtime, headings });
+		this.text.set(path, { mtime, headings, lines });
 		this.opts.onLateRead?.();
 	}
 

@@ -259,56 +259,78 @@ export function normAnchor(text: string): string {
 	return text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
 }
 
-// Re-map a stale recorded position to the file's current lines: the entry
-// text anchor (see readNavEntryState) locates the line that used to sit at
-// the recorded line number. Nearest-first scan around it; no match applies
-// the position as recorded. Returns a shifted copy — callers' entries stay
-// immutable (keyed-entry semantics), the original anchor stays with the
-// entry for the next apply.
-export function remapAnchoredState(
-	editor: { getLine(line: number): string; lastLine(): number },
-	st: NavEntryState,
-): NavEntryState {
-	const anchor = st.anchor;
-	if (!anchor)
-		return st;
-	const line = st.scroll ?? st.cursor?.from.line;
-	if (line === undefined || line < 0)
-		return st;
-	const last = editor.lastLine();
+// Anywhere lines can be read out of by number: an editor's buffer, or a file's
+// lines read off disk. The whole shape the scan below needs and nothing more —
+// which is what lets ONE scan serve a note that is open (its buffer, ahead of the
+// file on disk by however much the reader has typed and not saved) and one that
+// is not.
+export interface LineSource {
+	getLine(line: number): string;
+	lastLine(): number;
+}
+
+// A file's lines as that shape: what the scan is handed for a note that is not
+// open. Split once, kept by whoever asked for it.
+export function linesSource(lines: string[]): LineSource {
+	return {
+		getLine: (line: number) => lines[line] ?? '',
+		lastLine: () => lines.length - 1,
+	};
+}
+
+// WHERE THE ANCHOR'S LINE IS NOW: the one scan, over any line source. A record
+// names a line NUMBER and the text that stood on it; the file has moved since —
+// inserts and deletes above shift every line below — so the number is a stale
+// address and the text is the only thing left that knows the place. Nearest-first
+// outwards from the recorded line, because an edit shifts lines by a few, not by a
+// relocation; an exact hit outranks a nearer normalized one, because an unedited
+// copy of the recorded line is more credible than an edited lookalike.
+//
+// UNDEFINED MEANS UNKNOWN, NOT UNCHANGED, and that is the whole reason this scan
+// answers in a line rather than in a shift: a note rewritten past recognition has
+// no answer to give, and a caller that read undefined as "it is where it was"
+// would go on quoting a number it knows nothing about. Two passes, plain text
+// first: the common unedited case costs nothing but string compares, and only a
+// miss pays for normalization.
+export function remapAnchorLine(
+	anchor: string | undefined,
+	recorded: number | undefined,
+	src: LineSource,
+): number | undefined {
+	if (!anchor || recorded === undefined || recorded < 0)
+		return undefined;
+	const last = src.lastLine();
 	const key = normAnchor(anchor);
-	// Two passes: plain text first — the common unedited case, nothing but
-	// string compares — and the normalized scan only when plain found
-	// nothing. A per-line `exact || norm` predicate would NOT buy this: the
-	// unmatching majority (most of the window) pays the regex on every
-	// scan. An exact hit outranks a nearer normalized one — an unedited
-	// copy of the recorded line is more credible than an edited lookalike.
 	for (const hit of [
 		(text: string) => text.trim() === anchor,
 		(text: string) => normAnchor(text) === key,
 	]) {
-		if (line <= last && hit(editor.getLine(line)))
-			return st;
+		if (recorded <= last && hit(src.getLine(recorded)))
+			return recorded;
 		for (let d = 1; d <= REMAP_WINDOW; d++) {
-			for (const at of [line + d, line - d]) {
+			for (const at of [recorded + d, recorded - d]) {
 				if (at < 0 || at > last)
 					continue;
-				if (hit(editor.getLine(at))) {
-					const delta = at - line;
-					const mapped: NavEntryState = { ...st, anchor: undefined };
-					if (mapped.scroll !== undefined)
-						mapped.scroll = Math.max(0, mapped.scroll + delta);
-					if (mapped.cursor)
-						mapped.cursor = {
-							from: { ...mapped.cursor.from, line: mapped.cursor.from.line + delta },
-							to: { ...mapped.cursor.to, line: mapped.cursor.to.line + delta },
-						};
-					return mapped;
-				}
+				if (hit(src.getLine(at)))
+					return at;
 			}
 		}
 	}
-	return st;
+	return undefined;
+}
+
+// Re-map a stale recorded position to the file's current lines: the entry
+// text anchor (see readNavEntryState) locates the line that used to sit at
+// the recorded line number. Returns a shifted copy — callers' entries stay
+// immutable (keyed-entry semantics), the original anchor stays with the
+// entry for the next apply. No anchor, no scan, no change: the position is
+// applied exactly as it was recorded.
+export function remapAnchoredState(editor: LineSource, st: NavEntryState): NavEntryState {
+	const base = st.scroll ?? st.cursor?.from.line;
+	if (base === undefined || base < 0)
+		return st;
+	const at = remapAnchorLine(st.anchor, base, editor);
+	return at === undefined || at === base ? st : shiftNavState(st, at - base);
 }
 
 // Shift a recorded position by `delta` lines — the structural anchor's drift:

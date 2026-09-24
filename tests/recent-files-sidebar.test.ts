@@ -156,6 +156,9 @@ function makeApp(paths: string[] = []) {
 		workspace: {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
+			// No markdown leaf is open in this file's harness: a note's lines are read
+			// off the disk here, if they are read at all (see now-line.ts).
+			getLeavesOfType: () => [],
 			trigger,
 		},
 	};
