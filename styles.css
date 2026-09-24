@@ -1161,9 +1161,11 @@ body.is-mobile .position-restore-cue {
 }
 
 /* There is no dialog title above the toolbar here — the pane's own header names
-   the panel — so the strip brings its own inset. */
+   the panel — so the strip brings its own inset, and the top one is the wider of
+   the two: the header's own rule already sits close above the filter line, and a
+   few px more is what keeps the two lines from reading as one row. */
 .position-restore-nav-view .position-restore-nav-toolbar {
-	padding: 6px 8px 8px;
+	padding: 12px 8px 8px;
 }
 
 /* A phone held sideways has ~370px of height for everything: the dialog's name, the
