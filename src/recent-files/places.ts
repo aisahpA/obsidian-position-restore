@@ -71,6 +71,18 @@ export interface PlaceList {
 	//
 	// What stays is the note's own record and its other places.
 	forgetLanding(keys: readonly string[]): void;
+	// The rows the reader pinned, in the order they are shown — top first. A ROW
+	// identity (see navGroupKey), never a landing: a pin is a bookmark for a note,
+	// not for one spot inside it.
+	pinned: readonly string[];
+	// Pin a row, take the pin off, or move one a step up or down inside the pinned
+	// block. `key` is the row's identity, the same thing forget takes, so a pin
+	// outlives the landings inside the row and leaves with the row.
+	pin(key: string): void;
+	unpin(key: string): void;
+	movePinned(key: string, delta: number): void;
+	// Whether a row is pinned — asked by the panel, which draws the two blocks.
+	isPinned(key: string): boolean;
 	// Something a browser would have to redraw for.
 	subscribe(fn: () => void): () => void;
 }
@@ -103,6 +115,17 @@ const NO_OPENERS: PlaceOpeners = {
 export class NavPlaces implements PlaceList {
 	entries: NavEntry[] = [];
 	index = -1;
+	// The rows the reader pinned, top first, persisted with the places themselves
+	// (see places-store): a pin and the row it names are one list's two halves.
+	//
+	// NOT a setting. A pin is the reader's answer about THIS list, and the list
+	// belongs to the machine that made it — a vault copied to another device
+	// brings its places and its pins or neither (see #34's wish).
+	//
+	// A pin is kept out of the ceiling (see dropOldestRows) and out of the rules
+	// (see pruneExcluded) on purpose: both bound what the list remembers BY
+	// ITSELF, and a pinned row is one the reader named by hand.
+	pinned: string[] = [];
 
 	private listeners = new Set<() => void>();
 	private open: PlaceOpeners = NO_OPENERS;
@@ -114,7 +137,9 @@ export class NavPlaces implements PlaceList {
 		// read live, so changing either takes effect on the next write.
 		private settings: PluginSettings,
 	) {
-		this.entries = loadNavPlaces(app);
+		const blob = loadNavPlaces(app);
+		this.entries = blob.entries;
+		this.pinned = blob.pinned;
 	}
 
 	// The composition root hands in the open pipeline once it exists (see
@@ -302,6 +327,50 @@ export class NavPlaces implements PlaceList {
 		this.changed();
 	}
 
+	// ===== Pinning =====
+
+	pin(key: string): void {
+		if (!key || this.pinned.includes(key))
+			return;
+		// The newest pin goes FIRST: the block is a shelf the reader is
+		// arranging, and the one they just put up is the one they want to find.
+		this.pinned.unshift(key);
+		this.afterPinChange();
+	}
+
+	unpin(key: string): void {
+		const at = this.pinned.indexOf(key);
+		if (at < 0)
+			return;
+		this.pinned.splice(at, 1);
+		this.afterPinChange();
+	}
+
+	// One step up (delta -1) or down (delta +1), and nothing at either end or for
+	// a row the block does not hold: the reader is rearranging a shelf, not
+	// sorting a column.
+	movePinned(key: string, delta: number): void {
+		const at = this.pinned.indexOf(key);
+		const to = at + delta;
+		if (at < 0 || to < 0 || to >= this.pinned.length)
+			return;
+		this.pinned[at] = this.pinned[to];
+		this.pinned[to] = key;
+		this.afterPinChange();
+	}
+
+	isPinned(key: string): boolean {
+		return this.pinned.includes(key);
+	}
+
+	// A pin is written down AT ONCE and not left to the next flush: pinning is a
+	// rare, deliberate act, and a quit a few seconds later would otherwise take
+	// it back — which reads as a feature that forgot on purpose.
+	private afterPinChange(): void {
+		this.persist();
+		this.changed();
+	}
+
 	// ===== Bookkeeping =====
 
 	// A rename re-keys the places that named the file. Identity is recomputed from `path`,
@@ -312,6 +381,14 @@ export class NavPlaces implements PlaceList {
 			if (entry.kind === 'view' || entry.path !== oldPath)
 				continue;
 			entry.path = newPath;
+			renamed = true;
+		}
+		// …and the pin moves with it, because a pin names the ROW and a note's row
+		// is its path (see navGroupKey): renamed here, forgotten there would leave
+		// a pin pointing at a name nothing answers to.
+		const at = this.pinned.indexOf(oldPath);
+		if (at >= 0) {
+			this.pinned[at] = newPath;
 			renamed = true;
 		}
 		if (renamed)
@@ -361,7 +438,14 @@ export class NavPlaces implements PlaceList {
 	private dropPlaces(key: string): void {
 		const current = this.entries[this.index];
 		const kept = this.entries.filter(e => navGroupKey(e) !== key);
-		if (kept.length === this.entries.length)
+		// The pin leaves with the row — a row that is gone (a deleted file, or one
+		// the reader took off the list) would otherwise leave a pin that shows
+		// nothing and can only be found by remembering it.
+		const at = this.pinned.indexOf(key);
+		const unpinned = at >= 0;
+		if (unpinned)
+			this.pinned.splice(at, 1);
+		if (kept.length === this.entries.length && !unpinned)
 			return;
 		this.entries = kept;
 		this.index = current && kept.includes(current) ? kept.indexOf(current) : -1;
@@ -374,7 +458,14 @@ export class NavPlaces implements PlaceList {
 	// @returns how many places were dropped.
 	pruneExcluded(): number {
 		const current = this.entries[this.index];
-		const kept = this.entries.filter(e => e.kind === 'view' || this.recordable(e.path));
+		const pinned = new Set(this.pinned);
+		// A PIN OUTLIVES A RULE. The rules answer what the list remembers BY
+		// ITSELF — a folder or a property the reader said not to record — while a
+		// pinned row is one they named by hand, and a later rule is not a later
+		// answer about that row.
+		const kept = this.entries.filter(e => e.kind === 'view'
+			|| pinned.has(navGroupKey(e))
+			|| this.recordable(e.path));
 		const removed = this.entries.length - kept.length;
 		if (removed === 0)
 			return 0;
@@ -442,7 +533,7 @@ export class NavPlaces implements PlaceList {
 	// instance field, not module state: the list is per vault, and a dedup shared between
 	// instances would let one skip a write it owes.
 	persist(): void {
-		this.lastPersisted = persistNavPlaces(this.app, this.entries, this.lastPersisted);
+		this.lastPersisted = persistNavPlaces(this.app, this.entries, this.pinned, this.lastPersisted);
 	}
 
 	// ===== Internals =====
@@ -497,12 +588,20 @@ export class NavPlaces implements PlaceList {
 	// takes to draw. Rows are ordered by their NEWEST place: the same clock the panel
 	// reads, an index being the time (see list.ts).
 	private dropOldestRows(): void {
-		const over = this.rowCount() - this.cap();
-		if (over <= 0)
-			return;
+		const pinned = new Set(this.pinned);
 		const newest = new Map<string, number>();
 		for (let i = 0; i < this.entries.length; i++)
 			newest.set(navGroupKey(this.entries[i]), i);
+		// What the ceiling counts is the rows the reader did NOT name: a pin is
+		// kept ON TOP of the number rather than out of it, so pinning a note does
+		// not quietly cost them one of the fifty they set.
+		let counted = 0;
+		for (const key of newest.keys())
+			if (!pinned.has(key))
+				counted++;
+		const over = counted - this.cap();
+		if (over <= 0)
+			return;
 		const oldestFirst = Array.from(newest.entries())
 			.sort((a, b) => a[1] - b[1])
 			.map(([key]) => key);
@@ -512,6 +611,11 @@ export class NavPlaces implements PlaceList {
 			if (doomed.size >= over)
 				break;
 			if (key === currentKey)
+				continue;
+			// A pin does not age out. The ceiling bounds what the list remembers
+			// by itself, and an eviction the reader did not ask for is the one
+			// thing a pin exists to prevent.
+			if (pinned.has(key))
 				continue;
 			doomed.add(key);
 		}
@@ -542,11 +646,15 @@ export class NavPlaces implements PlaceList {
 		const over = held - this.cap();
 		if (over <= 0)
 			return;
+		const pinned = new Set(this.pinned);
 		const kept: NavEntry[] = [];
 		let dropped = 0;
 		for (let i = 0; i < this.entries.length; i++) {
 			const entry = this.entries[i];
-			if (entry.kind === 'jump' && dropped < over && i !== this.index) {
+			// A pinned row's landings are its own: the block draws the note, and
+			// the pool here bounds what the list stores by itself.
+			if (entry.kind === 'jump' && dropped < over && i !== this.index
+				&& !pinned.has(navGroupKey(entry))) {
 				dropped++;
 				continue;
 			}

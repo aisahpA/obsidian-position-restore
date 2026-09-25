@@ -10,8 +10,10 @@ import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 
 // This list's own format version, beside the blob it describes: the two are
 // different things written at different cadences, and one must be droppable
-// without the other.
-export const RECENT_PLACES_VERSION = 1;
+// without the other. Raised when the SHAPE changes (2 added the pin list) —
+// a blob from another version is dropped whole rather than migrated, which is
+// affordable because the list is disposable: an empty one refills itself.
+export const RECENT_PLACES_VERSION = 2;
 
 // Desktop localStorage is shared across vaults (same app origin); appId is the
 // per-vault discriminator. Not in the public typings. The key is its own, so
@@ -21,19 +23,28 @@ export function navPlacesStorageKey(app: App): string {
 	return `position-restore:nav-recent:${appId}`;
 }
 
+// What the blob holds: the places, and the rows the reader pinned (see
+// NavPlaces.pinned). Read as a pair because the two are one list — a pin whose
+// place is gone is a pin with nothing to show, and keeping them in separate
+// keys would let them drift apart.
+export interface NavPlacesBlob {
+	entries: NavEntry[];
+	pinned: string[];
+}
+
 // Oldest first — the array's order IS the MRU order (a touched place is moved
 // to the end, see places.ts).
-export function loadNavPlaces(app: App): NavEntry[] {
+export function loadNavPlaces(app: App): NavPlacesBlob {
 	try {
 		const raw = window.localStorage.getItem(navPlacesStorageKey(app));
 		if (!raw)
-			return [];
-		const parsed = JSON.parse(raw) as { v?: unknown; places?: unknown };
+			return { entries: [], pinned: [] };
+		const parsed = JSON.parse(raw) as { v?: unknown; places?: unknown; pinned?: unknown };
 		// Version gate: a pre-versioned or foreign blob is dropped whole. The
 		// list is disposable — an empty one refills itself — so nothing is
 		// migrated.
 		if (parsed.v !== RECENT_PLACES_VERSION)
-			return [];
+			return { entries: [], pinned: [] };
 		const places = Array.isArray(parsed.places)
 			? parsed.places.filter((e): e is NavEntry => isPlaceEntry(e))
 			: [];
@@ -42,11 +53,21 @@ export function loadNavPlaces(app: App): NavEntry[] {
 		// are not what they claim to be go, the place itself stays.
 		for (const place of places)
 			pruneViewSnapshot(place);
-		return places;
+		return { entries: places, pinned: readPinned(parsed.pinned) };
 	} catch (e) {
 		console.error('Position Restore: can not read the recent files list:', e);
-		return [];
+		return { entries: [], pinned: [] };
 	}
+}
+
+// A pin is a ROW identity (see navGroupKey). Filtered rather than validated:
+// the list of them is the reader's own note-taking, so a name that is not a
+// string was never a pin and a pin whose row is gone is dead weight, not an
+// error worth dropping the whole list over.
+function readPinned(raw: unknown): string[] {
+	return Array.isArray(raw)
+		? raw.filter((k): k is string => typeof k === 'string' && !!k)
+		: [];
 }
 
 // The stack's per-entry check plus this list's one extra invariant — an
@@ -76,9 +97,9 @@ function isPlaceShape(e: unknown): e is NavEntry {
 	return str(entry.path);
 }
 
-export function serializeNavPlaces(entries: NavEntry[]): string {
+export function serializeNavPlaces(entries: NavEntry[], pinned: readonly string[]): string {
 	// entries is a plain array of plain objects — JSON-safe as is.
-	return JSON.stringify({ v: RECENT_PLACES_VERSION, places: entries });
+	return JSON.stringify({ v: RECENT_PLACES_VERSION, places: entries, pinned });
 }
 
 // Writes the list unless the blob is byte-identical to `previous` (the same
@@ -87,9 +108,10 @@ export function serializeNavPlaces(entries: NavEntry[]): string {
 export function persistNavPlaces(
 	app: App,
 	entries: NavEntry[],
+	pinned: readonly string[],
 	previous: string,
 ): string {
-	const serialized = serializeNavPlaces(entries);
+	const serialized = serializeNavPlaces(entries, pinned);
 	if (serialized === previous)
 		return previous;
 	try {

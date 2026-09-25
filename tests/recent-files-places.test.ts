@@ -888,6 +888,142 @@ describe('NavPlaces — bookkeeping', () => {
 	});
 });
 
+// A PIN is the reader's own answer about a row: it is kept out of the ceiling,
+// out of the rules and out of the trim, and it leaves with the row it names.
+describe('NavPlaces — pinning a row', () => {
+	it('puts the newest pin first, and never pins the same row twice', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+
+		places.pin('a.md');
+		places.pin('b.md');
+		places.pin('b.md');
+
+		expect(places.pinned).toEqual(['b.md', 'a.md']);
+	});
+
+	it('moves a pin one step, and nowhere at either end', () => {
+		const { places } = makePlaces();
+		for (const p of ['a.md', 'b.md', 'c.md'])
+			places.remember(visit(p));
+		places.pin('a.md');
+		places.pin('b.md');
+		places.pin('c.md');
+
+		places.movePinned('c.md', 1);
+		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
+		places.movePinned('b.md', -1);
+		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
+		places.movePinned('c.md', 1);
+		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+		places.movePinned('c.md', 1);
+		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+		places.movePinned('nope.md', -1);
+		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+	});
+
+	it('takes a pin off, and says nothing for a row that was never pinned', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.pin('a.md');
+		places.pin('b.md');
+
+		places.unpin('a.md');
+		places.unpin('nope.md');
+
+		expect(places.pinned).toEqual(['b.md']);
+		expect(places.isPinned('b.md')).toBe(true);
+		expect(places.isPinned('a.md')).toBe(false);
+	});
+
+	// THE CEILING counts the rows the reader did NOT name: a pin is kept on top of
+	// the number and not out of it, so pinning a note costs them none of the fifty.
+	it('keeps a pinned row on top of the ceiling rather than inside it', () => {
+		const { places } = makePlaces({ recentFilesCap: 2 });
+		for (const p of ['a.md', 'b.md', 'c.md'])
+			places.remember(visit(p));
+		places.pin('b.md');
+
+		for (const p of ['d.md', 'e.md'])
+			places.remember(visit(p));
+
+		// The unnamed rows are c, d, e — one over, and the oldest of them goes.
+		expect(paths(places)).toEqual(['b.md', 'd.md', 'e.md']);
+	});
+
+	it('keeps a pinned row’s own landings out of the landing ceiling', () => {
+		const { places } = makePlaces({ recentFilesCap: 1 });
+		places.remember(visit('a.md'));
+		places.pin('a.md');
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+
+		expect(places.applyCap()).toBe(0);
+		expect(places.entries.filter(e => e.kind === 'jump')).toHaveLength(2);
+	});
+
+	it('keeps a pinned row when a rule added later would exclude it', () => {
+		const settings = makeSettings();
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('b.md'));
+		places.pin('notes/a.md');
+
+		settings.recentFilesExcludeFolders = ['notes'];
+
+		expect(places.pruneExcluded()).toBe(0);
+		expect(paths(places)).toEqual(['notes/a.md', 'b.md']);
+	});
+
+	it('moves a pin with the file it names', () => {
+		const { places } = makePlaces();
+		places.remember(visit('old.md'));
+		places.pin('old.md');
+
+		places.renameFile('old.md', 'new.md');
+
+		expect(places.pinned).toEqual(['new.md']);
+	});
+
+	it('takes the pin with the row when the row is gone', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.pin('a.md');
+
+		places.deleteFile('a.md');
+		expect(places.pinned).toEqual([]);
+
+		places.pin('b.md');
+		places.forget('b.md');
+		expect(places.pinned).toEqual([]);
+	});
+
+	it('writes a pin down at once, rather than leaving it to the next flush', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.persist();
+		places.pin('a.md');
+
+		expect(new NavPlaces(makeApp(), makeSettings()).pinned).toEqual(['a.md']);
+	});
+
+	it('tells the panel about a pin, and about nothing that pinned nothing', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.pin('a.md');
+		places.pin('a.md');
+		places.unpin('nope.md');
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe('NavPlaces — persistence', () => {
 	it('round-trips the list per vault', () => {
 		const { places } = makePlaces();
