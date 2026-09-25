@@ -389,7 +389,7 @@ function harness(
 	// reader's order — so a test can watch the row move rather than only the call.
 	const pin = vi.fn((key: string) => {
 		if (!pinned.includes(key))
-			pinned.unshift(key);
+			pinned.push(key);
 	});
 	const unpin = vi.fn((key: string) => {
 		const at = pinned.indexOf(key);

@@ -131,7 +131,7 @@ class FakeNav {
 	// exactly as a removal does (see NavPlaces.afterPinChange).
 	pin(key: string): void {
 		if (!this.pinned.includes(key))
-			this.pinned.unshift(key);
+			this.pinned.push(key);
 		for (const fn of this.listeners)
 			fn();
 	}

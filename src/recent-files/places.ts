@@ -332,9 +332,11 @@ export class NavPlaces implements PlaceList {
 	pin(key: string): void {
 		if (!key || this.pinned.includes(key))
 			return;
-		// The newest pin goes FIRST: the block is a shelf the reader is
-		// arranging, and the one they just put up is the one they want to find.
-		this.pinned.unshift(key);
+		// The newest pin goes LAST: the block is a shelf the reader is filling,
+		// and a new one arriving at the top would push the rows they arranged
+		// down under it — which is the one thing a pin is not supposed to do to
+		// the pins that are already there.
+		this.pinned.push(key);
 		this.afterPinChange();
 	}
 

@@ -891,7 +891,9 @@ describe('NavPlaces — bookkeeping', () => {
 // A PIN is the reader's own answer about a row: it is kept out of the ceiling,
 // out of the rules and out of the trim, and it leaves with the row it names.
 describe('NavPlaces — pinning a row', () => {
-	it('puts the newest pin first, and never pins the same row twice', () => {
+	it('puts a new pin at the END of the block, and never pins the same row twice', () => {
+		// A pin arriving at the top would push down the rows the reader had
+		// already arranged; the block is a shelf they are filling, not a stack.
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(visit('b.md'));
@@ -900,7 +902,7 @@ describe('NavPlaces — pinning a row', () => {
 		places.pin('b.md');
 		places.pin('b.md');
 
-		expect(places.pinned).toEqual(['b.md', 'a.md']);
+		expect(places.pinned).toEqual(['a.md', 'b.md']);
 	});
 
 	it('moves a pin one step, and nowhere at either end', () => {
@@ -910,17 +912,18 @@ describe('NavPlaces — pinning a row', () => {
 		places.pin('a.md');
 		places.pin('b.md');
 		places.pin('c.md');
+		expect(places.pinned).toEqual(['a.md', 'b.md', 'c.md']);
 
-		places.movePinned('c.md', 1);
-		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
-		places.movePinned('b.md', -1);
-		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
-		places.movePinned('c.md', 1);
+		places.movePinned('a.md', -1);
+		expect(places.pinned).toEqual(['a.md', 'b.md', 'c.md']);
+		places.movePinned('a.md', 1);
 		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
 		places.movePinned('c.md', 1);
 		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+		places.movePinned('c.md', -1);
+		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
 		places.movePinned('nope.md', -1);
-		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
 	});
 
 	it('takes a pin off, and says nothing for a row that was never pinned', () => {
