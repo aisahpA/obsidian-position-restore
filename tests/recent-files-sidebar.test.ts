@@ -85,6 +85,10 @@ const place = (path: string, stamp: number, line: number): NavEntry =>
 class FakeNav {
 	entries: NavEntry[] = [];
 	index = -1;
+	// The rows the reader pinned, as the store hands them over (see
+	// NavPlaces.pinned): a test writes the array itself, which is what the
+	// right-click menu does to the store's.
+	pinned: string[] = [];
 	readonly jumped: number[] = [];
 	private listeners = new Set<() => void>();
 

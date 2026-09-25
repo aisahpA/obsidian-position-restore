@@ -250,6 +250,11 @@ function harness(
 	// without one is a panel whose every note has no spot at all, which is what most of
 	// this suite is about.
 	saved: (path: string) => EphemeralState | undefined = () => undefined,
+	// The rows the reader PINNED, as the store hands them over (see
+	// NavPlaces.pinned): group keys, in the reader's own order. The array is
+	// handed back to the test, so a test can pin a row the way the menu does
+	// and then ask the panel to redraw (see `changed`).
+	pinned: string[] = [],
 ) {
 	// The place list's travel: the panel hands it a place index and the list
 	// decides how to go there (a file opens the plain way, a jump lands — see
@@ -379,7 +384,9 @@ function harness(
 				entries.splice(i, 1);
 		}
 	});
-	const places = { entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding };
+	const places = {
+		entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding, pinned,
+	};
 	let modal: RecentFilesModal;
 	try {
 		modal = new RecentFilesModal(app as never, places as never, saved, browserPrefs);
@@ -498,7 +505,7 @@ function harness(
 	const forgetButton = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
-		modal, jumpTo, forget, forgetLanding, cachedRead, el: modal.contentEl, entries, list,
+		modal, jumpTo, forget, forgetLanding, cachedRead, el: modal.contentEl, entries, list, pinned,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
@@ -3909,5 +3916,87 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		expect(question.state).toBeUndefined();
 		// …and no SECTION either: a heading belongs to a line, and there is no line.
 		expect(question.linktext).toBe('a.md');
+	});
+});
+
+describe('RecentFilesModal — the pinned rows', () => {
+	// A PIN is a bookmark for a NOTE, so the block holds one row per note and no
+	// landings under any of them; what the reader loses is the list of spots, not
+	// the newest one, which the row still stands for (see RecentFilesList).
+	const three = () => [
+		visit('a.md', NOW - 5 * MINUTE),
+		visit('b.md', NOW - 2 * MINUTE),
+		visit('c.md', NOW),
+	];
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+
+	it('draws the pinned rows first, in the reader’s own order, above a line', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['b.md', 'c.md']);
+
+		const names = h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+		// The pin order and not the clock: c.md is the newest place here and b.md
+		// is the older of the two pins, and the reader put b first.
+		expect(names).toEqual(['b', 'c', 'a']);
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+		expect(h.notes()[1].classList.contains('is-pinned')).toBe(true);
+		expect(h.notes()[2].classList.contains('is-pinned')).toBe(false);
+		// ONE line, under the block and nowhere else.
+		const lines = h.el.querySelectorAll('.position-restore-nav-pinned-sep');
+		expect(lines).toHaveLength(1);
+		expect(lines[0].nextElementSibling).toBe(h.notes()[2]);
+	});
+
+	it('prints no landings under a pinned row, even where the setting asks for them', () => {
+		const spots = [
+			visit('a.md', NOW - 5 * MINUTE, { scroll: 10 }),
+			visit('a.md', NOW - 4 * MINUTE, { scroll: 20 }),
+			visit('b.md', NOW - 3 * MINUTE, { scroll: 100 }),
+			visit('b.md', NOW - 2 * MINUTE, { scroll: 400 }),
+			visit('c.md', NOW),
+		];
+		const h = harness(spots, 4, files, [], {}, {}, false, {},
+			prefs({ landings: 'all' }).browser, undefined, ['b.md']);
+
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
+			.toEqual(['b', 'c', 'a']);
+		// b.md's two spots are not printed — the block is one row per note — while
+		// a.md, which nobody pinned, keeps both of its own.
+		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
+			.toEqual(['L11', 'L21']);
+	});
+
+	it('draws no line when the block is the whole list', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md', 'c.md']);
+
+		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+	});
+
+	it('skips a pin whose row is not on screen, and takes it up when the pin is made', () => {
+		// A pin naming a note the filter dropped is not a promise that it is listed.
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['gone.md']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
+			.toEqual(['c', 'b', 'a']);
+		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+
+		h.pinned.unshift('a.md');
+		h.changed();
+		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('a');
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+	});
+
+	it('opens what a pinned row stands for, and takes it off the list the same way', () => {
+		const spots = [visit('a.md', NOW - MINUTE, { scroll: 412 }), visit('b.md', NOW)];
+		const h = harness(spots, 1, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md']);
+
+		h.clickRow(h.note('a'));
+		// The row stands for the note's newest landing, as it does unpinned.
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+
+		h.clickRow(h.forgetButton(h.note('a')));
+		expect(h.forget).toHaveBeenCalledWith('a.md');
 	});
 });

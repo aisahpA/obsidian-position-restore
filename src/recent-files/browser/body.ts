@@ -161,6 +161,9 @@ export class RecentFilesBrowser {
 			landings: () => this.opts.prefs.landings(),
 			pathDisplay: () => this.opts.prefs.pathDisplay(),
 			rowTime: () => this.opts.prefs.rowTime(),
+			// Read per render: the pins are the reader's, and a panel that is
+			// standing there has to hear about one the moment it is made.
+			pinned: () => this.opts.places.pinned,
 			// Read per render, so a render that happens while the reader is on the list comes out
 			// in the order they are reading.
 			order: () => this.frozenOrder,

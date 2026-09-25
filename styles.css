@@ -238,6 +238,15 @@ body.is-mobile .position-restore-cue {
 	-webkit-overflow-scrolling: touch;
 }
 
+/* WHERE THE PINNED ROWS STOP. A LINE and nothing else: a heading would spend a
+   row's height saying what the line already says, and an icon on each row has
+   nowhere to stand — the row's far end belongs to its own controls. */
+.position-restore-nav-pinned-sep {
+	height: 0;
+	margin: 5px 8px 6px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
 /* Toolbar above the list: the filter box and the keyboard hint — the strip holds
    nothing else now that the panel's own settings are rows of the plugin's settings
    tab (see RecentFilesBrowserPrefs). A deliberately QUIET strip — the list below is what

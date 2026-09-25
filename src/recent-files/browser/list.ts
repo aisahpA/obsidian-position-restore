@@ -150,6 +150,11 @@ export interface RecentFilesListOptions {
 	// Whether a row says how long ago its note was last visited. Off, no
 	// element is built and none is hidden.
 	rowTime: () => boolean;
+	// The rows the reader PINNED, by group key, in the order they are shown.
+	// Pulled to the top of the list by the render, and drawn WITHOUT their
+	// landings: a pin is a bookmark for the note, and the block is meant to
+	// stay the size it is. Read per render.
+	pinned: () => readonly string[];
 	// The group order to HOLD the list at (see the class comment), or
 	// undefined to order by recency. Read per render.
 	order: () => readonly string[] | undefined;
@@ -181,7 +186,11 @@ export class RecentFilesList {
 	// The rows on screen, top to bottom; the keyboard walks THIS (see refs).
 	private refs: RowRef[] = [];
 	// The groups of the last render: what a file row's `group` indexes into.
+	// DRAWN ORDER — the pinned rows first, then the rest (see render).
 	private groups: ReturnType<typeof groupByFile> = [];
+	// How many of those groups are pinned: the first `pinnedCount` rows are the
+	// block, and they are the ones that print no landings.
+	private pinnedCount = 0;
 	// THE position: the row the reader is on. Undefined until the first key.
 	private selected: RowRef | undefined;
 	// The place the reader PRESSED, by identity, until its click arrives: what a
@@ -300,7 +309,13 @@ export class RecentFilesList {
 
 	// Whether this note's landings are printed under its own row right now. One
 	// landing is not a list — it is what the note's own row already stands for.
+	// A PINNED row prints none ever: the block is a shelf, and a row that grew
+	// two lines every time the reader visited the note would push the shelf
+	// down the panel. What a pin costs them is the LIST of spots; the row still
+	// stands for the newest one, so a click goes where it always did.
 	private printsLandings(group: number): boolean {
+		if (group < this.pinnedCount)
+			return false;
 		return this.opts.landings() === 'all' && (this.groups[group]?.indices.length ?? 0) > 1;
 	}
 
@@ -308,6 +323,36 @@ export class RecentFilesList {
 	// every distinct line, top of the note first.
 	private shownLandings(group: ReturnType<typeof groupByFile>[number], index: number): number[] {
 		return this.printsLandings(index) ? group.indices : [];
+	}
+
+	// Put the pinned rows at the top, in the reader's own order (see the
+	// `pinned` option), and count them. A pin naming a row that is not on
+	// screen — filtered out, or a place the list no longer holds — is skipped:
+	// the block is drawn from the rows that exist, and a pin is not a promise
+	// that its note is listed.
+	private pullPinnedToTop(): void {
+		const byKey = new Map(this.groups.map(g => [g.key, g]));
+		const pinned = this.opts.pinned();
+		const top: typeof this.groups = [];
+		for (const key of pinned) {
+			const group = byKey.get(key);
+			if (group)
+				top.push(group);
+		}
+		this.pinnedCount = top.length;
+		if (top.length === 0)
+			return;
+		const held = new Set(top);
+		this.groups = [...top, ...this.groups.filter(g => !held.has(g))];
+	}
+
+	// Whether the row just drawn is the last of the pinned block, which is when
+	// the line under it is owed — and only when something follows: a line under
+	// the whole list would be a line under nothing.
+	private endsPinnedBlock(index: number): boolean {
+		return this.pinnedCount > 0
+			&& index === this.pinnedCount - 1
+			&& this.groups.length > this.pinnedCount;
 	}
 
 	// (Re)draw the rows; the toolbar and the panel persist around them.
@@ -373,6 +418,11 @@ export class RecentFilesList {
 			// The order to hold, when the reader is on the list.
 			this.opts.order(),
 		);
+		// THE PINNED ROWS GO FIRST, in the order the reader put them in and not
+		// in the order the places happen to be in — that order is a clock, and a
+		// shelf the reader arranged is not one. Everything else keeps the order
+		// it came out of the grouping with (recency, or the held one).
+		this.pullPinnedToTop();
 		// The names two notes on screen share: measured over the rows ON
 		// SCREEN, so a collision the filter dropped costs nobody a folder.
 		const doubles = duplicateNames(this.groups.map(g => g.path));
@@ -381,6 +431,11 @@ export class RecentFilesList {
 			this.fileRow(group, index, doubles, query);
 			for (const i of this.shownLandings(group, index))
 				this.placeRow(i, i === group.currentRep, query);
+			// The block ends with a LINE and not with a heading: a pinned row is
+			// a row like any other, and the only thing that says which rows are
+			// the block is where it stops.
+			if (this.endsPinnedBlock(index))
+				this.opts.list.createDiv({ cls: 'position-restore-nav-pinned-sep' });
 		});
 		// What the LAYOUT did to the rows just drawn, read back now that they
 		// have a width to be measured against (see fitTrails).
@@ -466,6 +521,10 @@ export class RecentFilesList {
 		const row = this.opts.list.createDiv({ cls: `${ROW_CLASS} is-file` });
 		if (group.current)
 			row.addClass('is-current');
+		// The pinned block's own rows, marked for the stylesheet and for a test
+		// that has to tell them apart without reading the pin list.
+		if (index < this.pinnedCount)
+			row.addClass('is-pinned');
 		// WHICH SIDE the folder prints on is a class, not an insertion order:
 		// the DOM order is fixed so the row reads in one order however it is
 		// drawn, and the visual order is the stylesheet's.

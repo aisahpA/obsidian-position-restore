@@ -507,6 +507,19 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('position-restore-nav-body');
 	});
 
+	// WHERE THE PINNED ROWS STOP is a line and nothing else: a heading would spend a
+	// row's height saying what the line already says, and an icon on each pinned row
+	// has nowhere to stand — the row's far end belongs to its own controls.
+	it('ends the pinned block with a line, and names the block nowhere', () => {
+		const sep = browser.match(/\.position-restore-nav-pinned-sep\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(sep).not.toBe('');
+		expect(sep).toMatch(/border-top: 1px solid/);
+		// A line, not a row: no height of its own, no text, no icon of ours.
+		expect(sep).toMatch(/height: 0/);
+		expect(browser).not.toContain('nav-pinned-title');
+		expect(browser).not.toContain('nav-row-pin');
+	});
+
 	// A phone gets the SAME rows as a desktop — every cell, one line each — instead
 	// of the narrow-screen rule that hid the coordinate and the age and left the list
 	// saying nothing but file names. What is worth pinning is that nothing is hidden
