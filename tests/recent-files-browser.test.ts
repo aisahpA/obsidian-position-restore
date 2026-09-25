@@ -73,6 +73,23 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L42');
 	});
 
+	it('calls a note by the reader’s own property, and by its file name without one', () => {
+		// `titleOf` is the vault's answer, not this model's: one property the reader
+		// named in the settings (see reads.ts). Its UNDEFINED is the file name's
+		// turn rather than an absence — a note without the property is not nameless.
+		const entry = { kind: 'visit', path: 'notes/a.md', leafId: 'leaf-1' } as NavEntry;
+		const named = describeNavEntry(entry, undefined, () => '每周回顾');
+		expect(named.name).toBe('每周回顾');
+		// …and the coordinate is the same question as ever, answered the same way.
+		expect(named.line).toBeUndefined();
+
+		const plain = describeNavEntry(entry, undefined, () => undefined);
+		expect(plain.name).toBe('a');
+		// No reader of a name at all is the ordinary case: it is what the model did
+		// before this existed.
+		expect(describeNavEntry(entry).name).toBe('a');
+	});
+
 	it('a pathless view with no name of its own falls back, and has no coordinate', () => {
 		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavEntry);
 		expect(graph.name).toBe(t('recentFiles.graphView'));
@@ -590,22 +607,25 @@ describe('folderOf / duplicateNames', () => {
 		expect(folderOf('')).toBeUndefined();
 	});
 
-	it('reports exactly the names two paths share', () => {
-		const doubles = duplicateNames(['a/index.md', 'b/index.md', 'notes.md']);
+	// What it counts is the names as PRINTED, which the caller has already
+	// resolved: a name may come from the file or from the property the reader
+	// named, and which it was is not this question.
+	it('reports exactly the names two rows print twice', () => {
+		const doubles = duplicateNames(['index', 'index', 'notes']);
 		expect([...doubles]).toEqual(['index']);
-		expect(duplicateNames(['a.md', 'b.md']).size).toBe(0);
+		expect(duplicateNames(['a', 'b']).size).toBe(0);
 	});
 
-	it('counts two files as a collision on the name they both PRINT', () => {
+	it('counts two rows as a collision on the name they both print', () => {
 		// The collision is about what is on screen, and what is on screen is the name
 		// without its extension: "x.md" and "x.canvas" are one word twice, so the
 		// folder is printed on both. (The badge differs — that is what tells them
 		// apart once the eye is on the right pair of rows — but two rows reading "x"
 		// are still two rows a reader cannot choose between.)
-		expect([...duplicateNames(['a/x.md', 'b/x.canvas'])]).toEqual(['x']);
-		// …and the extension is not part of the name it is counted by, so one note
-		// and one directory-looking name do not collide.
-		expect(duplicateNames(['a.md']).size).toBe(0);
+		expect([...duplicateNames(['x', 'x'])]).toEqual(['x']);
+		// …and two notes that print different names do not collide, however
+		// their files are called.
+		expect(duplicateNames(['a']).size).toBe(0);
 	});
 });
 

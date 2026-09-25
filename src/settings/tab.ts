@@ -19,7 +19,9 @@ import { t } from '@/i18n';
 // the old one and has to be asked to draw again. That is why the list stands here rather than inside
 // the manager's diff table: that table re-applies state the stores hold, while this asks a view to
 // draw.
-const BROWSER_PREF_KEYS = new Set(['recentFilesLandings', 'recentFilesPathDisplay', 'recentFilesRowTime']);
+const BROWSER_PREF_KEYS = new Set([
+	'recentFilesLandings', 'recentFilesPathDisplay', 'recentFilesRowTime', 'recentFilesTitleProperty',
+]);
 
 // The keys that change the SHAPE OF A PAGE rather than a value on it — whose consequence is a row
 // appearing or not, or a sentence read differently. The framework writes a control's value and

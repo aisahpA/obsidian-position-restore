@@ -222,6 +222,24 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						key: 'recentFilesRowTime',
 					},
 				},
+				// WHAT A ROW CALLS THE NOTE. One property and not a list of
+				// them: which one counts is the answer a reader can hold in
+				// their head, and a note without it is not nameless — it falls
+				// back to its file name, which is why there is no second
+				// setting saying which to prefer.
+				//
+				// Empty is OFF, and off is the default: a vault that names its
+				// notes in their file names owes this row nothing, and a vault
+				// that does not is the only one that has to say so.
+				{
+					name: t('recentFiles.titleProperty.name'),
+					desc: t('recentFiles.titleProperty.desc'),
+					control: {
+						type: 'text',
+						key: 'recentFilesTitleProperty',
+						placeholder: t('recentFiles.titleProperty.placeholder'),
+					},
+				},
 			],
 		},
 	];

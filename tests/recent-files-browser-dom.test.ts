@@ -85,12 +85,20 @@ const NOW = Date.now();
 // panel only READS them (see RecentFilesBrowserPrefs) — the values are the plugin's, and
 // what changes them is the settings tab — so the fixture is a set of live readers
 // over values a test can write, exactly as the settings tab writes them.
-function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: boolean } = {}) {
+function prefs(start: {
+	landings?: LandingsMode;
+	path?: PathDisplayMode;
+	time?: boolean;
+	// The frontmatter property a row prints as the note's name, empty for none
+	// (see PluginSettings.recentFilesTitleProperty).
+	title?: string;
+} = {}) {
 	const state = {
 		landings: 'last' as LandingsMode,
 		cap: 200,
 		path: 'smart' as PathDisplayMode,
 		time: false,
+		title: '',
 		...start,
 	};
 	return {
@@ -104,6 +112,9 @@ function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: 
 			pathDisplay: () => state.path,
 			// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime).
 			rowTime: () => state.time,
+			// What a row calls the note (see reads.ts's titleOf): a test that wants
+			// one named `title` passes it here and puts it in the files' cache.
+			titleProperty: () => state.title,
 		} satisfies RecentFilesBrowserPrefs,
 	};
 }
@@ -4244,5 +4255,109 @@ describe('RecentFilesModal — the pin on a view’s row', () => {
 
 		expect(Menu.shown.at(-1)!.items.map(i => i.title))
 			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
+	});
+});
+
+describe('RecentFilesModal — the name a row calls the note', () => {
+	// ONE property the reader named in the settings, and the file's own name
+	// where a note has none of it: that is the whole of the rule, which is why
+	// there is no second setting saying which to prefer (see reads.ts's titleOf).
+	const spots = () => [visit('b.md', NOW - MINUTE), visit('a.md', NOW)];
+	const files = { 'a.md': '', 'b.md': '' };
+	const named = (title: string) => prefs({ title }).browser;
+	const cacheWith = (props: Record<string, unknown>) => ({ frontmatter: props });
+	const names = (h: ReturnType<typeof harness>) =>
+		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+
+	it('prints the property the reader named, and the file name where it is missing', () => {
+		const h = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+			'b.md': cacheWith({}),
+		}, false, {}, named('title'));
+
+		// a.md is the newest, and it is the one with a name of its own.
+		expect(names(h)).toEqual(['每周回顾', 'b']);
+	});
+
+	it('prints file names while the setting is empty, however the notes are written', () => {
+		// OFF is the default and it has to mean OFF: a vault that names its notes
+		// in their file names owes this row nothing, and a `title` sitting in a
+		// note is then just another name it can be SEARCHED by (see the suite
+		// above).
+		const h = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+		}, false, {}, prefs().browser);
+
+		expect(names(h)).toEqual(['a', 'b']);
+	});
+
+	it('takes only a single piece of text as a name', () => {
+		// A list, a year or an emptied property is not a name: a row that guessed
+		// would print "[object Object]" or "2024" where the reader's note goes.
+		const h = harness([
+			visit('b.md', NOW - 3 * MINUTE),
+			visit('c.md', NOW - 2 * MINUTE),
+			visit('a.md', NOW),
+		], 2, { 'a.md': '', 'b.md': '', 'c.md': '' }, [], {}, {
+			'a.md': cacheWith({ title: ['one', 'two'] }),
+			'b.md': cacheWith({ title: 2024 }),
+			'c.md': cacheWith({ title: '   ' }),
+		}, false, {}, named('title'));
+
+		expect(names(h)).toEqual(['a', 'c', 'b']);
+	});
+
+	it('finds a note by the name it PRINTS, and tells two same-named notes apart', () => {
+		// What is searched and what is disambiguated is the same name the row
+		// prints: a note renamed in frontmatter is one name everywhere on it.
+		const h = harness([
+			visit('notes/a.md', NOW - MINUTE),
+			visit('other/b.md', NOW),
+		], 1, { 'notes/a.md': '', 'other/b.md': '' }, [], {}, {
+			'notes/a.md': cacheWith({ title: '周会' }),
+			'other/b.md': cacheWith({ title: '周会' }),
+		}, false, {}, named('title'));
+
+		// Two rows reading 周会 are two rows a reader cannot choose between, so
+		// the folder is printed — exactly as it is for two files of one name.
+		expect(names(h)).toEqual(['周会', '周会']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
+			.toEqual(['other/', 'notes/']);
+
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '周会';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(names(h)).toEqual(['周会', '周会']);
+		// …and the file's own name still finds it, which is the name the reader
+		// sees everywhere else.
+		box.value = 'a.md';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(names(h)).toEqual(['周会']);
+	});
+
+	it('redraws when the name it prints changes, and not for any other edit', () => {
+		// The reader is TYPING that property, in the note, while the row stands
+		// there printing the old name. An edit anywhere in a note re-parses it,
+		// so what earns a redraw is the name being different now — a full
+		// rebuild of the list per keystroke is the cost of not comparing.
+		const cache = { 'a.md': cacheWith({ title: 'One' }) };
+		const h = harness([visit('a.md', NOW)], 0, files, [], {}, cache, false, {},
+			named('title'));
+		expect(names(h)).toEqual(['One']);
+
+		// By position and not by name: the row's name is the thing that is
+		// about to change under the reader.
+		const row = h.notes()[0];
+		cache['a.md'].frontmatter.title = 'Two';
+		h.changeFile('a.md');
+		expect(names(h)).toEqual(['Two']);
+		// …and it was drawn again rather than patched: the row is a new element.
+		expect(h.notes()[0]).not.toBe(row);
+
+		const same = h.notes()[0];
+		cache['a.md'].frontmatter.aliases = 'something else';
+		h.changeFile('a.md');
+		expect(names(h)).toEqual(['Two']);
+		expect(h.notes()[0]).toBe(same);
 	});
 });

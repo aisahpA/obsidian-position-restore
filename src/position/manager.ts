@@ -224,6 +224,9 @@ export class PositionManager {
 			pathDisplay: () => this.settings.recentFilesPathDisplay,
 			// Whether each row says how long ago it was last visited.
 			rowTime: () => this.settings.recentFilesRowTime,
+			// What a row calls the note: the reader's own frontmatter property
+			// where they named one, the file's name everywhere else.
+			titleProperty: () => this.settings.recentFilesTitleProperty,
 		};
 	}
 

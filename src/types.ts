@@ -155,6 +155,12 @@ interface PluginSettings {
 	// are both "before" and only one is from this morning. It is the place's own `t`,
 	// not the file's mtime.
 	recentFilesRowTime: boolean;
+	// The frontmatter property a row prints as the note's NAME, empty for none. A
+	// vault that names its notes in a property rather than in their file names reads
+	// by those names everywhere — the quick switcher, the backlinks, every `[[` —
+	// and this list is where the reader comes looking for one. A note without the
+	// property, or whose value is not a name, prints its file name.
+	recentFilesTitleProperty: string;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -186,6 +192,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	recentFilesCap: 50,
 	recentFilesPathDisplay: 'smart',
 	recentFilesRowTime: true,
+	recentFilesTitleProperty: '',
 };
 
 export {

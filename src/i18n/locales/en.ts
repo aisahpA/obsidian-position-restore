@@ -215,6 +215,15 @@ export const en = {
 	// time printed on a file row. The exact moment rides on the tooltip.
 	'recentFiles.rowTime.name': 'Time on each row',
 	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited — the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
+	// ONE property, and no second setting saying which to prefer: a note that
+	// has it is called by it, one that has not falls back to its file name, and
+	// that IS the order. Empty is off — and off is the default, because the
+	// file name is what every other list in the app prints.
+	'recentFiles.titleProperty.name': 'Name from a property',
+	'recentFiles.titleProperty.desc': 'Which frontmatter property a row prints as the note\'s name. A note without it — or whose value is not a single piece of text — keeps its file name.',
+	// An example rather than a hint about rules: `title` is what the reader
+	// came here to type.
+	'recentFiles.titleProperty.placeholder': 'e.g. title',
 	'recentFiles.age.now': 'now',
 	'recentFiles.age.m': 'm ago',
 	'recentFiles.age.h': 'h ago',

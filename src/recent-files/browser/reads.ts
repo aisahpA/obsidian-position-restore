@@ -19,6 +19,16 @@ export interface RecentFilesReadsOptions {
 	// A reading that was not there when a row was drawn has landed. The list is the
 	// only thing that can show it, and only a redraw does.
 	onLateRead?: () => void;
+	// The frontmatter property a row prints as the note's name, EMPTY for none
+	// (see PluginSettings.recentFilesTitleProperty). Read per asking rather than
+	// taken once: a reader switching it on in the settings is looking at the
+	// panel that has to change under them.
+	titleProperty?: () => string;
+	// A note's PRINTED NAME changed. The list is the only thing that shows it,
+	// and only a redraw does. Fired sparingly on purpose: an edit anywhere in a
+	// note re-parses it, so the metadata event alone says nothing about the
+	// name — what fires this is the name being different now.
+	onTitleChange?: () => void;
 }
 
 // What one file's metadata says: the section chain a landing row prints, and the
@@ -30,6 +40,10 @@ export interface FileMeta {
 	headings?: HeadingRef[];
 	// `title` first, then `aliases`, in frontmatter order.
 	aliases: string[];
+	// What the row prints as the note's name, from the property the reader named —
+	// undefined when there is no such property or its value is not a name, which
+	// is the file's own name's turn.
+	title?: string;
 }
 
 export class RecentFilesReads {
@@ -66,8 +80,19 @@ export class RecentFilesReads {
 		// A renamed alias is when a stale memory is worst — the reader is typing the
 		// name they just changed. What a change invalidates is ONE file's record, not
 		// the whole map.
+		//
+		// A NAME THE READER IS TYPING changes under them too, and the row is standing
+		// there printing the old one. Compared rather than assumed: an edit anywhere in
+		// the note re-parses it, so this event alone says nothing about the name, and
+		// a redraw for every keystroke is a full rebuild of the list (see the caller's
+		// render) for a row that reads the same.
 		this.metaRef = app.metadataCache?.on?.('changed', (file: TFile) => {
+			const before = this.meta.get(file.path)?.title;
 			this.meta.delete(file.path);
+			if (!this.opts.titleProperty?.())
+				return;
+			if (this.titleOf(file.path) !== before)
+				this.opts.onTitleChange?.();
 		});
 	}
 
@@ -95,10 +120,20 @@ export class RecentFilesReads {
 		return file instanceof TFile ? file.stat.mtime : undefined;
 	}
 
+	// What a row calls the note: the property the reader named, when the note has it.
+	// Undefined is not an answer about this note — it is the file's own name's turn
+	// (see describeNavEntry). Skipped entirely while the setting is empty: a vault
+	// that never asked for this is asked no metadata question for it.
+	titleOf = (path: string): string | undefined => {
+		if (!path || !this.opts.titleProperty?.())
+			return undefined;
+		return this.metaFor(path).title;
+	};
+
 	describe(i: number): NavEntryDescription {
 		let d = this.descCache.get(i);
 		if (!d) {
-			d = describeNavEntry(this.opts.entries()[i], this.opts.savedPosition);
+			d = describeNavEntry(this.opts.entries()[i], this.opts.savedPosition, this.titleOf);
 			this.descCache.set(i, d);
 		}
 		return d;
@@ -113,7 +148,7 @@ export class RecentFilesReads {
 		const known = this.meta.get(path);
 		if (known)
 			return known;
-		const read = readMeta(this.app, path);
+		const read = readMeta(this.app, path, this.opts.titleProperty?.() ?? '');
 		if (!read)
 			return noMeta();
 		this.meta.set(path, read);
@@ -193,7 +228,13 @@ export class RecentFilesReads {
 	// list would be wrong exactly when the reader looks for a name they just changed.
 	// Empty for a pathless view, which is not a file.
 	aliasesFor(path: string): string[] {
-		return path ? this.metaFor(path).aliases : [];
+		if (!path)
+			return [];
+		const meta = this.metaFor(path);
+		// …minus the name the row PRINTS, which is not one of the note's other
+		// names: a tooltip reading "aka 读书笔记" under a row that says 读书笔记
+		// is saying the same thing twice.
+		return meta.title ? meta.aliases.filter(a => a !== meta.title) : meta.aliases;
 	}
 }
 
@@ -203,7 +244,37 @@ export class RecentFilesReads {
 // NULL means "Obsidian has not parsed this file yet" — one it is still indexing, or
 // one a sync has just put back — which is NOT the same answer as a file with no
 // headings: that is a real reading, and it is kept (see metaFor).
-function readMeta(app: App, path: string): FileMeta | null {
+// What the reader asked a row to CALL the note: one frontmatter property, read only
+// where it holds a NAME. A list, a number, a date or an emptied value is not one —
+// a vault that put `title: [a, b]` in a note was naming something else, and a row
+// that guessed would print a list or a year where a name goes.
+//
+// The CASE is tried only after the written one misses: the reader naming the property
+// in the settings does not remember whether the note wrote `title` or `Title`, and a
+// miss is a row that silently prints its file name instead.
+function frontmatterName(
+	fm: Record<string, unknown> | undefined,
+	prop: string,
+): string | undefined {
+	if (!prop || !fm)
+		return undefined;
+	const asName = (value: unknown): string | undefined => {
+		if (typeof value !== 'string')
+			return undefined;
+		const text = value.trim();
+		return text || undefined;
+	};
+	const direct = asName(fm[prop]);
+	if (direct)
+		return direct;
+	const wanted = prop.toLowerCase();
+	for (const key of Object.keys(fm))
+		if (key.toLowerCase() === wanted)
+			return asName(fm[key]);
+	return undefined;
+}
+
+function readMeta(app: App, path: string, titleProperty: string): FileMeta | null {
 	const file = path ? app.vault.getAbstractFileByPath(path) : null;
 	const cache = file instanceof TFile ? app.metadataCache?.getFileCache?.(file) : null;
 	if (!cache)
@@ -237,7 +308,7 @@ function readMeta(app: App, path: string): FileMeta | null {
 	// `title` is not native but a community convention (Front Matter Title).
 	push(fm?.title);
 	push(fm?.aliases);
-	return { headings, aliases };
+	return { headings, aliases, title: frontmatterName(fm, titleProperty) };
 }
 
 // The reading for a file Obsidian has not parsed yet. Fresh each time, and

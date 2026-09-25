@@ -54,18 +54,18 @@ export function folderOf(path: string): string | undefined {
 	return cut === -1 ? '' : path.slice(0, cut);
 }
 
-// Which of these paths share a DISPLAYED name, so the list can print the folder on exactly those
-// rows. Built from the entries ON THE LIST rather than from the whole history: a colliding name the
-// filter dropped is not on screen to be confused with anything.
+// Which of these names are PRINTED twice, so the list can put the folder on exactly those rows.
+// Built from the rows ON THE LIST rather than from the whole history: a colliding name the filter
+// dropped is not on screen to be confused with anything.
 //
-// What collides is the name as PRINTED — without its extension and WITHOUT its badge: "a/x.md" and
-// "b/x.canvas" are one row twice. The badge tells them apart too, but only to a reader who already
-// knows to look; the folder answers "which one is this".
-export function duplicateNames(paths: Iterable<string>): Set<string> {
+// Names and not paths, because what can collide is the name as PRINTED — which is not always the
+// file's own: two notes called `index` collide, and so do two notes whose frontmatter gives them
+// the same title. The badge tells files apart too, but only to a reader who already knows to look;
+// the folder answers "which one is this".
+export function duplicateNames(names: Iterable<string>): Set<string> {
 	const seen = new Set<string>();
 	const twice = new Set<string>();
-	for (const path of paths) {
-		const name = displayName(path);
+	for (const name of names) {
 		if (seen.has(name))
 			twice.add(name);
 		seen.add(name);
@@ -133,9 +133,15 @@ export function viewName(entry: NavView): string {
 
 // One entry as its row prints it. The fallbacks are for a state that never went through the nav
 // read: the file's saved position below, or a teleport whose landing never settled.
+//
+// `titleOf` is the reader's own name for the note (see reads.ts's titleOf): the vault's answer to
+// "what is this note called", asked here so that everything downstream — the row, the search, the
+// folder that tells two same-named notes apart — prints one name without knowing where it came
+// from. Its undefined is the file name's turn rather than an absence.
 export function describeNavEntry(
 	entry: NavEntry,
 	savedPosition?: (path: string) => EphemeralState | undefined,
+	titleOf?: (path: string) => string | undefined,
 ): NavEntryDescription {
 	if (entry.kind === 'view')
 		return { name: viewName(entry) };
@@ -154,7 +160,7 @@ export function describeNavEntry(
 			n = entry.line;
 	}
 	return {
-		name: displayName(entry.path),
+		name: titleOf?.(entry.path) ?? displayName(entry.path),
 		line: n !== undefined ? `L${n + 1}` : undefined,
 		lineIndex: n,
 	};

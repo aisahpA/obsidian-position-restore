@@ -59,6 +59,9 @@ function browserPrefs(
 		// the body is (see recent-files-browser-dom.test.ts); what the shell adds is the
 		// lifetime of the timer that keeps it fresh (see the test below).
 		rowTime: () => held.time,
+		// What a row calls the note: none of these tests names one, so the file's
+		// own name is what prints (see the browser suite).
+		titleProperty: () => '',
 		setLandings: (how) => {
 			held.landings = how;
 		},

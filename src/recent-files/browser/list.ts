@@ -398,7 +398,10 @@ export class RecentFilesList {
 			// matchesNavFilter); read per PATH, so every landing of one note
 			// carries the same names.
 			const aka = entry.kind === 'view' ? [] : this.opts.aliasesFor(entry.path);
-			return `${d.line ?? ''} ${this.opts.trailFor(entry, d).join(' ')} ${aka.join(' ')}`;
+			// The NAME AS PRINTED goes in too: a note the reader calls by its
+			// frontmatter title is searched for by that title. (The file's own
+			// name is already in the haystack — see listing.ts's navSearchText.)
+			return `${d.name ?? ''} ${d.line ?? ''} ${this.opts.trailFor(entry, d).join(' ')} ${aka.join(' ')}`;
 		};
 		// WHAT may be listed at all: a place whose file is gone is dropped
 		// before grouping — no row, no landing, no "you are here" ever stands
@@ -426,8 +429,9 @@ export class RecentFilesList {
 		// it came out of the grouping with (recency, or the held one).
 		this.pullPinnedToTop();
 		// The names two notes on screen share: measured over the rows ON
-		// SCREEN, so a collision the filter dropped costs nobody a folder.
-		const doubles = duplicateNames(this.groups.map(g => g.path));
+		// SCREEN, so a collision the filter dropped costs nobody a folder —
+		// and over the names as PRINTED, which are not always the files' own.
+		const doubles = duplicateNames(this.groups.map(g => this.printedName(g)));
 
 		this.groups.forEach((group, index) => {
 			this.fileRow(group, index, doubles, query);
@@ -495,6 +499,26 @@ export class RecentFilesList {
 		}
 	}
 
+	// ONE of a note's places, to read the NAME and the KIND from: every place in
+	// a note answers both the same way. (Not the one a CLICK goes to — that is
+	// activeRep's question, and it is a different one.)
+	private groupRep(group: ReturnType<typeof groupByFile>[number]): number | undefined {
+		return group.anchor
+			?? group.indices.find(i => i !== group.currentRep)
+			?? group.indices[0];
+	}
+
+	// What a row CALLS the note: the reader's own property where the note has
+	// it, the file's name where it has not (see reads.ts's titleOf). ONE
+	// question for the whole row — the name cell, the search box and the folder
+	// that tells two notes apart all read this and nothing else, so a note
+	// renamed in frontmatter is one name everywhere on it.
+	private printedName(group: ReturnType<typeof groupByFile>[number]): string {
+		const rep = this.groupRep(group);
+		const head = rep === undefined ? undefined : this.opts.describe(rep);
+		return head?.name ?? displayName(group.path);
+	}
+
 	// One NOTE. The name cell holds the NAME (last path segment, no extension,
 	// see displayName), the type BADGE where the file is not markdown, and the
 	// FOLDER under the conditions the reader chose (see PathDisplayMode). The AGE
@@ -511,15 +535,9 @@ export class RecentFilesList {
 		// found it with a query is owed the line the query hit.
 		query: string,
 	): number {
-		// The note's own record when it has one (see activeRep), else any
-		// landing it holds: the row needs ONE record to read the name and the
-		// view kind from.
-		const rep = group.anchor
-			?? group.indices.find(i => i !== group.currentRep)
-			?? group.indices[0];
-		const head = rep === undefined ? undefined : this.opts.describe(rep);
+		const rep = this.groupRep(group);
 		const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
-		const name = head?.name ?? displayName(group.path);
+		const name = this.printedName(group);
 		const row = this.opts.list.createDiv({ cls: `${ROW_CLASS} is-file` });
 		if (group.current)
 			row.addClass('is-current');

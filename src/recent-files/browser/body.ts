@@ -46,6 +46,10 @@ export interface RecentFilesBrowserPrefs {
 	// How much of a row's path the list prints, and on which side of the name.
 	pathDisplay: () => PathDisplayMode;
 	rowTime: () => boolean;
+	// The frontmatter property a row prints as the note's name, EMPTY for none
+	// (see PluginSettings.recentFilesTitleProperty). Read per render: it decides
+	// what the next one prints.
+	titleProperty: () => string;
 }
 
 export interface RecentFilesBrowserOptions {
@@ -121,6 +125,10 @@ export class RecentFilesBrowser {
 			// A chain read out of a note's own text lands one render late: the row it belongs to
 			// was already drawn without it.
 			onLateRead: () => this.redrawAfterLateRead(),
+			// What a row calls the note, and the one thing that can change it while the
+			// reader is looking: they are typing in the property that names it.
+			titleProperty: () => this.opts.prefs.titleProperty(),
+			onTitleChange: () => this.render(),
 		});
 		this.nowLines = {
 			mtimeOf: path => this.reads.mtimeOf(path),

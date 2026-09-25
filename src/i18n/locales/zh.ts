@@ -198,6 +198,12 @@ export const zh: En = {
 	// 读者看到文件行上印着时间时的第一反应。确切时刻挂在这个标签的 tooltip 上。
 	'recentFiles.rowTime.name': '每行的时间',
 	'recentFiles.rowTime.desc': '在每行上显示「距上次到访过了多久」——那是你上一次在那里的时间，不是文件的修改时间；确切时刻悬停在这行的时间上可以看到。',
+	// 只有一个属性名，不再配第二个「优先用哪个」的设置：有这个属性的笔记就用它，
+	// 没有的回落文件名——这就是优先级本身。留空＝关闭，且默认关闭：文件名才是
+	// app 里其它各处列表的印法。
+	'recentFiles.titleProperty.name': '行名取自属性',
+	'recentFiles.titleProperty.desc': '填一个 frontmatter 属性名：有这个属性的笔记，列表里用它当名字；没有，或它的值不是一段文字的，仍显示文件名。留空则不使用。',
+	'recentFiles.titleProperty.placeholder': '例如 title',
 	'recentFiles.age.now': '刚刚',
 	'recentFiles.age.m': '分钟',
 	'recentFiles.age.h': '小时',
