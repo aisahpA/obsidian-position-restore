@@ -33,9 +33,9 @@ const RELAND_FIRST_STEP_MS = 200;
 const RELAND_MAX_STEP_MS = 700;
 
 // Budget for the pre-reveal pixel settle (settleSourcePixels). Bounded so the cover never holds the
-// note blank for long: the cover safety timer (COVER_SAFETY_MS, 1200ms) must outlive the whole
-// covered phase — content-ready wait + painted wait + this settle — with margin. On timeout the
-// reveal proceeds anyway; the post-reveal one-shot check still catches gross landings.
+// note blank for long: the cover safety timer (COVER_SAFETY_MS, 2000ms — see ../ui/cover.ts) must
+// outlive the whole covered phase — content-ready wait + painted wait + this settle — with margin.
+// On timeout the reveal proceeds anyway; the post-reveal one-shot check still catches gross landings.
 export const SETTLE_MAX_MS = 800;
 
 // Minimum time before the settle's first correction is trusted (settleSourcePixels; the covered
