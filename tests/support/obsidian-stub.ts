@@ -265,6 +265,10 @@ export class MenuItem {
 
 export class Menu {
 	items: MenuItem[] = [];
+	// Every menu asked to open, in order. A menu with no FILE behind it — a pathless
+	// view's — is raised without the app's `file-menu` event, so a test that wants to
+	// read what is on it has no event to read it off.
+	static shown: Menu[] = [];
 	// Where it was asked to open, whichever of the two doors the panel came in by (see
 	// RecentFilesBrowser.contextRow): a right-click is placed by its event's coordinates
 	// and a phone's menu control by its own box, and what a test wants to know is that
@@ -281,10 +285,12 @@ export class Menu {
 	}
 	showAtMouseEvent(ev: MouseEvent): this {
 		this.shownAt = { x: ev.clientX, y: ev.clientY };
+		Menu.shown.push(this);
 		return this;
 	}
 	showAtPosition(position: { x: number; y: number }): this {
 		this.shownAt = position;
+		Menu.shown.push(this);
 		return this;
 	}
 	setNoIcon(): this {

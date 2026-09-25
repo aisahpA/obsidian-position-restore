@@ -632,11 +632,12 @@ export class RecentFilesList {
 		// with the press let through, reaching for the × would record the row
 		// as pressed and the click would open the note.
 		const actions = this.actionStrip(row);
-		// The menu control, only on a TOUCH device and only for a row with a
-		// FILE behind it: a right-click raises the app's menu on a desktop;
-		// here the long press arms the row instead (see onContextMenu), so the
-		// menu is raised from the row itself.
-		if (this.opts.touch && repEntry?.kind !== 'view')
+		// The menu control, on a TOUCH device: a right-click raises the menu on
+		// a desktop; here the long press arms the row instead (see onContextMenu),
+		// so the menu is raised from the row itself. A pathless view gets one
+		// too — its menu is the shorter one (no file for the app to speak
+		// about), but a pin is about the ROW, and a view's row is a row.
+		if (this.opts.touch)
 			this.menuControl(actions, ref);
 		this.forgetControl(actions, t('recentFiles.forget'), () => this.opts.onForget(group.key));
 		// NO "you are here" dot on the note's name: the row carries

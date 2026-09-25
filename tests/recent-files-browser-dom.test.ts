@@ -7,6 +7,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
+// …and the menu's stand-in itself, which is reached by its own path rather than
+// through 'obsidian' because the registry a test reads (Menu.shown) is the
+// stub's and not the app's (see support/obsidian-stub).
+import { Menu } from './support/obsidian-stub';
 import type { HoverParent } from 'obsidian';
 
 import { RecentFilesModal } from '@/recent-files/browser/modal';
@@ -2539,9 +2543,10 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('raises no menu at all for a pathless view', () => {
-		// The graph is not a file: a file menu has nothing to be about, so the event is
-		// refused (the callout) and nothing is built.
+	it('raises its OWN menu for a pathless view, and asks the app about nothing', () => {
+		// The graph is not a file, so there is no file menu for it to be about: what
+		// comes up is this list's own two items, and NO `file-menu` event is sent —
+		// the app would be asked to speak about a file that does not exist.
 		const h = harness([
 			visit('a.md', NOW - MINUTE),
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
@@ -2551,6 +2556,12 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 
 		expect(ev.defaultPrevented).toBe(true);
 		expect(h.trigger).not.toHaveBeenCalled();
+		// …and it was put on the screen, which is the only way to read a menu no
+		// event was raised for (see obsidian-stub's Menu.shown).
+		const menu = Menu.shown.at(-1)!;
+		expect(menu.shownAt).toBeDefined();
+		expect(menu.items.map(i => i.title))
+			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 	});
 
 	it('gives a pathless view the same × a note gets, since its row is a row', () => {
@@ -4125,5 +4136,46 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(h.unpin).toHaveBeenCalledWith('a.md');
 		expect(names(h)).toEqual(['c', 'b', 'a']);
 		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+	});
+});
+
+describe('RecentFilesModal — the pin on a view’s row', () => {
+	// WHAT the reader pins is their own business: a pathless view is a place this
+	// list remembers and a row this list draws, and a pin is about the ROW. What
+	// differs from a note is only the menu's SIZE — a view names no file, so
+	// nothing is asked of the app (see body.ts's contextRow).
+	const graph = { kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry;
+	const spots = () => [visit('a.md', NOW - MINUTE), graph];
+	const files = { 'a.md': '' };
+	const graphRow = (h: ReturnType<typeof harness>) =>
+		h.notes().find(r =>
+			r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
+
+	it('pins a view from its own menu, and the block draws it', () => {
+		const h = harness(spots(), 1, files);
+
+		h.rightClick(graphRow(h));
+		Menu.shown.at(-1)!.items.find(i => i.title === t('recentFiles.pin'))!.click!();
+
+		// A view is named by its TYPE, which is exactly what a path cannot say
+		// (see nav/entry.ts's navGroupKey).
+		expect(h.pin).toHaveBeenCalledWith('view:graph');
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+		expect(h.notes()[0]).toBe(graphRow(h));
+	});
+
+	it('gives a phone the same menu, from the armed row’s own control', () => {
+		// The control is the ONLY door on a phone, and a view's row used to have
+		// none at all — which left a view unpinnable where most readers pin.
+		const h = harness(spots(), 1, files, [], {}, {}, true);
+		const row = graphRow(h);
+
+		h.longPress(row);
+		const more = row.querySelector<HTMLElement>('.nav-row-menu');
+		expect(more).not.toBeNull();
+		h.clickRow(more!);
+
+		expect(Menu.shown.at(-1)!.items.map(i => i.title))
+			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 	});
 });

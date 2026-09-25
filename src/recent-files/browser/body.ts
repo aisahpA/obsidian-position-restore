@@ -560,8 +560,8 @@ export class RecentFilesBrowser {
 	// and a pin, which is this list's own answer about a note and nobody else's.
 	//
 	// The context asked for is the LINK one, not the file explorer's: a row is a pointer at a file
-	// rather than the file in its own tree. A PATHLESS VIEW raises nothing: a file menu has no file
-	// to be about — taking a row off the list is the × instead, which every row carries.
+	// rather than the file in its own tree. A PATHLESS VIEW is asked about nothing: there is no
+	// file for the app's menu to be about, so the menu raised for one is ours alone.
 	//
 	// A TOUCH DEVICE GETS HERE BY ANOTHER DOOR: a long press arms the row, so the menu is raised
 	// from the armed row's own control. The two doors meet in the same place, which is why the menu
@@ -570,11 +570,7 @@ export class RecentFilesBrowser {
 	// `note` says WHICH row this is — the note's own, or one spot inside it.
 	private contextRow(rep: number, at: MenuPositionDef, note: boolean): void {
 		const entry = this.opts.places.entries[rep];
-		// A pathless view has no file: the app's own menu for one has no subject.
-		if (!entry || entry.kind === 'view')
-			return;
-		const file = this.opts.app.vault.getAbstractFileByPath(entry.path);
-		if (!(file instanceof TFile))
+		if (!entry)
 			return;
 		// ONE DOOR, TWO ENDS, and which one this tap is depends on whether a menu is already
 		// standing. THE APP CANNOT ANSWER THIS TAP: the control stops its own press, so the press
@@ -600,7 +596,17 @@ export class RecentFilesBrowser {
 		// own row has one to give (see pinItems).
 		if (note)
 			this.pinItems(menu, navGroupKey(entry));
-		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
+		// …and nothing else is asked of the app for a view: what a reader can do with a FILE is
+		// the app's business, and a copy of that here would be a stale one, but a view names no
+		// file at all.
+		if (entry.kind !== 'view') {
+			const file = this.opts.app.vault.getAbstractFileByPath(entry.path);
+			// A file that went between the render and this right-click — a sync removing it, a
+			// delete landing a moment ago — leaves nothing to ask about.
+			if (!(file instanceof TFile))
+				return;
+			this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
+		}
 		this.menu = menu;
 		// …and when the app takes it off by one of ITS OWN gestures, the control goes back to
 		// raising one rather than taking one back.
