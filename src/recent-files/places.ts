@@ -75,8 +75,10 @@ export interface PlaceList {
 	// identity (see navGroupKey), never a landing: a pin is a bookmark for a note,
 	// not for one spot inside it.
 	pinned: readonly string[];
-	// Pin a row, take the pin off, or move one a step up or down inside the pinned
-	// block. `key` is the row's identity, the same thing forget takes, so a pin
+	// Pin a row, take the pin off, or move one inside the pinned block by `delta`
+	// places (one step is the menu's up/down; a move that would run past an end
+	// lands the row ON that end, which is what "move to the front" asks for).
+	// `key` is the row's identity, the same thing forget takes, so a pin
 	// outlives the landings inside the row and leaves with the row.
 	pin(key: string): void;
 	unpin(key: string): void;
@@ -348,16 +350,21 @@ export class NavPlaces implements PlaceList {
 		this.afterPinChange();
 	}
 
-	// One step up (delta -1) or down (delta +1), and nothing at either end or for
-	// a row the block does not hold: the reader is rearranging a shelf, not
-	// sorting a column.
+	// `delta` places up (negative) or down (positive), and nothing for a row the
+	// block does not hold or for a move that would leave it where it is: the
+	// reader is rearranging a shelf, not sorting a column. A move past either
+	// end lands ON that end rather than being refused — "move to the front"
+	// hands over more steps than the block is long, and asking the caller to
+	// count them is asking it to do arithmetic about the list's own shape.
 	movePinned(key: string, delta: number): void {
 		const at = this.pinned.indexOf(key);
-		const to = at + delta;
-		if (at < 0 || to < 0 || to >= this.pinned.length)
+		if (at < 0)
 			return;
-		this.pinned[at] = this.pinned[to];
-		this.pinned[to] = key;
+		const to = Math.min(Math.max(at + delta, 0), this.pinned.length - 1);
+		if (to === at)
+			return;
+		this.pinned.splice(at, 1);
+		this.pinned.splice(to, 0, key);
 		this.afterPinChange();
 	}
 

@@ -926,6 +926,26 @@ describe('NavPlaces — pinning a row', () => {
 		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
 	});
 
+	it('moves a pin the WHOLE WAY, and lands on the end rather than past it', () => {
+		// "Move to the front" hands over more steps than the block is long, and
+		// what it means is the end: counting them is the CALLER's arithmetic
+		// about a shape it does not own (see NavPlaces.movePinned).
+		const { places } = makePlaces();
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
+			places.remember(visit(p));
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
+			places.pin(p);
+		expect(places.pinned).toEqual(['a.md', 'b.md', 'c.md', 'd.md']);
+
+		places.movePinned('c.md', -2);
+		expect(places.pinned).toEqual(['c.md', 'a.md', 'b.md', 'd.md']);
+		// More steps than there is block: the row lands ON the end it asked for.
+		places.movePinned('a.md', -99);
+		expect(places.pinned).toEqual(['a.md', 'c.md', 'b.md', 'd.md']);
+		places.movePinned('b.md', 99);
+		expect(places.pinned).toEqual(['a.md', 'c.md', 'd.md', 'b.md']);
+	});
+
 	it('takes a pin off, and says nothing for a row that was never pinned', () => {
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));

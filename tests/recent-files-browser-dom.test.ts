@@ -400,13 +400,17 @@ function harness(
 		if (at >= 0)
 			pinned.splice(at, 1);
 	});
+	// A move of ANY number of steps, the way the store answers one (see
+	// NavPlaces.movePinned): a move past an end lands on it.
 	const movePinned = vi.fn((key: string, delta: number) => {
 		const at = pinned.indexOf(key);
-		const to = at + delta;
-		if (at < 0 || to < 0 || to >= pinned.length)
+		if (at < 0)
 			return;
-		pinned[at] = pinned[to];
-		pinned[to] = key;
+		const to = Math.min(Math.max(at + delta, 0), pinned.length - 1);
+		if (to === at)
+			return;
+		pinned.splice(at, 1);
+		pinned.splice(to, 0, key);
 	});
 	const places = {
 		entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding, pinned,
@@ -4136,6 +4140,69 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(h.unpin).toHaveBeenCalledWith('a.md');
 		expect(names(h)).toEqual(['c', 'b', 'a']);
 		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+	});
+
+	it('offers the whole way only where it is MORE than one step', () => {
+		// "Move to the front" beside the front would do exactly what "move up"
+		// just offered, so it is not there — a block of three has no row far
+		// enough from either end to need one.
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md', 'c.md']);
+		h.rightClick(h.note('b'));
+		expect(items(h).map(i => i.title))
+			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'), t('recentFiles.pinDown')]);
+
+		// Four is where a row is two steps from an end: the FRONT row has no way
+		// up at all, the one below it is one step up and two down.
+		const four = { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' };
+		const block = harness([
+			visit('a.md', NOW - 5 * MINUTE),
+			visit('b.md', NOW - 4 * MINUTE),
+			visit('c.md', NOW - 3 * MINUTE),
+			visit('d.md', NOW),
+		], 3, four, [], {}, {}, false, {}, defaultPrefs(),
+		undefined, ['a.md', 'b.md', 'c.md', 'd.md']);
+		const titles = (name: string) => {
+			const row = harness([
+				visit('a.md', NOW - 5 * MINUTE),
+				visit('b.md', NOW - 4 * MINUTE),
+				visit('c.md', NOW - 3 * MINUTE),
+				visit('d.md', NOW),
+			], 3, four, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md', 'c.md', 'd.md']);
+			row.rightClick(row.note(name));
+			return items(row).map(i => i.title);
+		};
+		expect(titles('a')).toEqual([open, t('recentFiles.unpin'),
+			t('recentFiles.pinDown'), t('recentFiles.pinLast')]);
+		expect(titles('b')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
+			t('recentFiles.pinDown'), t('recentFiles.pinLast')]);
+		expect(titles('c')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
+			t('recentFiles.pinFirst'), t('recentFiles.pinDown')]);
+		expect(titles('d')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
+			t('recentFiles.pinFirst')]);
+		// …and the block itself is still drawn in the reader's own order.
+		expect(names(block)).toEqual(['a', 'b', 'c', 'd']);
+	});
+
+	it('moves a pinned row to the end of the block in one answer', () => {
+		const four = { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' };
+		const h = harness([
+			visit('a.md', NOW - 5 * MINUTE),
+			visit('b.md', NOW - 4 * MINUTE),
+			visit('c.md', NOW - 3 * MINUTE),
+			visit('d.md', NOW),
+		], 3, four, [], {}, {}, false, {}, defaultPrefs(),
+		undefined, ['a.md', 'b.md', 'c.md', 'd.md']);
+
+		h.rightClick(h.note('b'));
+		item(h, t('recentFiles.pinLast')).click!();
+
+		// What the store is handed is the DISTANCE, not the index: how far a row
+		// has to travel is the block's business.
+		expect(h.movePinned).toHaveBeenCalledWith('b.md', 2);
+		expect(h.pinned).toEqual(['a.md', 'c.md', 'd.md', 'b.md']);
+		expect(names(h)).toEqual(['a', 'c', 'd', 'b']);
 	});
 });
 

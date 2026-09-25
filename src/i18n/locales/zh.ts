@@ -234,6 +234,9 @@ export const zh: En = {
 	'recentFiles.unpin': '取消置顶',
 	'recentFiles.pinUp': '上移',
 	'recentFiles.pinDown': '下移',
+	// …以及一步到头：置顶区长了以后，一次挪一步要来回开这张菜单。
+	'recentFiles.pinFirst': '移到最前',
+	'recentFiles.pinLast': '移到最后',
 	// 用「浏览」而不是「打开」：被打开的是那份列表，而「打开最近文件」读起来像打开
 	// 读者上次所在的那个文件。这也是两条命令在命令面板里一眼能分开的地方。
 	'recentFiles.commands.open': '浏览最近文件',

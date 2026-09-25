@@ -621,18 +621,26 @@ export class RecentFilesBrowser {
 	//
 	// MOVE UP / MOVE DOWN come up only where a step EXISTS: at either end of the block an item that
 	// would do nothing is worse than an item that is not there, and the block's order is the only
-	// order these two are about.
+	// order these are about. THE WHOLE WAY is offered only where it is MORE than one step — beside
+	// an end it would do exactly what the item above it just offered.
 	private pinItems(menu: Menu, key: string): void {
 		const at = this.opts.places.pinned.indexOf(key);
 		if (at < 0) {
 			this.pinItem(menu, 'recentFiles.pin', 'pin', () => this.pin(key));
 			return;
 		}
+		const last = this.opts.places.pinned.length - 1;
 		this.pinItem(menu, 'recentFiles.unpin', 'pin-off', () => this.unpin(key));
-		if (at > 0)
+		if (at > 0) {
 			this.pinItem(menu, 'recentFiles.pinUp', 'arrow-up', () => this.movePin(key, -1));
-		if (at < this.opts.places.pinned.length - 1)
+			if (at > 1)
+				this.pinItem(menu, 'recentFiles.pinFirst', 'arrow-up-to-line', () => this.movePin(key, -at));
+		}
+		if (at < last) {
 			this.pinItem(menu, 'recentFiles.pinDown', 'arrow-down', () => this.movePin(key, 1));
+			if (at < last - 1)
+				this.pinItem(menu, 'recentFiles.pinLast', 'arrow-down-to-line', () => this.movePin(key, last - at));
+		}
 	}
 
 	private pinItem(

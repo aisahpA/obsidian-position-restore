@@ -146,11 +146,13 @@ class FakeNav {
 
 	movePinned(key: string, delta: number): void {
 		const at = this.pinned.indexOf(key);
-		const to = at + delta;
-		if (at < 0 || to < 0 || to >= this.pinned.length)
+		if (at < 0)
 			return;
-		this.pinned[at] = this.pinned[to];
-		this.pinned[to] = key;
+		const to = Math.min(Math.max(at + delta, 0), this.pinned.length - 1);
+		if (to === at)
+			return;
+		this.pinned.splice(at, 1);
+		this.pinned.splice(to, 0, key);
 		for (const fn of this.listeners)
 			fn();
 	}

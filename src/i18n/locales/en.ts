@@ -258,6 +258,10 @@ export const en = {
 	'recentFiles.unpin': 'Unpin',
 	'recentFiles.pinUp': 'Move up',
 	'recentFiles.pinDown': 'Move down',
+	// …and the whole way, which is what a long block needs: four rows arranged
+	// one step at a time is four trips to this menu.
+	'recentFiles.pinFirst': 'Move to front',
+	'recentFiles.pinLast': 'Move to end',
 	// "Browse" and not "open": what opens is the LIST, and "open recent files"
 	// reads as opening the one file the reader was last in. It is also what
 	// separates the two commands in the palette — the other is "Open …".
