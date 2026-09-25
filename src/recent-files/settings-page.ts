@@ -240,6 +240,24 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						placeholder: t('recentFiles.titleProperty.placeholder'),
 					},
 				},
+				// WHERE A HOVERED ROW OPENS THE NOTE IN THE APP'S OWN PREVIEW. The
+				// note's head ships, because the other stop costs a wait: naming a
+				// line has the whole note drawn first and the card moved to it
+				// afterwards, buying for that wait the arrival the row's own CLICK
+				// already gives. A row standing for a PLACE in the note is outside
+				// the choice either way — it opens at that place.
+				{
+					name: t('previewFocus.recentFiles.name'),
+					desc: t('previewFocus.recentFiles.desc'),
+					control: {
+						type: 'dropdown',
+						key: 'recentFilesPreviewFocus',
+						options: {
+							head: t('previewFocus.recentFiles.options.head'),
+							line: t('previewFocus.recentFiles.options.line'),
+						},
+					},
+				},
 			],
 		},
 	];

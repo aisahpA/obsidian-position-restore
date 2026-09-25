@@ -295,6 +295,24 @@ export const en = {
 	'recentFiles.clearFilter': 'Clear filter',
 	'recentFiles.noMatch': 'No matching entry.',
 	'recentFiles.empty': 'Nowhere to go.',
+
+	// ===== WHERE A HOVER PREVIEW OPENS THE NOTE. =====
+	// One group for the two lists that ask for one, each with its own four keys
+	// rather than sharing a string: the sentences read the same today, but the
+	// two are answered on different pages and one of them will drift. The TOP
+	// ships on both: named a line, the app draws the whole note first and moves
+	// to it afterwards, so what the line costs is a card standing empty — for
+	// the arrival a click on that same row would have given anyway.
+	'previewFocus.recentFiles.name': 'Where a preview opens the note',
+	'previewFocus.recentFiles.desc':
+		'The spot the app\'s own preview opens a hovered row\'s note at: its top, the way every list the app itself ships opens one, or the line you were last reading it at. Naming a line costs a wait — the note is drawn whole first and only then moved to it, so on a long note the card stands empty and then jumps. A row standing for a place in a note opens at that place either way.',
+	'previewFocus.recentFiles.options.head': 'Its top',
+	'previewFocus.recentFiles.options.line': 'Your last line',
+	'previewFocus.fileExplorer.name': 'Where a file list preview opens the note',
+	'previewFocus.fileExplorer.desc':
+		'The spot the app\'s own file list opens its hover preview at: a note\'s top, which is what the app asks for and what it ships, or the last line this plugin recorded for that note. Naming a line costs the same wait it costs everywhere — the note is drawn whole first and only then moved there — and the line it opens is the one last recorded here, so a note changed on another device since may not open where you left it.',
+	'previewFocus.fileExplorer.options.head': 'Its top',
+	'previewFocus.fileExplorer.options.line': 'Your last line',
 };
 
 export type En = typeof en;

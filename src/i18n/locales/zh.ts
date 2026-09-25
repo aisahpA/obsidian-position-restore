@@ -261,4 +261,20 @@ export const zh: En = {
 	'recentFiles.clearFilter': '清空筛选',
 	'recentFiles.noMatch': '没有匹配的历史。',
 	'recentFiles.empty': '暂无可跳转的位置。',
+
+	// ===== 悬停预览把笔记打开在哪里 =====
+	// 会向 app 要预览的两处列表共用这一个分组，各有自己的四个键而不是共用一条
+	// 文案：今天写的字一样，但两项落在不同的设置页，迟早要各说各的。两处默认都
+	// 是篇首：指到那一行的话，app 先把整篇画出来再挪过去，等于让卡片先空着一
+	// 下——而同一行的点击本来就把人送到那里。
+	'previewFocus.recentFiles.name': '预览打开在哪里',
+	'previewFocus.recentFiles.desc':
+		'悬停一行时，预览打开在笔记的哪个位置：篇首（app 自己的各处列表都是这样），还是你上次在那篇里读到的那一行。选「那一行」要多等一下——笔记要先整篇画出来、然后才挪过去，长笔记上会先看到一张空卡片，然后才翻到那一行。落点行不受这一项影响：它说的是笔记里的一个位置，本来就在那里打开。',
+	'previewFocus.recentFiles.options.head': '篇首',
+	'previewFocus.recentFiles.options.line': '上次读到的那一行',
+	'previewFocus.fileExplorer.name': '文件列表的预览打开在哪里',
+	'previewFocus.fileExplorer.desc':
+		'app 自己的文件列表悬停出预览时，笔记打开在哪个位置：篇首（app 原本就是这样要的），还是这个插件为那篇笔记记录的最后一行。指到那一行要付的是同样的等待——笔记先整篇画出来、然后才挪过去；而它打开的是这里最后记录的那一行，笔记在别的设备上被改过之后，可能已不在你离开的地方。',
+	'previewFocus.fileExplorer.options.head': '篇首',
+	'previewFocus.fileExplorer.options.line': '上次读到的那一行',
 };

@@ -29,6 +29,7 @@ export default class PositionRestorePlugin extends Plugin {
 		this.registerPreviewSource();
 
 		this.manager.installPatches(cleanup => this.register(cleanup));
+		this.manager.installExplorerPreview(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
 		this.registerCommands();
 

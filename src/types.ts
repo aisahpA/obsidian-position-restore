@@ -88,6 +88,22 @@ type LandingsMode = 'none' | 'last' | 'all';
 // out like 'before'.
 type PathDisplayMode = 'smart' | 'before' | 'after';
 
+// WHERE THE HOVER PREVIEW OPENS A NOTE'S OWN ROW — the two stops the app's own
+// preview can be asked for, and the one loop no listing of ours escapes: hovering
+// any row hands the note to the app and to nothing else.
+//
+//   'head' — the app's own answer, and the one every list it ships gives: the note
+//            opens at its top, drawn once and never moved.
+//   'line' — the reader's last line in it. The note cannot open there; it is drawn
+//            to its head first and only scrolled once that is done, so a long note
+//            sits empty and then jumps.
+//
+// 'head' is the default, for what the second stop costs: the row's CLICK already
+// opens the note at that line, so what is being bought for a wait is a look at the
+// same arrival one gesture early. A LANDING ROW IS OUTSIDE THIS CHOICE either way:
+// it names a place of its own and asks for nothing it has to wait for.
+type PreviewFocusMode = 'head' | 'line';
+
 interface PluginSettings {
 	dbFileName: string;
 	// 0 = disabled, do not record positions for files with fewer lines
@@ -161,6 +177,14 @@ interface PluginSettings {
 	// and this list is where the reader comes looking for one. A note without the
 	// property, or whose value is not a name, prints its file name.
 	recentFilesTitleProperty: string;
+	// Where the hover preview opens the note a row stands for (see
+	// PreviewFocusMode). What stays out of it is a row naming a landing.
+	recentFilesPreviewFocus: PreviewFocusMode;
+	// Where the app's OWN file list opens its hover preview. Its own setting,
+	// not shared with the one above: the two are different ground — one is a
+	// list this plugin draws, the other the app's — and a reader may well want
+	// one to open at the top and the other at the line they left.
+	fileExplorerPreviewFocus: PreviewFocusMode;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
@@ -193,6 +217,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	recentFilesPathDisplay: 'smart',
 	recentFilesRowTime: true,
 	recentFilesTitleProperty: '',
+	recentFilesPreviewFocus: 'head',
+	fileExplorerPreviewFocus: 'head',
 };
 
 export {
@@ -204,4 +230,5 @@ export {
 	PluginSettings,
 	LandingsMode,
 	PathDisplayMode,
+	PreviewFocusMode,
 };

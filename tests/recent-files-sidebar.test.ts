@@ -62,6 +62,9 @@ function browserPrefs(
 		// What a row calls the note: none of these tests names one, so the file's
 		// own name is what prints (see the browser suite).
 		titleProperty: () => '',
+		// Where a hover opens the note: none of these tests hovers one, and it is a
+		// question asked per hover rather than per panel (see PreviewFocusMode).
+		previewFocus: () => 'head',
 		setLandings: (how) => {
 			held.landings = how;
 		},

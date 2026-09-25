@@ -11,7 +11,7 @@ import { App, CachedMetadata, HoverParent, Menu, MenuPositionDef, TFile, setIcon
 import { NavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList, placeKey } from '@/recent-files/places';
-import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
+import { EphemeralState, LandingsMode, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { t } from '@/i18n';
 import { linesSource } from '@/position/capture/ephemeral';
 import { markdownViewFor } from '@/shared/leaf';
@@ -50,6 +50,10 @@ export interface RecentFilesBrowserPrefs {
 	// (see PluginSettings.recentFilesTitleProperty). Read per render: it decides
 	// what the next one prints.
 	titleProperty: () => string;
+	// WHERE A ROW'S PREVIEW OPENS THE NOTE (see PreviewFocusMode). Read per hover rather than
+	// per render: it names nothing that is drawn, and it decides whether a hover has to go looking
+	// for that note's lines at all.
+	previewFocus: () => PreviewFocusMode;
 }
 
 export interface RecentFilesBrowserOptions {
@@ -468,7 +472,13 @@ export class RecentFilesBrowser {
 		// rather than a place. When this panel cannot say, the asking carries no line at all and the
 		// note opens at the app's own default. `prime` is true here, and only here: one hover may
 		// wait one await for one file, and nothing is drawn with the answer.
-		const line = nowLineFor(entry, this.reads.describe(rep), this.nowLines);
+		//
+		// NOT LOOKED FOR when the answer would be thrown away (see wantsLine): naming no line costs
+		// one whole read less, and with it the redraw the reading owes to rows already drawn — due
+		// sixty milliseconds after an asking the app may still be answering.
+		const line = this.wantsLine(file)
+			? nowLineFor(entry, this.reads.describe(rep), this.nowLines)
+			: undefined;
 		const ask = this.previewAsk(entry, entry.path, file, line);
 		this.opts.app.workspace.trigger('hover-link', {
 			event: ev,
@@ -492,36 +502,52 @@ export class RecentFilesBrowser {
 		this.settle.ask(ask.state !== undefined);
 	}
 
-	// HOW A ROW NAMES ITS SPOT: by the SECTION it sits in, or by its LINE NUMBER. The app decides
-	// which. Handed a number (state.scroll), the popover draws the whole note first and moves the
-	// scroller there once that render lands, flashing the target (see hover-settle.ts). Handed a
-	// section (`note.md#Heading`) none of that happens: the loader draws ONLY that section.
+	// HOW A ROW NAMES ITS SPOT: by the SECTION it sits in, by its LINE NUMBER, or not at all.
+	// Handed a number (state.scroll), the popover draws the whole note first and moves the scroller
+	// there once that render lands, flashing the target (see hover-settle.ts). Handed a section
+	// (`note.md#Heading`) none of that happens: the loader draws ONLY that section. Handed neither,
+	// the note opens at its head, the way every list the app ships opens it.
 	//
-	// A NOTE'S OWN ROW NEVER NAMES A SECTION, WHATEVER HEADING ITS LINE SITS UNDER: the row stands
-	// for the FILE, and a click opens the file the plain way. "The note" said as its third section
-	// is a promise kept to nobody — a reader hovering "meeting-notes" and getting three paragraphs
-	// of it has not been shown what they pointed at.
+	// A ROW STANDING FOR THE FILE is asked for the line at the READER'S OPTION: what that buys is the
+	// arrival the row's own click already gives, one gesture early, and what it costs is a whole note
+	// rendered and then moved — so the app's own answer is the one that ships (see PreviewFocusMode).
 	//
-	// A LANDING ROW is the other case: it names a place IN the note. Rows whose line has no heading
+	// A LANDING ROW names a place IN the note, and is asked for one. Rows whose line has no heading
 	// above it, or whose heading cannot be trusted to name the same place on the other side of the
 	// link, fall back to the number — a wrong section delivered without moving once is worse than
 	// the right place arriving late. A row whose line this panel cannot find names neither.
+	//
+	// Whether a row names a line at all is settled here rather than where the hover began because it
+	// is ONE answer both need: hoverRow asks it to know whether to go read a file, this one to know
+	// what to hand the app.
+	private wantsLine(file: boolean): boolean {
+		return !file || this.opts.prefs.previewFocus() === 'line';
+	}
+
 	private previewAsk(
 		entry: NavEntry,
 		path: string,
 		file: boolean,
 		line: number | undefined,
 	): { linktext: string; state?: { scroll: number } } {
-		const heading = file || line === undefined ? undefined : this.subpathHeading(entry, path, line);
+		if (file) {
+			if (!this.wantsLine(file))
+				return { linktext: path };
+			return {
+				linktext: path,
+				// WHERE IN THE NOTE the preview opens is this panel's to say, and it is the one thing a
+				// preview asked from here can offer that one asked elsewhere cannot: the popover opens
+				// ON THAT LINE instead of at the note's head. `scroll` is the app's own name for a
+				// markdown view's top visible line — the same number the position database keeps — so
+				// nothing here invents a state shape. The number is TODAY's, not the recorded one.
+				state: line === undefined ? undefined : { scroll: line },
+			};
+		}
+		const heading = line === undefined ? undefined : this.subpathHeading(entry, path, line);
 		if (heading !== undefined)
 			return { linktext: `${path}#${heading}` };
 		return {
 			linktext: path,
-			// WHERE IN THE NOTE the preview opens is this panel's to say, and it is the one thing a
-			// preview asked from here can offer that one asked elsewhere cannot: the popover opens
-			// ON THAT LINE instead of at the note's head. `scroll` is the app's own name for a
-			// markdown view's top visible line — the same number the position database keeps — so
-			// nothing here invents a state shape. The number is TODAY's, not the recorded one.
 			state: line === undefined ? undefined : { scroll: line },
 		};
 	}

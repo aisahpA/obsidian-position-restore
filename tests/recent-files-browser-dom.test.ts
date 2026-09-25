@@ -16,7 +16,7 @@ import type { HoverParent } from 'obsidian';
 import { RecentFilesModal } from '@/recent-files/browser/modal';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
-import type { EphemeralState, PathDisplayMode } from '@/types';
+import type { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { ageLabel } from '@/recent-files/browser/model';
@@ -92,6 +92,11 @@ function prefs(start: {
 	// The frontmatter property a row prints as the note's name, empty for none
 	// (see PluginSettings.recentFilesTitleProperty).
 	title?: string;
+	// Where a hover preview opens the note (see PreviewFocusMode). 'head' is the
+	// fixture's own default because it is the app's — a test that wants the note
+	// opened at a line asks for it, which is also the honest reading of the four
+	// tests below that assert a line was named.
+	focus?: PreviewFocusMode;
 } = {}) {
 	const state = {
 		landings: 'last' as LandingsMode,
@@ -99,6 +104,7 @@ function prefs(start: {
 		path: 'smart' as PathDisplayMode,
 		time: false,
 		title: '',
+		focus: 'head' as PreviewFocusMode,
 		...start,
 	};
 	return {
@@ -115,6 +121,9 @@ function prefs(start: {
 			// What a row calls the note (see reads.ts's titleOf): a test that wants
 			// one named `title` passes it here and puts it in the files' cache.
 			titleProperty: () => state.title,
+			// Where a hover opens the note (see PreviewFocusMode): nothing here is
+			// drawn from it, so a test passes it per hover rather than per panel.
+			previewFocus: () => state.focus,
 		} satisfies RecentFilesBrowserPrefs,
 	};
 }
@@ -142,9 +151,12 @@ function harnessAll(
 	mtimes: Record<string, number> = {},
 	// The saved positions the note rows are read from (see harness's own `saved`).
 	saved: ((path: string) => EphemeralState | undefined) | undefined = undefined,
+	// Where a hover opens the note (see PreviewFocusMode), for the suite whose rows
+	// are places but whose SECTION comes from the headings above them.
+	focus: PreviewFocusMode = 'head',
 ): ReturnType<typeof harness> {
 	return harness(entries, index, files, deleted, live, headingMap, mobile, mtimes,
-		prefs({ landings: 'all' }).browser, saved);
+		prefs({ landings: 'all', focus }).browser, saved);
 }
 
 // A PLACE of the recent-files list, in the two shapes the store really produces
@@ -3590,9 +3602,15 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 	const heading = (text: string, line: number) => ({
 		heading: text, level: line === 0 ? 1 : 2, position: { start: { line } },
 	});
-	const withHeadings = (headings: unknown[], saved?: Record<string, EphemeralState>) =>
-		harnessAll(jumped(), 3, files, [], {}, { 'a.md': headings }, false, {},
-			path => saved?.[path]);
+	// …and the same note with a spot of its own saved for it, which is what the note's
+	// OWN row has wherever it can be previewed from (`focus` picks the stop, see
+	// PreviewFocusMode: the row's line is a choice now, and not the row's default).
+	const withHeadings = (
+		headings: unknown[],
+		saved?: Record<string, EphemeralState>,
+		focus?: PreviewFocusMode,
+	) => harnessAll(jumped(), 3, files, [], {}, { 'a.md': headings }, false, {},
+		path => saved?.[path], focus);
 	// The questions the app was asked, in order: the panel hands each one over as the
 	// app's own event, with the request as its second argument (see hoverRow).
 	const asked = (trigger: unknown) =>
@@ -3721,13 +3739,13 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('asks for the WHOLE NOTE for the note’s own row, even where it could name a section', () => {
-		// THE ROW IS THE FILE, so the note is what it asks to see: its click opens the note
-		// the plain way (see RecentFilesList.activeRep), and the preview is that same promise
-		// opening under the pointer instead of in a pane. Its line DOES sit under "Beta" —
-		// but a reader hovering "meeting-notes" and getting its third heading has not been
-		// shown what they pointed at, however instantly it arrived, so the note comes whole
-		// and travels to the line, behind the cover (see hover-settle.ts).
+	it('asks for the note and nothing else for the note’s own row', () => {
+		// THE ROW IS THE FILE, so the file is what it asks to see — and it asks the way
+		// every list the app ships asks: no section, and no line to travel to. The line
+		// DOES sit under "Beta", and knowing that changes nothing, for two reasons. A
+		// reader hovering "meeting-notes" and being shown its third heading has not been
+		// shown what they pointed at, however soon it arrived. And the note opens there
+		// anyway: the row's own CLICK is that arrival, one gesture later.
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
 
 		movedOnto(h.note('a'));
@@ -3735,10 +3753,37 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
 		expect(question[0].linktext).toBe('a.md');
-		// …and the line named is where the note would have been opened anyway: the
-		// position database's own answer, which is what makes this preview agree with the
-		// click standing behind it.
+		expect(question[0].state).toBeUndefined();
+	});
+
+	it('asks for the note WHOLE, moved to its line, when the reader chose that', () => {
+		// The other stop (see PreviewFocusMode), asked for by name because it is not the
+		// default: named a line, the app draws the whole note first and travels to it
+		// behind the cover (see hover-settle.ts), arriving at the spot the row's click
+		// would have opened at — which is what lets this preview agree with the click
+		// standing behind it.
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } },
+			'line');
+
+		movedOnto(h.note('a'));
+
+		const question = asked(h.trigger);
+		expect(question).toHaveLength(1);
+		expect(question[0].linktext).toBe('a.md');
 		expect(question[0].state).toEqual({ scroll: 11 });
+	});
+
+	it('reads no file for a preview that names no line', async () => {
+		// What a line COSTS, and what the default stop therefore does not pay: a line is
+		// re-found in the note's own TEXT, which for a note no tab is holding is a whole
+		// file read — one that lands with the whole list redrawn sixty milliseconds
+		// later, right where the app is drawing the card this hover asked for.
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
+
+		movedOnto(h.note('a'));
+		await vi.advanceTimersByTimeAsync(LATE_READ_REDRAW_MS * 2);
+
+		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
 	it('names the SECTION the row stands in, when the note has one there', () => {
@@ -3914,11 +3959,15 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 			.map(c => c[1] as { linktext?: string; state?: { scroll?: number } });
 	const one = (): NavEntry[] => [visit('a.md', NOW, st)];
 
+	// The three below ask for the line the app MOVED TO AFTERWARDS — which is the stop
+	// this list offers rather than the one it ships (see PreviewFocusMode), so each one
+	// says so where the panel read its own preference.
 	it('names the line the spot stands at now, when the note is open', () => {
 		// The buffer of a note that is OPEN is the only source that cannot be behind: it
 		// is the text the reader is looking at, saved or not — and the file's own clock
 		// says the note has been written since the record was taken.
-		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 });
+		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 },
+			prefs({ focus: 'line' }).browser);
 
 		movedOnto(h.note('a'));
 
@@ -3932,7 +3981,8 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		// Nothing is in hand the first time — the lines sit behind an await, and an asking
 		// is not going to wait for a file — so that hover asks for the note with NO number,
 		// and the reading it started is what lets the next one name the spot.
-		const h = harness(one(), 0, { 'a.md': edited }, [], {}, {}, false, { 'a.md': 9 });
+		const h = harness(one(), 0, { 'a.md': edited }, [], {}, {}, false, { 'a.md': 9 },
+			prefs({ focus: 'line' }).browser);
 
 		movedOnto(h.note('a'));
 		expect(asked(h.trigger)[0].state).toBeUndefined();
@@ -3948,11 +3998,25 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		// The file's clock says what the record says: nothing has been written, so the
 		// recorded line is still the line.
 		const h = harness([visit('a.md', NOW, { ...st, mtime: 4 })], 0, files, [], {}, {}, false,
-			{ 'a.md': 4 });
+			{ 'a.md': 4 }, prefs({ focus: 'line' }).browser);
 
 		movedOnto(h.note('a'));
 
 		expect(asked(h.trigger)[0].state).toEqual({ scroll: SPOT });
+	});
+
+	it('names no line where the ROW has one but the note is asked for the app’s own way', () => {
+		// The same open note, the same spot two lines off and found again — and nothing
+		// named, because the DEFAULT stop asks for the note the way every list the app
+		// ships asks for it. Everything above this test is an expedition the reader
+		// chose, not a duty this row has.
+		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 });
+
+		movedOnto(h.note('a'));
+
+		const question = asked(h.trigger)[0];
+		expect(question.linktext).toBe('a.md');
+		expect(question.state).toBeUndefined();
 	});
 
 	it('names no line at all where the spot cannot be found again', () => {

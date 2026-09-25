@@ -6,6 +6,7 @@ import { PositionState } from './state';
 import { BackgroundSettler } from './restore/background-settle';
 import { Restorer } from './restore/restorer';
 import { OpenPatcher } from './restore/patcher';
+import { ExplorerPreviewFocus } from './hover/explorer-preview';
 import { Sampler } from './capture/sampler';
 import { NavFunnel } from '@/nav/funnel';
 import { NavStack } from '@/nav-history/stack';
@@ -34,6 +35,7 @@ export class PositionManager {
 	private store: PositionStore;
 	private restorer: Restorer;
 	private patcher: OpenPatcher;
+	private explorerPreview: ExplorerPreviewFocus;
 	private sampler: Sampler;
 	private backgroundSettler: BackgroundSettler;
 	private funnel: NavFunnel;
@@ -72,6 +74,7 @@ export class PositionManager {
 		this.restorer = new Restorer(app, settings, this.store, this.state);
 		this.sampler = new Sampler(app, this.store, settings, this.state, this.funnel);
 		this.patcher = new OpenPatcher(app, settings, this.store, this.state, this.funnel, this.sampler);
+		this.explorerPreview = new ExplorerPreviewFocus(app, database, settings);
 		this.backgroundSettler = new BackgroundSettler(app, settings, this.store, this.state);
 		this.bookkeeper = new PathBookkeeper(app, this.store, [this.stack, this.places], this.state);
 	}
@@ -99,6 +102,14 @@ export class PositionManager {
 			// reliable "user touched the view" signal to tell real scrolls from passive reflow.
 			this.sampler.installTouchListener(registerCleanup);
 		}
+	}
+
+	// Where the app's OWN file list opens its hover preview. Own registration
+	// rather than folded into installPatches: it changes no position and reads
+	// none of the pipes the patches feed, and it stays answerable on its own if
+	// the preview it points at is ever dropped.
+	installExplorerPreview(registerCleanup: (fn: () => void) => void) {
+		this.explorerPreview.install(registerCleanup);
 	}
 
 	restoreEphemeralState(): void {
@@ -227,6 +238,10 @@ export class PositionManager {
 			// What a row calls the note: the reader's own frontmatter property
 			// where they named one, the file's name everywhere else.
 			titleProperty: () => this.settings.recentFilesTitleProperty,
+			// Where a hover opens the note a row stands for (see PreviewFocusMode). Nothing is
+			// drawn from it, so it takes effect on the next hover rather than the next redraw —
+			// which is why it owes no repaint (see BROWSER_PREF_KEYS in settings/tab.ts).
+			previewFocus: () => this.settings.recentFilesPreviewFocus,
 		};
 	}
 
