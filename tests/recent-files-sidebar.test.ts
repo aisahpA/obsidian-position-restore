@@ -127,6 +127,34 @@ class FakeNav {
 			fn();
 	}
 
+	// The pin, in miniature: `pinned` IS the block, and a change tells the listeners
+	// exactly as a removal does (see NavPlaces.afterPinChange).
+	pin(key: string): void {
+		if (!this.pinned.includes(key))
+			this.pinned.unshift(key);
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	unpin(key: string): void {
+		const at = this.pinned.indexOf(key);
+		if (at >= 0)
+			this.pinned.splice(at, 1);
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	movePinned(key: string, delta: number): void {
+		const at = this.pinned.indexOf(key);
+		const to = at + delta;
+		if (at < 0 || to < 0 || to >= this.pinned.length)
+			return;
+		this.pinned[at] = this.pinned[to];
+		this.pinned[to] = key;
+		for (const fn of this.listeners)
+			fn();
+	}
+
 	// A step the reader made elsewhere: every browser on screen is told (see
 	// NavPlaces.changed).
 	moved(index: number): void {

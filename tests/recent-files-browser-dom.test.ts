@@ -384,8 +384,29 @@ function harness(
 				entries.splice(i, 1);
 		}
 	});
+	// …and the PIN, which the right-click menu writes (see body.ts's pinItems). The
+	// fixture answers it the way the store does — the array IS the block, in the
+	// reader's order — so a test can watch the row move rather than only the call.
+	const pin = vi.fn((key: string) => {
+		if (!pinned.includes(key))
+			pinned.unshift(key);
+	});
+	const unpin = vi.fn((key: string) => {
+		const at = pinned.indexOf(key);
+		if (at >= 0)
+			pinned.splice(at, 1);
+	});
+	const movePinned = vi.fn((key: string, delta: number) => {
+		const at = pinned.indexOf(key);
+		const to = at + delta;
+		if (at < 0 || to < 0 || to >= pinned.length)
+			return;
+		pinned[at] = pinned[to];
+		pinned[to] = key;
+	});
 	const places = {
 		entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding, pinned,
+		pin, unpin, movePinned, isPinned: (key: string) => pinned.includes(key),
 	};
 	let modal: RecentFilesModal;
 	try {
@@ -506,6 +527,7 @@ function harness(
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
 		modal, jumpTo, forget, forgetLanding, cachedRead, el: modal.contentEl, entries, list, pinned,
+		pin, unpin, movePinned,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
@@ -2439,18 +2461,20 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('hands the app a menu for a file row, with its own one item on top', () => {
+	it('hands the app a menu for a file row, with its own items on top', () => {
 		// The menu is the app's — what a reader can do with a file is not this plugin's
-		// business — and the ONE item added is the one the app cannot know: this row stands
-		// for a PLACE, so "open in a new tab" here means this note, at the spot the row
-		// stands for. Taking the row off the list is no longer in here: that is the × the
-		// row carries, which needs no file to be about (see the two tests below).
+		// business — and what is added is what the app cannot know: this row stands for a
+		// PLACE, so "open in a new tab" here means this note, at the spot the row stands
+		// for; and whether the note is pinned, which is this list's own answer and nobody
+		// else's. Taking the row off the list is no longer in here: that is the × the row
+		// carries, which needs no file to be about (see the two tests below).
 		const h = harness(entries(), 1, files);
 		const ev = h.rightClick(h.note('a'));
 
 		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
 		const menu = menuOf(h.trigger);
-		expect(menu.items).toHaveLength(1);
+		expect(menu.items.map(i => i.title))
+			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
 		expect(menu.items[0].icon).toBe('external-link');
@@ -3998,5 +4022,108 @@ describe('RecentFilesModal — the pinned rows', () => {
 
 		h.clickRow(h.forgetButton(h.note('a')));
 		expect(h.forget).toHaveBeenCalledWith('a.md');
+	});
+});
+
+describe('RecentFilesModal — the pin on a row’s menu', () => {
+	// WHAT THIS LIST ADDS to the app's own menu for a file: the pin, which is a
+	// bookmark for a NOTE and belongs on a note's row — and the two steps, which
+	// are about the pinned block's own order and nowhere else.
+	const three = () => [
+		visit('a.md', NOW - 5 * MINUTE),
+		visit('b.md', NOW - 2 * MINUTE),
+		visit('c.md', NOW),
+	];
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+	const open = t('recentFiles.openInNewTab');
+	const items = (h: ReturnType<typeof harness>) => {
+		const calls = (h.trigger as { mock: { calls: unknown[][] } }).mock.calls;
+		expect(calls).toHaveLength(1);
+		const menu = calls[0][1] as {
+			items: { title: string; section: string; icon: string; click?: () => void }[];
+		};
+		return menu.items;
+	};
+	const item = (h: ReturnType<typeof harness>, title: string) =>
+		items(h).find(i => i.title === title)!;
+	const names = (h: ReturnType<typeof harness>) =>
+		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+
+	it('offers the pin on a note’s row, and not on a landing’s', () => {
+		// A pin is a bookmark for the NOTE: a landing is a spot INSIDE one, and
+		// pinning it would be a second, smaller kind of pin (see body.ts's pinItems).
+		const spread = [
+			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
+			visit('a.md', NOW - 2 * MINUTE, { scroll: 20 }),
+		];
+		const h = harness(spread, 1, files, [], {}, {}, false, {},
+			prefs({ landings: 'all' }).browser);
+		h.rightClick(h.note('a'));
+		expect(items(h).map(i => i.title)).toContain(t('recentFiles.pin'));
+		expect(items(h)[1].section).toBe('action');
+
+		const landing = harness(spread, 1, files, [], {}, {}, false, {},
+			prefs({ landings: 'all' }).browser);
+		landing.rightClick(landing.rows()[0]);
+		expect(items(landing).map(i => i.title)).toEqual([t('recentFiles.openHereInNewTab')]);
+	});
+
+	it('pins the note and puts its row at the top of the list', () => {
+		// The row moves AT ONCE: the panel is the only thing that can say so, and a
+		// dialog does not subscribe to the store (see body.ts's pin).
+		const h = harness(three(), 2, files);
+
+		h.rightClick(h.note('a'));
+		expect(items(h).map(i => i.title)).toEqual([open, t('recentFiles.pin')]);
+		item(h, t('recentFiles.pin')).click!();
+
+		expect(h.pin).toHaveBeenCalledWith('a.md');
+		expect(names(h)).toEqual(['a', 'c', 'b']);
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+	});
+
+	it('offers the two steps only where there is a step to take', () => {
+		// At either end of the block an item that would do nothing is worse than an
+		// item that is not there.
+		const alone = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md']);
+		alone.rightClick(alone.note('a'));
+		expect(items(alone).map(i => i.title)).toEqual([open, t('recentFiles.unpin')]);
+
+		const first = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md']);
+		first.rightClick(first.note('a'));
+		expect(items(first).map(i => i.title))
+			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinDown')]);
+
+		const last = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md']);
+		last.rightClick(last.note('b'));
+		expect(items(last).map(i => i.title))
+			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp')]);
+	});
+
+	it('moves a pinned row one step inside the block, and draws what it did', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md']);
+
+		h.rightClick(h.note('a'));
+		item(h, t('recentFiles.pinDown')).click!();
+
+		expect(h.movePinned).toHaveBeenCalledWith('a.md', 1);
+		expect(h.pinned).toEqual(['b.md', 'a.md']);
+		expect(names(h)).toEqual(['b', 'a', 'c']);
+	});
+
+	it('takes the pin off, and the row goes back to the list in its own place', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md']);
+
+		h.rightClick(h.note('a'));
+		item(h, t('recentFiles.unpin')).click!();
+
+		expect(h.unpin).toHaveBeenCalledWith('a.md');
+		expect(names(h)).toEqual(['c', 'b', 'a']);
+		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
 	});
 });

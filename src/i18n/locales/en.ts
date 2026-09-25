@@ -250,6 +250,14 @@ export const en = {
 	// actions" and not "menu" — and not "open in a new tab", which is one item
 	// ON that menu.
 	'recentFiles.rowMenu': 'More actions',
+	// The pin, on the menu a note's own row asks the app to fill in. A pin is a
+	// bookmark for the NOTE, so these stand on a note's row and on no landing's
+	// — and "move up"/"move down" are about the pinned block's own order, which
+	// is why they come up only for a row already in it.
+	'recentFiles.pin': 'Pin to top',
+	'recentFiles.unpin': 'Unpin',
+	'recentFiles.pinUp': 'Move up',
+	'recentFiles.pinDown': 'Move down',
 	// "Browse" and not "open": what opens is the LIST, and "open recent files"
 	// reads as opening the one file the reader was last in. It is also what
 	// separates the two commands in the palette — the other is "Open …".

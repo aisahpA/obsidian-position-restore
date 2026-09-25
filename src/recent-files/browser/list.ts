@@ -115,11 +115,13 @@ export interface RecentFilesListOptions {
 	// module read itself.
 	onTravel: (rep: number, target?: PaneTarget) => void;
 	// A row was right-clicked (or, on a phone, its armed row's menu control
-	// tapped): WHICH place, and WHERE ON SCREEN the menu opens. A POINT and
-	// not the event because the two doors disagree: right-click answers where
-	// the pointer is, a control tap where the control STANDS — a click the
-	// platform delivers for a finger may carry zero coordinates.
-	onContextRow: (rep: number, at: MenuPositionDef) => void;
+	// tapped): WHICH place, WHERE ON SCREEN the menu opens, and whether the row
+	// is the NOTE's own rather than a spot inside it — a pin is a bookmark for a
+	// note, so what the browser may add to the menu depends on which it is. A
+	// POINT and not the event because the two doors disagree: right-click
+	// answers where the pointer is, a control tap where the control STANDS — a
+	// click the platform delivers for a finger may carry zero coordinates.
+	onContextRow: (rep: number, at: MenuPositionDef, note: boolean) => void;
 	// Whether a menu raised from a row is standing — and if one is, TAKE IT
 	// BACK (see body.ts's takeMenuBack).
 	takeMenuBack: () => boolean;
@@ -913,7 +915,7 @@ export class RecentFilesList {
 		}
 		const rep = this.activeRep(ref);
 		if (rep >= 0)
-			this.opts.onContextRow(rep, { x: ev.clientX, y: ev.clientY });
+			this.opts.onContextRow(rep, { x: ev.clientX, y: ev.clientY }, ref.group !== undefined);
 	}
 
 	// A FINGER STOPPED ON A ROW, which on a device with no hover is what a
@@ -1090,7 +1092,11 @@ export class RecentFilesList {
 			// WHERE IT OPENS is the CONTROL'S OWN BOX, not the tap's: a click
 			// the platform delivers for a finger may carry zero coordinates.
 			const box = more.getBoundingClientRect();
-			this.opts.onContextRow(rep, { x: box.left + box.width / 2, y: box.bottom });
+			this.opts.onContextRow(
+				rep,
+				{ x: box.left + box.width / 2, y: box.bottom },
+				ref.group !== undefined,
+			);
 			// THE ARM STAYS: a menu is a question, not an answer, and the
 			// row's own answers may still be the ones the reader wants when
 			// the menu closes.

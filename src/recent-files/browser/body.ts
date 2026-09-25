@@ -8,7 +8,7 @@
 // are what ONE ROW can be asked for — go there, and go away.
 
 import { App, CachedMetadata, HoverParent, Menu, MenuPositionDef, TFile, setIcon, Keymap } from 'obsidian';
-import { NavEntry } from '@/nav/entry';
+import { NavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList, placeKey } from '@/recent-files/places';
 import { EphemeralState, LandingsMode, PathDisplayMode } from '@/types';
@@ -194,7 +194,7 @@ export class RecentFilesBrowser {
 			onHoverEnd: () => this.settle.hoverEnded(),
 			// A right-click asks the APP what it can do with this file; the menu is built here
 			// because the list does not hold the app.
-			onContextRow: (rep, ev) => this.contextRow(rep, ev),
+			onContextRow: (rep, ev, note) => this.contextRow(rep, ev, note),
 			takeMenuBack: () => this.takeMenuBack(),
 			// A row's own ×: the removal the list asks for and cannot make itself, because the
 			// places are here and not there.
@@ -553,10 +553,11 @@ export class RecentFilesBrowser {
 		card.addClass(PREVIEW_CLASS);
 	}
 
-	// A row was right-clicked: raise the APP's own menu for the file behind it, with OUR one entry
-	// on top. What a reader can do with a file is the app's business, and a second list of those
+	// A row was right-clicked: raise the APP's own menu for the file behind it, with OUR entries on
+	// top. What a reader can do with a file is the app's business, and a second list of those
 	// commands here would be a stale copy. What is added is what the app cannot know: this row
-	// stands for a PLACE, so "open in a new tab" here promises the landing this row stands for.
+	// stands for a PLACE, so "open in a new tab" here promises the landing this row stands for —
+	// and a pin, which is this list's own answer about a note and nobody else's.
 	//
 	// The context asked for is the LINK one, not the file explorer's: a row is a pointer at a file
 	// rather than the file in its own tree. A PATHLESS VIEW raises nothing: a file menu has no file
@@ -565,7 +566,9 @@ export class RecentFilesBrowser {
 	// A TOUCH DEVICE GETS HERE BY ANOTHER DOOR: a long press arms the row, so the menu is raised
 	// from the armed row's own control. The two doors meet in the same place, which is why the menu
 	// is placed by a POINT and not by the event.
-	private contextRow(rep: number, at: MenuPositionDef): void {
+	//
+	// `note` says WHICH row this is — the note's own, or one spot inside it.
+	private contextRow(rep: number, at: MenuPositionDef, note: boolean): void {
 		const entry = this.opts.places.entries[rep];
 		// A pathless view has no file: the app's own menu for one has no subject.
 		if (!entry || entry.kind === 'view')
@@ -593,6 +596,10 @@ export class RecentFilesBrowser {
 			// what opens is the row's own place one tab over.
 			.setIcon('external-link')
 			.onClick(() => this.jump(rep, 'tab')));
+		// …and the pin, which is about THE ROW and not about the file: only a note's
+		// own row has one to give (see pinItems).
+		if (note)
+			this.pinItems(menu, navGroupKey(entry));
 		this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
 		this.menu = menu;
 		// …and when the app takes it off by one of ITS OWN gestures, the control goes back to
@@ -600,6 +607,58 @@ export class RecentFilesBrowser {
 		menu.onHide(this.forgetMenu);
 		menu.showAtPosition(at);
 		this.hearPresses(true);
+	}
+
+	// THE PIN ITEMS, on a note's own row and on nobody else's: a pin is a bookmark for the NOTE, so
+	// a landing's row — one spot inside a note — has nothing to pin. `key` is the row's identity,
+	// the same one the × hands over (see navGroupKey).
+	//
+	// MOVE UP / MOVE DOWN come up only where a step EXISTS: at either end of the block an item that
+	// would do nothing is worse than an item that is not there, and the block's order is the only
+	// order these two are about.
+	private pinItems(menu: Menu, key: string): void {
+		const at = this.opts.places.pinned.indexOf(key);
+		if (at < 0) {
+			this.pinItem(menu, 'recentFiles.pin', 'pin', () => this.pin(key));
+			return;
+		}
+		this.pinItem(menu, 'recentFiles.unpin', 'pin-off', () => this.unpin(key));
+		if (at > 0)
+			this.pinItem(menu, 'recentFiles.pinUp', 'arrow-up', () => this.movePin(key, -1));
+		if (at < this.opts.places.pinned.length - 1)
+			this.pinItem(menu, 'recentFiles.pinDown', 'arrow-down', () => this.movePin(key, 1));
+	}
+
+	private pinItem(
+		menu: Menu,
+		title: Parameters<typeof t>[0],
+		icon: string,
+		run: () => void,
+	): void {
+		menu.addItem(item => item
+			.setSection('action')
+			.setTitle(t(title))
+			.setIcon(icon)
+			.onClick(run));
+	}
+
+	// A pin is the reader's own answer about a note, written down by the store at once (see
+	// NavPlaces.pin). The REDRAW is asked for here rather than left to the shells, for the same
+	// reason a removal's is: a DIALOG does not subscribe to the store, so a pin would otherwise
+	// leave the row where it stood until the dialog was reopened.
+	private pin(key: string): void {
+		this.opts.places.pin(key);
+		this.render();
+	}
+
+	private unpin(key: string): void {
+		this.opts.places.unpin(key);
+		this.render();
+	}
+
+	private movePin(key: string, delta: number): void {
+		this.opts.places.movePinned(key, delta);
+		this.render();
 	}
 
 	// Take a standing menu off the screen. Asked by the control that raised it, by the shell stepping
