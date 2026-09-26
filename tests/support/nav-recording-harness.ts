@@ -129,6 +129,28 @@ export function viewLeaf(
 	} as unknown as WorkspaceLeaf;
 }
 
+// A FileView that FOLLOWS the note instead of standing for one — outline, backlinks, local graph,
+// file properties — as it looks once it is in the main area (opened there by hand, or by a mobile
+// layout). It answers every question a FileView does, see shared/leaf's isFileDestination.
+export function followingLeaf(
+	id: string,
+	viewType: string,
+	file?: string,
+	opts: { label?: string; icon?: string } = {},
+): WorkspaceLeaf {
+	return {
+		id,
+		containerEl: 'main',
+		view: Object.assign(Object.create(FileView.prototype), {
+			navigation: false,
+			file: file ? { path: file } : null,
+			getViewType: () => viewType,
+			getDisplayText: () => opts.label,
+			getIcon: () => opts.icon,
+		}),
+	} as unknown as WorkspaceLeaf;
+}
+
 // A leaf restored from a saved tab whose VIEW WAS NEVER BUILT (see shared/leaf's
 // isDeferredLeaf): it answers a view's questions off the state it was saved with, and is not
 // the view's own class. Mobile comes back to the note it was last reading this way.

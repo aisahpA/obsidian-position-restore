@@ -5,7 +5,7 @@ import {
 } from './entry';
 import { PositionState } from '@/position/state';
 import {
-	deferredFilePath, isDeferredLeaf, isMainAreaLeaf, viewTypeIsMissing,
+	deferredFilePath, isDeferredLeaf, isFileDestination, isMainAreaLeaf, viewTypeIsMissing,
 	viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState,
 } from '@/shared/leaf';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
@@ -186,7 +186,10 @@ export class NavFunnel {
 		// FileView whose `file` is null. Recorded as a view it would mint a phantom place keyed
 		// `view:markdown` — wearing the note's own name — that no delete could ever clean up,
 		// because a view row has no file to go missing.
-		if (view instanceof FileView) {
+		//
+		// A FileView FOLLOWING the note is neither (see isFileDestination): it falls through and
+		// takes the view branch below, which is what it is.
+		if (view instanceof FileView && isFileDestination(view)) {
 			if (view.file)
 				this.publish({ record: { kind: 'visit', path: view.file.path, leafId, via: 'switch' }, cause: 'tab' });
 			return;

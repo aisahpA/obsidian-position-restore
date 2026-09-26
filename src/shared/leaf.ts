@@ -90,6 +90,18 @@ export function viewTypeIsMissing(app: App, viewType: string): boolean {
 	}
 }
 
+// Whether that FileView IS the note's destination. A FileView may instead FOLLOW the note it is
+// looking at — outline, backlinks, local graph, file properties — which the app records in a
+// runtime-only flag absent from the typings. Those answer every question a FileView does, so in
+// the main area only this tells them apart (see nav/funnel.ts for what recording them as the file
+// costs: a second row for a note the reader never went to).
+//
+// ONLY `false` excludes: a build that renames or drops the field reads undefined, and answering
+// "not a file" then would take every real file view with it.
+export function isFileDestination(view: View): boolean {
+	return (view as unknown as { navigation?: boolean }).navigation !== false;
+}
+
 // The file a deferred placeholder stands in for, read off the state it was restored with: the
 // tab is still that note, and recording it as a view would mint a place with no file behind it.
 export function deferredFilePath(view: View | undefined): string | undefined {

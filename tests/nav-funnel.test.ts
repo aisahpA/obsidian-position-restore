@@ -29,7 +29,7 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
-import { deferredLeaf, entry, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
+import { deferredLeaf, entry, followingLeaf, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
 
 beforeEach(() => {
 	window.localStorage.clear();
@@ -326,6 +326,46 @@ describe('NavFunnel — what a capture point publishes', () => {
 
 		expect(visits).toEqual([]);
 		expect(leaves).toHaveLength(1);
+	});
+
+	it('a panel view following the note is the VIEW it is, not a second visit to the note', () => {
+		// Outline, backlinks, the local graph and the properties panes extend FileView and turned
+		// the app's own destination flag off: they show whatever note the reader is standing in.
+		// The sidebar hides them (they are not main-area leaves), but "open in main" puts one in
+		// the reader's way — and recorded as the file it points at, the list grows a second row
+		// for a note they never went to.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(followingLeaf('leaf-o', 'outline', 'b.md', { label: 'Outline' }));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'view', leafId: 'leaf-o', viewType: 'outline', label: 'Outline' }, cause: 'tab' },
+		]);
+	});
+
+	it('a panel view with no note to follow is still the view it is', () => {
+		// Nothing changes about what it IS when the file it tracks is gone: the row with no note
+		// behind it is no truer than the one above.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(followingLeaf('leaf-o', 'backlink'));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'view', leafId: 'leaf-o', viewType: 'backlink' }, cause: 'tab' },
+		]);
+	});
+
+	it('a file view that lost the flag is the note it names', () => {
+		// The flag is runtime-only, so a build that renames it reads undefined, and the test above
+		// is then indistinguishable from the ordinary note below it: ONLY `false` may exclude, or
+		// losing the field would take every file recording with it.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(leafWithFile('leaf-2', 'b.md'));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2', via: 'switch' }, cause: 'tab' },
+		]);
 	});
 
 	it('records the state and the icon the view reports, beside its name', () => {
