@@ -152,7 +152,7 @@ export const en = {
 
 	// ── Feature 3 · Recent files: the list of places, and its panel ─────
 	// The modal's own title, and the PANEL's name: a list of places — recent
-	// notes plus the headings and anchors jumped to inside them — and NOT the
+	// notes plus the headings jumped to inside them — and NOT the
 	// back/forward stack. The two answer different questions.
 	'recentFiles.name': 'Recent files',
 
@@ -163,7 +163,7 @@ export const en = {
 	// to move with LandingsMode's default ('all'): a reader who never opens
 	// "How much it keeps" still has a list behaving one way.
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The headings and blocks you jumped to inside a note get rows of their own as well — how many, is the "How much it keeps" row below, and by default every one of them is kept. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The headings you jumped to inside a note get rows of their own as well — how many, is the "How much it keeps" row below, and by default every one of them is kept. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	// This list's OWN folder rule (recentFilesExcludeFolders), and not the
 	// position records' — the two are not on one page, so it says what it does
@@ -182,25 +182,25 @@ export const en = {
 	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
 	'recentFiles.frontmatterExclude.add': 'Add property',
-	// Counts NOTES and views only — never the landings inside them, so the
-	// number keeps its meaning whichever stop of the landings setting the
-	// reader is on. Hence two sentences: at the top stop landings are drawn as
+	// Counts NOTES and views only — never the headings inside them, so the
+	// number keeps its meaning whichever stop of this setting the
+	// reader is on. Hence two sentences: at the top stop headings are drawn as
 	// rows, so the list on screen runs longer than this number.
 	'recentFiles.cap.name': 'Notes to remember',
 	'recentFiles.cap.desc.plain':
 		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
 	'recentFiles.cap.desc.all':
-		'How many notes the recent files list remembers (a view counts as one) — the landings inside a note do not count, but each is drawn as a row of its own, so the list runs longer than this number. Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
+		'How many notes the recent files list remembers (a view counts as one) — the headings inside a note do not count, but each is drawn as a row of its own, so the list runs longer than this number. Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
 	// HOW MUCH IS KEPT, AND HOW MUCH OF IT IS DRAWN — three stops on one axis
 	// (LandingsMode), not two controls: how much is drawn depends on how much
 	// was kept. Every stop is reversible, so the sentence carries no price:
-	// coming back down stops new landings and draws none, but keeps them.
+	// coming back down stops new headings and draws none, but keeps them.
 	'recentFiles.landings.name': 'How much it keeps',
 	'recentFiles.landings.desc':
-		'How finely the list remembers where you have been: the notes you opened only, or the headings and blocks you jumped to inside them as well. And once they are recorded, whether they are drawn: the note still takes one row and its landings only answer the search box, or every landing gets a row of its own. Moving either way costs nothing: coming back to "notes only" merely stops recording new ones — the landings already recorded are kept, and going back down finds them there, until the note they stand in is crowded out.',
+		'How finely the list remembers where you have been: the notes you opened only, or the headings you jumped to inside them as well. And once they are recorded, whether they are drawn: the note still takes one row and its headings only answer the search box, or every heading gets a row of its own. Moving either way costs nothing: coming back to "notes only" merely stops recording new ones — the headings already recorded are kept, and going back down finds them there, until the note they stand in is crowded out.',
 	'recentFiles.landings.options.none': 'Notes only',
-	'recentFiles.landings.options.last': 'Landings, one row per note',
-	'recentFiles.landings.options.all': 'Landings, a row each',
+	'recentFiles.landings.options.last': 'Headings, one row per note',
+	'recentFiles.landings.options.all': 'Headings, a row each',
 	// What the reader is really choosing is what gives way when the row runs
 	// out of width — a flex line wraps at its end, so whichever half is laid
 	// out last drops to a second line. "Only when names repeat" says the
@@ -232,18 +232,17 @@ export const en = {
 	'recentFiles.age.mo': 'mo ago',
 	'recentFiles.age.y': 'y ago',
 	// TWO answers because a row stands for a PLACE, not merely a file: a jump
-	// row promises a landing, so "open in a new tab" has to mean opening it
+	// row promises a heading, so "open in a new tab" has to mean opening it
 	// THERE. The menu it sits in is the app's; this is the one item the app
 	// cannot know.
 	// A file's OTHER names, on the row's own tooltip: searchable, occupying no
 	// cell, so the hover is the only place a reader sees them. The colon is
 	// part of the value — whether to draw one is the language's call.
 	'recentFiles.aka': 'aka:',
-	// The two QUOTED lines on a landing row's tooltip: both the note's own
+	// The two QUOTED lines on a heading row's tooltip: both the note's own
 	// words, recorded when the place was taken and printed nowhere else. "As
 	// recorded" is the point — the note may have been edited since.
 	'recentFiles.matchedLine': 'Matched:',
-	'recentFiles.landingLine': 'As recorded:',
 	'recentFiles.editedSince': 'Edited since this was recorded',
 	'recentFiles.openInNewTab': 'Open in new tab',
 	'recentFiles.openHereInNewTab': 'Open here in a new tab',
@@ -251,16 +250,16 @@ export const en = {
 	// goes is the record — the file and the position database are untouched,
 	// and visiting the file again puts a place back.
 	'recentFiles.forget': 'Remove from recent files',
-	// The same × on a LANDING's row: what goes is one place inside the note
-	// and the note keeps its own row. "Place" and not "line": the row is the
-	// line AND its section, and a place that moved in an edit is still it.
-	'recentFiles.forgetLanding': 'Remove this place',
+	// The same × on a HEADING's row: what goes is one heading inside the note
+	// and the note keeps its own row. "Heading" and not "line": the row is the
+// heading AND its section, and a heading that moved in an edit is still it.
+	'recentFiles.forgetLanding': 'Remove this heading',
 	// What this control raises is the APP'S own menu for the file. "More
 	// actions" and not "menu" — and not "open in a new tab", which is one item
 	// ON that menu.
 	'recentFiles.rowMenu': 'More actions',
 	// The pin, on the menu a note's own row asks the app to fill in. A pin is a
-	// bookmark for the NOTE, so these stand on a note's row and on no landing's
+	// bookmark for the NOTE, so these stand on a note's row and on no heading's
 	// — and "move up"/"move down" are about the pinned block's own order, which
 	// is why they come up only for a row already in it.
 	'recentFiles.pin': 'Pin to top',
