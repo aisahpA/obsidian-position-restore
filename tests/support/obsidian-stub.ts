@@ -138,6 +138,14 @@ export class ItemView extends View {
 // by level, single newlines as <br> (Obsidian renders them as breaks). Tests
 // assert on the recorded SOURCE and on the mark a reader would see, never on
 // Obsidian's own typography — that is the app's, not this plugin's.
+// The app's preview renderer as this plugin meets it: the one method the
+// file-list preview reaches for (see position/hover/explorer-preview.ts). It is
+// absent from the typings, so a test installs its own recorder on the prototype
+// before patching — an empty body would make the patch fail its own guard.
+export class MarkdownPreviewRenderer {
+	applyScrollDelayed(_line: number, _opts?: { highlight?: boolean; center?: boolean }): void {}
+}
+
 export class MarkdownRenderer {
 	static async render(
 		_app: unknown,

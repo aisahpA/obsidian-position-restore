@@ -11,8 +11,8 @@
 //  - the patch is a patch: everything it does not mean to change is forwarded,
 //    and unload hands the trigger back.
 
-import { describe, it, expect } from 'vitest';
-import type { App } from 'obsidian';
+import { describe, it, expect, afterEach } from 'vitest';
+import { App, MarkdownPreviewRenderer } from 'obsidian';
 
 import { ExplorerPreviewFocus } from '@/position/hover/explorer-preview';
 import { CursorPositionDatabase } from '@/position/storage/database';
@@ -27,6 +27,45 @@ interface Ask {
 }
 
 type PreviewFocusMode = PluginSettings['fileExplorerPreviewFocus'];
+
+// What a preview's renderer is asked to do: move to a line, and — core's own
+// call bakes this in — flag it on arrival.
+interface Move {
+	line: number;
+	opts?: { highlight?: boolean; center?: boolean };
+}
+
+// The method is not in the typings — core's own delayed scroll, internal — so
+// both the patch and these tests meet it through this shape.
+const rendererProto = () => MarkdownPreviewRenderer.prototype as unknown as {
+	applyScrollDelayed?: (line: number, opts?: Move['opts']) => void;
+};
+
+// Stands in for core's delayed scroll so a test can read the options the patch
+// passes down, and only those: the recorded move is the whole assertion.
+const restorers: (() => void)[] = [];
+
+function recordingRenderer() {
+	const proto = rendererProto();
+	const original = proto.applyScrollDelayed;
+	const moves: Move[] = [];
+	proto.applyScrollDelayed = function (line: number, opts?: Move['opts']) {
+		moves.push({ line, opts });
+	};
+	restorers.push(() => {
+		proto.applyScrollDelayed = original;
+	});
+	const renderer = new MarkdownPreviewRenderer() as unknown as {
+		applyScrollDelayed: (line: number, opts?: Move['opts']) => void;
+	};
+	return {
+		moves,
+		to: (line: number, opts?: Move['opts']) => {
+			renderer.applyScrollDelayed(line, opts);
+			return moves.at(-1);
+		},
+	};
+}
 
 function installed(
 	focus: PreviewFocusMode,
@@ -52,11 +91,13 @@ function installed(
 		settings,
 	);
 	const cleanups: (() => void)[] = [];
+	const flash = recordingRenderer();
 	target.install(fn => cleanups.push(fn));
 	return {
 		workspace,
 		calls,
 		cleanups,
+		flash,
 		// The ask the app itself sends: a path and no position.
 		fileList: (linktext: string, state?: { scroll: number }): Ask => {
 			const ask: Ask = { source: 'file-explorer', linktext };
@@ -69,6 +110,13 @@ function installed(
 }
 
 const note = { 'a.md': 'md', 'scan.pdf': 'pdf' };
+
+// Every install stacks a patch on the renderer's prototype; hand it back before
+// the next test stacks another on top of it.
+afterEach(() => {
+	while (restorers.length)
+		restorers.pop()?.();
+});
 
 describe('the app file list’s hover preview', () => {
 	it('adds nothing while the note’s top is what ships', () => {
@@ -139,5 +187,77 @@ describe('the app file list’s hover preview', () => {
 
 		expect(h.workspace.trigger).not.toBe(patched);
 		expect(h.fileList('a.md').state).toBeUndefined();
+	});
+});
+
+// Core hangs a flash on the move to a line: `applyScrollDelayed` is called with
+// `{highlight:true, center:true}` and a hover ask carries no field to say no.
+// The move this plugin's line causes is the one move that runs without it.
+describe('the flash that comes with the move', () => {
+	it('is dropped on the move this plugin’s line causes', () => {
+		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
+		h.fileList('a.md');
+
+		expect(h.flash.to(12, { highlight: true, center: true })).toEqual({
+			line: 12,
+			opts: { highlight: false, center: true },
+		});
+	});
+
+	it('stays for a move this plugin did not aim', () => {
+		// The note's top is what ships, so the preview never asked for a line —
+		// and a flash on a move nobody here caused is not ours to drop.
+		const h = installed('head', { 'a.md': { scroll: 12 } }, note);
+		h.fileList('a.md');
+
+		expect(h.flash.to(12, { highlight: true })!.opts).toEqual({ highlight: true });
+	});
+
+	it('stays for a move to another line', () => {
+		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
+		h.fileList('a.md');
+
+		expect(h.flash.to(30, { highlight: true })!.opts).toEqual({ highlight: true });
+	});
+
+	it('is spent once, by the first move that would flash', () => {
+		// One aim, one dropped flash: a second move to the same line is a move
+		// this plugin no longer stands behind.
+		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
+		h.fileList('a.md');
+
+		expect(h.flash.to(12, { highlight: true })!.opts!.highlight).toBe(false);
+		expect(h.flash.to(12, { highlight: true })!.opts!.highlight).toBe(true);
+	});
+
+	it('is left alone once another list has asked', () => {
+		// The last ask wins: a hover from anywhere else means the next flash
+		// belongs to that ask.
+		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
+		h.fileList('a.md');
+		h.workspace.trigger('hover-link', { source: 'search', linktext: 'a.md' });
+
+		expect(h.flash.to(12, { highlight: true })!.opts).toEqual({ highlight: true });
+	});
+
+	it('is not spent by a move that never asked to flash', () => {
+		// Hover Editor calls the same method on resize, with no options at all:
+		// that move wants no flash, so it must not use up the aim behind the one
+		// that does.
+		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
+		h.fileList('a.md');
+
+		expect(h.flash.to(12)!.opts).toBeUndefined();
+		expect(h.flash.to(12, { highlight: true })!.opts!.highlight).toBe(false);
+	});
+
+	it('hands the renderer back on unload', () => {
+		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
+		const patched = rendererProto().applyScrollDelayed;
+
+		for (const cleanup of h.cleanups)
+			cleanup();
+
+		expect(rendererProto().applyScrollDelayed).not.toBe(patched);
 	});
 });

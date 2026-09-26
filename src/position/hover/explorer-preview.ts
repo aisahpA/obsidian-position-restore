@@ -1,4 +1,4 @@
-import { App } from 'obsidian';
+import { App, MarkdownPreviewRenderer } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from '../storage/database';
 
@@ -6,6 +6,12 @@ import { CursorPositionDatabase } from '../storage/database';
 // source funnels through the same workspace trigger, so this is what keeps the
 // change to that one list.
 const FILE_EXPLORER_SOURCE = 'file-explorer';
+
+// How core is told to move a preview to a line. It bakes `highlight: true` into
+// that call, and a hover ask has no field saying "move without flagging it", so
+// a flash that ships with the move can only be dropped at the call itself.
+type ScrollOpts = { highlight?: boolean; center?: boolean };
+type ApplyScrollDelayed = (line: number, opts?: ScrollOpts) => void;
 
 // The parts of a hover ask this module reads or writes — the event, the parent
 // and the target element belong to the app.
@@ -26,6 +32,11 @@ type Trigger = (name: string, ...data: unknown[]) => void;
 // wait for. A file changed elsewhere since may therefore open a line off from
 // the one the reader left — the cost of answering synchronously.
 export class ExplorerPreviewFocus {
+	// The line this module last put into a hover ask, waiting for the move that
+	// ask causes. One aim may drop one flash, and a preview that never drew
+	// cannot spend it later — see patchScrollFlash.
+	private aimedLine: number | undefined;
+
 	constructor(
 		private app: App,
 		private database: CursorPositionDatabase,
@@ -50,11 +61,50 @@ export class ExplorerPreviewFocus {
 		registerCleanup(() => {
 			workspace.trigger = original;
 		});
+		this.patchScrollFlash(registerCleanup);
+	}
+
+	// A flash is core's answer to "here is the thing you searched for". The line
+	// this module hands over is not a find: it is where the reader already was,
+	// and a card lighting it up tells them nothing they did not bring. So the
+	// move our aim causes runs without it, while every other move keeps the
+	// flash it was asked for.
+	private patchScrollFlash(registerCleanup: (fn: () => void) => void) {
+		const proto = MarkdownPreviewRenderer.prototype as unknown as {
+			applyScrollDelayed?: ApplyScrollDelayed;
+		};
+		const original = proto.applyScrollDelayed;
+		if (typeof original !== 'function')
+			return;
+		// Arrow keeps `this` lexical; the wrapper below must stay a plain
+		// function so core's `this` (the renderer) is preserved.
+		const withoutOwnFlash = (line: number, opts?: ScrollOpts) =>
+			this.withoutOwnFlash(line, opts);
+		proto.applyScrollDelayed = function (line: number, opts?: ScrollOpts) {
+			return original.call(this, line, withoutOwnFlash(line, opts));
+		};
+		registerCleanup(() => {
+			proto.applyScrollDelayed = original;
+		});
+	}
+
+	// Only a call that WOULD flash may spend the token: Hover Editor's own resize
+	// handler calls this asking for no flash, and must not use up the aim
+	// standing behind the one that does.
+	private withoutOwnFlash(line: number, opts?: ScrollOpts): ScrollOpts | undefined {
+		if (!opts?.highlight || line !== this.aimedLine)
+			return opts;
+		this.aimedLine = undefined;
+		return { ...opts, highlight: false };
 	}
 
 	// Only a markdown note with a recorded position off the top is worth
 	// pointing; everything else is left exactly as the app asked for it.
 	private aim(payload: unknown): void {
+		// Every hover ask clears the token first: one from anywhere else — this
+		// plugin's own list, the app's search — means the next flash is that
+		// ask's to make, not ours to swallow.
+		this.aimedLine = undefined;
 		if (this.settings.fileExplorerPreviewFocus !== 'line')
 			return;
 		if (!payload || typeof payload !== 'object')
@@ -66,7 +116,9 @@ export class ExplorerPreviewFocus {
 		if (!file || file.extension !== 'md')
 			return;
 		const st = this.database.db[file.path];
-		if ((st?.scroll ?? 0) > 0)
+		if ((st?.scroll ?? 0) > 0) {
 			ask.state = { scroll: st.scroll };
+			this.aimedLine = st.scroll;
+		}
 	}
 }
