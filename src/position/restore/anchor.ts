@@ -1,4 +1,5 @@
 import { CachedMetadata } from 'obsidian';
+import { blockAnchor } from '@/nav/entry';
 import { normAnchor } from '@/position/capture/ephemeral';
 
 // How far a keyed entry's anchor has DRIFTED: its line in the file NOW minus
@@ -35,7 +36,8 @@ export function anchorLineShift(
 // Key forms (see NavFunnel.recordOpen / OpenPatcher):
 //   outline:<heading text>      raw heading text (outline panel click)
 //   <file>#<slug> | #<slug>     heading link (anchor/caller linktext)
-//   <file>^<block> | ^<block>   block reference
+//   <file>#^<block> | #^<block> block reference (the form a [[note#^id]] link
+//     arrives in; <file>^<block> is the same thing without the hash)
 //   caller:<timestamp>          no anchor — not structural, returns undefined.
 // A leading file path is stripped: a NavJump is always a same-file in-file
 // jump, so it resolves against the entry's own file.
@@ -69,32 +71,31 @@ export function resolveAnchorLine(
 			: undefined;
 	}
 
+	// Block reference: the id is an exact key, not a slug. It is asked BEFORE
+	// the heading branch because `note.md#^id` carries a `#` as well — that is
+	// the form Obsidian hands over for a `[[note#^id]]` link, and reading it as
+	// a heading slug made every block link miss and fall back to the
+	// text-snippet remap.
+	const block = blockAnchor(key);
+	if (block !== undefined)
+		return cache.blocks?.[block]?.position.start.line;
+
 	// An anchor/caller linktext: strip any leading file path, then take the
-	// #heading / ^block part.
+	// #heading part.
 	const hashIdx = key.indexOf('#');
-	const caretIdx = key.indexOf('^');
-	if (hashIdx === -1 && caretIdx === -1)
+	if (hashIdx === -1)
 		return undefined;
-	const anchor = hashIdx !== -1
-		? key.slice(hashIdx + 1)
-		: key.slice(caretIdx + 1);
+	const anchor = key.slice(hashIdx + 1);
 	if (!anchor)
 		return undefined;
-
-	if (hashIdx !== -1) {
-		// The link anchor is a SLUG ("My Heading" -> "my-heading") that
-		// decodeAnchor only URL-unwraps, so a plain-text compare against
-		// HeadingCache.heading can essentially never hit it: go straight to
-		// the normalized scan.
-		const target = normAnchor(decodeAnchor(anchor));
-		return target
-			? nearestLine(cache.headings ?? [], (h) => normAnchor(h.heading) === target, baseLine)
-			: undefined;
-	}
-
-	// Block reference: the block id is an exact key, not a slug.
-	const block = cache.blocks?.[anchor];
-	return block?.position.start.line;
+	// The link anchor is a SLUG ("My Heading" -> "my-heading") that
+	// decodeAnchor only URL-unwraps, so a plain-text compare against
+	// HeadingCache.heading can essentially never hit it: go straight to
+	// the normalized scan.
+	const target = normAnchor(decodeAnchor(anchor));
+	return target
+		? nearestLine(cache.headings ?? [], (h) => normAnchor(h.heading) === target, baseLine)
+		: undefined;
 }
 
 // Heading resolution for OUTLINE keys, two passes: plain text first (the

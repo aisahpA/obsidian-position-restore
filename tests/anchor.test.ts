@@ -41,6 +41,15 @@ describe('resolveAnchorLine', () => {
 		expect(resolveAnchorLine(c, 'note.md^2024-01-01')).toBe(5);
 	});
 
+	it('resolves a block link in the form Obsidian writes it', () => {
+		// [[note#^id]] hands over `note.md#^id`, and the `#` used to send it down the
+		// heading-slug branch, where no heading is named after a block id — so every block
+		// link missed its block and fell back to the text-snippet remap.
+		const c = cache([], { b1: 7 });
+		expect(resolveAnchorLine(c, 'note.md#^b1')).toBe(7);
+		expect(resolveAnchorLine(c, '#^b1')).toBe(7);
+	});
+
 	it('returns undefined when the heading is renamed or removed', () => {
 		const c = cache([['Alpha', 0]]);
 		expect(resolveAnchorLine(c, 'outline:Vanished')).toBeUndefined();

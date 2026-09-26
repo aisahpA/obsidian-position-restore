@@ -6,7 +6,7 @@ import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture
 import { anchorLineShift, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
-	NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
+	blockAnchor, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
 } from '@/nav/entry';
 import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
 import { PaneTarget } from '@/nav/pane';
@@ -379,6 +379,17 @@ export class NavStack implements NavFunnelSink {
 				return;
 			top.key = `outline:${'#'.repeat(hit.level)} ${hit.heading}`;
 			top.keyLine = hit.line;
+			return;
+		}
+		// A block reference: the id names the block exactly (see nav/entry.ts's blockAnchor), so
+		// its line is the block's own and a step CAN be re-anchored on one. Asked before the
+		// heading branch because `note.md#^id` carries a `#` too — read as a heading slug it
+		// found nothing, and every block step rode the text-snippet remap instead.
+		const block = blockAnchor(top.key);
+		if (block !== undefined) {
+			const at = cache?.blocks?.[block]?.position.start.line;
+			if (at !== undefined)
+				top.keyLine = at;
 			return;
 		}
 		const hash = top.key.indexOf('#');

@@ -19,18 +19,28 @@ import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
 // `missingViewTypes` are the ones this vault cannot build: no factory in the registry, so a tab
 // asking for one gets the placeholder pane that claims to be it (see shared/leaf). Every other
 // type answers with a factory, the way every type the app itself installed does.
+// `blocks` is a block id to its line, the shape a vault's cache carries for a `^id` target.
 export function makeApp(
 	headings?: Array<{ heading: string; level: number; position: { start: { line: number } } }>,
 	missingViewTypes: readonly string[] = [],
+	blocks?: Record<string, number>,
 ): App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } } {
 	const missing = new Set(missingViewTypes);
+	const cache = headings || blocks
+		? {
+			headings,
+			blocks: blocks && Object.fromEntries(Object.entries(blocks).map(
+				([id, line]) => [id, { id, position: { start: { line }, end: { line } } }],
+			)),
+		}
+		: null;
 	return {
 		appId: 'test-vault',
 		vault: {
 			getName: () => 'Test',
 			getAbstractFileByPath: (path: string) => Object.assign(new TFile(), { path }),
 		},
-		metadataCache: { getFileCache: () => (headings ? { headings } : null) },
+		metadataCache: { getFileCache: () => cache },
 		workspace: {
 			layoutReady: true,
 			rootSplit: { containerEl: { contains: (el: unknown) => el === 'main' } },

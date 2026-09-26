@@ -241,6 +241,17 @@ describe('NavStack stack logic', () => {
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(12);
 	});
 
+	it('upgrades a block-link key with the block’s own line', () => {
+		// [[a.md#^b1]] hands over `a.md#^b1`, and the `#` in it makes a scan that takes the
+		// first `#` read it as a heading slug — no heading is named after a block id, so the
+		// step kept no keyLine and every block step fell back to the text-snippet remap.
+		const nav = makeNav(makeApp(undefined, [], { b1: 9 }));
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'a.md#^b1', force: true });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 9, anchor: 'the block’s text' });
+		expect(keyOf(nav.stack.entries[0])).toBe('a.md#^b1');
+		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(9);
+	});
+
 	it('keeps the recorded key when no cache heading matches (remap fallback)', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'Other', level: 1, position: { start: { line: 1 } } },
