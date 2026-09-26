@@ -18,13 +18,6 @@ interface EphemeralState {
 	},
 }
 
-// One recorded line of a landing's context block: 0-based line number, as every
-// other line number in a record, and the line's trimmed text.
-interface NavContextLine {
-	line: number,
-	text: string,
-}
-
 // What a nav entry carries beyond the position, produced ONLY by the low-frequency
 // nav reads when an entry is saved — never by the hot read. EphemeralState is
 // structurally assignable, so baseline-fed states and legacy entries type-check
@@ -35,14 +28,14 @@ interface NavContextLine {
 // metadata cache can still answer at browse time (heading chain, aliases, tags) is
 // looked up there instead, so it is always current and costs no storage.
 interface NavEntryState extends EphemeralState {
-	// The landing's CONTEXT BLOCK: the lines the landing sat among at capture time,
-	// in document order, with the landing itself at `contextAt`. It is what the
-	// browser's SEARCH BOX matches — "the words I saw when I left" is how a reader
-	// finds an old spot. SEARCH ONLY: re-anchoring stays `anchor`'s job, one line
-	// with exact-match semantics — a multi-line block must never feed it.
-	context?: NavContextLine[],
-	// Index of the landing line within `context`.
-	contextAt?: number,
+	// The landing's CONTEXT: the lines that stood BELOW it at capture time, trimmed
+	// and capped, in document order. What the browser's SEARCH BOX matches — "the
+	// words I saw when I left" is how a reader finds an old spot. SEARCH ONLY:
+	// re-anchoring stays `anchor`'s job, one line with exact-match semantics — a
+	// multi-line block must never feed it. Neither an address nor a quote of the
+	// landing itself: the jump's own key says which line that was, and the section
+	// chain the row prints beside it already names the heading standing there.
+	context?: string[],
 	// The file's mtime at capture time. Deliberately NOT used to skip the text remap:
 	// that runs against a live editor buffer, which can differ from the file on disk
 	// — an unsaved edit changes the lines without touching the mtime.
@@ -224,7 +217,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 export {
 	CursorPos,
 	EphemeralState,
-	NavContextLine,
 	NavEntryState,
 	TabStateRecord,
 	PluginSettings,

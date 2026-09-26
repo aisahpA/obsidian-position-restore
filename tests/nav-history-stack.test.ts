@@ -1781,9 +1781,6 @@ describe('NavStack — a travel asked for elsewhere', () => {
 });
 
 // A place carries the words its landing was recorded among — the recent-files list's quote, the
-// thing its search box matches. A step is restored by POSITION and reads none of them, and every
-// step the reader takes is written to storage, so the stack takes a place in without them.
-// A place carries the words its landing was recorded among — the recent-files list's quote, the
 // thing its search box matches. A step is restored by POSITION, so it leaves them behind at the one
 // place it is written (see nav-history/store.ts).
 describe('NavStack — a step is stored without the landing words', () => {
@@ -1791,7 +1788,7 @@ describe('NavStack — a step is stored without the landing words', () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const place: NavEntry = {
 			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
-			st: { scroll: 30, context: [{ line: 28, text: '## T' }], contextAt: 0 },
+			st: { scroll: 30, context: ['## T'] },
 		};
 
 		await h.nav.stack.travelTo(place, 'tab');

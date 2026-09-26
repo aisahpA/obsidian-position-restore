@@ -1,5 +1,5 @@
 import { Keymap, MenuPositionDef, setIcon } from 'obsidian';
-import { isHeadingLine, NavEntry } from '@/nav/entry';
+import { NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
@@ -7,7 +7,7 @@ import { groupByFile, LandingsMode, matchesNavFilter, matchedContextLine } from 
 import { PathDisplayMode } from '@/types';
 import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
-	landingText, newestStamp, rowTrail,
+	newestStamp, rowTrail,
 } from './model';
 import { NavRowTip, TipContent } from './tip';
 import { LongPress } from './long-press';
@@ -697,25 +697,15 @@ export class RecentFilesList {
 		});
 	}
 
-	// The words a landing row RECORDED and never prints: the line it sat on,
-	// and — while a query is up — the line the query hit. The HIT comes first
-	// when there is one: a reader looking at a filtered list is asking why
-	// this row survived. The landing's own line follows only when it differs
-	// — saying the same words twice under two labels is a tooltip that has
-	// stopped talking.
+	// The one thing a landing records and never prints: while a query is up, the
+	// line below the landing the query hit. Nothing is quoted on its own account
+	// — a landing is its section's heading, which the chain this tooltip prints
+	// already names, and the words are here to be FOUND rather than read.
 	private landingQuotes(entry: NavEntry, query: string): string[] {
 		if (entry.kind === 'view')
 			return [];
 		const hit = query ? matchedContextLine(entry, query) : undefined;
-		const own = landingText(entry);
-		const out: string[] = [];
-		if (hit)
-			out.push(`${t('recentFiles.matchedLine')}${hit}`);
-		// A heading's own line is not worth quoting: the section chain this tooltip prints above
-		// ends in that heading, and "as recorded: ## Beta" under it is the same words twice.
-		if (own && own !== hit && !isHeadingLine(own))
-			out.push(`${t('recentFiles.landingLine')}${own}`);
-		return out;
+		return hit ? [`${t('recentFiles.matchedLine')}${hit}`] : [];
 	}
 
 	// Whether the note has been written since the landing's words were taken.

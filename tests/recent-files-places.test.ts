@@ -334,7 +334,7 @@ describe('NavPlaces — the state a landing is recorded with', () => {
 		// The words were read WITH the landing (see ephemeral.ts's readLandingState); this list takes
 		// the state as it arrives, rather than reassembling it field by field.
 		const { places } = makePlaces();
-		const st: NavEntryState = { scroll: 10, context: [{ line: 9, text: 'L9' }], contextAt: 0 };
+		const st: NavEntryState = { scroll: 10, context: ['L9'] };
 		places.remember(jump('a.md', 'outline:## One'));
 		places.settle({ ...jump('a.md', 'outline:## One'), st });
 

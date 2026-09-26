@@ -88,22 +88,6 @@ export interface NavEntryDescription {
 	lineIndex?: number;
 }
 
-// The WORDS of the line a landing sat on (see NavEntryState.context / contextAt) — the one thing
-// about a place that is recorded and never displayed: what the note actually said there.
-//
-// Undefined where there are no words to quote, and that is most of an old list: a place recorded
-// before the block was captured, a landing whose context read came back empty, or the blank line a
-// paragraph was started on and left (a blank line is not a quote, and an empty line in a tooltip is
-// a gap a reader has to explain).
-export function landingText(entry: NavEntry): string | undefined {
-	if (entry.kind === 'view')
-		return undefined;
-	const st = entry.st;
-	if (!st?.context)
-		return undefined;
-	return st.context[st.contextAt ?? -1]?.text || undefined;
-}
-
 // The name a row prints for a PATHLESS entry — a view rather than a place in a note. It is the
 // view's OWN, recorded when the reader went there: Obsidian's `getDisplayText` is what that view's
 // tab header says, so the row agrees with the title the reader clicked, in the app's own language,

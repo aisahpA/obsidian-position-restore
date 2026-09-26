@@ -167,9 +167,11 @@ export function isBlockKey(key: string | undefined): boolean {
 	return !!key && blockAnchor(key) !== undefined;
 }
 
-// Which line a step landed on, or undefined when it recorded none. READ, not derived: the capture
-// recorded the block with the landing line marked (contextAt), with the viewport top and then the
-// cursor as fallbacks for a state that never went through that read.
+// Which line a step landed on, or undefined when it recorded none. A jump answers out of its own
+// KEY: every landing either list keeps was a heading jump, and the key's line is where metadataCache
+// put that heading as the landing settled — the line its row travels to. The recorded POSITION is the
+// fallback for what carries no such answer: a keyless step, and a jump to a target since renamed
+// away, both of which say where the reader stood and nothing else.
 //
 // This is what "the SAME landing" means, and it lives here because TWO things decide by it and have
 // to agree: the panel collapses the steps that landed on one line into one row, and the places store
@@ -177,18 +179,12 @@ export function isBlockKey(key: string | undefined): boolean {
 export function landedLine(entry: NavEntry): number | undefined {
 	if (entry.kind === 'view')
 		return undefined;
+	if (entry.kind === 'jump' && typeof entry.keyLine === 'number')
+		return entry.keyLine;
 	const st = entry.st;
 	if (!st)
 		return undefined;
-	return st.context?.[st.contextAt ?? -1]?.line ?? st.scroll ?? st.cursor?.from.line;
-}
-
-// Whether a recorded line is a heading's OWN line — the line a section starts on. Two things decide
-// by it and have to agree: the capture spends a landing's word budget below a heading rather than
-// around it (the words above belong to the section before), and a row prints no "as recorded" line
-// for one, the section chain beside it already saying which heading the landing is.
-export function isHeadingLine(text: string | undefined): boolean {
-	return /^#{1,6}\s/.test(text ?? '');
+	return st.scroll ?? st.cursor?.from.line;
 }
 
 // What a STEP is stored without: the words its landing was recorded among. They are the recent-files
@@ -197,7 +193,6 @@ export function isHeadingLine(text: string | undefined): boolean {
 export function withoutLandingWords(st: NavEntryState): NavEntryState {
 	const out = { ...st };
 	delete out.context;
-	delete out.contextAt;
 	return out;
 }
 

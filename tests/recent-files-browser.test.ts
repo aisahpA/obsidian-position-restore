@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
 	describeNavEntry, headingTrailAtLine, headingsFromText, rowTrail, dropsOuterLevel, baseName,
-	badgeOf, displayName, landingText,
+	badgeOf, displayName,
 	duplicateNames, folderOf, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
 import { groupByFile, matchesNavFilter, matchedContextLine } from '@/recent-files/browser/listing';
@@ -16,12 +16,8 @@ import { NavEntry } from '@/nav/entry';
 import { NavEntryState } from '@/types';
 
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
-// A recorded landing block, as capture writes it: surrounding lines with the
-// landing at `at`.
-const block = (lines: string[], at: number): NavEntryState => ({
-	context: lines.map((text, i) => ({ line: i, text })),
-	contextAt: at,
-});
+// The lines capture recorded BELOW a landing, as capture writes them.
+const block = (lines: string[]): NavEntryState => ({ context: lines });
 
 describe('describeNavEntry', () => {
 	it('a file entry shows its name, without the extension', () => {
@@ -34,16 +30,31 @@ describe('describeNavEntry', () => {
 		expect(d.lineIndex).toBeUndefined();
 	});
 
-	it('reads the landing line from the recorded block', () => {
-		const edit = describeNavEntry({
-			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'cursor line', 'z'], 2) },
+	it('reads a jump landing line from its KEY, not from the position it recorded', () => {
+		// Every landing either list keeps was a heading jump, and the key's line is that
+		// heading as metadataCache placed it (see NavJump.keyLine) — authoritative where a
+		// scroll is a viewport top and a cursor is wherever the reader last clicked.
+		const d = describeNavEntry({
+			kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', keyLine: 17,
+			st: { scroll: 42, cursor: line(99) },
 		} as NavEntry);
-		// the landing line, not the viewport top and not the cursor
-		expect(edit.line).toBe('L3');
+		expect(d.line).toBe('L18');
 		// the same landing as a 0-based index: what the list keys a spot by, and what
 		// the section chain is looked up against
-		expect(edit.lineIndex).toBe(2);
+		expect(d.lineIndex).toBe(17);
+	});
+
+	it('reads any other step landing off the position it recorded', () => {
+		// Nothing structural to answer from: a teleport, whose own target line is the jump's,
+		// and a jump whose target has since been renamed away. The words recorded below the
+		// landing say nothing about where anything stands.
+		const edit = describeNavEntry({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'z']) },
+		} as NavEntry);
+		// the recorded viewport top, not the cursor
+		expect(edit.line).toBe('L43');
+		expect(edit.lineIndex).toBe(42);
 	});
 
 	it('a teleport whose landing never settled falls back to the recorded target line', () => {
@@ -487,17 +498,12 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(thino, 'thino_view')).toBe(true);
 	});
 
-	it('matches the recorded context block, not only the landing line', () => {
-		// The block is what the user was looking at when they left (see
-		// NavEntryState.context) — the whole point of recording it is that a
-		// search may hit any line of it.
+	it('matches the recorded context, any line of it', () => {
+		// The lines below the landing are what the user was looking at when they left
+		// (see NavEntryState.context) — the whole point of recording them is that a
+		// search may hit any one of them.
 		const e = visit('notes/a.md', {
-			context: [
-				{ line: 10, text: '前一段：换行与量化' },
-				{ line: 11, text: '落点这一行' },
-				{ line: 12, text: '后一段：读取死区' },
-			],
-			contextAt: 1,
+			context: ['前一段：换行与量化', '落点这一行', '后一段：读取死区'],
 		});
 		expect(matchesNavFilter(e, '读取死区')).toBe(true);
 		expect(matchesNavFilter(e, '换行 落点')).toBe(true);
@@ -539,36 +545,10 @@ describe('matchesNavFilter', () => {
 	});
 });
 
-describe('landingText', () => {
-	const jump = (st?: NavEntryState): NavEntry =>
-		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
-
-	it('is the line the landing sat on, not the line above or below it', () => {
-		// The row prints that line's NUMBER and the section it is in; these are
-		// its words, which are on screen nowhere else (see NavEntryState.context).
-		const e = jump(block(['前一段', '落点这一行', '后一段'], 1));
-		expect(landingText(e)).toBe('落点这一行');
-	});
-
-	it('is undefined where there is nothing to quote', () => {
-		// Most of an old list: a place recorded before the block was captured, and
-		// — the one that matters — a landing taken on a blank line, whose quote
-		// would be an empty line in a tooltip.
-		expect(landingText(jump())).toBeUndefined();
-		expect(landingText(jump({ scroll: 10 }))).toBeUndefined();
-		expect(landingText(jump(block(['前一段', '', '后一段'], 1)))).toBeUndefined();
-	});
-
-	it('is undefined for a view, which is not a place in a note', () => {
-		const e = { kind: 'view', leafId: 'l', viewType: 'graph' } as NavEntry;
-		expect(landingText(e)).toBeUndefined();
-	});
-});
-
 describe('matchedContextLine', () => {
 	const jump = (st?: NavEntryState): NavEntry =>
 		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
-	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区'], 1));
+	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区']));
 
 	it('is the line that carries the whole query', () => {
 		expect(matchedContextLine(ctx, '读取死区')).toBe('后一段：读取死区');
@@ -594,7 +574,7 @@ describe('matchedContextLine', () => {
 	});
 
 	it('is case-insensitive, as the filter that matched it is', () => {
-		const e = jump(block(['Alpha Beta', 'gamma'], 0));
+		const e = jump(block(['Alpha Beta', 'gamma']));
 		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
 	});
 });

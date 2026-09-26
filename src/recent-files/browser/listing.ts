@@ -201,8 +201,7 @@ export function navSearchText(entry: NavEntry): string {
 	const parts = [baseName(entry.path), entry.path];
 	const st = entry.st;
 	if (st) {
-		for (const line of st.context ?? [])
-			parts.push(line.text);
+		parts.push(...(st.context ?? []));
 		parts.push(st.anchor ?? '');
 	}
 	// The jump's key: for an outline click the heading's text, for an anchor link the target the
@@ -233,13 +232,13 @@ export function matchedContextLine(entry: NavEntry, query: string): string | und
 		return undefined;
 	let loose: string | undefined;
 	for (const line of entry.st?.context ?? []) {
-		const hay = line.text.toLowerCase();
+		const hay = line.toLowerCase();
 		if (!hay)
 			continue;
 		if (tokens.every(tok => hay.includes(tok)))
-			return line.text;
+			return line;
 		if (loose === undefined && hay.includes(tokens[0]))
-			loose = line.text;
+			loose = line;
 	}
 	return loose;
 }

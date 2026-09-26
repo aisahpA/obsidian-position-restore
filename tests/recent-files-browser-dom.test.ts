@@ -20,7 +20,7 @@ import type { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types'
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { ageLabel } from '@/recent-files/browser/model';
-import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
+import { NAV_CONTEXT_LINES } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
@@ -168,35 +168,27 @@ function harnessAll(
 const visit = (path: string, stamp: number, st?: NavEntryState): NavEntry => st
 	? {
 		kind: 'jump', path, leafId: 'leaf-1', t: stamp, st,
-		key: `outline:## L${st.scroll ?? st.context?.[st.contextAt ?? 0]?.line ?? 0}`,
+		key: `outline:## L${st.scroll ?? 0}`,
 	} as NavEntry
 	: { kind: 'visit', path, leafId: 'leaf-1', t: stamp };
 
-// A capture as the plugin records one now: the landing's surrounding NON-BLANK
-// lines with `contextAt` marking it (see NavEntryState.context). Mirrors
-// contextBlock in capture/ephemeral.ts at the same radius, so a fixture's panel
-// content is the production shape instead of a hand-built one.
+// A capture as the plugin records one now: the NON-BLANK lines that stood BELOW the
+// landing (see NavEntryState.context). Mirrors contextBelow in capture/ephemeral.ts
+// with the same budget, so a fixture's panel content is the production shape instead
+// of a hand-built one.
 function captured(doc: string[], landing: number): NavEntryState {
-	const side = (from: number, step: 1 | -1) => {
-		const out: { line: number; text: string }[] = [];
-		for (let i = from, taken = 0; i >= 0 && i < doc.length && taken < NAV_CONTEXT_RADIUS; i += step) {
-			const text = doc[i].trim();
-			if (!text)
-				continue;
-			if (step < 0)
-				out.unshift({ line: i, text });
-			else
-				out.push({ line: i, text });
-			taken++;
-		}
-		return out;
-	};
-	const before = side(landing - 1, -1);
+	const context: string[] = [];
+	const limit = NAV_CONTEXT_LINES * 4;
+	for (let i = landing + 1; i < doc.length && context.length < NAV_CONTEXT_LINES
+		&& i - landing <= limit; i++) {
+		const text = doc[i].trim();
+		if (text)
+			context.push(text);
+	}
 	return {
 		scroll: landing,
 		anchor: doc[landing].trim(),
-		context: [...before, { line: landing, text: doc[landing].trim() }, ...side(landing + 1, 1)],
-		contextAt: before.length,
+		context: context.length ? context : undefined,
 	};
 }
 
@@ -1707,37 +1699,11 @@ describe('RecentFilesModal — a landing row', () => {
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
 
 	// L36 is the other half of the rule: its chain IS two levels, the row prints
-	// both, so hover has nothing to add ABOUT THE CHAIN. The row is not silent,
-	// though — it also says the line the landing was recorded on (see the quote's
-	// own test below), which is the one thing about this place the row has never
-	// printed.
+	// both, so hover has nothing to add ABOUT THE CHAIN — and nothing at all was
+	// recorded below a landing taken at the foot of the note.
 	h.unhover(rows[0]);
 	expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
-	const plain = h.hover(rows[1])!;
-	expect(plain.querySelector('.nav-tip-text')).toBeNull();
-	expect(plain.querySelector('.nav-tip-quote')?.textContent)
-		.toBe(`${t('recentFiles.landingLine')}最后一段`);
-});
-
-// WHAT A LANDING RECORDED AND NEVER PRINTED (see RecentFilesList.landingQuotes).
-// The row says a coordinate and a section, and the search box matched the words the
-// landing sat among — in silence, because those words are on screen nowhere at all.
-// They are the one thing a query can hit that a reader cannot see, and they are what
-// a landing's row could never answer before: what is this place, and why is it here.
-it('says the line a landing was recorded on', () => {
-	const entries = [
-		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
-		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
-		visit('b.md', NOW),
-	];
-	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
-
-	const tip = h.hover(h.place('L7'))!;
-	expect(tip.querySelector('.nav-tip-quote')?.textContent)
-		.toBe(`${t('recentFiles.landingLine')}预览条：悬停显示上下文三行`);
-	// …and the chain stays where it was: a quoted line says what the place WAS,
-	// not what it is called, and the reader still needs to know where it is.
-	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+	expect(h.hover(rows[1])).toBeFalsy();
 });
 
 it('says nothing more where nothing was recorded to quote', () => {
@@ -1754,18 +1720,18 @@ it('says nothing more where nothing was recorded to quote', () => {
 	const tip = h.hover(h.place('L7'))!;
 	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
 	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
-	// …and the other landing, whose row prints the whole of its two-level chain
-	// and was recorded on a line of its own, still has its own words to say.
+	// …and the other landing, whose row prints the whole of its two-level chain, has
+	// nothing below it to say either: it was taken at the foot of the note.
 	h.unhover(h.place('L7'));
-	expect(h.hover(h.place('L36'))!.querySelector('.nav-tip-quote')?.textContent)
-		.toBe(`${t('recentFiles.landingLine')}最后一段`);
+	expect(h.hover(h.place('L36'))).toBeFalsy();
 });
 
-it('says nothing about a HEADING landing — the chain above it already names it', () => {
-	// A landing whose own line is a heading: the tooltip's chain ends in that
-	// heading, so "as recorded: ### 预览" under it is the same words twice. (The
-	// capture spends its budget below a heading for the same reason — see
-	// ephemeral.ts's landingContext.)
+it('says nothing about a landing while no query is up — the row has said it all', () => {
+	// Every landing IS a heading jump, so recording the words below it buys search
+	// and nothing else: with nothing typed, quoting one of them would put the same
+	// words on screen twice — once as a line the row explains, once as a line it
+	// quotes. (The capture takes nothing from above the landing for the same reason
+	// — see ephemeral.ts's landingContext.)
 	const entries = [
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -1778,13 +1744,13 @@ it('says nothing about a HEADING landing — the chain above it already names it
 	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
 });
 
-it('names the line the query hit, ahead of the line the landing sat on', () => {
-	// Two landings one line apart, so both of their blocks answer a query that
-	// hits either: a note left with a single landing prints no landing rows at
+it('names the line the query hit', () => {
+	// Two landings one line apart, so both of them answer a query either of their
+	// blocks carries: a note left with a single landing prints no landing rows at
 	// all (see RecentFilesList.printsLandings), and there would be no row to ask.
 	const entries = [
-		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
-		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 9)),
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 6)),
 		visit('b.md', NOW),
 	];
 	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
@@ -1793,38 +1759,24 @@ it('names the line the query hit, ahead of the line the landing sat on', () => {
 		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
 	).map(q => q.textContent);
 
-	// A line of the block that is NOT this landing's own: why this row survived a
-	// query that says nothing about its name, its path or its section.
-	box.value = '预览条';
-	box.dispatchEvent(new Event('input', { bubbles: true }));
-	h.hover(h.place('L9'));
-	expect(quotes()).toEqual([
-		`${t('recentFiles.matchedLine')}预览条：悬停显示上下文三行`,
-		`${t('recentFiles.landingLine')}正文第 1 行`,
-	]);
-
-	// …and when the hit IS the landing's own line, it is said once: the same words
-	// twice under two labels is a tooltip that has stopped talking.
-	h.unhover(h.place('L9'));
+	// A line neither landing sits on: why this row survived a query that says
+	// nothing about its name, its path or its section.
 	box.value = '正文第 1 行';
 	box.dispatchEvent(new Event('input', { bubbles: true }));
-	h.hover(h.place('L9'));
+	h.hover(h.place('L5'));
 	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
-	// The row beside it, whose own line is the NEXT one, says both — the hit is the
-	// same line for the two of them and the landing is not.
-	h.unhover(h.place('L9'));
-	h.hover(h.place('L10'));
-	expect(quotes()).toEqual([
-		`${t('recentFiles.matchedLine')}正文第 1 行`,
-		`${t('recentFiles.landingLine')}正文第 2 行`,
-	]);
+	// …and the row beside it, which shares every word below it, says the same line —
+	// what the two answers differ by is which place each one opens.
+	h.unhover(h.place('L5'));
+	h.hover(h.place('L7'));
+	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
 
-	// A query the block never carried — this row matched on its own name.
-	h.unhover(h.place('L10'));
+	// A query the recorded lines never carried — this row matched on its own name.
+	h.unhover(h.place('L7'));
 	box.value = 'a.md';
 	box.dispatchEvent(new Event('input', { bubbles: true }));
-	h.hover(h.place('L9'));
-	expect(quotes()).toEqual([`${t('recentFiles.landingLine')}正文第 1 行`]);
+	h.hover(h.place('L5'));
+	expect(quotes()).toEqual([]);
 });
 
 it('says the note has been written since the line it quotes was taken', () => {
@@ -1883,6 +1835,9 @@ it('says nothing about the note when the record kept no time of its own', () => 
 		visit('b.md', NOW),
 	];
 	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false, { 'a.md': 99_999 });
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	box.value = '正文第 4 行';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
 	h.hover(h.place('L9'));
 	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-note')).toHaveLength(0);
 	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote').length)
@@ -1907,15 +1862,12 @@ it('says the line a query hit on the NOTE\'S ROW, when that row IS the place', (
 		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
 	).map(q => q.textContent);
 
-	box.value = '预览条';
+	box.value = '正文第 2 行';
 	box.dispatchEvent(new Event('input', { bubbles: true }));
 	expect(h.rows()).toHaveLength(0);
 	expect(quotes()).toEqual([]);
 	expect(h.hover(h.note('a'))).not.toBeNull();
-	expect(quotes()).toEqual([
-		`${t('recentFiles.matchedLine')}预览条：悬停显示上下文三行`,
-		`${t('recentFiles.landingLine')}正文第 1 行`,
-	]);
+	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 2 行`]);
 });
 
 it('says nothing on a note\'s own row while that row is the FILE', () => {
@@ -1995,16 +1947,13 @@ it('says nothing on a note\'s own row while that row is the FILE', () => {
 
 			// …and a pane that GREW: the next render prints the level again, and the
 			// words the pass lent the row are the row's own once more — a tooltip left
-			// behind would repeat the row it is standing over. What is left is the
-			// line the landing was recorded on, which was never the pass's to lend.
+			// behind would repeat the row it is standing over, and there is nothing
+			// else for it to say.
 			h.unhover(h.rows()[0]);
 			squeezed = false;
 			h.changed();
 			expect(h.rows()[1].classList.contains('is-deep-only')).toBe(false);
-			const grown = h.hover(h.rows()[1])!;
-			expect(grown.querySelector('.nav-tip-text')).toBeNull();
-			expect(grown.querySelector('.nav-tip-quote')?.textContent)
-				.toBe(`${t('recentFiles.landingLine')}最后一段`);
+			expect(h.hover(h.rows()[1])).toBeFalsy();
 		} finally {
 			restore();
 		}
@@ -2710,19 +2659,15 @@ describe('RecentFilesModal — same-named notes', () => {
 
 
 describe('RecentFilesModal — the recorded landing block', () => {
-	// An entry carries the lines it was left on (see NavEntryState.context). The
-	// SEARCH BOX is the block's one reader: "the words I saw when I left" is how a
-	// reader finds an old spot, and a phrase from anywhere in the recorded window has
-	// to hit the note. (The details panel that rendered those lines is gone — see
-	// body.ts — which is why search is the only reader pinned here.)
+	// An entry carries the lines that stood below its landing (see
+	// NavEntryState.context). The SEARCH BOX is their one reader: "the words I saw
+	// when I left" is how a reader finds an old spot, and a phrase from anywhere in
+	// the recorded lines has to hit the note. (The details panel that rendered those
+	// lines is gone — see body.ts — which is why search is the only reader pinned
+	// here.)
 	const blockState = (extra: NavEntryState = {}): NavEntryState => ({
 		scroll: 11,
-		context: [
-			{ line: 10, text: '上一段：从哪里来' },
-			{ line: 11, text: '落点这一行' },
-			{ line: 12, text: '下一段：到哪里去' },
-		],
-		contextAt: 1,
+		context: ['下一段：到哪里去'],
 		mtime: 1000,
 		...extra,
 	});

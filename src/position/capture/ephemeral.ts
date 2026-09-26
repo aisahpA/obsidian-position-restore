@@ -1,6 +1,5 @@
 import { MarkdownView } from 'obsidian';
-import { EphemeralState, NavContextLine, NavEntryState } from '@/types';
-import { isHeadingLine } from '@/nav/entry';
+import { EphemeralState, NavEntryState } from '@/types';
 
 // Hot read: the 100ms poll (Sampler), the scroll capture, and the restore verification / reland
 // loops run this every tick and every frame. Position only — no doc-string reads, no layout. Nav
@@ -82,21 +81,12 @@ function cursorOnScreen(view: MarkdownView, line: number): boolean {
 	return coords.top >= rect.top - lineHeight && coords.top < rect.bottom;
 }
 
-// The recorded context block's radius, in NON-BLANK lines either side of the landing (the landing
-// line itself is always recorded, blank or not). Non-blank counting is the point — a note written
-// one sentence per line with blank separators would spend a raw ±3 on two lines of actual text.
-//
-// THREE, and it came down from five: this block is the heaviest thing the recent-files list stores
-// and it buys exactly one thing — the search box matching a note by the words that stood beside a
-// jump (see listing.ts's navSearchText). The line NUMBER travels on its own (contextAt), so a
-// narrower window costs no precision, only reach.
-export const NAV_CONTEXT_RADIUS = 3;
-
-// A landing whose line is a HEADING takes nothing from above it: those words belong to the section
-// BEFORE the one the reader jumped into, and letting them in is what made a search for the previous
-// section's words pull this row up. The whole window goes below instead — the same budget, spent
-// inside the section the landing names.
-const HEADING_CONTEXT_RADIUS = NAV_CONTEXT_RADIUS * 2;
+// How many lines a landing's context holds, counted in NON-BLANK lines: a note written one sentence
+// per line with blank separators would spend a raw four on two lines of actual text. It buys one
+// thing — the search box matching a row by the words that stood below the jump (see listing.ts's
+// navSearchText) — so it says how far into the section a reader can still search, and nothing about
+// where anything is.
+export const NAV_CONTEXT_LINES = 4;
 
 // Per-line cap of a recorded context line, in characters. Longer than the anchor's 80 on purpose:
 // they do different jobs. The anchor (below) is matched EXACTLY to re-find a line after edits,
@@ -113,31 +103,26 @@ function contextText(raw: string | undefined): string {
 	return (raw ?? '').trim().slice(0, CONTEXT_LINE_CAP);
 }
 
-// The landing line plus NAV_CONTEXT_RADIUS non-blank lines either side, in document order. The
-// landing is included even when it is blank: "started a paragraph, then left" is an ordinary step,
-// and that blank line is where the entry points. Blank lines elsewhere are skipped rather than
-// stored (an empty string matches every query and displays as a placeholder).
-function contextBlock(
+// The `count` non-blank lines BELOW the landing, trimmed and capped, in document order. Nothing from
+// above it: every landing is a heading jump, so the section starts on the landing's own line and the
+// words before it belong to the section above — letting them in is what once made a search for that
+// section's words pull this row up. Blank lines are skipped rather than stored (an empty string
+// matches every query and prints as a gap a reader has to explain).
+function contextBelow(
 	editor: { getLine(line: number): string; lastLine(): number },
 	landing: number,
-	above: number,
-	below: number,
-): NavContextLine[] | undefined {
+	count: number,
+): string[] | undefined {
 	if (landing < 0 || landing > editor.lastLine())
 		return undefined;
-	const before: NavContextLine[] = [];
-	for (let i = landing - 1; i >= 0 && before.length < above && landing - i <= above * CONTEXT_SCAN_FACTOR; i--) {
+	const out: string[] = [];
+	const limit = count * CONTEXT_SCAN_FACTOR;
+	for (let i = landing + 1; i <= editor.lastLine() && out.length < count && i - landing <= limit; i++) {
 		const text = contextText(editor.getLine(i));
 		if (text)
-			before.unshift({ line: i, text });
+			out.push(text);
 	}
-	const after: NavContextLine[] = [];
-	for (let i = landing + 1; i <= editor.lastLine() && after.length < below && i - landing <= below * CONTEXT_SCAN_FACTOR; i++) {
-		const text = contextText(editor.getLine(i));
-		if (text)
-			after.push({ line: i, text });
-	}
-	return [...before, { line: landing, text: contextText(editor.getLine(landing)) }, ...after];
+	return out.length ? out : undefined;
 }
 
 // The nav-display fields around a position: the viewport-top anchor (functional —
@@ -177,30 +162,24 @@ function navDisplayFields(
 export function landingContext(
 	view: MarkdownView,
 	st: NavEntryState,
-): Pick<NavEntryState, 'context' | 'contextAt'> | undefined {
+): Pick<NavEntryState, 'context'> | undefined {
 	const editor = view.editor;
 	if (!editor || typeof editor.getLine !== 'function')
 		return undefined;
 	// Which line the landing IS: the cursor line for a source capture whose cursor is on screen,
 	// the viewport top otherwise (a reading capture's cursor is the stale pre-preview one; a source
-	// capture's cursor may have been scrolled out of sight).
+	// capture's cursor may have been scrolled out of sight). It decides only where the window below
+	// starts — which line it took the reader to is the jump's own key to say (see landedLine), so an
+	// answer a few lines off costs a few lines of words and no precision anywhere else.
 	//
-	// The view mode is read here and nowhere else, and the decision is RECORDED (contextAt) rather
-	// than stamped for a reader to re-derive. Optional-called: the read must never crash the
+	// The view mode is read here and nowhere else. Optional-called: the read must never crash the
 	// recording path on a view-like object that lacks getMode.
 	const mode = view.getMode?.();
 	const cursor = st.cursor;
 	const cursorVisible = !!cursor && mode !== 'preview' && cursorOnScreen(view, cursor.from.line);
 	const landingLine = cursorVisible && cursor ? cursor.from.line : (st.scroll ?? -1);
-	if (landingLine < 0 || landingLine > editor.lastLine())
-		return undefined;
-	// A heading's own line is where its section starts, so its window goes below instead of around.
-	const heading = isHeadingLine(contextText(editor.getLine(landingLine)));
-	const block = contextBlock(editor, landingLine, heading ? 0 : NAV_CONTEXT_RADIUS,
-		heading ? HEADING_CONTEXT_RADIUS : NAV_CONTEXT_RADIUS);
-	if (!block)
-		return undefined;
-	return { context: block, contextAt: block.findIndex(l => l.line === landingLine) };
+	const below = contextBelow(editor, landingLine, NAV_CONTEXT_LINES);
+	return below ? { context: below } : undefined;
 }
 
 // Nav read — LOW frequency only (the leave-refresh on a file switch, the outline pre-click read, the
