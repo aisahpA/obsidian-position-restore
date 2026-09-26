@@ -353,14 +353,14 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			// records tab 1 instead of only seeding the baseline.
 			h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
 			h.state.lastAnchorAt = Date.now();
+			// The reader just flicked the view: a recent touch is what makes
+			// the delta theirs rather than a re-render's.
+			h.state.lastTouchAt = Date.now();
 			h.poll();
-			// Trust the next scroll delta as user-driven. Must be strictly newer
-			// than lastAnchorAt: both Date.now() calls can land in the same
-			// millisecond, which would leave touch == anchor and absorb the delta.
-			h.state.lastTouchAt = h.state.lastAnchorAt + 1;
 
 			// Second tab of the same file scrolled to 99, now active.
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
+			h.state.lastTouchAt = Date.now();
 			h.poll();
 
 			expect(leafStatesOf(h.store).get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42, cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } } } });
@@ -378,16 +378,16 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 			const h = makeMobileHarness();
 			h.state.lastLoadedFilePath = 'a.md';
 			h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
-			h.state.lastAnchorAt = Date.now(); // fresh anchor keeps the reflow guard armed
 			h.poll();
 			h.state.lastTouchAt = 0; // no touch: the next delta is passive reflow
 
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
 			h.poll();
 
-			// Absorbed: leaf-1's record stands, leaf-2 never appears.
+			// Absorbed: no touch accounts for either delta, so no record is
+			// written at all — the reflow is not the reader's movement.
 			expect(leafStatesOf(h.store).has('leaf-2')).toBe(false);
-			expect(h.database.setState).toHaveBeenCalledTimes(1);
+			expect(h.database.setState).not.toHaveBeenCalled();
 		} finally {
 			Platform.isMobileApp = origMobile;
 		}
@@ -437,5 +437,126 @@ describe('Sampler.sampleActiveView — search-anchor grace window', () => {
 		h.poll();
 
 		expect(h.state.searchAnchorUntil).toBe(0);
+	});
+});
+
+// A file a sync client replaced under the open tab — the case behind "the last
+// position gets lost after a sync, reopening lands at the top". The doc swap
+// re-measures the viewport AND re-maps the cursor with the reader doing
+// nothing, and either half alone was enough to overwrite the saved record with
+// the top of the note.
+describe('Sampler.sampleActiveView — a sync rewrite is not reader movement', () => {
+	function makeSyncView(path: string, leafId: string, scroll: number, cursorLine: number): MarkdownView {
+		const view = Object.assign(Object.create(MarkdownView.prototype), {
+			file: { path },
+			containerEl: document.createElement('div'),
+			currentMode: { getScroll: () => scroll },
+			editor: { lineCount: () => 100, getCursor: () => ({ line: cursorLine, ch: 0 }) },
+			getViewType: () => 'markdown',
+		}) as MarkdownView;
+		(view as unknown as { leaf: unknown }).leaf = { id: leafId, view };
+		return view;
+	}
+
+	function makeSyncHarness() {
+		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
+		const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
+		const state = new PositionState(settings);
+		let activeView = makeSyncView('a.md', 'leaf-1', 300, 300);
+		const app = {
+			workspace: {
+				getActiveViewOfType: () => activeView,
+				iterateAllLeaves: () => undefined,
+				containerEl: document.createElement('div'),
+			},
+			metadataCache: { getFileCache: () => null },
+			vault: { getName: () => 'vault' }, // the store's overlay key needs it
+		};
+		const store = new PositionStore(app as never, database as never);
+		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn(), settled: vi.fn() } as never);
+		return {
+			state, database, store,
+			// What the swap does to the open view: the viewport falls back to
+			// the top while CodeMirror maps the selection onto the new doc.
+			rewrite: () => { activeView = makeSyncView('a.md', 'leaf-1', 0, 120); },
+			poll: () => sampler.sampleActiveView(),
+		};
+	}
+
+	// A reader parked at line 300 who last did anything at `inputAt`.
+	function seated(h: ReturnType<typeof makeSyncHarness>, inputAt: number) {
+		h.state.lastLoadedFilePath = 'a.md';
+		h.state.lastEphemeralState = { scroll: 300, cursor: { from: { line: 300, ch: 0 }, to: { line: 300, ch: 0 } } };
+		h.state.lastAnchorAt = Date.now() - 60000;
+		h.state.lastUserInputAt = inputAt;
+		h.state.lastTouchAt = inputAt;
+	}
+
+	it('mobile: the swap writes nothing', () => {
+		const orig = Platform.isMobileApp;
+		Platform.isMobileApp = true;
+		try {
+			const h = makeSyncHarness();
+			seated(h, 0);
+			h.rewrite();
+			h.poll();
+
+			expect(h.database.setState).not.toHaveBeenCalled();
+			expect(leafStatesOf(h.store).size).toBe(0);
+		} finally {
+			Platform.isMobileApp = orig;
+		}
+	});
+
+	it('mobile: a touch minutes ago does not license the session after it', () => {
+		const orig = Platform.isMobileApp;
+		Platform.isMobileApp = true;
+		try {
+			const h = makeSyncHarness();
+			// lastTouchAt > lastAnchorAt used to be the whole test, and it
+			// stays true for good once the reader has touched the screen once.
+			const touchedAt = Date.now() - 600000;
+			seated(h, touchedAt);
+			h.state.lastAnchorAt = touchedAt - 1000;
+			h.rewrite();
+			h.poll();
+
+			expect(h.database.setState).not.toHaveBeenCalled();
+		} finally {
+			Platform.isMobileApp = orig;
+		}
+	});
+
+	it('desktop: the swap writes nothing', () => {
+		const orig = Platform.isMobileApp;
+		Platform.isMobileApp = false;
+		try {
+			const h = makeSyncHarness();
+			seated(h, 0);
+			h.rewrite();
+			h.poll();
+
+			expect(h.database.setState).not.toHaveBeenCalled();
+		} finally {
+			Platform.isMobileApp = orig;
+		}
+	});
+
+	it('desktop: the same delta right after a keystroke still records', () => {
+		const orig = Platform.isMobileApp;
+		Platform.isMobileApp = false;
+		try {
+			const h = makeSyncHarness();
+			seated(h, Date.now());
+			h.rewrite();
+			h.poll();
+
+			expect(h.database.setState).toHaveBeenCalledWith('a.md', {
+				scroll: 0,
+				cursor: { from: { line: 120, ch: 0 }, to: { line: 120, ch: 0 } },
+			});
+		} finally {
+			Platform.isMobileApp = orig;
+		}
 	});
 });

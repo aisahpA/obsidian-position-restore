@@ -72,8 +72,10 @@ export class PositionState {
 	lastEphemeralState: EphemeralState | undefined;
 	lastLoadedFilePath: string | undefined;
 
-	// Starts the mobile "post-open reflow window": the sampler absorbs scroll-only deltas
-	// within SCROLL_SETTLE_GUARD_MS of this stamp that no user touch accounts for.
+	// When the last restore anchored recording — the epoch the desktop teleport
+	// baseline bumps on to tell a restore's own cursor placement from a jump the
+	// reader made. It no longer times any reflow window: the sampler asks
+	// whether the reader did something RECENTLY (see its hasUserIntent).
 	lastAnchorAt = 0;
 
 	// Last user touch (mobile only), and last user input (desktop: wheel / pointerdown /

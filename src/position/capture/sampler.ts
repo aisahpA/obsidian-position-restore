@@ -49,23 +49,19 @@ export class Sampler {
 	private searchSettledTicks = 0;
 	private lastAnchorDeadline = 0;
 
-	// A scroll delta whose last user input (wheel/pointerdown/keydown) is older than
-	// this is programmatic movement — layout shifts from dynamic re-renders, lazy embed
-	// loads, plugin-driven scrolls — and must never overwrite the saved record.
-	// Generous enough to cover trackpad momentum tails.
-	private readonly SCROLL_INTENT_WINDOW_MS = 2000;
+	// A position delta — scroll OR cursor — whose last user input (wheel,
+	// pointerdown, keydown, and on mobile a touch) is older than this is
+	// programmatic movement: layout shifts from dynamic re-renders, lazy embed
+	// loads, plugin-driven scrolls, and above all a file a sync client replaced
+	// under the open tab, which re-measures the viewport and re-maps the cursor
+	// with no input at all. Generous enough to cover trackpad momentum tails.
+	private readonly INTENT_WINDOW_MS = 2000;
 
 	// Scroll targets inside these boundaries belong to embedded renderers, not to the
 	// view's own scroller: ![[note]]/image embeds, interactive code widgets,
 	// dataview-style rendered blocks. Recording such a scroll writes the HOST editor's
 	// state over movement the embedded content made.
 	private readonly EMBED_BOUNDARY_SELECTOR = '.internal-embed, .cm-embed-block, [class*="block-language"]';
-
-	// A scroll-only delta within this window of the last recording anchor that no user
-	// touch accounts for is passive reflow (late editor measure / image decode right
-	// after an open) and is absorbed. Long on purpose: mobile rendering can keep
-	// re-measuring for seconds, and a genuine user scroll always carries a touch.
-	private readonly SCROLL_SETTLE_GUARD_MS = 4000;
 
 	// Anything that is not a positive number (a hand-edited data.json, a value synced
 	// in from another device) reads as 0 = do not record: the safe direction for a
@@ -162,29 +158,25 @@ export class Sampler {
 
 		if (prev) {
 			if (!this.state.isSearchAnchored()) {
+				// One gate over both halves and both platforms: a delta no recent
+				// input accounts for is programmatic movement, and recording it is
+				// how a saved position gets overwritten by the top of the file — a
+				// sync client replacing the note under the open tab re-measures the
+				// viewport AND re-maps the cursor with the reader doing nothing.
 				if (Platform.isMobileApp) {
 					// Mobile fallback: DOM scroll events are unreliable under WKWebView, so
-					// the poll must record the full state itself — with one exception: a
-					// scroll-only delta no user touch accounts for is passive reflow (see
-					// isTrustedMobileScroll) and must never overwrite the saved record.
-					if (!isEphemeralStatesEquals(st, prev)) {
-						if (!isCursorStatesEqual(st.cursor, prev.cursor)) {
-							// Cursor/selection movement is always deliberate input.
-							write = st;
-						} else if (this.isTrustedMobileScroll()) {
-							write = st;
-						}
-						// else: absorbed — lastEphemeralState is refreshed below without a
-						// db write, so the shift becomes the new baseline.
-					}
+					// the poll records the full state itself, scroll as well as cursor.
+					if (!isEphemeralStatesEquals(st, prev) && this.hasUserIntent())
+						write = st;
+					// else: absorbed — lastEphemeralState is refreshed below without a
+					// db write, so the shift becomes the new baseline.
 				} else {
 					// Desktop: record only on cursor movement — scroll-only deltas belong to
 					// the scroll-capture listener. The write is the state read in this tick
 					// (the db record can lag one debounce behind). Comparison is
 					// cursor-only: the baseline's restorer-seeded scroll is not a change.
-					if (!isCursorStatesEqual(st.cursor, prev.cursor)) {
+					if (!isCursorStatesEqual(st.cursor, prev.cursor) && this.hasUserIntent())
 						write = st;
-					}
 				}
 			}
 			// else: a search session is live (see installSearchAnchor) — cursor movement
@@ -230,8 +222,8 @@ export class Sampler {
 		if (this.state.isSearchAnchored()) return;
 
 		// A scroll with no recent user input is programmatic movement, not a user
-		// choice. Symmetric with the mobile poll's isTrustedMobileScroll.
-		if (Date.now() - this.state.lastUserInputAt > this.SCROLL_INTENT_WINDOW_MS)
+		// choice — the same gate the poll puts on its own deltas.
+		if (!this.hasUserIntent())
 			return;
 
 		// Resolve the scroll target to its owning leaf/view first...
@@ -332,8 +324,8 @@ export class Sampler {
 	}
 
 	// Desktop only. Stamps user input so the scroll-capture listener can separate
-	// user-driven scrolls from programmatic movement — the counterpart of the mobile
-	// touch listener feeding isTrustedMobileScroll. Capture phase + passive: pure
+	// user-driven scrolls from programmatic movement — the desktop half of the
+	// intent gate the poll and this listener share. Capture phase + passive: pure
 	// timestamping. All user-scroll entry points are covered (trackpad/mouse = wheel,
 	// scrollbar drag / touch = pointerdown, keyboard = keydown).
 	installUserIntentTracker(registerCleanup: (fn: () => void) => void) {
@@ -441,29 +433,33 @@ export class Sampler {
 		});
 	};
 
-	// Whether a scroll-only delta observed by the mobile poll can be trusted as a real
-	// user scroll. WKWebView's dropped scroll events make the DOM useless as a signal,
-	// but touch events are reliable, and momentum after the finger lifts still counts.
-	// Without a touch, a delta within SCROLL_SETTLE_GUARD_MS of the last anchor is
-	// passive reflow — recording it would overwrite the saved position with a spot
-	// roughly one screen above where the user actually was. After the guard any delta is
-	// recorded: late reflow is rare and dropping real scrolls would be worse.
-	private isTrustedMobileScroll(): boolean {
-		if (this.state.lastTouchAt > this.state.lastAnchorAt)
-			return true;
-		return Date.now() - this.state.lastAnchorAt > this.SCROLL_SETTLE_GUARD_MS;
+	// Whether a delta the poll just observed can be the reader's own movement —
+	// the one question behind every write. Touch counts next to the desktop
+	// stamps because it is the only signal a phone delivers reliably: WKWebView
+	// drops scroll events, and a soft keyboard may deliver no keydown at all.
+	//
+	// The window is absolute, never measured from the last restore anchor: a
+	// sync can land at any minute of a reading session, and a reader who
+	// touched the screen once has not thereby licensed the hour after it.
+	private hasUserIntent(): boolean {
+		const stamp = Math.max(this.state.lastTouchAt, this.state.lastUserInputAt);
+		return Date.now() - stamp < this.INTENT_WINDOW_MS;
 	}
 
-	// Mobile only. touchstart is enough: it precedes every touch scroll, and the
-	// momentum phase keeps counting because lastTouchAt only needs to postdate the
-	// anchor.
+	// Mobile only. touchstart covers every touch scroll — the momentum phase
+	// keeps counting because the stamp only has to be recent. keydown is what
+	// makes typing count: a soft keyboard moves the cursor without touching the
+	// editor, and a cursor that moved is the reader's, not a re-render's.
 	installTouchListener(registerCleanup: (fn: () => void) => void) {
 		const container = this.app.workspace.containerEl;
 		const onTouch = () => { this.state.lastTouchAt = Date.now(); };
+		const onKey = () => { this.state.lastUserInputAt = Date.now(); };
 		container.addEventListener('touchstart', onTouch, { capture: true, passive: true });
-		registerCleanup(() =>
-			container.removeEventListener('touchstart', onTouch, { capture: true })
-		);
+		document.addEventListener('keydown', onKey, { capture: true });
+		registerCleanup(() => {
+			container.removeEventListener('touchstart', onTouch, { capture: true });
+			document.removeEventListener('keydown', onKey, { capture: true });
+		});
 	}
 
 	// Focusing a search input arms the guard so the jumps the search engine performs

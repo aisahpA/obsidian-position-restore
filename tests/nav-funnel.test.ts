@@ -607,6 +607,9 @@ describe('Sampler in-file teleport detection', () => {
 		Platform.isMobileApp = true;
 		try {
 			const h = makeSamplerHarness(); // view cursor at 60, poll read at 3
+			// The reader tapped the note: their touch is what makes the move
+			// theirs rather than a re-render's.
+			h.state.lastTouchAt = Date.now();
 			h.sampler.sampleActiveView();
 			expect(h.recordTeleport).not.toHaveBeenCalled();
 			expect(h.leave).not.toHaveBeenCalled();
