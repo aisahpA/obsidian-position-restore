@@ -291,6 +291,10 @@ function harness(
 	// event will reach (see the fake metadataCache below).
 	let cacheReads = 0;
 	const metaListeners = new Set<(file: { path: string }) => void>();
+	// The vault's file events, and who is listening for them: whether a row's note exists
+	// is the vault's answer at draw time, and a change in that answer carries no redraw of
+	// its own — a sync takes a note away and puts it back (see body.ts's watchExistence).
+	const vaultListeners: Record<string, ((...args: unknown[]) => void)[]> = {};
 	const tabs = Object.keys(live).map((path) => ({ leafId: `open:${path}`, path }));
 	const app = {
 		vault: {
@@ -304,6 +308,19 @@ function harness(
 				return file;
 			},
 			cachedRead,
+			// `on` hands back the callback itself as the handle `offref` takes, which is
+			// all the browser does with it.
+			on: (name: string, cb: (...args: unknown[]) => void) => {
+				(vaultListeners[name] ??= []).push(cb);
+				return cb;
+			},
+			offref: (ref: unknown) => {
+				for (const cbs of Object.values(vaultListeners)) {
+					const at = cbs.indexOf(ref as (...args: unknown[]) => void);
+					if (at >= 0)
+						cbs.splice(at, 1);
+				}
+			},
 		},
 		metadataCache: {
 			// A path maps either to its parsed headings (the common case) or to the
@@ -535,6 +552,13 @@ function harness(
 		for (const cb of [...metaListeners])
 			cb({ path });
 	};
+	// …and the vault's own word that a file APPEARED, went away or moved: what a sync
+	// does to a note the list is standing on, and the one event that says the row the
+	// list stopped drawing can be drawn again.
+	const fileEvent = (name: string, file: { path: string }, oldPath?: string) => {
+		for (const cb of [...(vaultListeners[name] ?? [])])
+			cb(file, oldPath);
+	};
 	// The × at the end of the filter box (see RecentFilesBrowser.toolbar). It is in the
 	// DOM whether or not the box has anything in it — the stylesheet is what hides it
 	// while the box is empty (asserted in the styles suite, since jsdom loads no
@@ -551,7 +575,7 @@ function harness(
 	return {
 		modal, jumpTo, forget, forgetLanding, cachedRead, el: modal.contentEl, entries, list, pinned,
 		pin, unpin, movePinned,
-		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
+		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile, fileEvent,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
 	};
@@ -1417,6 +1441,24 @@ describe('RecentFilesModal — a file that is gone', () => {
 
 		expect(h.notes()).toHaveLength(0);
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.empty'));
+	});
+
+	it('draws the row again once the vault has the note back', () => {
+		// A sync takes the note away and delivers it a moment later. The place is still
+		// in the list — the store drops one only after a grace window long enough to
+		// tell a replacement from a delete (see PathBookkeeper) — so what is missing is
+		// the DRAW, and nothing in the vault's own answer carries one.
+		const entries = [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+		const gone = ['b.md'];
+		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' }, gone);
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['a']);
+
+		// The replacement lands: the vault says the file is there again.
+		gone.length = 0;
+		h.fileEvent('create', { path: 'b.md' });
+		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
+
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['b', 'a']);
 	});
 });
 

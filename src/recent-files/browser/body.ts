@@ -7,7 +7,7 @@
 // draws whatever the places hold at the moment render() is called, and the only things it says back
 // are what ONE ROW can be asked for — go there, and go away.
 
-import { App, CachedMetadata, HoverParent, Menu, MenuPositionDef, TFile, setIcon, Keymap } from 'obsidian';
+import { App, CachedMetadata, EventRef, HoverParent, Menu, MenuPositionDef, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
 import { NavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList, placeKey } from '@/recent-files/places';
@@ -108,9 +108,12 @@ export class RecentFilesBrowser {
 	// the order has to survive the redraw it exists to stop.
 	private frozenOrder?: string[];
 	private timer?: number;
-	// The redraw owed to a chain that arrived after the row was drawn. Coalesced: the whole list
-	// asks at once, and a redraw apiece would rebuild every row.
+	// The redraw owed to something that arrived after the row was drawn — a section chain, or a
+	// note's own existence. Coalesced: the whole list asks at once, and a redraw apiece would
+	// rebuild every row.
 	private lateTimer?: number;
+	// The vault's file events, watched for as long as this body stands (see watchExistence).
+	private existenceRefs: EventRef[] = [];
 	// The menu this body raised, while one is standing. Held here for the two ends the app cannot
 	// see: the control that raised it (whose press the app never hears) and a shell stepping out of
 	// the reader's way.
@@ -128,7 +131,7 @@ export class RecentFilesBrowser {
 			entries: () => opts.places.entries,
 			// A chain read out of a note's own text lands one render late: the row it belongs to
 			// was already drawn without it.
-			onLateRead: () => this.redrawAfterLateRead(),
+			onLateRead: () => this.redrawSoon(),
 			// What a row calls the note, and the one thing that can change it while the
 			// reader is looking: they are typing in the property that names it.
 			titleProperty: () => this.opts.prefs.titleProperty(),
@@ -258,6 +261,7 @@ export class RecentFilesBrowser {
 			this.render();
 		}, TIME_REFRESH_MS);
 		document.addEventListener('visibilitychange', this.onVisibilityChange);
+		this.watchExistence();
 		// On touch the box stays unfocused: the on-screen keyboard covers half a small screen.
 		if (this.opts.focusFilter && !this.opts.touch && this.opts.places.entries.length > 0)
 			this.filterInput.focus();
@@ -297,16 +301,43 @@ export class RecentFilesBrowser {
 		this.render();
 	}
 
-	// A chain the row was drawn without has been read out of the note's own text: the cache said
-	// nothing at the time and the text has since. Coalesced (see LATE_READ_REDRAW_MS) rather than
-	// left for the next redraw, which on a resident panel is the five-minute tick.
-	private redrawAfterLateRead(): void {
+	// One redraw for a burst of arrivals that carry no redraw of their own, rather than one apiece
+	// or none: a chain read out of a note's own text lands after the row was drawn, and the next
+	// redraw a resident panel owes on its own is the five-minute tick.
+	private redrawSoon(): void {
 		if (this.lateTimer !== undefined)
 			return;
 		this.lateTimer = window.setTimeout(() => {
 			this.lateTimer = undefined;
 			this.render();
 		}, LATE_READ_REDRAW_MS);
+	}
+
+	// Whether a row may be drawn at all is the VAULT's answer at draw time (see list.ts's
+	// noteExists), and a change in that answer carries no event of its own: a sync replacing a
+	// note takes it away and puts it back, and a row drawn in between — or the one standing
+	// from before — is filtered out until something redraws, which on a resident panel can be
+	// minutes. The place itself outlives the gap by design (see PathBookkeeper), so the row is
+	// not gone from the list; it is a list that has not been asked again.
+	private watchExistence(): void {
+		const vault = this.opts.app.vault;
+		this.existenceRefs = [
+			vault.on('create', (file: TAbstractFile) => this.redrawForPath(file.path)),
+			vault.on('delete', (file: TAbstractFile) => this.redrawForPath(file.path)),
+			vault.on('rename', (file: TAbstractFile, oldPath: string) => {
+				this.redrawForPath(oldPath);
+				this.redrawForPath(file.path);
+			}),
+		];
+	}
+
+	// Only a path this list names: a sync fires for the note it replaced and for nothing the
+	// reader has been in, and a vault creating anything else is not a change to this list.
+	private redrawForPath(path: string): void {
+		// A VIEW place names no file, so the vault's answer about one is not about it.
+		if (!this.opts.places.entries.some(e => e.kind !== 'view' && e.path === path))
+			return;
+		this.redrawSoon();
 	}
 
 	// Throw away what belongs to this body: everything below was registered beside elements the
@@ -333,6 +364,9 @@ export class RecentFilesBrowser {
 			window.clearTimeout(this.lateTimer);
 		this.lateTimer = undefined;
 		document.removeEventListener('visibilitychange', this.onVisibilityChange);
+		for (const ref of this.existenceRefs)
+			this.opts.app.vault.offref(ref);
+		this.existenceRefs = [];
 	}
 
 	private onVisibilityChange = (): void => {

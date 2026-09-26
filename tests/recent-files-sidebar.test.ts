@@ -191,6 +191,11 @@ function makeApp(paths: string[] = []) {
 		vault: {
 			getAbstractFileByPath: (path: string) => files[path] ?? null,
 			cachedRead: async () => '',
+			// The file events the panel listens for while it stands (see body.ts's
+			// watchExistence). None is ever fired here — this suite is about the
+			// shell — so what is stubbed is only that listening costs nothing.
+			on: () => () => {},
+			offref: () => undefined,
 		},
 		metadataCache: { getFileCache: () => null },
 		workspace: {
