@@ -381,17 +381,6 @@ describe('NavPlaces — a caller target is the note, not a landing', () => {
 
 		expect(paths(places)).toEqual([placeKey(jump('a.md', 'outline:## One'))]);
 	});
-
-	it('demotes the caller rows a list written before this rule is already holding', () => {
-		// Run once at load: the reader loses the rows they could never tell apart WITHOUT
-		// losing the notes they landed in.
-		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-			v: RECENT_PLACES_VERSION,
-			places: [visit('a.md'), jump('a.md', 'caller:111'), jump('b.md', 'caller:222')],
-		}));
-
-		expect(paths(new NavPlaces(makeApp(), makeSettings()))).toEqual(['a.md', 'b.md']);
-	});
 });
 
 describe('NavPlaces — its own folder rule', () => {

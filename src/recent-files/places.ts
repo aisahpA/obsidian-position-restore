@@ -147,7 +147,6 @@ export class NavPlaces implements PlaceList {
 		const blob = loadNavPlaces(app);
 		this.entries = blob.entries;
 		this.pinned = blob.pinned;
-		this.demoteCallerLandings();
 	}
 
 	// The composition root hands in the open pipeline once it exists (see
@@ -581,27 +580,6 @@ export class NavPlaces implements PlaceList {
 			|| e.kind !== 'jump'
 			|| e.path !== place.path
 			|| landedLine(e) !== line));
-	}
-
-	// What a caller target already on the list becomes, run once at load: a list written
-	// before this rule took effect loses the rows the reader could never tell apart
-	// WITHOUT losing the notes they landed in — and two visits to one note are one row
-	// either way, the newer standing (see remember).
-	private demoteCallerLandings(): void {
-		const asVisits: NavEntry[] = this.entries.map(e => e.kind === 'jump' && isCallerKey(e.key)
-			? { kind: 'visit', path: e.path, leafId: e.leafId, t: e.t }
-			: e);
-		const newest = new Map<string, number>();
-		for (let i = 0; i < asVisits.length; i++) {
-			const e = asVisits[i];
-			if (e.kind === 'visit')
-				newest.set(e.path, i);
-		}
-		this.entries = asVisits.filter((e, i) => {
-			if (e.kind !== 'visit')
-				return true;
-			return newest.get(e.path) === i;
-		});
 	}
 
 	private indexOf(key: string): number {
