@@ -5,7 +5,7 @@ import {
 } from './entry';
 import { PositionState } from '@/position/state';
 import {
-	deferredFilePath, isDeferredLeaf, isMainAreaLeaf,
+	deferredFilePath, isDeferredLeaf, isMainAreaLeaf, viewTypeIsMissing,
 	viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState,
 } from '@/shared/leaf';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
@@ -210,6 +210,11 @@ export class NavFunnel {
 		// beats taking the reader's own tab switch down with it (see shared/leaf.ts).
 		const viewType = view?.getViewType();
 		if (!viewType || !isRecordableViewType(viewType))
+			return;
+		// A type this vault cannot build again is not a place: restoring its tab raises a
+		// placeholder that claims to be it, and a place keyed on that claim can never be returned
+		// to — and would be keyed like the real one, so it would also overwrite it.
+		if (viewTypeIsMissing(this.app, viewType))
 			return;
 		// A markdown tab is ALWAYS a note — whatever failed to say so above. As a view it would be
 		// a place with no file behind it, which nothing the reader or the vault does can ever

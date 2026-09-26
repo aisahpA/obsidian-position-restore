@@ -16,9 +16,14 @@ import { NavEntry } from '@/nav/entry';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
 
+// `missingViewTypes` are the ones this vault cannot build: no factory in the registry, so a tab
+// asking for one gets the placeholder pane that claims to be it (see shared/leaf). Every other
+// type answers with a factory, the way every type the app itself installed does.
 export function makeApp(
 	headings?: Array<{ heading: string; level: number; position: { start: { line: number } } }>,
+	missingViewTypes: readonly string[] = [],
 ): App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } } {
+	const missing = new Set(missingViewTypes);
 	return {
 		appId: 'test-vault',
 		vault: {
@@ -41,6 +46,9 @@ export function makeApp(
 			getLeaf: () => ({ setViewState: vi.fn(), detach: vi.fn() }),
 		},
 		commands: { executeCommandById: vi.fn() },
+		viewRegistry: {
+			getViewCreatorByType: (type: string) => missing.has(type) ? undefined : () => undefined,
+		},
 	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
 }
 

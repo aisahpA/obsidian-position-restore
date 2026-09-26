@@ -10,7 +10,10 @@ import {
 } from '@/nav/entry';
 import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
 import { PaneTarget } from '@/nav/pane';
-import { isMainAreaLeaf, viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState } from '@/shared/leaf';
+import {
+	isMainAreaLeaf, viewTypeIsMissing,
+	viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState,
+} from '@/shared/leaf';
 import { loadNavHistory, persistNavHistory } from './store';
 
 // VSCode-style BACK/FORWARD, and the open pipeline a place is travelled through.
@@ -837,6 +840,11 @@ export class NavStack implements NavFunnelSink {
 	// workspace at all (see isMainAreaLeaf): a Thino living in the sidebar is not where
 	// the entry says the reader went.
 	private findLeafShowing(viewType: string): WorkspaceLeaf | undefined {
+		// A type the vault can no longer build is not showing anywhere: the tab wearing it holds
+		// a placeholder that answers to that type, and activating one gives the reader a pane
+		// that says it is not anything (see shared/leaf's viewTypeIsMissing).
+		if (viewTypeIsMissing(this.app, viewType))
+			return undefined;
 		return this.app.workspace.getLeavesOfType(viewType)
 			.find(leaf => isMainAreaLeaf(this.app, leaf));
 	}
@@ -864,7 +872,11 @@ export class NavStack implements NavFunnelSink {
 			shaped.detach();
 			return;
 		}
-		if ((leaf.view as { getViewType?: () => string } | undefined)?.getViewType?.() !== viewType)
+		// A missing type constructs a placeholder that ANSWERS to that type, so the ordinary
+		// arrival check below would pass with nothing behind it: that tab is ours to close again
+		// whatever it calls itself.
+		const arrived = (leaf.view as { getViewType?: () => string } | undefined)?.getViewType?.();
+		if (viewTypeIsMissing(this.app, viewType) || arrived !== viewType)
 			shaped.detach();
 	}
 

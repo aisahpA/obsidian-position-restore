@@ -48,6 +48,58 @@ beforeEach(() => {
 	window.localStorage.clear();
 });
 
+describe('NavStack travelling to a view this vault cannot build', () => {
+	// A plugin switched off, uninstalled, or not loaded yet leaves no factory for its type, and
+	// the app answers a tab asking for it with a placeholder that claims to be that type (see
+	// shared/leaf's viewTypeIsMissing). Nothing can be built behind it, so the place is dead and
+	// every door to it has to say so — including the one the placeholder fools.
+	function missingApp() {
+		const app = makeApp(undefined, ['thino_view']);
+		const ws = app.workspace as unknown as {
+			getLeavesOfType: (t: string) => unknown[];
+			getLeaf: () => unknown;
+		};
+		return { app, ws };
+	}
+
+	it('opens no tab it cannot fill, though the placeholder answers to the type', async () => {
+		const { app, ws } = missingApp();
+		const detach = vi.fn();
+		const built: { id: string; containerEl: string; detach: unknown; view?: { getViewType: () => string }; setViewState: unknown } = {
+			id: 'leaf-new', containerEl: 'main', detach, view: undefined, setViewState: undefined,
+		};
+		built.setViewState = vi.fn((vs: { type: string }) => {
+			built.view = { getViewType: () => vs.type }; // what the placeholder really answers
+			return Promise.resolve();
+		});
+		ws.getLeavesOfType = () => [];
+		ws.getLeaf = () => built;
+		const { stack } = makeNav(app);
+
+		await stack.openViewPlace({ kind: 'view', leafId: 'gone', viewType: 'thino_view', t: 1 });
+
+		expect(built.setViewState).toHaveBeenCalled();
+		expect(detach).toHaveBeenCalled();
+	});
+
+	it('is not "showing" anywhere: the tab wearing the placeholder is not the place', async () => {
+		const { app, ws } = missingApp();
+		const ghost = { id: 'leaf-ghost', containerEl: 'main', view: { getViewType: () => 'thino_view' } };
+		const detach = vi.fn();
+		ws.getLeavesOfType = () => [ghost];
+		ws.getLeaf = () => ({
+			id: 'leaf-new', containerEl: 'main', detach,
+			setViewState: vi.fn(() => Promise.resolve()),
+		});
+		const { stack } = makeNav(app);
+
+		await stack.openViewPlace({ kind: 'view', leafId: 'gone', viewType: 'thino_view', t: 1 });
+
+		expect(app.workspace.setActiveLeaf).not.toHaveBeenCalledWith(ghost);
+		expect(detach).toHaveBeenCalled();
+	});
+});
+
 describe('NavStack stack logic', () => {
 	it('records jumps and truncates the forward part on a fresh jump', () => {
 		const app = makeApp();

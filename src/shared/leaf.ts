@@ -72,6 +72,24 @@ export function isDeferredLeaf(leaf: WorkspaceLeaf | null | undefined): boolean 
 	return !!(leaf as unknown as { isDeferred?: boolean } | null | undefined)?.isDeferred;
 }
 
+// Whether the app can still BUILD that view. Its factory table holds one entry per type, and a
+// type with none (a plugin switched off, uninstalled, or not loaded yet) is answered by a
+// placeholder pane that CLAIMS to be it — nothing the reader can ever return to. A read that
+// fails, or a table this build does not expose, answers "not missing": the call can only ever
+// EXCLUDE, so losing it degrades to today rather than to recording nothing at all.
+export function viewTypeIsMissing(app: App, viewType: string): boolean {
+	const registry = (app as unknown as {
+		viewRegistry?: { getViewCreatorByType?: (type: string) => unknown };
+	}).viewRegistry;
+	if (!registry?.getViewCreatorByType)
+		return false;
+	try {
+		return !registry.getViewCreatorByType(viewType);
+	} catch {
+		return false;
+	}
+}
+
 // The file a deferred placeholder stands in for, read off the state it was restored with: the
 // tab is still that note, and recording it as a view would mint a place with no file behind it.
 export function deferredFilePath(view: View | undefined): string | undefined {

@@ -272,6 +272,29 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
+	it('a view this vault can no longer build is not a place', () => {
+		// A plugin switched off, uninstalled, or not loaded yet: restoring its tab raises a
+		// placeholder pane that answers getViewType() with the type it stands in for. Recorded
+		// as itself it takes the real place's OWN key and overwrites it, and nothing the reader
+		// does later can return to it.
+		const app = makeApp(undefined, ['thino_view']);
+		const { funnel, visits } = makeFunnel(app);
+
+		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'thino_view', icon: 'lucide-ghost' }));
+
+		expect(visits).toEqual([]);
+	});
+
+	it('the same view, in a vault that can still build it, is recorded all the same', () => {
+		// The registry read is the ONLY thing that tells the two apart, and it must never
+		// exclude by accident: a table this build does not expose keeps every view a place.
+		const { funnel, visits } = makeFunnel(makeApp());
+
+		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
+
+		expect(visits).toHaveLength(1);
+	});
+
 	it('a markdown tab that fails to say it is a file view is not a view place', () => {
 		// Same phantom as the two above, from the last door left: a markdown tab is always a
 		// note, so a place keyed `view:markdown` can never be one the reader went to.
