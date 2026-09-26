@@ -1,6 +1,6 @@
 import { App } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
-import { NavEntry, NewNavEntry, navGroupKey } from '@/nav/entry';
+import { landedLine, NavEntry, NavJump, NewNavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { normAnchor } from '@/position/capture/ephemeral';
 import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
@@ -23,7 +23,9 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 //     two open paths disagree.
 //   - one record per JUMP (`kind: 'jump'` — an outline click, an anchor link), carrying
 //     its own landing, which exists nowhere else. Identity is the heading/anchor KEY,
-//     not the line: a heading that moved in an edit is the same place.
+//     not the line: a heading that moved in an edit is the same place. And ONE record
+//     per LANDING: two jumps that come to rest on one line are one place, merged as
+//     the landing settles (see settle).
 // A pathless view (the graph, Thino's memo list) is one record, as in the panel.
 //
 // WHAT IS NOT IN IT: teleports (the sampler's INFERRED cursor moves), and — at the
@@ -63,11 +65,11 @@ export interface PlaceList {
 	// rules instead (see recordable), which is a policy rather than a one-off.
 	forget(key: string): void;
 	// Drop ONE LANDING of a note: the places the row UNDER the note's own row stands
-	// for, handed over BY IDENTITY (see placeKey below) rather than by index. The panel
-	// collapses onto a row every place that landed on that line (see list.ts's
-	// landingKeys), so a removal naming the row's own record alone would leave its twin
-	// behind and the row would be back before the redraw finished: a × that does
-	// nothing.
+	// for, handed over BY IDENTITY (see placeKey below) rather than by index. One row is
+	// one place as a rule (see settle), but the panel draws from what it can see and a
+	// jump that never settled has no line at all — so the caller names the places the
+	// row stands for rather than the one it was drawn from: a twin left behind would put
+	// the row back before the redraw finished, which is a × that does nothing.
 	//
 	// What stays is the note's own record and its other places.
 	forgetLanding(keys: readonly string[]): void;
@@ -311,6 +313,7 @@ export class NavPlaces implements PlaceList {
 			place.keyLine = entry.keyLine;
 		place.st = entry.st;
 		place.t = Date.now();
+		this.absorbSameLanding(place);
 		this.changed();
 	}
 
@@ -546,6 +549,26 @@ export class NavPlaces implements PlaceList {
 	}
 
 	// ===== Internals =====
+
+	// ONE RECORD PER LANDING: a jump whose landing has just become known takes over every
+	// older jump in the same file that came to rest on the SAME line — two keys that name
+	// one spot (a heading, and a block ref an edit moved onto its line) are one place to
+	// the reader.
+	//
+	// Why here and not in remember: a jump is recorded before its landing settles, so at
+	// that moment there is no line to compare.
+	//
+	// A jump with NO line is left alone: no coordinates is not a claim about which place
+	// it was.
+	private absorbSameLanding(place: NavJump): void {
+		const line = landedLine(place);
+		if (line === undefined)
+			return;
+		this.keep(this.entries.filter(e => e === place
+			|| e.kind !== 'jump'
+			|| e.path !== place.path
+			|| landedLine(e) !== line));
+	}
 
 	private indexOf(key: string): number {
 		for (let i = 0; i < this.entries.length; i++)

@@ -266,6 +266,70 @@ describe('NavPlaces — what a place is', () => {
 	});
 });
 
+describe('NavPlaces — one record per landing', () => {
+	// A jump is recorded before its landing settles, so the merge is made at the settle —
+	// the first moment two jumps can be told apart. What it covers is two keys naming ONE
+	// spot: a heading, and a block ref an edit moved onto the heading's line.
+	it('merges two jumps that came to rest on the same line', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('a.md', '^block-1'));
+		places.settle({ ...jump('a.md', '^block-1'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', '^block-1'))]);
+	});
+
+	it('keeps the newest of the two, which is the one the row was already drawn from', () => {
+		// The panel draws a line from its newest step (see groupByFile), so the record
+		// that survives is the one the reader was already clicking.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('a.md', '^block-1'));
+		places.settle({ ...jump('a.md', '^block-1'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', '^block-1'))]);
+		expect(places.index).toBe(0);
+	});
+
+	it('keeps two landings on two lines apart', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('a.md', 'outline:## Two'));
+		places.settle({ ...jump('a.md', 'outline:## Two'), st: { scroll: 40 } });
+
+		expect(paths(places)).toEqual([
+			placeKey(jump('a.md', 'outline:## One')),
+			placeKey(jump('a.md', 'outline:## Two')),
+		]);
+	});
+
+	it('leaves a jump with no landing alone — no coordinates is not a line', () => {
+		// …and this is also why the merge is not made in remember, where no jump has one.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+
+		expect(places.entries).toHaveLength(2);
+	});
+
+	it('never merges across files', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('b.md', 'outline:## One'));
+		places.settle({ ...jump('b.md', 'outline:## One'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual([
+			placeKey(jump('a.md', 'outline:## One')),
+			placeKey(jump('b.md', 'outline:## One')),
+		]);
+	});
+});
+
+
 describe('NavPlaces — its own folder rule', () => {
 	it('skips the paths the reader excluded, and vault internals', () => {
 		const { places } = makePlaces({ recentFilesExcludeFolders: ['私人', '归档/旧'] });

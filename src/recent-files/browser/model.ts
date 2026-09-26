@@ -2,7 +2,7 @@
 // derived from an entry, with the two things only the caller can answer — the file's saved
 // position, and its mtime now — coming in as predicates. No DOM and no `this`.
 
-import { NavEntry, NavView } from '@/nav/entry';
+import { landedLine, NavEntry, NavView } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 
@@ -102,21 +102,6 @@ export function landingText(entry: NavEntry): string | undefined {
 	if (!st?.context)
 		return undefined;
 	return st.context[st.contextAt ?? -1]?.text || undefined;
-}
-
-// Which line a step landed on, or undefined when it recorded none. READ, not derived: the capture
-// recorded the block with the landing line marked (contextAt), with the viewport top and then the
-// cursor as fallbacks for a state that never went through that read.
-//
-// This is what "the SAME landing" means anywhere the browser tells two steps apart without a DOM:
-// the list collapses the steps that landed on one line into one spot (see groupByFile).
-export function landedLine(entry: NavEntry): number | undefined {
-	if (entry.kind === 'view')
-		return undefined;
-	const st = entry.st;
-	if (!st)
-		return undefined;
-	return st.context?.[st.contextAt ?? -1]?.line ?? st.scroll ?? st.cursor?.from.line;
 }
 
 // The name a row prints for a PATHLESS entry — a view rather than a place in a note. It is the
