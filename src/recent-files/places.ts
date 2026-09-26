@@ -322,6 +322,8 @@ export class NavPlaces implements PlaceList {
 		place.key = entry.key;
 		if (typeof entry.keyLine === 'number')
 			place.keyLine = entry.keyLine;
+		// The state arrives WHOLE: the words this row is searched and quoted by were read with the
+		// landing itself (see ephemeral.ts's readLandingState), so there is nothing to take here.
 		place.st = entry.st;
 		place.t = Date.now();
 		this.absorbSameLanding(place);

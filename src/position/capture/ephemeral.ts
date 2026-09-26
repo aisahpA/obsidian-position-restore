@@ -1,5 +1,6 @@
 import { MarkdownView } from 'obsidian';
 import { EphemeralState, NavContextLine, NavEntryState } from '@/types';
+import { isHeadingLine } from '@/nav/entry';
 
 // Hot read: the 100ms poll (Sampler), the scroll capture, and the restore verification / reland
 // loops run this every tick and every frame. Position only — no doc-string reads, no layout. Nav
@@ -91,15 +92,20 @@ function cursorOnScreen(view: MarkdownView, line: number): boolean {
 // narrower window costs no precision, only reach.
 export const NAV_CONTEXT_RADIUS = 3;
 
+// A landing whose line is a HEADING takes nothing from above it: those words belong to the section
+// BEFORE the one the reader jumped into, and letting them in is what made a search for the previous
+// section's words pull this row up. The whole window goes below instead — the same budget, spent
+// inside the section the landing names.
+const HEADING_CONTEXT_RADIUS = NAV_CONTEXT_RADIUS * 2;
+
 // Per-line cap of a recorded context line, in characters. Longer than the anchor's 80 on purpose:
 // they do different jobs. The anchor (below) is matched EXACTLY to re-find a line after edits,
 // where a longer string is a brittler key, while a context line is only searched.
 const CONTEXT_LINE_CAP = 120;
 
-// How many RAW lines either side the block looks through to find its radius worth of non-blank ones.
-// Without a bound, a landing at the foot of a note with a long blank stretch would walk to line 0 —
-// and this read runs on every file switch.
-const CONTEXT_SCAN_LIMIT = NAV_CONTEXT_RADIUS * 4;
+// How many RAW lines the block looks through per side, as a multiple of that side's radius. Without
+// a bound, a landing at the foot of a note with a long blank stretch would walk to line 0.
+const CONTEXT_SCAN_FACTOR = 4;
 
 // One line as the block stores it: trimmed (the panel prints the text, and leading indentation is
 // noise in a one-line-per-record box) and capped.
@@ -114,17 +120,19 @@ function contextText(raw: string | undefined): string {
 function contextBlock(
 	editor: { getLine(line: number): string; lastLine(): number },
 	landing: number,
+	above: number,
+	below: number,
 ): NavContextLine[] | undefined {
 	if (landing < 0 || landing > editor.lastLine())
 		return undefined;
 	const before: NavContextLine[] = [];
-	for (let i = landing - 1; i >= 0 && before.length < NAV_CONTEXT_RADIUS && landing - i <= CONTEXT_SCAN_LIMIT; i--) {
+	for (let i = landing - 1; i >= 0 && before.length < above && landing - i <= above * CONTEXT_SCAN_FACTOR; i--) {
 		const text = contextText(editor.getLine(i));
 		if (text)
 			before.unshift({ line: i, text });
 	}
 	const after: NavContextLine[] = [];
-	for (let i = landing + 1; i <= editor.lastLine() && after.length < NAV_CONTEXT_RADIUS && i - landing <= CONTEXT_SCAN_LIMIT; i++) {
+	for (let i = landing + 1; i <= editor.lastLine() && after.length < below && i - landing <= below * CONTEXT_SCAN_FACTOR; i++) {
 		const text = contextText(editor.getLine(i));
 		if (text)
 			after.push({ line: i, text });
@@ -133,21 +141,14 @@ function contextBlock(
 }
 
 // The nav-display fields around a position: the viewport-top anchor (functional —
-// remapAnchoredState re-finds the line after later edits), the landing's recorded context block
-// (search), and the file's mtime. Cheap doc reads EXCEPT cursorOnScreen — the only layout-forcing
-// part of the nav read, and it never runs on the hot path. A doc read is the whole price of the
-// context block: the lines come from the editor's buffer, no vault IO.
+// remapAnchoredState re-finds the line after later edits) and the file's mtime. Nothing here forces
+// layout: the landing's WORDS are the one part of a nav state the stepping side never reads, and
+// they are read only when a place records them (see landingContext below).
 function navDisplayFields(
 	view: MarkdownView,
 	topLine: number,
-	cursor: EphemeralState['cursor'],
-): Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'mtime'> {
-	const display: Pick<NavEntryState, 'anchor' | 'context' | 'contextAt' | 'mtime'> = {};
-	// The view mode is read here and nowhere else: it decides which line the landing is (below),
-	// and that decision is RECORDED (contextAt) instead of being stamped for a reader to re-derive.
-	// Optional-called: the display fields must never crash the recording path on a view-like object
-	// that lacks getMode.
-	const mode = view.getMode?.();
+): Pick<NavEntryState, 'anchor' | 'mtime'> {
+	const display: Pick<NavEntryState, 'anchor' | 'mtime'> = {};
 	const editor = view.editor;
 	if (!editor || typeof editor.getLine !== 'function')
 		return display;
@@ -160,16 +161,6 @@ function navDisplayFields(
 		if (text)
 			display.anchor = text;
 	}
-	// Which line the row's landing IS: the cursor line for a source capture whose cursor is on
-	// screen, the viewport top otherwise (a reading capture's cursor is the stale pre-preview one;
-	// a source capture's cursor may have been scrolled out of sight).
-	const cursorVisible = !!cursor && mode !== 'preview' && cursorOnScreen(view, cursor.from.line);
-	const landingLine = cursorVisible && cursor ? cursor.from.line : topLine;
-	const block = contextBlock(editor, landingLine);
-	if (block) {
-		display.context = block;
-		display.contextAt = block.findIndex(l => l.line === landingLine);
-	}
 	// The file's mtime at capture time — the record's own stamp, what the file WAS when the step was
 	// taken. It does NOT drive the restore (which works against a live editor buffer, whose unsaved
 	// text can differ from the file on disk regardless of its mtime).
@@ -179,25 +170,68 @@ function navDisplayFields(
 	return display;
 }
 
+// The WORDS a landing sits in, and WHICH of them the landing is. Read separately from the fields
+// above because only the place list ever reads them — the stack's steps carry no words — so a step
+// must not pay for them: not the doc reads, and not the layout the cursor-visibility check forces.
+// The place list asks at the ONE moment it records a landing (see recent-files/places.ts).
+export function landingContext(
+	view: MarkdownView,
+	st: NavEntryState,
+): Pick<NavEntryState, 'context' | 'contextAt'> | undefined {
+	const editor = view.editor;
+	if (!editor || typeof editor.getLine !== 'function')
+		return undefined;
+	// Which line the landing IS: the cursor line for a source capture whose cursor is on screen,
+	// the viewport top otherwise (a reading capture's cursor is the stale pre-preview one; a source
+	// capture's cursor may have been scrolled out of sight).
+	//
+	// The view mode is read here and nowhere else, and the decision is RECORDED (contextAt) rather
+	// than stamped for a reader to re-derive. Optional-called: the read must never crash the
+	// recording path on a view-like object that lacks getMode.
+	const mode = view.getMode?.();
+	const cursor = st.cursor;
+	const cursorVisible = !!cursor && mode !== 'preview' && cursorOnScreen(view, cursor.from.line);
+	const landingLine = cursorVisible && cursor ? cursor.from.line : (st.scroll ?? -1);
+	if (landingLine < 0 || landingLine > editor.lastLine())
+		return undefined;
+	// A heading's own line is where its section starts, so its window goes below instead of around.
+	const heading = isHeadingLine(contextText(editor.getLine(landingLine)));
+	const block = contextBlock(editor, landingLine, heading ? 0 : NAV_CONTEXT_RADIUS,
+		heading ? HEADING_CONTEXT_RADIUS : NAV_CONTEXT_RADIUS);
+	if (!block)
+		return undefined;
+	return { context: block, contextAt: block.findIndex(l => l.line === landingLine) };
+}
+
 // Nav read — LOW frequency only (the leave-refresh on a file switch, the outline pre-click read, the
 // leave-refresh before back/forward, the landing settle-capture, the teleport landing): the hot read
 // plus the display fields a nav entry carries. Never a drop-in for readEphemeralState on hot paths:
-// the visibility check forces layout per call.
+// it reads the document.
 export function readNavEntryState(view: MarkdownView): NavEntryState | undefined {
 	const st = readEphemeralState(view);
 	if (!st)
 		return undefined;
-	return { ...st, ...navDisplayFields(view, st.scroll ?? -1, st.cursor) };
+	return { ...st, ...navDisplayFields(view, st.scroll ?? -1) };
+}
+
+// The ONE read that records a landing: what a step carries, plus the words the landing sits in.
+// The words belong to this moment and to no other — a step is restored by POSITION and stores none
+// (see nav-history/store.ts) — so this is the only read that pays the doc reads and the one layout
+// the cursor-visibility check forces.
+export function readLandingState(view: MarkdownView): NavEntryState | undefined {
+	const st = readEphemeralState(view);
+	if (!st)
+		return undefined;
+	return { ...st, ...navDisplayFields(view, st.scroll ?? -1), ...landingContext(view, st) };
 }
 
 // Rebuild the nav-display fields around an ALREADY-READ position — the poll baseline handed to
 // refreshTop at a teleport. The pre-jump state cannot be re-read (the cursor has already jumped; the
 // scroll may already have landed on mobile), so the display fields are reconstructed from the
-// current view against the recorded position: at most one poll tick stale, and on desktop CM applies
-// the jump's scrollIntoView AFTER the selection event, so the visibility check sees the pre-jump
-// viewport. Shallow copy — never mutate the shared baseline (or any entry sharing it) in place.
+// current view against the recorded position: at most one poll tick stale. Shallow copy — never
+// mutate the shared baseline (or any entry sharing it) in place.
 export function withNavDisplay(view: MarkdownView, st: EphemeralState): NavEntryState {
-	return { ...st, ...navDisplayFields(view, st.scroll ?? -1, st.cursor) };
+	return { ...st, ...navDisplayFields(view, st.scroll ?? -1) };
 }
 
 // Nearest-match heuristic: an edited anchor line or a fully rewritten region finds no match and

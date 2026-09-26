@@ -1,5 +1,5 @@
 import { Keymap, MenuPositionDef, setIcon } from 'obsidian';
-import { NavEntry } from '@/nav/entry';
+import { isHeadingLine, NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
@@ -711,7 +711,9 @@ export class RecentFilesList {
 		const out: string[] = [];
 		if (hit)
 			out.push(`${t('recentFiles.matchedLine')}${hit}`);
-		if (own && own !== hit)
+		// A heading's own line is not worth quoting: the section chain this tooltip prints above
+		// ends in that heading, and "as recorded: ## Beta" under it is the same words twice.
+		if (own && own !== hit && !isHeadingLine(own))
 			out.push(`${t('recentFiles.landingLine')}${own}`);
 		return out;
 	}

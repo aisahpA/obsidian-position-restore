@@ -1,7 +1,7 @@
 import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce, type Editor, type EditorPosition, type EventRef } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
 import { PositionStore } from '@/position/storage/position-store';
-import { readEphemeralState, readNavEntryState, withNavDisplay } from './ephemeral';
+import { readEphemeralState, readLandingState, readNavEntryState, withNavDisplay } from './ephemeral';
 import { isEphemeralStatesEquals, isCursorStatesEqual } from '@/shared/ephemeral-equals';
 import { ExclusionChecker } from '@/position/policy/exclusion';
 import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
@@ -152,7 +152,7 @@ export class Sampler {
 				// list takes from here (`landing: true`; every other caller hands over
 				// the reader's LEAVE, which the place must not mistake for the jump's
 				// own spot).
-				this.funnel.settled(filePath, this.state.leafId(view.leaf), readNavEntryState(view) ?? st);
+				this.funnel.settled(filePath, this.state.leafId(view.leaf), readLandingState(view) ?? st);
 				}
 			} else {
 				this.searchSettledTicks = 0;

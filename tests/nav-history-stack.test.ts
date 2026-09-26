@@ -13,7 +13,8 @@
 //    its next entry matches (else openFile fallback);
 //  - graph tab steps: activation records a pathless view entry, traversal
 //    reactivates the graph/file leaf without any open;
-//  - a travel asked for elsewhere (the modifier-held place open);
+//  - a travel asked for elsewhere (the modifier-held place open), and the landing
+//    words a place carries, which a step does not keep;
 //  - patcher historyNav injection: the saved position rides OVER the native
 //    entry's cursor-only eState, marker consumed exactly once.
 //
@@ -1765,6 +1766,31 @@ describe('NavStack — a travel asked for elsewhere', () => {
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
 		expect(h.openFile).not.toHaveBeenCalled();
+	});
+});
+
+// A place carries the words its landing was recorded among — the recent-files list's quote, the
+// thing its search box matches. A step is restored by POSITION and reads none of them, and every
+// step the reader takes is written to storage, so the stack takes a place in without them.
+// A place carries the words its landing was recorded among — the recent-files list's quote, the
+// thing its search box matches. A step is restored by POSITION, so it leaves them behind at the one
+// place it is written (see nav-history/store.ts).
+describe('NavStack — a step is stored without the landing words', () => {
+	it('writes the step it travelled to with its position and none of the words', async () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const place: NavEntry = {
+			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
+			st: { scroll: 30, context: [{ line: 28, text: '## T' }], contextAt: 0 },
+		};
+
+		await h.nav.stack.travelTo(place, 'tab');
+		h.nav.stack.persist();
+
+		const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}');
+		expect(stored.entries[stored.entries.length - 1].st).toEqual({ scroll: 30 });
+		// The step in memory is the state it travelled with: the words are dropped at the WRITE, not
+		// on the way in — one place, however a state reached this list.
+		expect(stOf(h.nav.stack.entries[h.nav.stack.index])).toEqual(place.st);
 	});
 });
 

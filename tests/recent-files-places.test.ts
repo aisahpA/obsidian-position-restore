@@ -13,7 +13,7 @@ import { App, TFile } from 'obsidian';
 import { NavPlaces, placeKey } from '@/recent-files/places';
 import { RECENT_PLACES_VERSION } from '@/recent-files/places-store';
 import { NavEntry, NavJump, NavTeleport, NavVisit } from '@/nav/entry';
-import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
+import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-recent:test-vault';
 
@@ -326,6 +326,19 @@ describe('NavPlaces — one record per landing', () => {
 			placeKey(jump('a.md', 'outline:## One')),
 			placeKey(jump('b.md', 'outline:## One')),
 		]);
+	});
+});
+
+describe('NavPlaces — the state a landing is recorded with', () => {
+	it('keeps the state it was handed whole, words included', () => {
+		// The words were read WITH the landing (see ephemeral.ts's readLandingState); this list takes
+		// the state as it arrives, rather than reassembling it field by field.
+		const { places } = makePlaces();
+		const st: NavEntryState = { scroll: 10, context: [{ line: 9, text: 'L9' }], contextAt: 0 };
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st });
+
+		expect((places.entries[0] as NavJump).st).toBe(st);
 	});
 });
 

@@ -253,8 +253,9 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 	it('lands a left entry on the viewport when its cursor sat outside it', () => {
 		// The user scrolled the cursor line off screen, then jumped away: the
 		// left entry must describe the viewport it actually showed, not the
-		// invisible cursor line — the capture decides this and records the
-		// answer (contextAt), so the assertion is the recorded landing.
+		// invisible cursor line — which is where the anchor is taken from. NO
+		// WORDS come along: a step keeps none (see ephemeral.ts's landingContext,
+		// which the place list asks for when it records a landing).
 		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
@@ -279,10 +280,6 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 			scroll: 10,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 			anchor: 'line 10',
-			// The off-screen cursor makes the landing the VIEWPORT top (10), and
-			// the recorded block runs three lines either side of it.
-			context: Array.from({ length: 7 }, (_, i) => ({ line: 7 + i, text: `line ${7 + i}` })),
-			contextAt: 3,
 		});
 	});
 

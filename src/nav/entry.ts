@@ -159,5 +159,23 @@ export function landedLine(entry: NavEntry): number | undefined {
 	return st.context?.[st.contextAt ?? -1]?.line ?? st.scroll ?? st.cursor?.from.line;
 }
 
+// Whether a recorded line is a heading's OWN line — the line a section starts on. Two things decide
+// by it and have to agree: the capture spends a landing's word budget below a heading rather than
+// around it (the words above belong to the section before), and a row prints no "as recorded" line
+// for one, the section chain beside it already saying which heading the landing is.
+export function isHeadingLine(text: string | undefined): boolean {
+	return /^#{1,6}\s/.test(text ?? '');
+}
+
+// What a STEP is stored without: the words its landing was recorded among. They are the recent-files
+// list's quote — what its search box matches — while a step is restored by POSITION and reads none of
+// it, so a step leaves them behind at the one place it is written (see nav-history/store.ts).
+export function withoutLandingWords(st: NavEntryState): NavEntryState {
+	const out = { ...st };
+	delete out.context;
+	delete out.contextAt;
+	return out;
+}
+
 // Both lists' STORAGE versions live with their stores, not here: this module is
 // the shared VOCABULARY, and a format version is a fact about one store's blob.

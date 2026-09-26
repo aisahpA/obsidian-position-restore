@@ -1761,6 +1761,23 @@ it('says nothing more where nothing was recorded to quote', () => {
 		.toBe(`${t('recentFiles.landingLine')}最后一段`);
 });
 
+it('says nothing about a HEADING landing — the chain above it already names it', () => {
+	// A landing whose own line is a heading: the tooltip's chain ends in that
+	// heading, so "as recorded: ### 预览" under it is the same words twice. (The
+	// capture spends its budget below a heading for the same reason — see
+	// ephemeral.ts's landingContext.)
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+
+	const tip = h.hover(h.place('L5'))!;
+	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
+});
+
 it('names the line the query hit, ahead of the line the landing sat on', () => {
 	// Two landings one line apart, so both of their blocks answer a query that
 	// hits either: a note left with a single landing prints no landing rows at
