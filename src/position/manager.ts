@@ -278,6 +278,13 @@ export class PositionManager {
 		this.bookkeeper.deleteFile(file);
 	}
 
+	// Vault 'create' — the file a scheduled prune was waiting on came back, which on a phone
+	// is a sync delivering its replacement. Cancels the prune (see PathBookkeeper.cancelPending):
+	// the window is a backstop, not the thing the record's survival races against.
+	fileCreated(file: TAbstractFile) {
+		this.bookkeeper.fileCreated(file);
+	}
+
 	// Startup sweep for the navigation stores: files deleted while Obsidian was closed fire no
 	// 'delete' event, so their entries would hold slots in the caps for good. The position records
 	// are deliberately left alone.

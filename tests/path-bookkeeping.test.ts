@@ -26,8 +26,14 @@ const LONG_AFTER = 60_000;
 function makeHarness(extraNavStore?: PathStore) {
 	// The vault's file index, as the re-check at close time sees it.
 	const files = new Set<string>();
+	// The DISK, asked on its own (see confirmGone): a sync plugin puts a file back through
+	// the adapter, which the index need not hear about — so the two may disagree.
+	const disk = new Set<string>();
 	const app = {
-		vault: { getAbstractFileByPath: (path: string) => (files.has(path) ? { path } : null) },
+		vault: {
+			getAbstractFileByPath: (path: string) => (files.has(path) ? { path } : null),
+			adapter: { exists: async (path: string) => disk.has(path) },
+		},
 	};
 	const store = { renameFile: vi.fn(), deleteFile: vi.fn() };
 	// One path-keyed navigation store (the back/forward stack, in production):
@@ -46,7 +52,15 @@ function makeHarness(extraNavStore?: PathStore) {
 		state as never,
 	);
 	const file = (path: string) => ({ path }) as TAbstractFile;
-	return { bookkeeper, store, navStore, state, files, file };
+	const restore = (path: string) => {
+		files.add(path);
+		disk.add(path);
+	};
+	const remove = (path: string) => {
+		files.delete(path);
+		disk.delete(path);
+	};
+	return { bookkeeper, store, navStore, state, files, disk, file, restore, remove };
 }
 
 afterEach(() => {
@@ -80,67 +94,119 @@ describe('PathBookkeeper rename', () => {
 });
 
 describe('PathBookkeeper delete', () => {
-	it('a path that is back when the window closes is not pruned (the sync replacement)', () => {
+	it('a path that is back when the window closes is not pruned (the sync replacement)', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
-		h.files.add('a.md');
+		h.restore('a.md');
 
 		// Gone at the delete, back before the window closes. The same result
 		// follows from the path being back before the delete is even scheduled:
 		// what decides is the vault read at close time, never an event pairing.
-		h.files.delete('a.md');
+		h.remove('a.md');
 		h.bookkeeper.deleteFile(h.file('a.md'));
-		h.files.add('a.md');
+		h.restore('a.md');
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.store.deleteFile).not.toHaveBeenCalled();
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('a path still missing when the window closes is pruned from both stores, and not before', () => {
+	it('a path still missing when the window closes is pruned from both stores, and not before', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
 		h.bookkeeper.deleteFile(h.file('a.md'));
-		vi.advanceTimersByTime(A_BEAT); // a beat: deferred, not synchronous
+		await vi.advanceTimersByTimeAsync(A_BEAT); // a beat: deferred, not synchronous
 		expect(h.store.deleteFile).not.toHaveBeenCalled();
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 		expect(h.store.deleteFile).toHaveBeenCalledTimes(1);
 		expect(h.store.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.navStore.deleteFile).toHaveBeenCalledTimes(1);
 		expect(h.navStore.deleteFile).toHaveBeenCalledWith('a.md');
 	});
 
-	it('repeated deletes of a still-missing path prune once: a later delete restarts the window', () => {
+	it('repeated deletes of a still-missing path prune once: a later delete restarts the window', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
 		h.bookkeeper.deleteFile(h.file('a.md'));
-		vi.advanceTimersByTime(A_BEAT);
+		await vi.advanceTimersByTimeAsync(A_BEAT);
 		h.bookkeeper.deleteFile(h.file('a.md')); // restarts the window
-		vi.advanceTimersByTime(A_BEAT);
+		await vi.advanceTimersByTimeAsync(A_BEAT);
 		expect(h.store.deleteFile).not.toHaveBeenCalled(); // neither window has closed
 
 		// Long after BOTH windows: only the restarting one may have fired.
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 		expect(h.store.deleteFile).toHaveBeenCalledTimes(1);
+	});
+
+	// The reported bug: a phone's sync takes the note away and puts it back, and the
+	// replacement is a network round trip, so whether it lands inside the window is not
+	// something the record's survival may depend on. The vault's own word that the path
+	// is back cancels the prune — the window is only what happens to a delete nothing
+	// ever contradicts.
+	it('a create for a deleted path cancels the prune (the sync remove-then-write)', async () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+
+		h.bookkeeper.deleteFile(h.file('a.md'));
+		await vi.advanceTimersByTimeAsync(A_BEAT);
+		h.bookkeeper.fileCreated(h.file('a.md'));
+
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
+		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
+	});
+
+	it('a rename over a deleted path cancels the prune (the sync remove-then-rename)', async () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+
+		h.bookkeeper.deleteFile(h.file('a.md'));
+		await vi.advanceTimersByTimeAsync(A_BEAT);
+		// The download lands under a temp name and is renamed over the target.
+		h.bookkeeper.renameFile(h.file('a.md'), 'a.md.tmp');
+
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
+		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
+		// …and the re-key it also is still happens: a cancelled prune is not a
+		// cancelled rename.
+		expect(h.store.renameFile).toHaveBeenCalledWith('a.md', 'a.md.tmp');
+	});
+
+	// A phone's sync writes the downloaded file straight through the adapter, and the index need
+	// not hear about it: the delete it triggered is answered by a disk that has the file back and
+	// an index that still does not. The record has to survive that disagreement — an index that
+	// lags the disk is one sync behind, not a file that is gone.
+	it('a path the disk has but the index does not is not pruned (a sync writing behind the vault)', async () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+
+		h.bookkeeper.deleteFile(h.file('a.md'));
+		await vi.advanceTimersByTimeAsync(A_BEAT);
+		h.disk.add('a.md'); // back on disk; the index never hears about it
+
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
+		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 	});
 });
 
 describe('PathBookkeeper startup sweep', () => {
-	it('drops the history of a path the vault does not have — and only the history', () => {
+	it('drops the history of a path the vault does not have — and only the history', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.navStore.knownPaths.mockReturnValue(['a.md', 'b.md']);
-		h.files.add('b.md'); // still there: not swept
+		h.restore('b.md'); // still there: not swept
 
 		h.bookkeeper.sweepMissingHistory();
-		vi.advanceTimersByTime(A_BEAT); // a beat: deferred, like a live delete
+		await vi.advanceTimersByTimeAsync(A_BEAT); // a beat: deferred, like a live delete
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 		expect(h.navStore.deleteFile).toHaveBeenCalledTimes(1);
 		expect(h.navStore.deleteFile).toHaveBeenCalledWith('a.md');
 		// The position records are kept on purpose: the db is a synced file, so
@@ -152,21 +218,21 @@ describe('PathBookkeeper startup sweep', () => {
 		expect(h.navStore.persist).toHaveBeenCalled();
 	});
 
-	it('a swept path that is back within the window keeps its history', () => {
+	it('a swept path that is back within the window keeps its history', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.navStore.knownPaths.mockReturnValue(['a.md']);
 
 		h.bookkeeper.sweepMissingHistory();
-		h.files.add('a.md'); // the sync plugin finished downloading
+		h.restore('a.md'); // the sync plugin finished downloading
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 		expect(h.navStore.persist).not.toHaveBeenCalled();
 	});
 
-	it('a live delete of a swept path still drops both stores', () => {
+	it('a live delete of a swept path still drops both stores', async () => {
 		// The two deferrals are independent maps, so a vault 'delete' arriving
 		// while a sweep is pending must not be narrowed to history-only by it.
 		vi.useFakeTimers();
@@ -176,13 +242,13 @@ describe('PathBookkeeper startup sweep', () => {
 		h.bookkeeper.sweepMissingHistory();
 		h.bookkeeper.deleteFile(h.file('a.md'));
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.store.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.navStore.deleteFile).toHaveBeenCalledWith('a.md');
 	});
 
-	it('reaches every navigation store, not just the first', () => {
+	it('reaches every navigation store, not just the first', async () => {
 		// The bookkeeper is handed a LIST (the stack and the recent-files list in
 		// production), and each store re-keys/drops its OWN records — so a drop that
 		// only ever reached the first would leave the second holding dead rows.
@@ -202,10 +268,24 @@ describe('PathBookkeeper startup sweep', () => {
 		// The sweep walks the UNION of the stores' paths and prunes it in each, so
 		// a path only the second store knows is swept too.
 		h.bookkeeper.sweepMissingHistory();
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 		expect(h.navStore.deleteFile).toHaveBeenCalledWith('b.md');
 		expect(other.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(other.deleteFile).toHaveBeenCalledWith('b.md');
 		expect(other.persist).toHaveBeenCalled();
+	});
+
+	it('a swept path the sync delivers while the window stands keeps its history', async () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.navStore.knownPaths.mockReturnValue(['a.md']);
+
+		h.bookkeeper.sweepMissingHistory();
+		await vi.advanceTimersByTimeAsync(A_BEAT);
+		h.bookkeeper.fileCreated(h.file('a.md'));
+
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
+		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
+		expect(h.navStore.persist).not.toHaveBeenCalled();
 	});
 });

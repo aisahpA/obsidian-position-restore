@@ -175,6 +175,7 @@ export default class PositionRestorePlugin extends Plugin {
 		}));
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.manager.renameFile(file, oldPath)));
 		this.registerEvent(this.app.vault.on('delete', (file) => this.manager.deleteFile(file)));
+		this.registerEvent(this.app.vault.on('create', (file) => this.manager.fileCreated(file)));
 		this.registerEvent(this.app.workspace.on('quit', () => this.manager.storePositionData()));
 	}
 

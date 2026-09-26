@@ -32,6 +32,9 @@ function makeHarness() {
 			getName: () => 'Test',
 			getAbstractFileByPath: (path: string) =>
 				(files.has(path) ? Object.assign(new TFile(), { path }) : null),
+			// The disk, for the deferred prune's second opinion. The index doubles as it here:
+			// these tests are the wiring, not the two disagreeing.
+			adapter: { exists: async (path: string) => files.has(path) },
 		},
 		metadataCache: { getFileCache: () => null },
 		workspace: {
@@ -96,7 +99,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.state.lastLoadedFilePath).toBe('b.md');
 	});
 
-	it('the sync remove + rename keeps the position record and the history steps', () => {
+	it('the sync remove + rename keeps the position record and the history steps', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -110,14 +113,35 @@ describe('PositionManager vault path changes', () => {
 		// ... and the downloaded temp file is renamed over it right after.
 		h.files.add('a.md');
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 		expect(h.paths()).toEqual(['a.md', 'b.md']);
 		expect(h.stack.index).toBe(1);
 	});
 
-	it('a genuine delete still prunes both stores, once the window closes', () => {
+	it('the sync remove + create keeps the position record and the history steps', async () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.files.add('a.md');
+		h.funnel.recordOpen('a.md', 'leaf-1');
+
+		// The same replacement as a sync that writes the file in place rather
+		// than renaming a download over it: the path goes, then comes back as a
+		// create — and the create is what says the delete was never one.
+		h.files.delete('a.md');
+		h.manager.deleteFile(h.file('a.md'));
+		await vi.advanceTimersByTimeAsync(A_BEAT);
+		h.files.add('a.md');
+		h.manager.fileCreated(h.file('a.md'));
+
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
+
+		expect(h.database.deleteFile).not.toHaveBeenCalled();
+		expect(h.paths()).toEqual(['a.md']);
+	});
+
+	it('a genuine delete still prunes both stores, once the window closes', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -126,10 +150,10 @@ describe('PositionManager vault path changes', () => {
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
-		vi.advanceTimersByTime(A_BEAT); // a beat: deferred, not synchronous
+		await vi.advanceTimersByTimeAsync(A_BEAT); // a beat: deferred, not synchronous
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.paths()).toEqual(['b.md']);
@@ -155,7 +179,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
 
-	it('a genuine delete drops the per-leaf records of that path too, and only those', () => {
+	it('a genuine delete drops the per-leaf records of that path too, and only those', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
@@ -163,7 +187,7 @@ describe('PositionManager vault path changes', () => {
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(leafStatesOf(h.store).has('leaf-1')).toBe(false);
 		expect(leafStatesOf(h.store).get('leaf-2')).toEqual({ filePath: 'b.md', st: { scroll: 9 } });
@@ -171,7 +195,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
 
-	it('a sync remove + rename keeps the per-leaf records for the surviving path', () => {
+	it('a sync remove + rename keeps the per-leaf records for the surviving path', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
@@ -181,7 +205,7 @@ describe('PositionManager vault path changes', () => {
 		h.manager.deleteFile(h.file('a.md'));
 		h.files.add('a.md'); // the replacement lands before the window closes
 
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(leafStatesOf(h.store).get('leaf-1')).toEqual({ filePath: 'a.md', st: { scroll: 42 } });
 		expect(h.store.read('leaf-1', 'a.md')).toEqual({ scroll: 42 });
@@ -206,7 +230,7 @@ describe('PositionManager navigation history maintenance', () => {
 		expect(h.stack.index).toBe(1);
 	});
 
-	it('the startup sweep drops a missing file\'s history but keeps its position record', () => {
+	it('the startup sweep drops a missing file\'s history but keeps its position record', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -214,7 +238,7 @@ describe('PositionManager navigation history maintenance', () => {
 		h.funnel.recordOpen('gone.md', 'leaf-1'); // deleted while Obsidian was closed
 
 		h.manager.sweepMissingHistory();
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.paths()).toEqual(['a.md']);
 		// History is device-local and disposable; the db is neither — it is
@@ -223,7 +247,7 @@ describe('PositionManager navigation history maintenance', () => {
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('the startup sweep leaves the history of a file the vault still has', () => {
+	it('the startup sweep leaves the history of a file the vault still has', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -232,7 +256,7 @@ describe('PositionManager navigation history maintenance', () => {
 		h.funnel.recordOpen('b.md', 'leaf-1');
 
 		h.manager.sweepMissingHistory();
-		vi.advanceTimersByTime(LONG_AFTER);
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
 		expect(h.paths()).toEqual(['a.md', 'b.md']);
 	});
