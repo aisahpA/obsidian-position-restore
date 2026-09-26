@@ -25,9 +25,9 @@ import { nextPaint } from '@/shared/wait';
 // note's own journey, which IS bounded — a render, then a scroll.
 
 // How long, once the cover is on, to wait for the delayed scroll before showing whatever is there.
-// It lands when the render lands, which is soon — this bound is for the version of the app that
-// keeps the position and drops the flash, whose popover must not be held blank.
-const LAND_MAX_MS = 1500;
+// Only ever paid when the flash never comes — the render itself is a blank card with or without the
+// cover — so it stays short: a note seen at its head and then flashed beats a card held blank.
+const LAND_MAX_MS = 600;
 
 // What the core calls the section the delayed scroll landed on, for three seconds.
 const FLASH = 'is-flashing';
