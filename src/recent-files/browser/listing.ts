@@ -1,7 +1,7 @@
 // The list's pure bookkeeping: how the filtered steps group into notes and which ones the search box
 // keeps. No DOM — the search box is testable through these predicates alone.
 
-import { NavEntry, navGroupKey } from '@/nav/entry';
+import { isCallerKey, NavEntry, navGroupKey } from '@/nav/entry';
 import { baseName, viewName } from './model';
 
 // One FILE on the list: the note, and the steps that landed in it (by line, ascending). One per note
@@ -206,8 +206,8 @@ export function navSearchText(entry: NavEntry): string {
 		parts.push(st.anchor ?? '');
 	}
 	// The jump's key: for an outline click the heading's text, for an anchor link the target the
-	// reader picked. A caller target's synthetic `caller:<ms>` key is a timestamp, not words.
-	if (entry.kind === 'jump' && !entry.key.startsWith('caller:'))
+	// reader picked. A caller target's synthetic key is a timestamp, not words (see isCallerKey).
+	if (entry.kind === 'jump' && !isCallerKey(entry.key))
 		parts.push(entry.key.startsWith('outline:') ? entry.key.slice('outline:'.length) : entry.key);
 	// Where a plain link came from, and what it said.
 	if (entry.kind === 'visit') {

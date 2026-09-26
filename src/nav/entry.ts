@@ -130,6 +130,19 @@ export function pruneViewSnapshot(entry: NavEntry): void {
 		delete view.label;
 }
 
+// A CALLER target: a search match, or a backlink hit, inside the note the reader is already in —
+// core hands that target over as an ephemeral state rather than as a link, so it names no anchor
+// and carries no linktext, and restore/patcher.ts keys it `caller:<ms>` to keep two clicks apart.
+//
+// It is named here because it is not one store's business: the recent-files list demotes it to the
+// note it landed in (see NavPlaces.remember), while the stack keeps it — going back to that hit is
+// a real step, and the landing the settle captured is the one thing that makes it repeatable.
+export const CALLER_KEY_PREFIX = 'caller:';
+
+export function isCallerKey(key: string | undefined): boolean {
+	return !!key && key.startsWith(CALLER_KEY_PREFIX);
+}
+
 // Which line a step landed on, or undefined when it recorded none. READ, not derived: the capture
 // recorded the block with the landing line marked (contextAt), with the viewport top and then the
 // cursor as fallbacks for a state that never went through that read.

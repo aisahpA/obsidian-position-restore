@@ -1,6 +1,6 @@
 import { App } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
-import { landedLine, NavEntry, NavJump, NewNavEntry, navGroupKey } from '@/nav/entry';
+import { isCallerKey, landedLine, NavEntry, NavJump, NewNavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { normAnchor } from '@/position/capture/ephemeral';
 import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
@@ -26,6 +26,9 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 //     not the line: a heading that moved in an edit is the same place. And ONE record
 //     per LANDING: two jumps that come to rest on one line are one place, merged as
 //     the landing settles (see settle).
+//   - NO record for a CALLER target (a search match, a backlink hit — see nav/entry.ts's
+//     isCallerKey): it names no anchor and its key names nothing, so its row could say
+//     nothing but a line number already on the row above. It is the note it landed in.
 // A pathless view (the graph, Thino's memo list) is one record, as in the panel.
 //
 // WHAT IS NOT IN IT: teleports (the sampler's INFERRED cursor moves), and — at the
@@ -144,6 +147,7 @@ export class NavPlaces implements PlaceList {
 		const blob = loadNavPlaces(app);
 		this.entries = blob.entries;
 		this.pinned = blob.pinned;
+		this.demoteCallerLandings();
 	}
 
 	// The composition root hands in the open pipeline once it exists (see
@@ -249,6 +253,13 @@ export class NavPlaces implements PlaceList {
 		// whether the spots inside it are remembered.
 		if (entry.kind === 'jump' && !this.recordsJumps())
 			return;
+		// A CALLER target is not a place, but the reader IS in the note it landed in: it is
+		// recorded as that note, which is what a hit in ANOTHER file already gets (a cross-file
+		// search match is no same-file target, so it arrives here as a plain visit).
+		if (entry.kind === 'jump' && isCallerKey(entry.key)) {
+			this.remember({ kind: 'visit', path: entry.path, leafId: entry.leafId });
+			return;
+		}
 		if (entry.kind !== 'view' && !this.recordable(entry.path))
 			return;
 		const key = placeKey(entry);
@@ -568,6 +579,27 @@ export class NavPlaces implements PlaceList {
 			|| e.kind !== 'jump'
 			|| e.path !== place.path
 			|| landedLine(e) !== line));
+	}
+
+	// What a caller target already on the list becomes, run once at load: a list written
+	// before this rule took effect loses the rows the reader could never tell apart
+	// WITHOUT losing the notes they landed in — and two visits to one note are one row
+	// either way, the newer standing (see remember).
+	private demoteCallerLandings(): void {
+		const asVisits: NavEntry[] = this.entries.map(e => e.kind === 'jump' && isCallerKey(e.key)
+			? { kind: 'visit', path: e.path, leafId: e.leafId, t: e.t }
+			: e);
+		const newest = new Map<string, number>();
+		for (let i = 0; i < asVisits.length; i++) {
+			const e = asVisits[i];
+			if (e.kind === 'visit')
+				newest.set(e.path, i);
+		}
+		this.entries = asVisits.filter((e, i) => {
+			if (e.kind !== 'visit')
+				return true;
+			return newest.get(e.path) === i;
+		});
 	}
 
 	private indexOf(key: string): number {

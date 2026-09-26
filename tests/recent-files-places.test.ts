@@ -329,6 +329,57 @@ describe('NavPlaces — one record per landing', () => {
 	});
 });
 
+describe('NavPlaces — a caller target is the note, not a landing', () => {
+	// A search match, or a backlink hit, inside the note already open: core hands the target
+	// over as an ephemeral state, so it names no anchor and its key is a timestamp (see
+	// nav/entry.ts's isCallerKey). Its row could say nothing but a line number already on the
+	// row above, so it is the NOTE that gets recorded — which is what a hit in another file
+	// already was.
+	it('records the note the hit landed in, and no landing', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'caller:111'));
+		places.settle({ ...jump('a.md', 'caller:111'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('keeps one row however many hits the reader clicked in one note', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'caller:111'));
+		places.remember(jump('a.md', 'caller:222'));
+		places.remember(jump('a.md', 'caller:333'));
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('moves the note the reader is in to the end, as a visit does', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.remember(jump('a.md', 'caller:111'));
+
+		expect(paths(places)).toEqual(['b.md', 'a.md']);
+	});
+
+	it('still records a jump that names where it went', () => {
+		// The rule is about the KEY, not about jumps: an outline click is a place.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'outline:## One'))]);
+	});
+
+	it('demotes the caller rows a list written before this rule is already holding', () => {
+		// Run once at load: the reader loses the rows they could never tell apart WITHOUT
+		// losing the notes they landed in.
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: RECENT_PLACES_VERSION,
+			places: [visit('a.md'), jump('a.md', 'caller:111'), jump('b.md', 'caller:222')],
+		}));
+
+		expect(paths(new NavPlaces(makeApp(), makeSettings()))).toEqual(['a.md', 'b.md']);
+	});
+});
 
 describe('NavPlaces — its own folder rule', () => {
 	it('skips the paths the reader excluded, and vault internals', () => {
