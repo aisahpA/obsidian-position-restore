@@ -28,8 +28,8 @@ export interface NavJump extends NavEntryBase {
 	// Where the key's anchor sat at RECORD time, upgraded at the landing settle
 	// — the structural re-anchor's delta base. Not the recorded scroll, which is
 	// a viewport top and drifts with geometry and CM's near-edge scrolling.
-	// Absent until the upgrade; ^block keys never get one (their landing cannot
-	// be tied to the block id) and ride the text-snippet remap instead.
+	// Absent until the upgrade, and for a target the cache no longer names — a
+	// renamed heading, a deleted block — which rides the text-snippet remap.
 	keyLine?: number;
 	st?: NavEntryState;
 }
@@ -141,6 +141,30 @@ export const CALLER_KEY_PREFIX = 'caller:';
 
 export function isCallerKey(key: string | undefined): boolean {
 	return !!key && key.startsWith(CALLER_KEY_PREFIX);
+}
+
+// What a keyed jump's target NAMES, when the target is a BLOCK: the block id, without the `^`.
+// Two decisions hang on it and have to agree — restore/anchor.ts looks the id up in the metadata
+// cache to re-anchor a step, and the recent-files list keeps no place for a block (see
+// NavPlaces.remember) — so it is split out of the key once, here, and not twice downstream.
+//
+// The key is the linktext: `note.md#^id`, `#^id` (a link inside the note itself) or `note.md^id`.
+// A heading link (`note.md#slug`) and an outline key (`outline:## H`) carry a `#` too, which is
+// why it is the `^` that decides — and why a `#^id` link used to be read as a heading slug.
+export function blockAnchor(key: string): string | undefined {
+	const hash = key.indexOf('#');
+	const caret = key.indexOf('^');
+	const at = caret < 0 ? hash : hash < 0 ? caret : Math.min(hash, caret);
+	if (at < 0)
+		return undefined;
+	const rest = key.slice(at + 1);
+	if (key[at] !== '^' && !rest.startsWith('^'))
+		return undefined;
+	return rest.startsWith('^') ? rest.slice(1) : rest;
+}
+
+export function isBlockKey(key: string | undefined): boolean {
+	return !!key && blockAnchor(key) !== undefined;
 }
 
 // Which line a step landed on, or undefined when it recorded none. READ, not derived: the capture

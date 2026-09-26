@@ -269,15 +269,15 @@ describe('NavPlaces — what a place is', () => {
 describe('NavPlaces — one record per landing', () => {
 	// A jump is recorded before its landing settles, so the merge is made at the settle —
 	// the first moment two jumps can be told apart. What it covers is two keys naming ONE
-	// spot: a heading, and a block ref an edit moved onto the heading's line.
+	// spot: an outline click and a link, both naming one heading.
 	it('merges two jumps that came to rest on the same line', () => {
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
-		places.remember(jump('a.md', '^block-1'));
-		places.settle({ ...jump('a.md', '^block-1'), st: { scroll: 12 } });
+		places.remember(jump('a.md', 'a.md#one'));
+		places.settle({ ...jump('a.md', 'a.md#one'), st: { scroll: 12 } });
 
-		expect(paths(places)).toEqual([placeKey(jump('a.md', '^block-1'))]);
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'a.md#one'))]);
 	});
 
 	it('keeps the newest of the two, which is the one the row was already drawn from', () => {
@@ -286,10 +286,10 @@ describe('NavPlaces — one record per landing', () => {
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
-		places.remember(jump('a.md', '^block-1'));
-		places.settle({ ...jump('a.md', '^block-1'), st: { scroll: 12 } });
+		places.remember(jump('a.md', 'a.md#one'));
+		places.settle({ ...jump('a.md', 'a.md#one'), st: { scroll: 12 } });
 
-		expect(paths(places)).toEqual([placeKey(jump('a.md', '^block-1'))]);
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'a.md#one'))]);
 		expect(places.index).toBe(0);
 	});
 
@@ -380,6 +380,44 @@ describe('NavPlaces — a caller target is the note, not a landing', () => {
 		places.remember(jump('a.md', 'outline:## One'));
 
 		expect(paths(places)).toEqual([placeKey(jump('a.md', 'outline:## One'))]);
+	});
+});
+
+describe('NavPlaces — a block target is the note, not a landing', () => {
+	// `[[note#^id]]`: the key is the linktext, and the block id it carries names a spot a row
+	// could only print as a line number inside a section — two of them in the same section look
+	// alike, and neither can be told apart without hovering. So it is the note that gets
+	// recorded. The stack still keeps these steps: going back to a block is a real step.
+	it('records the note the block sits in, and no landing', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'a.md#^b1'));
+		places.settle({ ...jump('a.md', 'a.md#^b1'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('reads the bare ^id form the same way', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', '^b1'));
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('keeps one row however many blocks the reader clicked in one note', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'a.md#^b1'));
+		places.remember(jump('a.md', 'a.md#^b2'));
+		places.remember(jump('a.md', 'a.md#^b3'));
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('still records a heading link, which a row can name', () => {
+		// The rule is about the TARGET, not about links: a heading names a section.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'a.md#one'));
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'a.md#one'))]);
 	});
 });
 
@@ -911,18 +949,18 @@ describe('NavPlaces — forgetting one landing', () => {
 
 	it('drops every place one row stands for, so the row cannot come back', () => {
 		// A row is a LINE, and the panel collapses onto it every place that landed
-		// there — a heading and a block ref an edit moved onto one line are one row to
+		// there — a heading reached by an outline click and by a link are one row to
 		// the reader (see list.ts's landingKeys). A removal that named one of them
 		// would leave the other to draw the row again the moment it was taken off,
 		// which is a × that does nothing.
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
-		places.remember(jump('a.md', '^block-1'));
+		places.remember(jump('a.md', 'a.md#one'));
 		places.remember(visit('b.md'));
 
 		places.forgetLanding([
 			placeKey(jump('a.md', 'outline:## One')),
-			placeKey(jump('a.md', '^block-1')),
+			placeKey(jump('a.md', 'a.md#one')),
 		]);
 
 		expect(paths(places)).toEqual(['b.md']);

@@ -1,6 +1,8 @@
 import { App } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
-import { isCallerKey, landedLine, NavEntry, NavJump, NewNavEntry, navGroupKey } from '@/nav/entry';
+import {
+	isBlockKey, isCallerKey, landedLine, NavEntry, NavJump, NewNavEntry, navGroupKey,
+} from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { normAnchor } from '@/position/capture/ephemeral';
 import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
@@ -21,14 +23,16 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 //     position database, so a click here behaves like a click in the file explorer
 //     (including its exclusion rules). Duplicating that position here would make the
 //     two open paths disagree.
-//   - one record per JUMP (`kind: 'jump'` — an outline click, an anchor link), carrying
-//     its own landing, which exists nowhere else. Identity is the heading/anchor KEY,
-//     not the line: a heading that moved in an edit is the same place. And ONE record
-//     per LANDING: two jumps that come to rest on one line are one place, merged as
-//     the landing settles (see settle).
-//   - NO record for a CALLER target (a search match, a backlink hit — see nav/entry.ts's
-//     isCallerKey): it names no anchor and its key names nothing, so its row could say
-//     nothing but a line number already on the row above. It is the note it landed in.
+//   - one record per JUMP (`kind: 'jump'` — an outline click, a heading link), carrying
+//     its own landing, which exists nowhere else. Identity is the heading KEY, not the
+//     line: a heading that moved in an edit is the same place. And ONE record per
+//     LANDING: two jumps that come to rest on one line are one place, merged as the
+//     landing settles (see settle).
+//   - NO record for a target whose row could not name it, and the note it landed in is
+//     what is recorded: a CALLER target (a search match, a backlink hit — see
+//     nav/entry.ts's isCallerKey) names no anchor and its key is a timestamp; a BLOCK
+//     target (isBlockKey) names one, but a row would print it as a line number inside a
+//     section, which is not a thing the reader can pick out of a list.
 // A pathless view (the graph, Thino's memo list) is one record, as in the panel.
 //
 // WHAT IS NOT IN IT: teleports (the sampler's INFERRED cursor moves), and — at the
@@ -252,10 +256,15 @@ export class NavPlaces implements PlaceList {
 		// whether the spots inside it are remembered.
 		if (entry.kind === 'jump' && !this.recordsJumps())
 			return;
-		// A CALLER target is not a place, but the reader IS in the note it landed in: it is
-		// recorded as that note, which is what a hit in ANOTHER file already gets (a cross-file
-		// search match is no same-file target, so it arrives here as a plain visit).
-		if (entry.kind === 'jump' && isCallerKey(entry.key)) {
+		// Two targets the list keeps no place for, but the reader IS in the note they landed in:
+		// it is recorded as that note, which is what a hit in ANOTHER file already gets (a
+		// cross-file search match is no same-file target, so it arrives here as a plain visit).
+		//
+		// A CALLER target (a search match, a backlink hit — nav/entry.ts's isCallerKey) names no
+		// anchor and its key is a timestamp; a BLOCK target (isBlockKey) names one but a row could
+		// only print it as a line number inside a section, which the reader cannot tell from the
+		// row beside it. Neither is a place the list can name.
+		if (entry.kind === 'jump' && (isCallerKey(entry.key) || isBlockKey(entry.key))) {
 			this.remember({ kind: 'visit', path: entry.path, leafId: entry.leafId });
 			return;
 		}
