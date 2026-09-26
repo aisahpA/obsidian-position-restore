@@ -121,6 +121,21 @@ export function viewLeaf(
 	} as unknown as WorkspaceLeaf;
 }
 
+// A leaf restored from a saved tab whose VIEW WAS NEVER BUILT (see shared/leaf's
+// isDeferredLeaf): it answers a view's questions off the state it was saved with, and is not
+// the view's own class. Mobile comes back to the note it was last reading this way.
+export function deferredLeaf(
+	id: string,
+	state?: Record<string, unknown>,
+	viewType = 'markdown',
+	containerEl: unknown = 'main',
+): WorkspaceLeaf {
+	return {
+		id, containerEl, isDeferred: true,
+		view: { getViewType: () => viewType, getState: () => state },
+	} as unknown as WorkspaceLeaf;
+}
+
 // These tests build file-only stacks (a graph entry appears in exactly one
 // full-object equality assertion); the helpers narrow the file kinds so the
 // per-index reads stay terse.

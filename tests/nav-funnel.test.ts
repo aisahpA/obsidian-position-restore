@@ -29,7 +29,7 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
-import { entry, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
+import { deferredLeaf, entry, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
 
 beforeEach(() => {
 	window.localStorage.clear();
@@ -242,6 +242,44 @@ describe('NavFunnel — what a capture point publishes', () => {
 
 		expect(visits).toEqual([]);
 		expect(leaves).toHaveLength(1);
+	});
+
+	it('a tab restored with its view still unbuilt is the note it stands for', () => {
+		// Mobile comes back to the note it was last reading as a DEFERRED tab: a placeholder
+		// that answers a view's questions off the state it was saved with, and is not a
+		// FileView at all. Recorded as a view it would mint a place keyed `view:markdown`,
+		// wearing the note's own name and the file icon, which no delete could ever clean up
+		// — and whose row opens the note without its saved position.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(deferredLeaf('leaf-2', { file: 'b.md', mode: 'source' }));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2', via: 'switch' }, cause: 'tab' },
+		]);
+	});
+
+	it('a deferred tab whose saved state names no file is still the view it stands in for', () => {
+		// A pathless view restored this way keeps its place (the type is the one thing the
+		// placeholder answers honestly) — dropping it would leave a reader standing in the
+		// view with no step behind them.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(deferredLeaf('leaf-2', undefined, 'graph'));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'view', leafId: 'leaf-2', viewType: 'graph' }, cause: 'tab' },
+		]);
+	});
+
+	it('a markdown tab that fails to say it is a file view is not a view place', () => {
+		// Same phantom as the two above, from the last door left: a markdown tab is always a
+		// note, so a place keyed `view:markdown` can never be one the reader went to.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(viewLeaf('leaf-2', 'markdown', { label: 'b', icon: 'file' }));
+
+		expect(visits).toEqual([]);
 	});
 
 	it('a file view whose file has gone is not a place of its own', () => {

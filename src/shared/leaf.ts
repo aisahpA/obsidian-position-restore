@@ -64,6 +64,21 @@ export function viewIcon(view: View | undefined): string | undefined {
 	}
 }
 
+// A leaf whose VIEW HAS NOT BEEN BUILT: the workspace restores a tab as a placeholder that
+// answers a view's questions off the state it was saved with — and that placeholder is not the
+// view's own class, so `instanceof FileView` is false for a note's tab (mobile comes back to
+// one this way). Runtime-only, absent from the public typings.
+export function isDeferredLeaf(leaf: WorkspaceLeaf | null | undefined): boolean {
+	return !!(leaf as unknown as { isDeferred?: boolean } | null | undefined)?.isDeferred;
+}
+
+// The file a deferred placeholder stands in for, read off the state it was restored with: the
+// tab is still that note, and recording it as a view would mint a place with no file behind it.
+export function deferredFilePath(view: View | undefined): string | undefined {
+	const file = viewState(view)?.file;
+	return typeof file === 'string' && file ? file : undefined;
+}
+
 // The most one view's state may take in storage, as serialized length. The blob
 // it shares is a whole list of places (places-store.ts), so a plugin keeping its
 // cache in its view state must not be able to take the list's budget.

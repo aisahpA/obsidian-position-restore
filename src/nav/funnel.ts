@@ -4,7 +4,10 @@ import {
 	NavEntry, NavTeleport, NavView, NewNavEntry, DistributiveOmit, isRecordableViewType,
 } from './entry';
 import { PositionState } from '@/position/state';
-import { isMainAreaLeaf, viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState } from '@/shared/leaf';
+import {
+	deferredFilePath, isDeferredLeaf, isMainAreaLeaf,
+	viewIcon as readViewIcon, viewLabel as readViewLabel, viewState as readViewState,
+} from '@/shared/leaf';
 import { installOutlineCapture as installOutlineCaptureHook } from './outline-capture';
 
 // THE RECORDING FUNNEL — one navigation, several readers. The CAPTURE POINTS (the setViewState
@@ -188,6 +191,17 @@ export class NavFunnel {
 				this.publish({ record: { kind: 'visit', path: view.file.path, leafId, via: 'switch' }, cause: 'tab' });
 			return;
 		}
+		// A DEFERRED leaf is a placeholder, not its view: it answers a view's questions off the
+		// state it was restored with, so a note's own tab fails the instanceof above — and recorded
+		// as a view it would mint a place keyed `view:markdown`, wearing the note's name and file
+		// icon, that no delete could ever clean up. A file in that state is the note it stands for.
+		if (isDeferredLeaf(leaf)) {
+			const restored = deferredFilePath(view);
+			if (restored) {
+				this.publish({ record: { kind: 'visit', path: restored, leafId, via: 'switch' }, cause: 'tab' });
+				return;
+			}
+		}
 		// A main-area view is a destination in its own right, whatever its type is (see
 		// isRecordableViewType for the one that is not a place). Three things about it are read here
 		// and nowhere else, because the moment is the only one they are readable in: its display
@@ -196,6 +210,11 @@ export class NavFunnel {
 		// beats taking the reader's own tab switch down with it (see shared/leaf.ts).
 		const viewType = view?.getViewType();
 		if (!viewType || !isRecordableViewType(viewType))
+			return;
+		// A markdown tab is ALWAYS a note — whatever failed to say so above. As a view it would be
+		// a place with no file behind it, which nothing the reader or the vault does can ever
+		// clean up.
+		if (viewType === 'markdown')
 			return;
 		const record: DistributiveOmit<NavView, 't'> = { kind: 'view', leafId, viewType };
 		const label = readViewLabel(view);
