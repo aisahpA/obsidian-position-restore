@@ -97,23 +97,11 @@ export class OpenPatcher {
 			// the saved record untouched). Cleared first so a stale entry from an
 			// open that never reached setViewState can't leak into this one.
 			state.pendingLinkKind = undefined;
-			state.pendingLinkText = undefined;
-			state.pendingViaPath = undefined;
-			state.pendingViaText = undefined;
-			const linktext: unknown = args[0];
-			const sourcePath: unknown = args[1];
-			const hasTarget = typeof linktext === 'string'
-				&& (linktext.includes('#') || linktext.includes('^'));
-			// The link's origin for nav history (search + badge): which note it
-			// was clicked in and what it said. Recorded for EVERY link open,
-			// including a plain [[note]] — that case stays a keyless visit and
-			// never feeds the key/dedup regime below.
-			if (typeof linktext === 'string') {
-				state.pendingViaText = linktext;
-				if (typeof sourcePath === 'string')
-					state.pendingViaPath = sourcePath;
-			}
-			if (hasTarget) {
+		state.pendingLinkText = undefined;
+		const linktext: unknown = args[0];
+		const hasTarget = typeof linktext === 'string'
+			&& (linktext.includes('#') || linktext.includes('^'));
+		if (hasTarget) {
 				state.pendingLinkKind = 'anchorLink';
 				state.pendingLinkText = linktext;
 			} else if (settings.linkOpenPosition === 'start') {
@@ -125,10 +113,8 @@ export class OpenPatcher {
 				window.clearTimeout(state.pendingLinkKindTimeout);
 				state.pendingLinkKindTimeout = window.setTimeout(() => {
 					state.pendingLinkKind = undefined;
-					state.pendingLinkText = undefined;
-					state.pendingViaPath = undefined;
-					state.pendingViaText = undefined;
-				}, 500);
+				state.pendingLinkText = undefined;
+			}, 500);
 			}
 		};
 		registerCleanup(() => {
@@ -188,15 +174,6 @@ export class OpenPatcher {
 			}
 		}
 		const sameFileTarget = !!eState?.match || !!eState?.['is-flashing'];
-		// The link origin, if this open came from a click. Consumed here —
-		// first setViewState in the click's own call stack — so a stale slot
-		// cannot label a later, unrelated open. Only a keyless open keeps it:
-		// a #/^ link is a keyed jump whose key already names the target.
-		const viaPath = this.state.pendingViaPath;
-		const viaText = this.state.pendingViaText;
-		this.state.pendingViaPath = undefined;
-		this.state.pendingViaText = undefined;
-		const fromLink = !this.state.pendingLinkText && !!viaText;
 		// Main-area leaves only — a sidebar panel re-asserting the tracked
 		// file (outline/backlinks) is not a jump.
 		if (isMainAreaLeaf(this.app, leaf))
@@ -207,9 +184,6 @@ export class OpenPatcher {
 				// landing and later leaves never overwrite it.
 				key: this.state.pendingLinkText ?? (sameFileTarget ? `caller:${Date.now()}` : undefined),
 				force: sameFileTarget,
-				via: fromLink ? 'link' : undefined,
-				viaPath: fromLink ? viaPath : undefined,
-				viaText: fromLink ? viaText : undefined,
 			});
 
 		// A stack traversal (pendingHistoryNav, consumed here — single shot):

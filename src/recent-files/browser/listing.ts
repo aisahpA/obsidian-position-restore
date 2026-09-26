@@ -208,13 +208,6 @@ export function navSearchText(entry: NavEntry): string {
 	// reader picked. A caller target's synthetic key is a timestamp, not words (see isCallerKey).
 	if (entry.kind === 'jump' && !isCallerKey(entry.key))
 		parts.push(entry.key.startsWith('outline:') ? entry.key.slice('outline:'.length) : entry.key);
-	// Where a plain link came from, and what it said.
-	if (entry.kind === 'visit') {
-		if (entry.viaPath)
-			parts.push(baseName(entry.viaPath));
-		if (entry.viaText)
-			parts.push(entry.viaText);
-	}
 	return parts.filter(Boolean).join(' ');
 }
 
@@ -224,8 +217,8 @@ export function navSearchText(entry: NavEntry): string {
 //
 // The first line carrying ALL the tokens; failing that, the first line carrying the FIRST token — the
 // filter matched over the block joined together, so two tokens may sit on two lines. Undefined when
-// the query hit none of the block: a row may match on its name, path, an alias, its section or a
-// link's words, and every one of those is already on the row or one hover away.
+// the query hit none of the block: a row may match on its name, path, an alias or its section, and
+// every one of those is already on the row or one hover away.
 export function matchedContextLine(entry: NavEntry, query: string): string | undefined {
 	const tokens = queryTokens(query);
 	if (!tokens.length || entry.kind === 'view')

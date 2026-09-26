@@ -182,4 +182,3 @@ export function deferredLeaf(
 export const pathOf = (e: NavEntry) => (e.kind !== 'view' ? e.path : undefined);
 export const keyOf = (e: NavEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
 export const stOf = (e: NavEntry) => (e.kind !== 'view' ? e.st : undefined);
-export const viaOf = (e: NavEntry) => (e.kind === 'visit' ? e.via : undefined);

@@ -33,7 +33,7 @@ import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 import {
-	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viaOf, viewLeaf,
+	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viewLeaf,
 } from './support/nav-recording-harness';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
@@ -306,8 +306,6 @@ describe('NavStack activation recording', () => {
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.funnel.recordActivation(leafWithFile('leaf-2', 'a.md'));
 		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
-		// Activation steps carry the switch badge (open steps have no via).
-		expect(nav.stack.entries.map(viaOf)).toEqual(['switch', 'switch']);
 
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		expect(nav.stack.entries.length).toBe(3);
@@ -325,9 +323,8 @@ describe('NavStack activation recording', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		// The merged step keeps the open's identity.
 		expect(nav.stack.entries.length).toBe(1);
-		// The merged step keeps the open's identity: no switch badge.
-		expect(nav.stack.entries.map(viaOf)).toEqual([undefined]);
 	});
 
 	it('a non-file view activation or a null leaf does not record', () => {

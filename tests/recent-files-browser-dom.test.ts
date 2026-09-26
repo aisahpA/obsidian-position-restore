@@ -2716,9 +2716,6 @@ describe('RecentFilesModal — the recorded landing block', () => {
 	const withBlock = (extra: NavEntryState = {}): NavEntry =>
 		visit('a.md', NOW - MINUTE, blockState(extra));
 	const files = { 'a.md': 'live ten\nlive eleven\nlive twelve', 'b.md': '' };
-	// A step made by clicking a plain [[link]]: keyless, so it keeps an origin.
-	const linkVisit = (viaPath: string, viaText: string, st?: NavEntryState): NavEntry =>
-		({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st, via: 'link', viaPath, viaText });
 	const search = (h: ReturnType<typeof harness>, q: string) => {
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = q;
@@ -2748,14 +2745,6 @@ describe('RecentFilesModal — the recorded landing block', () => {
 		expect(h.notes()).toHaveLength(1);
 	});
 
-	it('finds a note by the note a plain link came from', () => {
-		const linked = linkVisit('notes/来源笔记.md', 'a');
-		const h = harness([linked, visit('b.md', NOW)], 1, files);
-
-		search(h, '来源笔记');
-
-		expect(h.notes()).toHaveLength(1);
-	});
 });
 
 describe('RecentFilesModal — touch', () => {

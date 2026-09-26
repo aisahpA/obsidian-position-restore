@@ -534,15 +534,6 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
 	});
 
-	it('matches where a plain link came from, and what it said', () => {
-		const e = {
-			kind: 'visit', path: 'b.md', leafId: 'l', t: 0,
-			via: 'link', viaPath: 'notes/来源笔记.md', viaText: 'b|另见',
-		} as NavEntry;
-		expect(matchesNavFilter(e, '来源笔记')).toBe(true);
-		expect(matchesNavFilter(e, '另见')).toBe(true);
-		expect(matchesNavFilter(e, '别的笔记')).toBe(false);
-	});
 });
 
 describe('matchedContextLine', () => {

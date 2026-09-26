@@ -763,17 +763,12 @@ function normalizeJumpKey(key: string): string {
 		: normAnchor(key);
 }
 
-// A FILE place keeps no position (see the class comment); its link origin is display-only
-// data the panel's head shows — carried along, since a place is what most recently stood
-// for it.
+// A FILE place keeps no position (see the class comment) — a note's place is the note.
 function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 	const t = Date.now();
 	switch (entry.kind) {
 		case 'visit':
-			return {
-				kind: 'visit', path: entry.path, leafId: entry.leafId, t,
-				via: entry.via, viaPath: entry.viaPath, viaText: entry.viaText,
-			};
+			return { kind: 'visit', path: entry.path, leafId: entry.leafId, t };
 		case 'jump': {
 			const kept = prev?.kind === 'jump' ? prev : undefined;
 			return {

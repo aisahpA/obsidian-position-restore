@@ -105,12 +105,6 @@ export class PositionState {
 	// jumps. Cleared together with pendingLinkKind.
 	pendingLinkText: string | undefined;
 
-	// The same call's ORIGIN, for the nav history. Separate because it must not touch the
-	// dedup regime (a plain [[note]] link stays a keyless visit) and because it is wanted
-	// for links WITHOUT a target, which pendingLinkText ignores.
-	pendingViaPath: string | undefined;
-	pendingViaText: string | undefined;
-
 	// Armed by NavStack right before it invokes app:go-back / app:go-forward: the
 	// resulting setViewState must inject THIS plugin's saved position over the native
 	// entry's eState, which carries only the cursor.

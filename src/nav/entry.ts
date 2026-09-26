@@ -40,15 +40,6 @@ export interface NavVisit extends NavEntryBase {
 	kind: 'visit';
 	path: string;
 	st?: NavEntryState;
-	// Display-only (the browser's badge): never dedup or positioning. 'switch'
-	// is an activation, 'link' an open that came from clicking a link.
-	via?: 'switch' | 'link';
-	// For 'link': where the link was clicked and what it said — neither is
-	// derivable later, since the path above names the destination. Both are
-	// searchable. A link carrying a #/^ target is a keyed NavJump instead, so
-	// these name plain file links only.
-	viaPath?: string;
-	viaText?: string;
 }
 
 // A pathless main-area view: the global graph, a memo list, a main-area search

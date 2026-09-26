@@ -128,16 +128,6 @@ describe('NavFunnel — what a capture point publishes', () => {
 		});
 	});
 
-	it('carries the link origin for a plain [[note]] open', () => {
-		const { funnel, visits } = makeFunnel();
-
-		funnel.recordOpen('b.md', 'leaf-1', { via: 'link', viaPath: 'a.md', viaText: 'see [[b]]' });
-
-		expect(visits[0].record).toMatchObject({
-			kind: 'visit', path: 'b.md', via: 'link', viaPath: 'a.md', viaText: 'see [[b]]',
-		});
-	});
-
 	it('a pathless view is reached by ACTIVATING its leaf; a pathless, typeless call is nothing', () => {
 		const { funnel, visits } = makeFunnel();
 
@@ -173,7 +163,7 @@ describe('NavFunnel — what a capture point publishes', () => {
 
 		expect(leaves).toEqual([{ cause: 'tab', leaf: next }]);
 		expect(visits).toEqual([
-			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2', via: 'switch' }, cause: 'tab' },
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2' }, cause: 'tab' },
 		]);
 	});
 
@@ -255,7 +245,7 @@ describe('NavFunnel — what a capture point publishes', () => {
 		funnel.recordActivation(deferredLeaf('leaf-2', { file: 'b.md', mode: 'source' }));
 
 		expect(visits).toEqual([
-			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2', via: 'switch' }, cause: 'tab' },
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2' }, cause: 'tab' },
 		]);
 	});
 
@@ -364,7 +354,7 @@ describe('NavFunnel — what a capture point publishes', () => {
 		funnel.recordActivation(leafWithFile('leaf-2', 'b.md'));
 
 		expect(visits).toEqual([
-			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2', via: 'switch' }, cause: 'tab' },
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2' }, cause: 'tab' },
 		]);
 	});
 

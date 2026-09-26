@@ -123,7 +123,6 @@ export class NavFunnel {
 		opts: {
 			key?: string; force?: boolean; viewType?: string; viewLabel?: string;
 			viewIcon?: string; viewState?: Record<string, unknown>;
-			via?: 'switch' | 'link'; viaPath?: string; viaText?: string;
 		} = {},
 	) {
 		if (!this.isRecording())
@@ -149,7 +148,7 @@ export class NavFunnel {
 		this.publish({
 			record: opts.key
 				? { kind: 'jump', path, leafId, key: opts.key }
-				: { kind: 'visit', path, leafId, via: opts.via, viaPath: opts.viaPath, viaText: opts.viaText },
+				: { kind: 'visit', path, leafId },
 			cause: opts.key ? 'jump' : 'open',
 			forced: opts.force,
 		});
@@ -191,7 +190,7 @@ export class NavFunnel {
 		// takes the view branch below, which is what it is.
 		if (view instanceof FileView && isFileDestination(view)) {
 			if (view.file)
-				this.publish({ record: { kind: 'visit', path: view.file.path, leafId, via: 'switch' }, cause: 'tab' });
+				this.publish({ record: { kind: 'visit', path: view.file.path, leafId }, cause: 'tab' });
 			return;
 		}
 		// A DEFERRED leaf is a placeholder, not its view: it answers a view's questions off the
@@ -201,7 +200,7 @@ export class NavFunnel {
 		if (isDeferredLeaf(leaf)) {
 			const restored = deferredFilePath(view);
 			if (restored) {
-				this.publish({ record: { kind: 'visit', path: restored, leafId, via: 'switch' }, cause: 'tab' });
+				this.publish({ record: { kind: 'visit', path: restored, leafId }, cause: 'tab' });
 				return;
 			}
 		}
