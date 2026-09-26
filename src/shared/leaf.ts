@@ -12,6 +12,16 @@ export function isMainAreaLeaf(app: App, leaf: WorkspaceLeaf): boolean {
 	return !!root?.containerEl && !!el && root.containerEl.contains(el);
 }
 
+// A real leaf hosted inside a hover popover — what a plugin that turns the
+// preview into an editable pane puts there. It is a PREVIEW, not a pane the
+// reader opened: restoring a position in one lands the card on a line nobody
+// asked to see, and the cover that comes with the restore holds it blank until
+// the settle finishes.
+export function isPopoverLeaf(leaf: WorkspaceLeaf): boolean {
+	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
+	return !!el && !!el.closest?.('.hover-popover');
+}
+
 // The markdown view SHOWING one path right now, if any — the only place a note's
 // lines can be read as the reader has it, saved or not: the editor is ahead of
 // the disk by whatever they typed.

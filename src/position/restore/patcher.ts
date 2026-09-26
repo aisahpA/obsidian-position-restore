@@ -4,7 +4,7 @@ import { PositionStore } from '@/position/storage/position-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
 import type { NavFunnel } from '@/nav/funnel';
-import { isMainAreaLeaf } from '@/shared/leaf';
+import { isMainAreaLeaf, isPopoverLeaf } from '@/shared/leaf';
 import type { Sampler } from '@/position/capture/sampler';
 
 // The view/ephemeral state payloads flowing through setViewState on opens
@@ -147,6 +147,10 @@ export class OpenPatcher {
 			return eState;
 		const filePath = viewState.state?.file;
 		if (typeof filePath !== 'string' || !filePath)
+			return eState;
+		// A hover preview that hosts a real leaf opens where the app opens it:
+		// no position, no cover, and no entry in the navigation of the panes.
+		if (isPopoverLeaf(leaf))
 			return eState;
 		const leafId = this.state.leafId(leaf);
 

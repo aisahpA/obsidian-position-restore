@@ -2,6 +2,7 @@ import { App, FileView, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
 import { PositionStore } from '@/position/storage/position-store';
 import { getScroller, nextPaint } from '@/shared/wait';
+import { isPopoverLeaf } from '@/shared/leaf';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from './modes';
 
@@ -34,6 +35,11 @@ export class Restorer {
 	async restoreEphemeralState() {
 		const fv = this.app.workspace.getActiveViewOfType(FileView);
 		if (!fv?.file)
+			return;
+		// A leaf inside a hover popover is a PREVIEW that happens to be editable:
+		// it opens where the app opens one, and the cover a restore brings would
+		// hold it blank for as long as the settle takes.
+		if (isPopoverLeaf(fv.leaf))
 			return;
 
 		if (fv instanceof MarkdownView) {
