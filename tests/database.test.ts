@@ -37,9 +37,6 @@ const resetNotices = (): void => (Notice as unknown as { reset: () => void }).re
 
 const POINT = (line: number, ch: number) => ({ from: { line, ch }, to: { line, ch } });
 
-type DbInternals = { keyTouchedAt: Map<string, number> };
-const internals = (db: CursorPositionDatabase) => db as unknown as DbInternals;
-
 function makeHarness(files: Record<string, string> = {}, settings: Partial<PluginSettings> = {}) {
 	let mtime = 1000;
 	// Simulates another device replacing a file behind our back.
@@ -115,11 +112,11 @@ describe('record codec (write → read round trip)', () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { scroll: 120 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":120}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":120,"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
 		await db.readDb();
-		expect(db.db['a.md']).toEqual({ scroll: 120 });
+		expect(db.db['a.md']).toEqual({ scroll: 120, time: expect.any(Number) });
 	});
 
 	it('persists a point cursor as {"c":[l,ch,l,ch]} and restores from === to', async () => {
@@ -127,18 +124,18 @@ describe('record codec (write → read round trip)', () => {
 		db.setState('a.md', { cursor: POINT(3, 7) });
 		await db.writeDb();
 		// no scroll saved → scroll slot is 0; decode treats 0 as "no scroll"
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[3,7,3,7]}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[3,7,3,7],"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
 		await db.readDb();
-		expect(db.db['a.md']).toEqual({ cursor: POINT(3, 7) });
+		expect(db.db['a.md']).toEqual({ cursor: POINT(3, 7), time: expect.any(Number) });
 	});
 
 	it('a collapsed cursor at (0,0) is the editor default, so it is written as a tombstone', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { cursor: POINT(0, 0) });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 
 		// One already on disk (written before the rule, or by another device)
 		// reads back as the tombstone it really is, not as a position.
@@ -155,7 +152,7 @@ describe('record codec (write → read round trip)', () => {
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(5, 0) });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 	});
 
 	it('keeps a cursor the reader actually placed below the frontmatter', async () => {
@@ -163,18 +160,18 @@ describe('record codec (write → read round trip)', () => {
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(13, 0) });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[13,0,13,0]}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[13,0,13,0],"t":' + db.db['a.md'].time + '}}}');
 	});
 
 	it('persists a selection as {"s":n,"c":[fl,fc,tl,tc]}', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } } });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":42,"c":[1,2,3,4]}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":42,"c":[1,2,3,4],"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
 		await db.readDb();
-		expect(db.db['a.md']).toEqual({ scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } } });
+		expect(db.db['a.md']).toEqual({ scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } }, time: expect.any(Number) });
 	});
 
 	it('writes empty records as tombstones and stops rewriting when clean', async () => {
@@ -182,11 +179,21 @@ describe('record codec (write → read round trip)', () => {
 		db.setState('empty.md', {});
 		db.setState('zero.md', { scroll: 0 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"empty.md":{},"zero.md":{}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"empty.md":{"t":' + db.db['empty.md'].time + '},"zero.md":{"t":' + db.db['zero.md'].time + '}}}');
 		expect(db.dbDirty).toBe(false);
 
 		await db.writeDb();
 		expect(adapter.write).toHaveBeenCalledTimes(1);
+	});
+
+	it('stamps a record as it is filed, and leaves the stamp it already has', () => {
+		const { db } = makeHarness();
+		db.setState('a.md', { scroll: 5 });
+		expect(db.db['a.md'].time).toEqual(expect.any(Number));
+
+		// Moving a record to another path is not the reader moving.
+		db.setState('b.md', { ...db.db['a.md'] });
+		expect(db.db['b.md'].time).toBe(db.db['a.md'].time);
 	});
 });
 
@@ -241,7 +248,7 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":1}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":1,"t":' + db.db['a.md'].time + '}}}');
 		expect(copies(files)).toHaveLength(1);
 		expect(files[copies(files)[0]]).toBe('{oops');
 	});
@@ -329,7 +336,7 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 
 		db.setState('b.md', { scroll: 1 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{},"b.md":{"s":1}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{},"b.md":{"s":1,"t":' + db.db['b.md'].time + '}}}');
 	});
 });
 
@@ -343,7 +350,7 @@ describe('setState recency bookkeeping', () => {
 
 		db.setState('a.md', { scroll: 11 });
 		expect(Object.keys(db.db)).toEqual(['b.md', 'c.md', 'a.md']);
-		expect(db.db['a.md']).toEqual({ scroll: 11 });
+		expect(db.db['a.md']).toEqual({ scroll: 11, time: expect.any(Number) });
 	});
 
 	it('re-setting the most recent key overwrites in place', () => {
@@ -353,7 +360,7 @@ describe('setState recency bookkeeping', () => {
 		db.setState('c.md', { scroll: 3 });
 		db.setState('c.md', { scroll: 33 });
 		expect(Object.keys(db.db)).toEqual(['a.md', 'b.md', 'c.md']);
-		expect(db.db['c.md']).toEqual({ scroll: 33 });
+		expect(db.db['c.md']).toEqual({ scroll: 33, time: expect.any(Number) });
 	});
 
 	it('marks the db dirty', () => {
@@ -375,8 +382,6 @@ describe('capacity trimming', () => {
 		expect(db.db['f1']).toBeUndefined(); // oldest dropped
 		expect(db.db['f190']).toBeDefined(); // first survivor
 		expect(db.db['f751']).toBeDefined(); // newest kept
-		// touch-stamp orphans are pruned alongside their records
-		expect(internals(db).keyTouchedAt.size).toBe(562);
 	});
 
 	it('is a no-op at or under the cap', () => {
@@ -489,18 +494,15 @@ describe('frontmatter exclusions', () => {
 });
 
 describe('renameFile / deleteFile', () => {
-	it('moves the record and its touch stamp to the new path', () => {
+	it('moves the record to the new path, capture stamp included', () => {
 		const { db } = makeHarness();
-		db.setState('old.md', { scroll: 1 });
+		db.setState('old.md', { scroll: 1, time: 1000 });
 
 		db.renameFile('new.md', 'old.md');
 
-		expect(db.db['new.md']).toEqual({ scroll: 1 });
+		expect(db.db['new.md']).toEqual({ scroll: 1, time: 1000 });
 		expect(db.db['old.md']).toBeUndefined();
 		expect(db.dbDirty).toBe(true);
-		const stamps = internals(db).keyTouchedAt;
-		expect(stamps.has('new.md')).toBe(true);
-		expect(stamps.has('old.md')).toBe(false);
 	});
 
 	it('renaming an untracked file is a no-op', () => {
@@ -509,14 +511,13 @@ describe('renameFile / deleteFile', () => {
 		expect(db.dbDirty).toBe(false);
 	});
 
-	it('deletes the record and its touch stamp', () => {
+	it('deletes the record', () => {
 		const { db } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 
 		db.deleteFile('a.md');
 
 		expect(db.db['a.md']).toBeUndefined();
-		expect(internals(db).keyTouchedAt.has('a.md')).toBe(false);
 		expect(db.dbDirty).toBe(true);
 	});
 
@@ -537,19 +538,52 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
 
-	it('disk wins for untouched keys; disk-only keys are adopted; memory-only keys are kept', async () => {
+	it('the later capture wins a shared key; disk-only keys are adopted; memory-only keys are kept', async () => {
 		const { db, externalWrite } = makeHarness();
-		db.setState('a.md', { scroll: 1 });
+		db.setState('a.md', { scroll: 1, time: 1000 });
 		db.setState('b.md', { scroll: 2 });
 		await db.writeDb();
 
-		externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1], 'c.md': [7] }));
+		externalWrite(DB_PATH, JSON.stringify({
+			schema: 2,
+			positions: { 'a.md': { s: 9, c: [1, 1, 1, 1], t: 2000 }, 'c.md': { s: 7, t: 2000 } },
+		}));
 		await db.mergeExternalChanges();
 
-		expect(db.db['a.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) });
-		expect(db.db['b.md']).toEqual({ scroll: 2 });
-		expect(db.db['c.md']).toEqual({ scroll: 7 });
+		expect(db.db['a.md']).toEqual({ scroll: 9, cursor: POINT(1, 1), time: 2000 });
+		expect(db.db['b.md']).toEqual({ scroll: 2, time: expect.any(Number) });
+		expect(db.db['c.md']).toEqual({ scroll: 7, time: 2000 });
 		expect(db.dbDirty).toBe(false); // merges never mark dirty
+	});
+
+	it('an EARLIER external capture yields to ours — the sync that used to send us back to the top', async () => {
+		const { db, externalWrite } = makeHarness();
+		db.setState('a.md', { scroll: 300, time: 5000 });
+		await db.writeDb();
+
+		// the other device stopped reading this note long before we did
+		externalWrite(DB_PATH, JSON.stringify({
+			schema: 2, positions: { 'a.md': { s: 0, t: 1000 } },
+		}));
+		await db.mergeExternalChanges();
+
+		expect(db.db['a.md']).toEqual({ scroll: 300, time: 5000 });
+	});
+
+	it('equal stamps keep ours, and a record written before `t` existed counts as oldest', async () => {
+		const { db, externalWrite } = makeHarness();
+		db.setState('a.md', { scroll: 300, time: 1000 });
+		db.setState('b.md', { scroll: 300, time: 1000 });
+		await db.writeDb();
+
+		// a.md: the same stamp; b.md: none at all (a writer from before `t`)
+		externalWrite(DB_PATH, JSON.stringify({
+			schema: 2, positions: { 'a.md': { s: 9, t: 1000 }, 'b.md': { s: 9 } },
+		}));
+		await db.mergeExternalChanges();
+
+		expect(db.db['a.md']).toEqual({ scroll: 300, time: 1000 });
+		expect(db.db['b.md']).toEqual({ scroll: 300, time: 1000 });
 	});
 
 	it('a key touched after the last flush wins over the disk copy', async () => {
@@ -563,7 +597,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 
 			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
 			await db.mergeExternalChanges();
-			expect(db.db['a.md']).toEqual({ scroll: 100 });
+			expect(db.db['a.md']).toEqual({ scroll: 100, time: expect.any(Number) });
 		} finally {
 			vi.useRealTimers();
 		}
@@ -577,7 +611,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 
 		externalWrite(DB_PATH, '{torn');
 		await db.mergeExternalChanges();
-		expect(db.db['a.md']).toEqual({ scroll: 1 });
+		expect(db.db['a.md']).toEqual({ scroll: 1, time: expect.any(Number) });
 	});
 
 	it('a missing external file keeps what we have', async () => {
@@ -587,7 +621,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 
 		delete files[DB_PATH];
 		await db.mergeExternalChanges();
-		expect(db.db['a.md']).toEqual({ scroll: 1 });
+		expect(db.db['a.md']).toEqual({ scroll: 1, time: expect.any(Number) });
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
 
@@ -618,7 +652,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 
 		const written = JSON.parse(files[DB_PATH]).positions;
 		expect(written['c.md']).toEqual({ s: 7 }); // foreign record survived
-		expect(written['b.md']).toEqual({ s: 2 });
+		expect(written['b.md']).toEqual({ s: 2, t: expect.any(Number) });
 	});
 });
 
@@ -626,6 +660,9 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 	it('a setState during an in-flight write stays dirty and is persisted by the next flush', async () => {
 		const { db, adapter, files } = makeHarness();
 		db.setState('a.md', { scroll: 2 });
+		// Kept aside: the concurrent setState below replaces the record, and
+		// with it the stamp — this is the one the first flush carried.
+		const flushedStamp = db.db['a.md'].time;
 
 		// Land a concurrent setState synchronously at the start of the actual
 		// adapter write — i.e. after writeDb has already serialized its
@@ -645,12 +682,12 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 
 		// The flush captured scroll 2 (its snapshot predates the setState),
 		// but the concurrent change must NOT be cleared by it.
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":2}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":2,"t":' + flushedStamp + '}}}');
 		expect(db.dbDirty).toBe(true);
 
 		// The next flush persists the newer value.
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":3}}}');
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":3,"t":' + db.db['a.md'].time + '}}}');
 		expect(db.dbDirty).toBe(false);
 	});
 
@@ -682,7 +719,7 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 			// scroll 3 is treated as locally newer than the flushed disk copy.
 			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
 			await db.mergeExternalChanges();
-			expect(db.db['a.md']).toEqual({ scroll: 3 });
+			expect(db.db['a.md']).toEqual({ scroll: 3, time: expect.any(Number) });
 		} finally {
 			vi.useRealTimers();
 		}
@@ -732,7 +769,7 @@ describe('switchDbFile', () => {
 		expect(DB_PATH in files).toBe(false); // old file removed (move semantics)
 		expect(db.db['t.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) }); // adopted
 		expect(db.db['c.md']).toEqual({ scroll: 5 }); // kept
-		expect(db.db['local.md']).toEqual({ scroll: 3 }); // touched locally → wins
+		expect(db.db['local.md']).toEqual({ scroll: 3, time: expect.any(Number) }); // touched locally → wins
 		expect(db.dbDirty).toBe(true); // adopted records flush on the next write
 	});
 
@@ -773,7 +810,7 @@ describe('schema version and legacy files', () => {
 
 		h.db.db = {};
 		await h.db.readDb();
-		expect(h.db.db['a.md']).toEqual({ scroll: 5 });
+		expect(h.db.db['a.md']).toEqual({ scroll: 5, time: expect.any(Number) });
 		expect(messages()).toEqual([]);
 	});
 
@@ -800,7 +837,9 @@ describe('schema version and legacy files', () => {
 		// another device still running the old plugin overwrites it
 		h.externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9] }));
 		await h.db.mergeExternalChanges();
-		expect(h.db.db['a.md']).toEqual({ scroll: 9 }); // its record is adopted
+		// A pre-`t` record is the oldest there is, so ours stands. The file
+		// still changed hands, which is what the notice is about.
+		expect(h.db.db['a.md']).toEqual({ scroll: 5, time: expect.any(Number) });
 		expect(messages()).toEqual([t('dataStorage.legacyDb.noticeOverwritten')]);
 
 		// still old afterwards: already said, do not repeat
@@ -815,18 +854,18 @@ describe('schema version and legacy files', () => {
 		});
 		await h.db.readDb();
 		// the fields we share are read; the one we do not know is ignored
-		expect(h.db.db['a.md']).toEqual({ scroll: 5, cursor: POINT(1, 0) });
+		expect(h.db.db['a.md']).toEqual({ scroll: 5, cursor: POINT(1, 0), time: 1695 });
 		expect(messages()).toEqual([]);
 	});
 
-	it('a tombstone adopted from another device clears the local position', async () => {
+	it('a LATER tombstone from another device clears the local position', async () => {
 		const h = makeHarness();
-		h.db.setState('a.md', { scroll: 50 });
-		await h.db.writeDb(); // flushed, so ours no longer counts as just touched
+		h.db.setState('a.md', { scroll: 50, time: 1000 });
+		await h.db.writeDb();
 
-		h.externalWrite(DB_PATH, JSON.stringify({ schema: 2, positions: { 'a.md': {} } }));
+		h.externalWrite(DB_PATH, JSON.stringify({ schema: 2, positions: { 'a.md': { t: 2000 } } }));
 		await h.db.mergeExternalChanges();
-		expect(h.db.db['a.md']).toEqual({});
+		expect(h.db.db['a.md']).toEqual({ time: 2000 });
 	});
 });
 
@@ -880,8 +919,8 @@ describe('tombstone eviction', () => {
 		// Cheapness reaches only outside the recency window, so the 238 dropped
 		// all come from the oldest tombstones: no real position is lost, and
 		// the note topped last is still there.
-		expect(db.db['f1']).toEqual({ scroll: 1 });
-		expect(db.db['f250']).toEqual({ scroll: 250 });
-		expect(db.db['f800']).toEqual({});
+		expect(db.db['f1']).toEqual({ scroll: 1, time: expect.any(Number) });
+		expect(db.db['f250']).toEqual({ scroll: 250, time: expect.any(Number) });
+		expect(db.db['f800']).toEqual({ time: expect.any(Number) });
 	});
 });

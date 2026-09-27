@@ -565,8 +565,8 @@ describe('Sampler in-file teleport detection', () => {
 			scroll: 42,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 		}]);
-		// the entry being left got the poll's read (harness baseline:
-		// scroll 0, cursor line 3)
+		// the entry being left got the poll's read — the harness seeds that
+		// baseline by hand, so unlike a real poll read it carries no stamp
 		expect(h.leave).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 0,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },

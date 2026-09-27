@@ -24,7 +24,9 @@ const TOMB_RECENT_WINDOW = Math.floor(MAX_ENTRIES / 4);
 //   schema 1: {"a.md": [scroll, line, ch, toLine, toCh]} — the array's LENGTH
 //             was the type tag (1 no cursor, 3 a point, 5 a selection), which
 //             left no way to add a field an older reader would not misread.
-//   schema 2: {"schema": 2, "positions": {"a.md": {"s": 120, "c": [l,ch,tl,tc]}}}
+//   schema 2: {"schema": 2, "positions": {"a.md": {"s": 120, "c": [l,ch,tl,tc],
+//             "t": 1770000000000}}} — `t` says when the position was recorded,
+//               and it is what settles a key two devices both hold.
 //             — a record with neither `s` nor `c` is a tombstone: the note was
 //               visited and left at the top, unlike never having a record.
 const SCHEMA_VERSION = 2;
@@ -37,6 +39,7 @@ const SCHEMA_VERSION = 2;
 interface PositionRecord {
 	s?: number;
 	c?: number[];
+	t?: number;
 }
 
 // The cursor says nothing when it sits where Obsidian opens the note: line 0
@@ -69,6 +72,8 @@ function encodeValue(st: EphemeralState, defaultLine: number | undefined): Posit
 	// as it is.
 	if (c && (scroll > 0 || !cursorIsDefault(c, defaultLine)))
 		rec.c = [c.from.line, c.from.ch, c.to.line, c.to.ch];
+	if (st.time !== undefined)
+		rec.t = st.time;
 	return rec;
 }
 
@@ -77,13 +82,15 @@ function encodeValue(st: EphemeralState, defaultLine: number | undefined): Posit
 function decodeValue(value: unknown): EphemeralState {
 	if (!value || typeof value !== 'object' || Array.isArray(value))
 		return {};
-	const rec = value as { s?: unknown; c?: unknown };
+	const rec = value as { s?: unknown; c?: unknown; t?: unknown };
 	const st: EphemeralState = {};
 
 	// Corrupted disk data must not leak NaN/undefined into records: a
 	// non-finite scroll would silently disable restore.
 	if (typeof rec.s === 'number' && Number.isFinite(rec.s) && rec.s > 0)
 		st.scroll = rec.s;
+	if (typeof rec.t === 'number' && Number.isFinite(rec.t))
+		st.time = rec.t;
 
 	const c = rec.c;
 	if (Array.isArray(c) && c.length >= 4 && c.every((n) => typeof n === 'number' && Number.isFinite(n))) {
@@ -126,13 +133,9 @@ export class CursorPositionDatabase {
 	// Multi-device sync: an external sync client may replace the db file while
 	// we run. lastDiskMtime caches the mtime observed after our own read or
 	// write; a different value on the next stat() means the file changed
-	// behind our back. Paired with keyTouchedAt/lastFlushTime this resolves
-	// shared-key conflicts without changing the on-disk format: a key touched
-	// locally after our last flush is definitely newer than anything on disk,
-	// everything else yields to the external file.
+	// behind our back. A key both sides hold is then settled per record by
+	// its capture stamp (see mergeDiskDb) — not by when we last flushed.
 	private lastDiskMtime = 0;
-	private lastFlushTime = 0;
-	private keyTouchedAt = new Map<string, number>();
 
 	// The schema of the file as last read. Paired with the notified flags it
 	// separates "this file was already old when we started" from "our own
@@ -355,15 +358,22 @@ export class CursorPositionDatabase {
 	// shape. Otherwise delete+insert to move it to the end of insertion order,
 	// so trimToLimit keeps it as "fresh".
 	setState(filePath: string, st: EphemeralState): void {
+		// Stamped here rather than by the capture: this is the moment a record
+		// becomes ours, and it is the only path that reaches the db file — the
+		// capture also feeds the tab layer and the nav history, neither of
+		// which is ever synced. A record that already carries a stamp keeps
+		// it: moving one to another path is not the reader moving. Spread,
+		// not `st.time = …`: the caller keeps its own object.
+		const stamped: EphemeralState =
+			st.time === undefined ? { ...st, time: Date.now() } : st;
 		const existed = this.db[filePath] !== undefined;
 		if (existed && filePath === this.lastKey) {
-			this.db[filePath] = st;
+			this.db[filePath] = stamped;
 		} else {
 			if (existed) delete this.db[filePath];
-			this.db[filePath] = st;
+			this.db[filePath] = stamped;
 			this.lastKey = filePath;
 		}
-		this.keyTouchedAt.set(filePath, Date.now());
 		this.markDirty();
 	}
 
@@ -398,12 +408,6 @@ export class CursorPositionDatabase {
 		this.db = Object.fromEntries(
 			keys.filter((key) => !doomed.has(key)).map((key) => [key, this.db[key]])
 		);
-
-		// Dropped entries leave orphans in the touch-stamp map; prune them so
-		// it can't grow without bound across long sessions.
-		for (const key of this.keyTouchedAt.keys())
-			if (this.db[key] === undefined)
-				this.keyTouchedAt.delete(key);
 	}
 
 	async readDb(): Promise<void> {
@@ -600,15 +604,16 @@ export class CursorPositionDatabase {
 	// Reconciles a freshly-parsed disk db against the in-memory one, per key:
 	//   disk-only keys   -> adopted
 	//   memory-only keys -> kept (ours, incl. session-only tombstones)
-	//   shared keys      -> disk wins, unless the key was touched locally
-	//                       after our last flush (then ours is newer — the
-	//                       disk copy predates our flush)
+	//   shared keys      -> the LATER capture wins; equal (or both unstamped,
+	//                       which is every record written before `t` existed)
+	//                       keeps ours, so a merge never moves the reader's
+	//                       own spot without a reason to.
 	// @returns the number of disk records that survived the merge.
 	private mergeDiskDb(diskDb: CursorDatabase): number {
 		let adopted = Object.keys(diskDb).length;
 		for (const key of Object.keys(this.db)) {
-			const localTouched = (this.keyTouchedAt.get(key) ?? 0) > this.lastFlushTime;
-			if (diskDb[key] === undefined || localTouched) {
+			const oursIsLater = (this.db[key].time ?? 0) >= (diskDb[key]?.time ?? 0);
+			if (diskDb[key] === undefined || oursIsLater) {
 				if (diskDb[key] !== undefined)
 					adopted--;
 				diskDb[key] = this.db[key];
@@ -678,14 +683,11 @@ export class CursorPositionDatabase {
 		// No-op unless the cap is exceeded.
 		this.trimToLimit();
 
-		// Snapshot the revision and wall-clock moment right before
-		// serializing: everything mutated at or before this instant IS in
-		// `data`, anything landing during the awaits below must not be cleared
-		// by this flush and must still read as "touched after our last flush"
-		// for the next merge. rev catches the former (dbDirty below);
-		// lastFlushTime stamped HERE, not after the write, makes the latter
-		// hold.
-		const flushedThrough = Date.now();
+		// Snapshot the revision right before serializing: everything mutated
+		// at or before this instant IS in `data`, and anything landing during
+		// the awaits below must not be cleared by this flush — rev catches
+		// that (dbDirty below). Such a record also wins any intervening merge
+		// by itself: its capture stamp is later than the disk copy's.
 		const rev = this.rev;
 
 		// Tombstones are written, not skipped: "left at the top" is a real state
@@ -711,8 +713,8 @@ export class CursorPositionDatabase {
 			try {
 				await this.app.vault.adapter.write(this.getDbPath(), data);
 			} catch (e2) {
-				// Nothing hit disk: leave dbDirty/lastFlushTime untouched so a
-				// later flush retries the same records.
+				// Nothing hit disk: leave dbDirty untouched so a later flush
+				// retries the same records.
 				console.error("Can't write database:", e2);
 				return;
 			}
@@ -721,11 +723,9 @@ export class CursorPositionDatabase {
 		// Our own write changed the file — re-cache its mtime so the next
 		// external-change check doesn't mistake this write for someone else's.
 		// dbDirty is cleared only when no mutation landed while the flush was
-		// in flight: a mid-flush setState keeps the db dirty so the next flush
-		// persists it, and its keyTouchedAt stays beyond lastFlushTime so it
-		// wins any intervening external merge.
+		// in flight: a mid-flush setState keeps the db dirty so the next
+		// flush persists it.
 		await this.cacheDiskMtime();
-		this.lastFlushTime = flushedThrough;
 		this.lastSeenSchema = SCHEMA_VERSION;
 		this.dbDirty = rev !== this.rev;
 	}
@@ -735,11 +735,6 @@ export class CursorPositionDatabase {
 			return;
 		this.db[newPath] = this.db[oldPath];
 		delete this.db[oldPath];
-		const touchedAt = this.keyTouchedAt.get(oldPath);
-		if (touchedAt !== undefined) {
-			this.keyTouchedAt.delete(oldPath);
-			this.keyTouchedAt.set(newPath, touchedAt);
-		}
 		this.markDirty();
 	}
 
@@ -747,7 +742,6 @@ export class CursorPositionDatabase {
 		if (!this.db[path])
 			return;
 		delete this.db[path];
-		this.keyTouchedAt.delete(path);
 		this.markDirty();
 	}
 }

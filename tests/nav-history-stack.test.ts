@@ -26,7 +26,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { FileView, MarkdownView } from 'obsidian';
-import { NAV_HISTORY_VERSION } from '@/nav-history/store';
+import { NAV_HISTORY_VERSION, serializeNavHistory } from '@/nav-history/store';
 import { NavEntry, NavJump, NavView, NavVisit } from '@/nav/entry';
 import { OpenPatcher } from '@/position/restore/patcher';
 import { PositionState } from '@/position/state';
@@ -1970,5 +1970,26 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(result).toBe(eState);
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
+	});
+});
+
+describe('serializeNavHistory — what a step leaves behind', () => {
+	it('leaves the landing words behind; the position carries no stamp', () => {
+		const entries: NavEntry[] = [{
+			kind: 'jump', leafId: 'leaf-1', t: 1000, path: 'a.md', key: 'outline:H',
+			st: { scroll: 42, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } }, context: ['w'] },
+		}];
+
+		const parsed = JSON.parse(serializeNavHistory(entries, 0)) as {
+			entries: { st: Record<string, unknown> }[];
+		};
+
+		// The step's OWN t (when it was pushed) stays — the row prints "5m ago"
+		// from it. The position needs no stamp of its own: the store puts one on
+		// a record when it files it, and this history never goes through it.
+		expect(parsed.entries[0].st).toEqual({
+			scroll: 42,
+			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
+		});
 	});
 });

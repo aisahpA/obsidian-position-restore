@@ -16,6 +16,13 @@ interface EphemeralState {
 		from: CursorPos,
 		to: CursorPos
 	},
+	// When this position reached the STORE, stamped once by database.setState —
+	// the reader's last deliberate move, not the last flush. Its only reader is
+	// the cross-device merge: the db file is synced, so a shared key is decided
+	// by which side stopped here later. Absent before it existed (and in schema
+	// 1), which counts as oldest. Stored as `t`, shorter, in a file that carries
+	// one entry per note.
+	time?: number,
 }
 
 // What a nav entry carries beyond the position, produced ONLY by the low-frequency

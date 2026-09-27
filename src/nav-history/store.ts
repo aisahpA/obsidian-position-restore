@@ -79,7 +79,9 @@ export function serializeNavHistory(entries: NavEntry[], index: number): string 
 	// The one place a step leaves its landing's words behind: they are the recent-files
 	// list's quote, and a step is restored by POSITION and reads none of it. Destructured
 	// out rather than deleted — `delete` moves an object to dictionary mode, and the
-	// stringify below then costs more than the bytes it saves.
+	// stringify below then costs more than the bytes it saves. Nothing else is
+	// stripped: the stamp a record carries (`time`) is put there by the position
+	// store, which this history never goes through.
 	const steps = entries.map(e => {
 		if (e.kind === 'view' || !e.st)
 			return e;
