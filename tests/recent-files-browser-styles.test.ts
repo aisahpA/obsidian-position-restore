@@ -218,6 +218,31 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('nav-row-folder');
 	});
 
+	// ROOM BOUGHT ONE THING IN THE WIDE DIALOG, and it is not a second line forced on every
+	// row: a path too long for the row is WRAPPED rather than cut. Where the path stands is
+	// still the reader's setting (asserted above) — the dialog does not override the SIDE it
+	// asked for, only whether the path may spend a line saying all of itself.
+	it('wraps a long path in the desktop dialog instead of cutting it', () => {
+		const path = browser.match(
+			/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \.position-restore-nav-row \.nav-row-path\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(path).not.toBe('');
+		expect(path).toMatch(/white-space: normal/);
+		expect(path).toMatch(/overflow-wrap: break-word/);
+		expect(path).toMatch(/text-overflow: clip/);
+		// PRINTED IN FRONT OF THE NAME and not faintly behind it, the faintest tier was too
+		// quiet to read; one step up, still under the name's own.
+		expect(path).toMatch(/color: var\(--nav-muted\)/);
+		// …and the SIDE IS STILL THE READER'S: this rule may not reorder the two halves, or
+		// 'before' and 'after' would answer the same question with one answer.
+		expect(path).not.toMatch(/order:/);
+		// NO CELL IS A STACK either: giving the path a line of its own in every row is the
+		// shape that was tried here and undone — the wrap above happens only when it must.
+		expect(browser).not.toMatch(
+			/(?:^|\n)\.position-restore-nav-row \.nav-row-file\s*\{[^}]*flex-direction: column/,
+		);
+	});
+
 	// The type (see badgeOf) is marked with the APP'S OWN tag — the class the file
 	// explorer puts beside a file's name — and not with a box of our own: a type that
 	// looked like a type everywhere but here was a type the reader had to learn twice,

@@ -693,14 +693,33 @@ body.is-mobile .position-restore-cue {
 
 /* WHICH HALF GIVES WAY. A flex line wraps at the end it is laid out in, so the item
    ordered LAST is the one that ends up on the second line. Ordered first, the folder
-   keeps the line and the NAME drops below it — the quick switcher's shape, the whole
-   path with the file name last. Without the order, the folder is last in the DOM and
+   keeps the line and the NAME drops below it — one long line, the whole path read
+   before the note's own name. Without the order, the folder is last in the DOM and
    the FOLDER drops: the name stays in the left column and the path becomes a second
-   line under it. The DOM order is the same either way (the name's own box, then the
+   line under it. (The app's quick switcher is that second shape, though not by
+   wrapping one line — it gives the path a row of its own under the title, see its
+   .suggestion-note.) The DOM order is the same either way (the name's own box, then the
    folder), so this one declaration is the whole of the difference between the two
    "always" modes. */
 .position-restore-nav-row.is-file.is-path-before .nav-row-path {
 	order: -1;
+}
+
+/* THE WIDE DIALOG LETS A LONG PATH WRAP instead of cutting it off: in a box this roomy an
+   ellipsis removes the answer to the question the row exists to answer (which note is this),
+   and the row has the lines to spend. WHERE the folder stands is not this rule's to say —
+   the reader picked a side and this obeys it (see the order above) — only whether the path
+   may be TALLER THAN A LINE is. The app wraps the same text in its own suggestions.
+   Scoped to the dialog and off touch: it is WIDTH talking, and a narrow panel has none. */
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row .nav-row-path {
+	/* The row sets `nowrap` for itself; this takes it back for the one cell that may wrap. */
+	white-space: normal;
+	overflow-wrap: break-word;
+	overflow: visible;
+	text-overflow: clip;
+	/* …and PRINTED IN FRONT OF THE NAME rather than faintly behind it, the faintest tier is
+	   too quiet to read: one step up, still clearly under the name's own. */
+	color: var(--nav-muted);
 }
 
 /* HOW LONG AGO the note was last visited (see model.ts's ageLabel). It never
