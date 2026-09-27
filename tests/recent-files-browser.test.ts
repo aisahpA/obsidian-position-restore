@@ -526,6 +526,15 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
 	});
 
+	it('matches a visit on its anchor alone, the block being absent', () => {
+		// A visit records no context (see readNavEntryState): the one piece of the NOTE's
+		// own text it carries is the anchor — the line that stood at the viewport top. So
+		// a reader who searches a sentence they were reading finds the note, and what
+		// matched is a line no row prints.
+		const e = visit('notes/a.md', { anchor: '落点这一行' });
+		expect(matchesNavFilter(e, '落点')).toBe(true);
+	});
+
 	it('ignores a caller target key: a timestamp, not words', () => {
 		// Caller-target jumps (a search-result click) are keyed `caller:<ms>`
 		// purely to take the keyed landing regime — there is nothing in there
@@ -539,6 +548,8 @@ describe('matchesNavFilter', () => {
 describe('matchedContextLine', () => {
 	const jump = (st?: NavEntryState): NavEntry =>
 		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
+	const visit = (path: string, st?: NavEntryState): NavEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
 	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区']));
 
 	it('is the line that carries the whole query', () => {
@@ -567,6 +578,25 @@ describe('matchedContextLine', () => {
 	it('is case-insensitive, as the filter that matched it is', () => {
 		const e = jump(block(['Alpha Beta', 'gamma']));
 		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
+	});
+
+	it('quotes nothing for a visit that matched on its anchor', () => {
+		// THE CASE A READER MEETS: the row is on the list because the query matched the
+		// anchor (see the filter suite above), and the block — the only thing this answer
+		// reads — is what a visit does not carry. So the row matches and quotes nothing.
+		// Locked as it stands: the anchor is the line the restore re-finds, not a line a
+		// row shows, and a quote of it would claim a landing the reader never asked for.
+		const e = visit('notes/a.md', { anchor: '落点这一行' });
+		expect(matchesNavFilter(e, '落点')).toBe(true);
+		expect(matchedContextLine(e, '落点')).toBeUndefined();
+	});
+
+	it('quotes a visit that does carry a block: the block decides, not the kind', () => {
+		// What withholds the quote is the ABSENT BLOCK, not the kind — a visit handed one
+		// is quoted like any landing. The distinction is what keeps the case above from
+		// hardening into "a visit never quotes".
+		const e = visit('notes/a.md', { anchor: '落点这一行', ...block(['前一段：换行与量化']) });
+		expect(matchedContextLine(e, '量化')).toBe('前一段：换行与量化');
 	});
 });
 

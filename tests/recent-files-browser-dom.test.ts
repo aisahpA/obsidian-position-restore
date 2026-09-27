@@ -703,6 +703,22 @@ describe('RecentFilesModal — current position', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
+	it('quotes nothing on a row the query matched by the anchor it recorded', () => {
+		// The row survived the filter on `st.anchor` alone, and a visit records no context
+		// — so the hover says which file the row is and nothing about why it is on the
+		// list. Locked as it stands: the anchor is the line a restore re-finds, not a line
+		// a row shows, and quoting it would claim a landing the reader never asked for.
+		const h = harness([visit('a.md', NOW, { anchor: '落点这一行' })], 0, { 'a.md': '' });
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '落点';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(h.notes()).toHaveLength(1); // the anchor carried the word
+		const tip = h.hover(h.note('a'))!;
+		expect(tip).not.toBeNull();
+		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
+	});
+
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE, { scroll: 3 }),
