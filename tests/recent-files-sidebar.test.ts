@@ -5,7 +5,7 @@
 // landing panel, the keyboard, the travel — is covered in
 // recent-files-browser-dom.test.ts, where it is driven through the modal.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
 // …and the app's menu, reached by its own path rather than through 'obsidian' for the
 // same reason the browser's suite does (see recent-files-browser-dom.test.ts): what a
@@ -228,6 +228,16 @@ function makeApp(paths: string[] = []) {
 	return { app: app as never, trigger };
 }
 
+// A mounted panel owns two timers — the five-minute tick, and the redraw a late
+// reading owes — and closing it is what stops them. Left open, one fires after
+// the environment it was drawn in is gone.
+const mounted: RecentFilesView[] = [];
+
+afterEach(async () => {
+	while (mounted.length)
+		await mounted.pop()?.onClose();
+});
+
 async function mount(
 	entries: NavEntry[],
 	index: number,
@@ -246,6 +256,7 @@ async function mount(
 	// presentation, the one that needs no second column (see RecentFilesView.measure).
 	const view = new RecentFilesView(leaf, nav as never, () => undefined, prefs);
 	await view.onOpen();
+	mounted.push(view);
 	// The view's OWN container and content elements: what the pane hands the
 	// panel, and what Obsidian asks the view to build in.
 	const el = view.containerEl;
