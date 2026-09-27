@@ -301,16 +301,24 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
-	it('unknown fields are ignored and pre-schema arrays still read', async () => {
-		const { db } = makeHarness({ [DB_PATH]: '{"a.md":{"s":5,"nope":1},"b.md":[5]}' });
+	it('pre-schema arrays still read', async () => {
+		const { db } = makeHarness({ [DB_PATH]: '{"a.md":[5],"b.md":[0,3,7]}' });
 		await db.readDb();
-		expect(db.db).toEqual({ 'a.md': { scroll: 5 }, 'b.md': { scroll: 5 } });
+		expect(db.db).toEqual({ 'a.md': { scroll: 5 }, 'b.md': { cursor: POINT(3, 7) } });
+	});
+
+	it('unknown fields in a record are ignored', async () => {
+		const { db } = makeHarness({ [DB_PATH]: '{"schema":2,"positions":{"a.md":{"s":5,"nope":1}}}' });
+		await db.readDb();
+		expect(db.db).toEqual({ 'a.md': { scroll: 5 } });
 	});
 
 	it('non-numeric members yield an empty record instead of leaking garbage', async () => {
-		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[1,"x",2]}' });
+		// A schema 1 file holds arrays by contract; anything else is unreadable
+		// data and yields an empty record too.
+		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[1,"x",2],"b.md":{"s":5}}' });
 		await db.readDb();
-		expect(db.db).toEqual({ 'a.md': {} });
+		expect(db.db).toEqual({ 'a.md': {}, 'b.md': {} });
 	});
 
 	it('a [0] tombstone decodes to an empty record, and is written back as one', async () => {

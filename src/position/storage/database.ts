@@ -96,11 +96,12 @@ function decodeValue(value: unknown): EphemeralState {
 	return st;
 }
 
-// schema 1 only: files written by an older plugin — here before an update, or
-// on another device still running one — stay readable.
-function decodeLegacy(arr: number[]): EphemeralState {
-	if (!Array.isArray(arr) || arr.some((n) => !Number.isFinite(n)))
+// schema 1: files written by an older plugin — here before an update, or on
+// another device still running one — stay readable.
+function decodeArrayValue(value: unknown): EphemeralState {
+	if (!Array.isArray(value) || value.some((n) => !Number.isFinite(n)))
 		return {};
+	const arr = value as number[];
 	const st: EphemeralState = {};
 	if (arr[0] > 0)
 		st.scroll = arr[0];
@@ -453,18 +454,32 @@ export class CursorPositionDatabase {
 		const raw = parsed as Record<string, unknown>;
 
 		// No numbered schema means the pre-schema flat map, whose keys are the
-		// note paths themselves.
+		// note paths themselves. Every schema from 2 up shares one container
+		// shape, so a newer file parses here too.
 		const schema = typeof raw.schema === 'number' ? raw.schema : 1;
-		const container = (schema >= 2 ? raw.positions : raw) as Record<string, unknown>;
+		const db = schema >= 2 ? this.parseSchema2(raw) : this.parseSchema1(raw);
+		return { schema, db };
+	}
+
+	// The untagged flat map: {"a.md": [scroll, line, ch, toLine, toCh]} — schema 1
+	// wrote arrays and nothing else.
+	private parseSchema1(raw: Record<string, unknown>): CursorDatabase {
+		const db: CursorDatabase = {};
+		for (const key of Object.keys(raw))
+			db[key] = decodeArrayValue(raw[key]);
+		return db;
+	}
+
+	// {"schema": n, "positions": {"a.md": {...}}} — the map holds records.
+	private parseSchema2(raw: Record<string, unknown>): CursorDatabase {
+		const container = raw.positions;
 		if (!container || typeof container !== 'object' || Array.isArray(container))
 			throw new Error('database has no position map');
-
+		const map = container as Record<string, unknown>;
 		const db: CursorDatabase = {};
-		for (const key of Object.keys(container)) {
-			const value = container[key];
-			db[key] = Array.isArray(value) ? decodeLegacy(value as number[]) : decodeValue(value);
-		}
-		return { schema, db };
+		for (const key of Object.keys(map))
+			db[key] = decodeValue(map[key]);
+		return db;
 	}
 
 	// A file written by another plugin version is still readable — unknown
