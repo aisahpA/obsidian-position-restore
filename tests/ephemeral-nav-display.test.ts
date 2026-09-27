@@ -2,16 +2,21 @@
 // (readEphemeralState) carries position only — the 100ms poll and the
 // restore verification/reland loops run it every tick and frame, so it must
 // never pay doc-string reads or layout — while the nav reads
-// (readNavEntryState / withNavDisplay) assemble the NavEntryState display
-// fields at save time — including WHICH line the landing is, decided by the
-// cursor-visibility check: the one layout-forcing read, running pixel geometry
-// through (editor).cm, never currentMode.getScroll() (which echoes the
-// requested value — pixels.ts).
+// (readNavEntryState / withNavDisplay) assemble the fields a STEP carries:
+// the viewport anchor and the file's mtime.
+//
+// The landing's WORDS are the third tier (landingContext), read by ONE read
+// (readLandingState) — the one that records a landing. No other read pays for
+// them: not the doc reads, and not the layout the cursor-visibility check
+// forces. The words are what the row is SEARCHED by; which line it took the
+// reader to is the jump's own key to say.
 
 import { describe, it, expect } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
-import { readEphemeralState, readNavEntryState, withNavDisplay } from '@/position/capture/ephemeral';
+import {
+	landingContext, readEphemeralState, readLandingState, readNavEntryState, withNavDisplay,
+} from '@/position/capture/ephemeral';
 import { EphemeralState, NavEntryState } from '@/types';
 
 // A cm stub: 1-based line(n) sits at offset (n-1)*10; `to` bounds the
@@ -61,9 +66,13 @@ function makeView(opts: {
 
 const cursor = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
 
-// The line the landing was decided to be: the one `contextAt` marks.
-const landingLine = (st: NavEntryState | undefined): number | undefined =>
-	st?.context?.[st.contextAt ?? -1]?.line;
+// The words one landing was given, as a state a reader would see them in.
+function words(view: MarkdownView, st: EphemeralState = { scroll: 1, cursor: cursor(0) }): NavEntryState {
+	return { ...st, ...(landingContext(view, st) ?? {}) };
+}
+
+// What the row is searched by: the lines recorded BELOW the landing.
+const below = (st: NavEntryState | undefined): string[] | undefined => st?.context;
 
 describe('readEphemeralState — the hot read is position only', () => {
 	it('carries none of the nav-display fields, even when the view could provide them', () => {
@@ -75,88 +84,29 @@ describe('readEphemeralState — the hot read is position only', () => {
 	});
 });
 
-// WHICH line a capture landed on used to be re-derived by the recent-files browser
-// from a stamped view mode plus a cursor-offscreen flag. It is decided here
-// now, once, where the geometry is still observable, and recorded as
-// `contextAt` — so these tests pin the decision itself.
-describe('readNavEntryState — which line the landing is', () => {
-	it('adds the viewport anchor, the landing context block and the line count', () => {
+// A STEP carries the anchor it can be re-found by and the mtime its words were
+// taken at — and no words. The stack persists every step, so a block written
+// onto one is stored for a reader who never sees it.
+describe('readNavEntryState — what a step carries', () => {
+	it('adds the viewport anchor and the mtime, and no landing words', () => {
+		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
 		const view = makeView({
 			scroll: 1.2, cursorLine: 3, mode: 'source',
 			lines: ['top', 'viewport line', 'x', 'cursor line'],
+			cm, mtime: 1_730_000_000_000,
 		});
-		expect(readNavEntryState(view)).toEqual({
+
+		const st = readNavEntryState(view);
+
+		expect(st).toEqual({
 			scroll: 1,
 			cursor: cursor(3),
-			// The anchor belongs to the viewport top; the landing is the CURSOR
-			// line (source mode, on screen) — the block runs over every line
-			// there is, with the landing at its own index.
+			// The anchor belongs to the viewport top — the line a stale record is
+			// re-mapped from, and the only functional field here.
 			anchor: 'viewport line',
-			context: [
-				{ line: 0, text: 'top' },
-				{ line: 1, text: 'viewport line' },
-				{ line: 2, text: 'x' },
-				{ line: 3, text: 'cursor line' },
-			],
-			contextAt: 3,
+			mtime: 1_730_000_000_000,
 		});
-	});
-
-	it('lands on the cursor line when it is on screen (source mode)', () => {
-		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', 'd'], cm });
-
-		expect(landingLine(readNavEntryState(view))).toBe(3);
-	});
-
-	it('lands on the VIEWPORT top when the cursor line was not rendered at all', () => {
-		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25.
-		const cm = makeCm({ viewport: { from: 0, to: 25 } });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', 'd'], cm });
-
-		expect(landingLine(readNavEntryState(view))).toBe(1);
-	});
-
-	it('lands on the VIEWPORT top when the cursor pixels sit outside the scroller box', () => {
-		// Line 4 at offset 30 renders inside the viewport; coordsAtPos reads
-		// top 60 (pos*2) — the scroller box starts at 100, so the line sits
-		// above the box: scrolled off, off screen.
-		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 60 });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', 'd'], cm });
-
-		expect(landingLine(readNavEntryState(view))).toBe(1);
-	});
-
-	it('assumes the cursor is visible when the editor view is unreachable', () => {
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', 'd'] });
-
-		expect(landingLine(readNavEntryState(view))).toBe(3);
-	});
-
-	it('assumes the cursor is visible when the coords are not yet measured', () => {
-		const cm = makeCm({ viewport: { from: 0, to: 100 } });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', 'd'], cm });
-
-		expect(landingLine(readNavEntryState(view))).toBe(3);
-	});
-
-	it('lands on the VIEWPORT top for a reading capture (stale pre-preview cursor)', () => {
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'preview', lines: ['a', 'b', 'c', 'd'] });
-
-		const st = readNavEntryState(view);
-
-		expect(landingLine(st)).toBe(1);
-		expect(st?.anchor).toBe('b');
-	});
-
-	it('records a BLANK landing line as empty text rather than skipping it', () => {
-		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', ''], cm });
-
-		const st = readNavEntryState(view);
-
-		expect(landingLine(st)).toBe(3);
-		expect(st?.context?.[st.contextAt ?? -1]?.text).toBe('');
+		expect(st).not.toHaveProperty('context');
 	});
 
 	it('undefined when the hot read is undefined (renderer not caught up)', () => {
@@ -165,84 +115,143 @@ describe('readNavEntryState — which line the landing is', () => {
 	});
 });
 
-describe('readNavEntryState — the landing context block', () => {
-	it('counts NON-BLANK lines each side, and clamps at the document edges', () => {
+// WHICH line a capture landed on decides where the window starts, and nothing
+// is taken from above it — so what gets recorded says which line was decided
+// on. Pinned through the words rather than through a stamped index: the line a
+// landing sits ON is the jump's key to name (see nav/entry.ts's landedLine),
+// and the words only ever answer "what stood below it".
+describe('landingContext — which line the window starts from', () => {
+	const lines = Array.from({ length: 12 }, (_, i) => `L${i}`);
+	const after = (n: number) => [`L${n + 1}`, `L${n + 2}`, `L${n + 3}`, `L${n + 4}`];
+
+	it('starts on the cursor line when it is on screen (source mode)', () => {
+		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
+		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
+
+		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
+	});
+
+	it('starts on the VIEWPORT top when the cursor line was not rendered at all', () => {
+		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25.
+		const cm = makeCm({ viewport: { from: 0, to: 25 } });
+		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
+
+		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
+	});
+
+	it('starts on the VIEWPORT top when the cursor pixels sit outside the scroller box', () => {
+		// Line 4 at offset 30 renders inside the viewport; coordsAtPos reads
+		// top 60 (pos*2) — the scroller box starts at 100, so the line sits
+		// above the box: scrolled off, off screen.
+		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 60 });
+		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
+
+		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
+	});
+
+	it('assumes the cursor is visible when the editor view is unreachable', () => {
+		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines });
+
+		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
+	});
+
+	it('assumes the cursor is visible when the coords are not yet measured', () => {
+		const cm = makeCm({ viewport: { from: 0, to: 200 } });
+		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
+
+		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
+	});
+
+	it('starts at the VIEWPORT top for a reading capture (stale pre-preview cursor)', () => {
+		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'preview', lines });
+
+		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
+	});
+
+	it('undefined when the recorded position names no line at all', () => {
+		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['a', 'b'] });
+
+		expect(landingContext(view, {})).toBeUndefined();
+	});
+});
+
+describe('landingContext — the recorded words', () => {
+	it('counts NON-BLANK lines, and stops at the budget', () => {
 		// One sentence per line with blank separators (the ordinary shape of a
-		// Chinese markdown note): a raw ±3 would spend the window on blanks.
+		// Chinese markdown note): a raw four would spend the window on blanks.
 		const lines = [
-			'# 标题', '', '第一段', '', '第二段', '落点',
-			'', '第三段', '', '第四段', '', '第五段', '', '第六段', '', '第七段',
+			'# 标题', '', '第一段', '', '落点',
+			'', '本节第一段', '', '本节第二段', '', '本节第三段', '', '本节第四段', '', '本节第五段',
 		];
-		const view = makeView({ scroll: 5, cursorLine: 5, mode: 'source', lines });
+		const cm = makeCm({ viewport: { from: 0, to: 400 }, coordsTop: 300 });
+		const view = makeView({ scroll: 4, cursorLine: 4, mode: 'source', lines, cm });
 
-		const st = readNavEntryState(view);
-
-		// three non-blank lines before (the document starts), three after, and
-		// the landing itself in the middle.
-		expect(st?.context?.map(l => l.line)).toEqual([0, 2, 4, 5, 7, 9, 11]);
-		expect(st?.contextAt).toBe(3);
-		expect(st?.context?.[3]).toEqual({ line: 5, text: '落点' });
+		expect(below(words(view, { scroll: 4, cursor: cursor(4) })))
+			.toEqual(['本节第一段', '本节第二段', '本节第三段', '本节第四段']);
 	});
 
-	it('keeps a BLANK landing line (started a paragraph, then left)', () => {
-		// The case the block exists for: a blank landing used to record no text
-		// at all, leaving the step searchable by its file name only.
-		const view = makeView({ scroll: 2, cursorLine: 2, mode: 'source', lines: ['a', 'b', '', 'c', 'd'] });
+	it('takes NOTHING from above the landing — those words are the section before', () => {
+		// Every landing is a heading jump, and a heading's line is where its section
+		// STARTS: the words above belong to the previous section, and recording them
+		// is what once made a search for that section's words pull this row up.
+		const lines = ['上一节的正文', '', '## Beta', '本节第一段'];
+		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
+		const view = makeView({ scroll: 2, cursorLine: 2, mode: 'source', lines, cm });
 
-		const st = readNavEntryState(view);
-
-		expect(st?.context).toEqual([
-			{ line: 0, text: 'a' },
-			{ line: 1, text: 'b' },
-			{ line: 2, text: '' },
-			{ line: 3, text: 'c' },
-			{ line: 4, text: 'd' },
-		]);
-		expect(st?.contextAt).toBe(2);
+		expect(below(words(view, { scroll: 2, cursor: cursor(2) }))).toEqual(['本节第一段']);
 	});
 
-	it('lands a reading capture on the viewport top, never the stale cursor', () => {
-		// A reading capture's cursor is the pre-preview one: the block must
-		// describe the line the row shows (the viewport top) or the panel
-		// would print a spot the user never looked at.
-		const lines = ['r0', 'r1', 'r2', 'r3', 'r4', 'r5'];
-		const view = makeView({ scroll: 2, cursorLine: 5, mode: 'preview', lines });
+	it('undefined when nothing but blanks follows the landing (a heading at the foot)', () => {
+		const lines = ['a', 'b', '## Last', '', ''];
+		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
+		const view = makeView({ scroll: 2, cursorLine: 2, mode: 'source', lines, cm });
 
-		const st = readNavEntryState(view);
-
-		expect(st?.context?.[st.contextAt ?? -1]).toEqual({ line: 2, text: 'r2' });
+		expect(landingContext(view, { scroll: 2, cursor: cursor(2) })).toBeUndefined();
 	});
 
-	it('stamps the file mtime', () => {
-		// The line count is NOT recorded any more: the details panel that showed
-		// "L412 / 1200" is gone, and nothing else ever read it (see navDisplayFields).
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['a', 'b'], mtime: 1_730_000_000_000 });
-
-		const st = readNavEntryState(view);
-		expect(st).toMatchObject({ mtime: 1_730_000_000_000 });
-		expect(st).not.toHaveProperty('lineCount');
-	});
-
-	it('caps one recorded line so a paragraph-per-line note cannot bloat the stack', () => {
+	it('caps one recorded line so a paragraph-per-line note cannot bloat the list', () => {
 		const long = 'x'.repeat(500);
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: [long] });
+		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: [long, long] });
 
-		expect(readNavEntryState(view)?.context?.[0].text).toHaveLength(120);
+		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))?.[0]).toHaveLength(120);
 	});
 
 	it('trims a line, so the recorded text is what the panel prints', () => {
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['\t  缩进的段落  '] });
+		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['r0', '\t  缩进的段落  '] });
 
-		expect(readNavEntryState(view)?.context?.[0].text).toBe('缩进的段落');
+		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))).toEqual(['缩进的段落']);
 	});
 
 	it('bounds how far it looks for non-blank lines (the read stays cheap)', () => {
-		// This read runs on every file switch, so it may not walk a long blank
-		// stretch back to line 0; past the bound it simply records fewer lines.
-		const lines = [...Array.from({ length: 400 }, () => ''), '落点'];
-		const view = makeView({ scroll: 400, cursorLine: 400, mode: 'source', lines });
+		// Past the bound it records nothing rather than walking a long blank
+		// stretch to the end of the note.
+		const lines = ['落点', ...Array.from({ length: 400 }, () => '')];
+		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines });
 
-		expect(readNavEntryState(view)?.context).toEqual([{ line: 400, text: '落点' }]);
+		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))).toBeUndefined();
+	});
+});
+
+// The landing is recorded the moment it settles, and the words it is searched and quoted by are
+// read in that SAME read: the state arrives whole at both lists, and the stack leaves them behind
+// when it writes a step.
+describe('readLandingState — the read that records a landing', () => {
+	it('is what a step carries plus the words below the landing', () => {
+		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
+		const view = makeView({
+			scroll: 1.2, cursorLine: 3, mode: 'source',
+			lines: ['top', 'viewport line', 'x', 'cursor line', 'a1', 'a2', 'a3', 'a4', 'a5'],
+			cm, mtime: 1_730_000_000_000,
+		});
+
+		expect(readLandingState(view)).toEqual({
+			scroll: 1,
+			cursor: cursor(3),
+			anchor: 'viewport line',
+			mtime: 1_730_000_000_000,
+			// The window starts on the cursor line (on screen) and takes what follows it.
+			context: ['a1', 'a2', 'a3', 'a4'],
+		});
 	});
 });
 
@@ -260,18 +269,6 @@ describe('withNavDisplay — rebuilds display fields around an existing position
 			scroll: 500,
 			cursor: cursor(101),
 			anchor: 'L500',
-			// The cursor was off screen, so the landing is the VIEWPORT top (500)
-			// and the block is built around it: three recorded lines either side.
-			context: [
-				{ line: 497, text: 'L497' },
-				{ line: 498, text: 'L498' },
-				{ line: 499, text: 'L499' },
-				{ line: 500, text: 'L500' },
-				{ line: 501, text: 'L501' },
-				{ line: 502, text: 'L502' },
-				{ line: 503, text: 'L503' },
-			],
-			contextAt: 3,
 		});
 		// The input is untouched: the baseline is shared with the poll and the
 		// db, and a later reconstruction must never flip an entry retroactively.

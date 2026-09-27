@@ -13,7 +13,8 @@
 //    its next entry matches (else openFile fallback);
 //  - graph tab steps: activation records a pathless view entry, traversal
 //    reactivates the graph/file leaf without any open;
-//  - a travel asked for elsewhere (the modifier-held place open);
+//  - a travel asked for elsewhere (the modifier-held place open), and the landing
+//    words a place carries, which a step does not keep;
 //  - patcher historyNav injection: the saved position rides OVER the native
 //    entry's cursor-only eState, marker consumed exactly once.
 //
@@ -25,14 +26,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
 import { FileView, MarkdownView } from 'obsidian';
-import { NAV_HISTORY_VERSION } from '@/nav-history/store';
+import { NAV_HISTORY_VERSION, serializeNavHistory } from '@/nav-history/store';
 import { NavEntry, NavJump, NavView, NavVisit } from '@/nav/entry';
 import { OpenPatcher } from '@/position/restore/patcher';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 import {
-	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viaOf, viewLeaf,
+	entry, keyOf, leafWithFile, makeApp, makeNav, pathOf, stOf, viewLeaf,
 } from './support/nav-recording-harness';
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
@@ -46,6 +47,58 @@ function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
 
 beforeEach(() => {
 	window.localStorage.clear();
+});
+
+describe('NavStack travelling to a view this vault cannot build', () => {
+	// A plugin switched off, uninstalled, or not loaded yet leaves no factory for its type, and
+	// the app answers a tab asking for it with a placeholder that claims to be that type (see
+	// shared/leaf's viewTypeIsMissing). Nothing can be built behind it, so the place is dead and
+	// every door to it has to say so — including the one the placeholder fools.
+	function missingApp() {
+		const app = makeApp(undefined, ['thino_view']);
+		const ws = app.workspace as unknown as {
+			getLeavesOfType: (t: string) => unknown[];
+			getLeaf: () => unknown;
+		};
+		return { app, ws };
+	}
+
+	it('opens no tab it cannot fill, though the placeholder answers to the type', async () => {
+		const { app, ws } = missingApp();
+		const detach = vi.fn();
+		const built: { id: string; containerEl: string; detach: unknown; view?: { getViewType: () => string }; setViewState: unknown } = {
+			id: 'leaf-new', containerEl: 'main', detach, view: undefined, setViewState: undefined,
+		};
+		built.setViewState = vi.fn((vs: { type: string }) => {
+			built.view = { getViewType: () => vs.type }; // what the placeholder really answers
+			return Promise.resolve();
+		});
+		ws.getLeavesOfType = () => [];
+		ws.getLeaf = () => built;
+		const { stack } = makeNav(app);
+
+		await stack.openViewPlace({ kind: 'view', leafId: 'gone', viewType: 'thino_view', t: 1 });
+
+		expect(built.setViewState).toHaveBeenCalled();
+		expect(detach).toHaveBeenCalled();
+	});
+
+	it('is not "showing" anywhere: the tab wearing the placeholder is not the place', async () => {
+		const { app, ws } = missingApp();
+		const ghost = { id: 'leaf-ghost', containerEl: 'main', view: { getViewType: () => 'thino_view' } };
+		const detach = vi.fn();
+		ws.getLeavesOfType = () => [ghost];
+		ws.getLeaf = () => ({
+			id: 'leaf-new', containerEl: 'main', detach,
+			setViewState: vi.fn(() => Promise.resolve()),
+		});
+		const { stack } = makeNav(app);
+
+		await stack.openViewPlace({ kind: 'view', leafId: 'gone', viewType: 'thino_view', t: 1 });
+
+		expect(app.workspace.setActiveLeaf).not.toHaveBeenCalledWith(ghost);
+		expect(detach).toHaveBeenCalled();
+	});
 });
 
 describe('NavStack stack logic', () => {
@@ -188,6 +241,17 @@ describe('NavStack stack logic', () => {
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(12);
 	});
 
+	it('upgrades a block-link key with the block’s own line', () => {
+		// [[a.md#^b1]] hands over `a.md#^b1`, and the `#` in it makes a scan that takes the
+		// first `#` read it as a heading slug — no heading is named after a block id, so the
+		// step kept no keyLine and every block step fell back to the text-snippet remap.
+		const nav = makeNav(makeApp(undefined, [], { b1: 9 }));
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'a.md#^b1', force: true });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 9, anchor: 'the block’s text' });
+		expect(keyOf(nav.stack.entries[0])).toBe('a.md#^b1');
+		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(9);
+	});
+
 	it('keeps the recorded key when no cache heading matches (remap fallback)', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'Other', level: 1, position: { start: { line: 1 } } },
@@ -242,8 +306,6 @@ describe('NavStack activation recording', () => {
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.funnel.recordActivation(leafWithFile('leaf-2', 'a.md'));
 		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
-		// Activation steps carry the switch badge (open steps have no via).
-		expect(nav.stack.entries.map(viaOf)).toEqual(['switch', 'switch']);
 
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		expect(nav.stack.entries.length).toBe(3);
@@ -261,9 +323,8 @@ describe('NavStack activation recording', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
+		// The merged step keeps the open's identity.
 		expect(nav.stack.entries.length).toBe(1);
-		// The merged step keeps the open's identity: no switch badge.
-		expect(nav.stack.entries.map(viaOf)).toEqual([undefined]);
 	});
 
 	it('a non-file view activation or a null leaf does not record', () => {
@@ -1716,6 +1777,28 @@ describe('NavStack — a travel asked for elsewhere', () => {
 	});
 });
 
+// A place carries the words its landing was recorded among — the recent-files list's quote, the
+// thing its search box matches. A step is restored by POSITION, so it leaves them behind at the one
+// place it is written (see nav-history/store.ts).
+describe('NavStack — a step is stored without the landing words', () => {
+	it('writes the step it travelled to with its position and none of the words', async () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const place: NavEntry = {
+			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
+			st: { scroll: 30, context: ['## T'] },
+		};
+
+		await h.nav.stack.travelTo(place, 'tab');
+		h.nav.stack.persist();
+
+		const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}');
+		expect(stored.entries[stored.entries.length - 1].st).toEqual({ scroll: 30 });
+		// The step in memory is the state it travelled with: the words are dropped at the WRITE, not
+		// on the way in — one place, however a state reached this list.
+		expect(stOf(h.nav.stack.entries[h.nav.stack.index])).toEqual(place.st);
+	});
+});
+
 // ===== Patcher: historyNav injection =====
 
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };
@@ -1887,5 +1970,26 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(result).toBe(eState);
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
+	});
+});
+
+describe('serializeNavHistory — what a step leaves behind', () => {
+	it('leaves the landing words behind; the position carries no stamp', () => {
+		const entries: NavEntry[] = [{
+			kind: 'jump', leafId: 'leaf-1', t: 1000, path: 'a.md', key: 'outline:H',
+			st: { scroll: 42, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } }, context: ['w'] },
+		}];
+
+		const parsed = JSON.parse(serializeNavHistory(entries, 0)) as {
+			entries: { st: Record<string, unknown> }[];
+		};
+
+		// The step's OWN t (when it was pushed) stays — the row prints "5m ago"
+		// from it. The position needs no stamp of its own: the store puts one on
+		// a record when it files it, and this history never goes through it.
+		expect(parsed.entries[0].st).toEqual({
+			scroll: 42,
+			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
+		});
 	});
 });

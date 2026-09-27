@@ -7,18 +7,32 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
+// …and the menu's stand-in itself, which is reached by its own path rather than
+// through 'obsidian' because the registry a test reads (Menu.shown) is the
+// stub's and not the app's (see support/obsidian-stub).
+import { Menu } from './support/obsidian-stub';
 import type { HoverParent } from 'obsidian';
 
 import { RecentFilesModal } from '@/recent-files/browser/modal';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
-import type { EphemeralState, PathDisplayMode } from '@/types';
-import { navGroupKey, type NavEntry } from '@/nav/entry';
-import { NAV_CONTEXT_RADIUS } from '@/position/capture/ephemeral';
+import type { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
+import { navGroupKey, type NavEntry, type NavJump } from '@/nav/entry';
+import { placeKey, type ReclaimedLine } from '@/recent-files/places';
+import { ageLabel } from '@/recent-files/browser/model';
+import { NAV_CONTEXT_LINES } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
 import type { NavEntryState } from '@/types';
 import { t } from '@/i18n';
-import { NAV_SOURCE_ID, TIP_DELAY_MS } from '@/recent-files/browser/constants';
+import {
+	LATE_READ_REDRAW_MS,
+	LONG_PRESS_MS,
+	NAV_SOURCE_ID,
+	PANEL_EXIT_GRACE_MS,
+	ROW_PRESS_HOLD_MAX_MS,
+	ROW_PRESS_MARK_MS,
+	TIP_DELAY_MS,
+} from '@/recent-files/browser/constants';
 
 // jsdom has no PointerEvent, and `pointerType` is the one field the panel reads to tell a
 // mouse from a finger: a MouseEvent stands in for it, with the kind written on afterwards.
@@ -71,12 +85,26 @@ const NOW = Date.now();
 // panel only READS them (see RecentFilesBrowserPrefs) — the values are the plugin's, and
 // what changes them is the settings tab — so the fixture is a set of live readers
 // over values a test can write, exactly as the settings tab writes them.
-function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: boolean } = {}) {
+function prefs(start: {
+	landings?: LandingsMode;
+	path?: PathDisplayMode;
+	time?: boolean;
+	// The frontmatter property a row prints as the note's name, empty for none
+	// (see PluginSettings.recentFilesTitleProperty).
+	title?: string;
+	// Where a hover preview opens the note (see PreviewFocusMode). 'head' is the
+	// fixture's own default because it is the app's — a test that wants the note
+	// opened at a line asks for it, which is also the honest reading of the four
+	// tests below that assert a line was named.
+	focus?: PreviewFocusMode;
+} = {}) {
 	const state = {
 		landings: 'last' as LandingsMode,
 		cap: 200,
 		path: 'smart' as PathDisplayMode,
 		time: false,
+		title: '',
+		focus: 'head' as PreviewFocusMode,
 		...start,
 	};
 	return {
@@ -90,6 +118,12 @@ function prefs(start: { landings?: LandingsMode; path?: PathDisplayMode; time?: 
 			pathDisplay: () => state.path,
 			// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime).
 			rowTime: () => state.time,
+			// What a row calls the note (see reads.ts's titleOf): a test that wants
+			// one named `title` passes it here and puts it in the files' cache.
+			titleProperty: () => state.title,
+			// Where a hover opens the note (see PreviewFocusMode): nothing here is
+			// drawn from it, so a test passes it per hover rather than per panel.
+			previewFocus: () => state.focus,
 		} satisfies RecentFilesBrowserPrefs,
 	};
 }
@@ -117,9 +151,12 @@ function harnessAll(
 	mtimes: Record<string, number> = {},
 	// The saved positions the note rows are read from (see harness's own `saved`).
 	saved: ((path: string) => EphemeralState | undefined) | undefined = undefined,
+	// Where a hover opens the note (see PreviewFocusMode), for the suite whose rows
+	// are places but whose SECTION comes from the headings above them.
+	focus: PreviewFocusMode = 'head',
 ): ReturnType<typeof harness> {
 	return harness(entries, index, files, deleted, live, headingMap, mobile, mtimes,
-		prefs({ landings: 'all' }).browser, saved);
+		prefs({ landings: 'all', focus }).browser, saved);
 }
 
 // A PLACE of the recent-files list, in the two shapes the store really produces
@@ -131,35 +168,27 @@ function harnessAll(
 const visit = (path: string, stamp: number, st?: NavEntryState): NavEntry => st
 	? {
 		kind: 'jump', path, leafId: 'leaf-1', t: stamp, st,
-		key: `outline:## L${st.scroll ?? st.context?.[st.contextAt ?? 0]?.line ?? 0}`,
+		key: `outline:## L${st.scroll ?? 0}`,
 	} as NavEntry
 	: { kind: 'visit', path, leafId: 'leaf-1', t: stamp };
 
-// A capture as the plugin records one now: the landing's surrounding NON-BLANK
-// lines with `contextAt` marking it (see NavEntryState.context). Mirrors
-// contextBlock in capture/ephemeral.ts at the same radius, so a fixture's panel
-// content is the production shape instead of a hand-built one.
+// A capture as the plugin records one now: the NON-BLANK lines that stood BELOW the
+// landing (see NavEntryState.context). Mirrors contextBelow in capture/ephemeral.ts
+// with the same budget, so a fixture's panel content is the production shape instead
+// of a hand-built one.
 function captured(doc: string[], landing: number): NavEntryState {
-	const side = (from: number, step: 1 | -1) => {
-		const out: { line: number; text: string }[] = [];
-		for (let i = from, taken = 0; i >= 0 && i < doc.length && taken < NAV_CONTEXT_RADIUS; i += step) {
-			const text = doc[i].trim();
-			if (!text)
-				continue;
-			if (step < 0)
-				out.unshift({ line: i, text });
-			else
-				out.push({ line: i, text });
-			taken++;
-		}
-		return out;
-	};
-	const before = side(landing - 1, -1);
+	const context: string[] = [];
+	const limit = NAV_CONTEXT_LINES * 4;
+	for (let i = landing + 1; i < doc.length && context.length < NAV_CONTEXT_LINES
+		&& i - landing <= limit; i++) {
+		const text = doc[i].trim();
+		if (text)
+			context.push(text);
+	}
 	return {
 		scroll: landing,
 		anchor: doc[landing].trim(),
-		context: [...before, { line: landing, text: doc[landing].trim() }, ...side(landing + 1, 1)],
-		contextAt: before.length,
+		context: context.length ? context : undefined,
 	};
 }
 
@@ -209,11 +238,13 @@ function harness(
 	// the vault no longer has (see the "a file that is gone" suite). It wins over
 	// `files`, so a test can say "this was there, and is not any more".
 	deleted: string[] = [],
-	// paths held open in an editor: the panel describes a place from the ENTRY it
-	// was recorded in and never from a live editor, so nothing here is ever read
-	// for the panel. The fake app exposes them anyway, because a fixture that
-	// could not show a leaf holding a note would not be the app the browser was
-	// written against.
+	// paths held open in an editor. The panel's ROWS are drawn from the entries and
+	// from nothing else — but a row's line number is re-found in the note as it stands
+	// TODAY (see recent-files/browser/now-line.ts), and an open note's own buffer is the
+	// best answer to that there is: it is ahead of the file on disk by whatever the
+	// reader has typed and not saved. So the fake app hands these out through
+	// `getLeavesOfType`, and a test that wants a note edited since the record was taken
+	// says so here — which need not be the same text `files` holds for that path.
 	live: Record<string, string> = {},
 	// parsed headings per path, as metadataCache would report them
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
@@ -238,6 +269,11 @@ function harness(
 	// without one is a panel whose every note has no spot at all, which is what most of
 	// this suite is about.
 	saved: (path: string) => EphemeralState | undefined = () => undefined,
+	// The rows the reader PINNED, as the store hands them over (see
+	// NavPlaces.pinned): group keys, in the reader's own order. The array is
+	// handed back to the test, so a test can pin a row the way the menu does
+	// and then ask the panel to redraw (see `changed`).
+	pinned: string[] = [],
 ) {
 	// The place list's travel: the panel hands it a place index and the list
 	// decides how to go there (a file opens the plain way, a jump lands — see
@@ -255,6 +291,10 @@ function harness(
 	// event will reach (see the fake metadataCache below).
 	let cacheReads = 0;
 	const metaListeners = new Set<(file: { path: string }) => void>();
+	// The vault's file events, and who is listening for them: whether a row's note exists
+	// is the vault's answer at draw time, and a change in that answer carries no redraw of
+	// its own — a sync takes a note away and puts it back (see body.ts's watchExistence).
+	const vaultListeners: Record<string, ((...args: unknown[]) => void)[]> = {};
 	const tabs = Object.keys(live).map((path) => ({ leafId: `open:${path}`, path }));
 	const app = {
 		vault: {
@@ -262,11 +302,25 @@ function harness(
 				if (deleted.includes(path) || !(path in files))
 					return null;
 				const file = Object.assign(new TFile(), { path });
-				if (path in mtimes)
-					file.stat = { ctime: 0, mtime: mtimes[path], size: 0 };
+				// A stat, as every TFile has one: the mtime is what a section chain read
+				// out of the file's own text is remembered against (see reads.ts).
+				file.stat = { ctime: 0, mtime: mtimes[path] ?? 0, size: 0 };
 				return file;
 			},
 			cachedRead,
+			// `on` hands back the callback itself as the handle `offref` takes, which is
+			// all the browser does with it.
+			on: (name: string, cb: (...args: unknown[]) => void) => {
+				(vaultListeners[name] ??= []).push(cb);
+				return cb;
+			},
+			offref: (ref: unknown) => {
+				for (const cbs of Object.values(vaultListeners)) {
+					const at = cbs.indexOf(ref as (...args: unknown[]) => void);
+					if (at >= 0)
+						cbs.splice(at, 1);
+				}
+			},
 		},
 		metadataCache: {
 			// A path maps either to its parsed headings (the common case) or to the
@@ -317,6 +371,23 @@ function harness(
 					});
 				}
 			},
+			// The leaves showing a markdown view: where a note's lines are read from when
+			// it is OPEN (see shared/leaf.ts's markdownViewFor). The same tabs the walk
+			// above sees, each with an editor that answers line by line.
+			getLeavesOfType: (type: string) => type !== 'markdown' ? [] : tabs.map((tab) => {
+				const lines = (live[tab.path] ?? '').split('\n');
+				return {
+					id: tab.leafId,
+					view: Object.assign(Object.create(MarkdownView.prototype), {
+						file: { path: tab.path },
+						editor: {
+							getValue: () => live[tab.path] ?? '',
+							getLine: (n: number) => lines[n] ?? '',
+							lastLine: () => lines.length - 1,
+						},
+					}),
+				};
+			}),
 		},
 	};
 	// The modal reads Platform once, at construction: flip it for exactly that
@@ -339,7 +410,57 @@ function harness(
 		}
 		places.index = current && entries.includes(current) ? entries.indexOf(current) : -1;
 	});
-	const places = { entries, index, travel: jumpTo, subscribe: () => () => {}, forget };
+	// …and the same act on a LANDING's own row (see body.ts's forgetLanding): what goes
+	// is ONE SPOT, named by the identity of every place that row stands for (see
+	// RecentFilesList.landingKeys) — a row is a line, and two records that land on it
+	// are one row, so a removal that named one of them would put the row straight back.
+	const forgetLanding = vi.fn((keys: string[]) => {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			if (keys.includes(placeKey(entries[i])))
+				entries.splice(i, 1);
+		}
+	});
+	// …and the PIN, which the right-click menu writes (see body.ts's pinItems). The
+	// fixture answers it the way the store does — the array IS the block, in the
+	// reader's order — so a test can watch the row move rather than only the call.
+	const pin = vi.fn((key: string) => {
+		if (!pinned.includes(key))
+			pinned.push(key);
+	});
+	const unpin = vi.fn((key: string) => {
+		const at = pinned.indexOf(key);
+		if (at >= 0)
+			pinned.splice(at, 1);
+	});
+	// A move of ANY number of steps, the way the store answers one (see
+	// NavPlaces.movePinned): a move past an end lands on it.
+	const movePinned = vi.fn((key: string, delta: number) => {
+		const at = pinned.indexOf(key);
+		if (at < 0)
+			return;
+		const to = Math.min(Math.max(at + delta, 0), pinned.length - 1);
+		if (to === at)
+			return;
+		pinned.splice(at, 1);
+		pinned.splice(to, 0, key);
+	});
+	// …and a LANDING PUT BACK where the heading it names stands now (see places.ts's
+	// reland). The store keeps no vault, so this is what it would have written — the
+	// line it was handed, and the clock the answer was taken at, both readable from
+	// `entries` afterwards, which is how a test sees the panel having done it.
+	const reland = vi.fn((lines: readonly ReclaimedLine[]) => {
+		for (const r of lines) {
+			const entry = entries.find(e => placeKey(e) === r.key);
+			if (entry?.kind !== 'jump')
+				continue;
+			entry.keyLine = r.line;
+			entry.st = r.mtime === undefined ? entry.st : { ...entry.st, mtime: r.mtime };
+		}
+	});
+	const places = {
+		entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding, pinned,
+		pin, unpin, movePinned, isPinned: (key: string) => pinned.includes(key), reland,
+	};
 	let modal: RecentFilesModal;
 	try {
 		modal = new RecentFilesModal(app as never, places as never, saved, browserPrefs);
@@ -444,6 +565,13 @@ function harness(
 		for (const cb of [...metaListeners])
 			cb({ path });
 	};
+	// …and the vault's own word that a file APPEARED, went away or moved: what a sync
+	// does to a note the list is standing on, and the one event that says the row the
+	// list stopped drawing can be drawn again.
+	const fileEvent = (name: string, file: { path: string }, oldPath?: string) => {
+		for (const cb of [...(vaultListeners[name] ?? [])])
+			cb(file, oldPath);
+	};
 	// The × at the end of the filter box (see RecentFilesBrowser.toolbar). It is in the
 	// DOM whether or not the box has anything in it — the stylesheet is what hides it
 	// while the box is empty (asserted in the styles suite, since jsdom loads no
@@ -458,8 +586,9 @@ function harness(
 	const forgetButton = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
-		modal, jumpTo, forget, cachedRead, el: modal.contentEl, entries, list,
-		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile,
+		modal, jumpTo, forget, forgetLanding, reland, cachedRead, el: modal.contentEl, entries, list,
+		pinned, pin, unpin, movePinned,
+		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile, fileEvent,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
 	};
@@ -585,6 +714,51 @@ describe('RecentFilesModal — current position', () => {
 		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
 		h.clickRow(h.note('b'));
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
+	});
+
+	it('quotes nothing on a row the query matched by the anchor it recorded', () => {
+		// The row survived the filter on `st.anchor` alone, and a visit records no context
+		// — so the hover says which file the row is and nothing about why it is on the
+		// list. Locked as it stands: the anchor is the line a restore re-finds, not a line
+		// a row shows, and quoting it would claim a landing the reader never asked for.
+		const h = harness([visit('a.md', NOW, { anchor: '落点这一行' })], 0, { 'a.md': '' });
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '落点';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(h.notes()).toHaveLength(1); // the anchor carried the word
+		const tip = h.hover(h.note('a'))!;
+		expect(tip).not.toBeNull();
+		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
+	});
+
+	it('says the section on a file row — the one thing it can be found by and never shows', () => {
+		// A query matches a row on its heading chain (see matchesNavFilter), and a FILE
+		// row prints no chain at all — the chain is a landing row's. So the hover says
+		// it: a row kept by a heading the reader cannot see anywhere would be a row that
+		// matched by magic. Not only while a query is up: the chain is where this row's
+		// own click lands, which is worth saying whenever the reader asks.
+		const h = harness(
+			[visit('a.md', NOW, { scroll: 6 }), visit('plain.md', NOW - MINUTE)], 0,
+			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS,
+		);
+		const tip = h.hover(h.note('a'))!;
+		expect(tip.querySelector('.nav-tip-section')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+		// …and a note with no headings says no section: the line is the chain, not a
+		// heading this panel invented.
+		h.unhover(h.note('a'));
+		expect(h.hover(h.note('plain'))?.querySelector('.nav-tip-section')).toBeNull();
+
+		// WHILE THE QUERY MATCHES IT: the row is kept by that heading, prints nothing of
+		// it, and the hover is the one place the words appear.
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		h.unhover(h.note('a'));
+		expect(h.notes()).toHaveLength(1); // the chain carried the word
+		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
+		expect(h.hover(h.note('a'))?.querySelector('.nav-tip-section')?.textContent)
+			.toBe('面板设计 › 呈现方案 › 预览');
 	});
 
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
@@ -981,11 +1155,11 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		// .toolbar): the press is REFUSED so the caret never leaves the box, and the click
 		// clears the box and re-reads the list from it. It is in the DOM whether or not
 		// the box has anything in it; the STYLESHEET is what hides it while the box is
-		// empty (asserted in the styles suite — jsdom loads no stylesheet).
+		// empty (asserted in the styles suite — jsdom loads no stylesheet) — except in a
+		// dialog, where an empty box is exactly when the glyph has its OTHER job (below).
 		const h = harness(entries(), 3, files);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
-		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
 		expect(h.clearButton().querySelector('svg')?.getAttribute('data-icon')).toBe('x');
 		// A press on it is refused, so the focus stays where the reader's typing is.
 		const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
@@ -995,6 +1169,10 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		box.value = 'b';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(h.notes()).toHaveLength(1);
+		// …and with something to clear, CLEARING is what the glyph says it does — the name
+		// is read off the box rather than kept, so the two acts cannot drift apart.
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
+		expect(h.clearButton().getAttribute('title')).toBe(t('recentFiles.clearFilter'));
 
 		h.clearFilter();
 
@@ -1003,6 +1181,36 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		expect(box.value).toBe('');
 		expect(h.notes()).toHaveLength(3);
 		expect(document.activeElement).toBe(box);
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.close'));
+	});
+
+	it('closes the dialog from that same × when there is nothing typed', () => {
+		// ONE GLYPH, TWO ACTS, at the spot the app's own prompt puts them at: anything typed
+		// is emptied (above), and nothing typed is the way OUT. A dialog whose top is its box
+		// has no other closing the pointer can reach — the header's × went the way of the
+		// name it stood beside — and keeping both would have been two glyphs for one thought.
+		const h = harness(entries(), 3, files);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		const close = vi.spyOn(h.modal, 'close');
+
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.close'));
+		h.clearFilter();
+
+		expect(close).toHaveBeenCalledTimes(1);
+		// …and only that: nothing was filtered away, nothing travelled.
+		expect(box.value).toBe('');
+		expect(h.notes()).toHaveLength(3);
+
+		// Typing hands the glyph its first job back — with no state to keep in step beyond
+		// the box's own text, exactly as the clearing takes the way out off it again.
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
+		h.clearFilter();
+		expect(close).toHaveBeenCalledTimes(1);
+		expect(box.value).toBe('');
+		h.clearFilter();
+		expect(close).toHaveBeenCalledTimes(2);
 	});
 
 	it('narrows to a note by its own name, which is what the scope was for', () => {		const h = harness(entries(), 3, files);
@@ -1184,6 +1392,61 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		search(h, 'weekly');
 		expect(h.cacheReads()).toBe(3); // one path re-read, the other still remembered
 	});
+
+	it('asks again about a file the cache has not answered yet', () => {
+		// A sync replaces a note by removing the file and renaming the download over
+		// it (see position/path-bookkeeping.ts), and the app fires NO 'changed' for a
+		// rename — so a body that remembered the emptiness it saw in that moment went
+		// on drawing a landing with no section chain at all until the body itself was
+		// thrown away: a restart, or the dialog's next opening. Only ANSWERS are kept
+		// now, so the very next render asks again — one map lookup — and the chain
+		// comes back with no event behind it.
+		const headings: Record<string, unknown[] | Record<string, unknown>> = {};
+		const h = harnessAll([
+			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, headings);
+		const trail = () => h.place('L7').querySelector('.nav-row-trail')?.textContent ?? '';
+
+		expect(trail()).toBe(''); // nothing parsed yet: the row is its line alone
+
+		headings['a.md'] = SPREAD_HEADINGS['a.md'];
+		h.changed(); // any redraw will do — nothing told the panel the file changed
+
+		expect(trail()).toBe('呈现方案›预览');
+	});
+
+	it('reads the chain out of the note itself when the cache has nothing', async () => {
+		// The other half of the same sync, and the half that does not end: on a phone the
+		// cache does not merely answer late, it may never answer at all — the note was
+		// replaced under the app, and OPENING it does not make the app parse it either
+		// (the editor reads the text, the cache does not). A body asked again every five
+		// minutes and heard nothing every time, so the row stayed its line alone. The
+		// text is right there, though: the chain is read out of it, one render late.
+		const h = harnessAll([
+			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, {});
+		const trail = () => h.place('L7').querySelector('.nav-row-trail')?.textContent ?? '';
+		const reads = (path: string) => h.cachedRead.mock.calls.filter(c => c[0].path === path);
+
+		expect(trail()).toBe(''); // the cache says nothing, and the row is drawn anyway
+
+		// The read lands, and the redraw it owes the list comes with it (see
+		// LATE_READ_REDRAW_MS).
+		for (let i = 0; i < 10; i++)
+			await Promise.resolve();
+		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
+
+		expect(trail()).toBe('呈现方案›预览');
+		// ONCE, and not again: the reading is remembered against the mtime it was taken
+		// at, which is the only clock an EXTERNAL change keeps — no event announces it.
+		expect(reads('a.md')).toHaveLength(1);
+		h.changed();
+		expect(reads('a.md')).toHaveLength(1);
+	});
 });
 
 describe('RecentFilesModal — the list\'s looks belong to the settings tab', () => {
@@ -1270,6 +1533,24 @@ describe('RecentFilesModal — a file that is gone', () => {
 
 		expect(h.notes()).toHaveLength(0);
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.empty'));
+	});
+
+	it('draws the row again once the vault has the note back', () => {
+		// A sync takes the note away and delivers it a moment later. The place is still
+		// in the list — the store drops one only after a grace window long enough to
+		// tell a replacement from a delete (see PathBookkeeper) — so what is missing is
+		// the DRAW, and nothing in the vault's own answer carries one.
+		const entries = [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+		const gone = ['b.md'];
+		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' }, gone);
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['a']);
+
+		// The replacement lands: the vault says the file is there again.
+		gone.length = 0;
+		h.fileEvent('create', { path: 'b.md' });
+		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
+
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['b', 'a']);
 	});
 });
 
@@ -1551,12 +1832,308 @@ describe('RecentFilesModal — a landing row', () => {
 		// and the note's name is on the row above it.
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
 
-		// L36 is the other half of the rule: its chain IS two levels, the row prints
-		// both, so hover has nothing to add and says nothing at all.
-		h.unhover(rows[0]);
-		expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
-		expect(h.hover(rows[1])).toBeNull();
-	});
+	// L36 is the other half of the rule: its chain IS two levels, the row prints
+	// both, so hover has nothing to add ABOUT THE CHAIN — and nothing at all was
+	// recorded below a landing taken at the foot of the note.
+	h.unhover(rows[0]);
+	expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
+	expect(h.hover(rows[1])).toBeFalsy();
+});
+
+it('says nothing more where nothing was recorded to quote', () => {
+	// A place recorded before the block was captured carries a position and no
+	// words (see NavEntryState.context): a tooltip is not a place to put a blank
+	// line, so the row answers exactly as it did before.
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, { scroll: 6 }),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+
+	const tip = h.hover(h.place('L7'))!;
+	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
+	// …and the other landing, whose row prints the whole of its two-level chain, has
+	// nothing below it to say either: it was taken at the foot of the note.
+	h.unhover(h.place('L7'));
+	expect(h.hover(h.place('L36'))).toBeFalsy();
+});
+
+it('says nothing about a landing while no query is up — the row has said it all', () => {
+	// Every landing IS a heading jump, so recording the words below it buys search
+	// and nothing else: with nothing typed, quoting one of them would put the same
+	// words on screen twice — once as a line the row explains, once as a line it
+	// quotes. (The capture takes nothing from above the landing for the same reason
+	// — see ephemeral.ts's landingContext.)
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+
+	const tip = h.hover(h.place('L5'))!;
+	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
+});
+
+it('names the line the query hit', () => {
+	// Two landings one line apart, so both of them answer a query either of their
+	// blocks carries: a note left with a single landing prints no landing rows at
+	// all (see RecentFilesList.printsLandings), and there would be no row to ask.
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 6)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	const quotes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
+	).map(q => q.textContent);
+
+	// A line neither landing sits on: why this row survived a query that says
+	// nothing about its name, its path or its section.
+	box.value = '正文第 1 行';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	h.hover(h.place('L5'));
+	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
+	// …and the row beside it, which shares every word below it, says the same line —
+	// what the two answers differ by is which place each one opens.
+	h.unhover(h.place('L5'));
+	h.hover(h.place('L7'));
+	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
+
+	// A query the recorded lines never carried — this row matched on its own name.
+	h.unhover(h.place('L7'));
+	box.value = 'a.md';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	h.hover(h.place('L5'));
+	expect(quotes()).toEqual([]);
+});
+
+// A JUMP WHOSE LANDING THE VAULT CAN STILL FIND — the two things a panel needs to put
+// a moved line back (see browser/now-line.ts), and neither of which `visit` above
+// carries: a KEY naming a heading (`marks` included, which is how an outline key says
+// its level), and the line that heading stood on when the record last looked.
+const landing = (
+	path: string, stamp: number, marks: string, line: number, mtime: number,
+): NavEntry => ({
+	kind: 'jump', path, leafId: 'leaf-1', t: stamp,
+	key: `outline:${marks}`, keyLine: line,
+	st: { ...captured(SPREAD_DOC, line), mtime },
+});
+
+// One entry as the JUMP it is: everything a test says about where a landing was put
+// back is said about fields only that shape carries.
+const jumpAt = (entries: NavEntry[], i: number) => entries[i] as NavJump;
+
+it('puts a landing back where its heading stands now, and says nothing about it', () => {
+	// An edit that moves a heading does not move the READER, and this panel can answer
+	// where the spot went — so nothing is owed its row, and the coordinate is corrected
+	// before the row exists, which is the whole of why no warning is.
+	const taken = 1_000;
+	const written = 5_000;
+	// 呈现方案 stands where it was recorded; 预览 has moved ten lines down the note.
+	const headings = {
+		'a.md': [
+			{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
+			{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
+			{ heading: '预览', level: 3, position: { start: { line: 14 } } },
+		],
+	};
+	const entries = [
+		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
+		landing('a.md', NOW - MINUTE, '### 预览', 4, taken),
+		visit('b.md', NOW),
+	];
+	const notes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-note'),
+	).map(n => n.textContent);
+	const lines = (h: ReturnType<typeof harnessAll>) =>
+		h.rows().map(r => r.querySelector('.nav-row-line')?.textContent);
+
+	const h = harnessAll(entries, 2, files, [], {}, headings, false, { 'a.md': written });
+	// …and the row prints that answer, which is the coordinate a click travels to.
+	expect(lines(h)).toEqual(['L3', 'L15']);
+	h.hover(h.place('L15'));
+	expect(notes()).toEqual([]);
+	h.unhover(h.place('L15'));
+	// One landing moved and one did not, and only the one that moved was written: the
+	// other was ASKED and answered with the line it already had.
+	expect(h.reland).toHaveBeenCalledTimes(1);
+	expect(jumpAt(h.entries, 1).keyLine).toBe(14);
+	expect(jumpAt(h.entries, 1).st?.mtime).toBe(written);
+	expect(jumpAt(h.entries, 0).keyLine).toBe(2);
+	expect(jumpAt(h.entries, 0).st?.mtime).toBe(taken);
+	// …and the row prints that answer, which is the coordinate a click travels to.
+	expect(lines(h)).toEqual(['L3', 'L15']);
+
+	// DRAWN AGAIN: nothing left to put back — the record now carries the note's own
+	// clock, which is the cheapest answer this panel has, so the pass writes nothing
+	// and finds nothing.
+	h.changed();
+	expect(h.reland).toHaveBeenCalledTimes(1);
+	expect(lines(h)).toEqual(['L3', 'L15']);
+});
+
+it('says so when the heading a landing named is not in the note any more', () => {
+	// What is LEFT after the pass above has put back what it can: the one case nobody
+	// can fix. Every other row whose note was written since is silent now — including
+	// one whose heading merely moved — so this line only ever stands for a landing the
+	// note has lost, and a warning that showed on half the list would say nothing.
+	const taken = 1_000;
+	const headings = {
+		'a.md': [
+			{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
+			{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
+		],
+	};
+	const entries = [
+		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
+		landing('a.md', NOW - MINUTE, '### 预览', 4, taken),
+		visit('b.md', NOW),
+	];
+	const notes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-note'),
+	).map(n => n.textContent);
+	const trail = (row?: HTMLElement) => row?.querySelector('.nav-row-trail')?.textContent;
+	const struck = (row?: HTMLElement) =>
+		!!row?.querySelector('.nav-row-trail')?.classList.contains('is-lost');
+
+	const h = harnessAll(entries, 2, files, [], {}, headings, false, { 'a.md': taken + 5_000 });
+
+	// THE ROW KEEPS THE WORDS IT WAS RECORDED WITH. With 预览 gone, its recorded line
+	// falls under 呈现方案, and printing THAT left the row standing for a section the
+	// reader never went to — while its own tooltip was saying the heading was gone, and
+	// while a click took the reader to a line under some other heading. The words it
+	// keeps are what the row is ABOUT, and the last thing that names the spot.
+	expect(trail(h.place('L5'))).toBe('预览');
+	expect(struck(h.place('L5'))).toBe(true);
+	// …and the row beside it, whose heading the note still carries, is read off the note
+	// and prints no mark: one row kept its section, the other kept only its record.
+	expect(trail(h.place('L3'))).toBe('面板设计›呈现方案');
+	expect(struck(h.place('L3'))).toBe(false);
+
+	h.hover(h.place('L5'));
+	expect(notes()).toEqual([t('recentFiles.lostLanding')]);
+	// …and it stands UNDER the words it is about, and not among them: a quoted line
+	// is the note's, this one is the panel's.
+	const kinds = Array.from(
+		document.querySelector('.position-restore-nav-tip')!.children,
+	).map(c => c.className);
+	expect(kinds.at(-1)).toBe('nav-tip-note');
+	expect(kinds.indexOf('nav-tip-note')).toBeGreaterThan(kinds.lastIndexOf('nav-tip-quote'));
+	h.unhover(h.place('L5'));
+
+	// NOR IS ITS PREVIEW POINTED AT A SECTION: the app opens `note#heading` by taking the
+	// first heading answering to that name, and the one this line now sits under belongs
+	// to another row. What this panel hands over for one is the note alone.
+	// The pointer has to have MOVED onto the row: an arrival whose coordinates nobody left is
+	// nobody left is a panel drawing itself around a hand that was already there (see
+	// RecentFilesList.hoverAt), which is why a hover of this row is two events.
+	const row = h.place('L5');
+	for (const clientX of [10, 30])
+		row.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, clientX, clientY: clientX }));
+	const asked = (
+		h.trigger.mock.calls.filter(c => c[0] === 'hover-link').at(-1)?.[1]
+	) as { linktext?: string } | undefined;
+	expect(asked?.linktext).toBe('a.md');
+
+	// NOTHING WAS WRITTEN: a landing whose line cannot be found keeps the clock it had,
+	// so its row goes on saying so rather than being quietly marked as checked.
+	expect(h.reland).not.toHaveBeenCalled();
+	expect(jumpAt(h.entries, 1).keyLine).toBe(4);
+	expect(jumpAt(h.entries, 1).st?.mtime).toBe(taken);
+});
+
+it('says nothing about a note the vault has not parsed yet', () => {
+	// The answer "that heading is not in the note" belongs to something that has READ the
+	// note. A note a sync has just put back has no parsed headings for as long as the app
+	// takes to re-read it — and on a phone it may never be re-read at all — and a row that
+	// borrowed that silence as a verdict would be blaming the note for the vault's hurry.
+	const taken = 1_000;
+	const entries = [
+		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
+		landing('a.md', NOW - MINUTE, '### 预览', 4, taken),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, {}, false, { 'a.md': taken + 5_000 });
+	h.hover(h.place('L5'));
+	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-note')).toHaveLength(0);
+	h.unhover(h.place('L5'));
+	// Nothing was put back either: without the parsed headings there is nothing to put
+	// anything back WITH.
+	expect(h.reland).not.toHaveBeenCalled();
+});
+
+it('says nothing about the note when the record kept no time of its own', () => {
+	// A record taken before the field existed, or by a read that had no file to stamp:
+	// "unknown" is not "untouched", and a line claiming the note has been written has
+	// nothing to stand on then. What is missing is that one line — the words it would
+	// have spoken about are still there.
+	const entries = [
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 9)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false, { 'a.md': 99_999 });
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	box.value = '正文第 4 行';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	h.hover(h.place('L9'));
+	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-note')).toHaveLength(0);
+	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote').length)
+		.toBeGreaterThan(0);
+});
+
+it('says the line a query hit on the NOTE\'S ROW, when that row IS the place', () => {
+	// A note's landings are printed under it only from two of them up (see
+	// printsLandings): a note left with ONE place has no landing row at all, and its
+	// own row is what stands for the place — the click goes there (see activeRep). That
+	// is the case every filtered list is made of: a query that hit a sentence in a note
+	// leaves one landing of one note on screen, and the words it matched were printed
+	// nowhere. A row that opens a spot has to be able to say why the spot is here,
+	// which is the whole of what a landing's own row does.
+	const entries = [
+		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 8)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 1, files, [], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	const quotes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
+	).map(q => q.textContent);
+
+	box.value = '正文第 2 行';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	expect(h.rows()).toHaveLength(0);
+	expect(quotes()).toEqual([]);
+	expect(h.hover(h.note('a'))).not.toBeNull();
+	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 2 行`]);
+});
+
+it('says nothing on a note\'s own row while that row is the FILE', () => {
+	// The other half of the rule, and the reason the one above is a rule about the
+	// row rather than about the note: a note whose own record is on the list is opened
+	// the plain way by its row, and a plain open has no words recorded about it — the
+	// record that carries them is the landing beside it, whose row is not on screen
+	// because one place is not a list. The row says what it can say about the file.
+	const entries = [
+		visit('a.md', NOW - MINUTE),
+		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+	box.value = 'a.md';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+
+	const tip = h.hover(h.note('a'))!;
+	expect(tip.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
+	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
+});
 
 	// THE SEPARATOR HANGS OFF THE LEVEL IT FOLLOWS rather than standing between the
 	// two as a cell of its own: a cell keeps its width after the level in front of it
@@ -1614,28 +2191,60 @@ describe('RecentFilesModal — a landing row', () => {
 
 			// …and a pane that GREW: the next render prints the level again, and the
 			// words the pass lent the row are the row's own once more — a tooltip left
-			// behind would repeat the row it is standing over.
+			// behind would repeat the row it is standing over, and there is nothing
+			// else for it to say.
 			h.unhover(h.rows()[0]);
 			squeezed = false;
 			h.changed();
 			expect(h.rows()[1].classList.contains('is-deep-only')).toBe(false);
-			expect(h.hover(h.rows()[1])).toBeNull();
+			expect(h.hover(h.rows()[1])).toBeFalsy();
 		} finally {
 			restore();
 		}
 	});
 
-	it('puts the coordinate before the section, and no time column anywhere', () => {
+	it('puts the coordinate before the section, with the row\'s own controls after it', () => {
 		// The row used to be name | section | small print (pane, coordinate, age) with
 		// the age in a measured column of its own. The note is the row now, so a landing
-		// is coordinate | section, plus the pane cell only while two live tabs hold that
-		// note — and no time anywhere: nothing in the list prints one.
+		// is coordinate | section | controls — and the controls are last and out of the
+		// flow (see .nav-row-actions), because a landing carries the same × a note does.
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		const row = h.rows()[1];
-		expect([...row.children].map(el => el.className)).toEqual(['nav-row-pos', 'nav-row-trail']);
+		expect([...row.children].map(el => el.className))
+			.toEqual(['nav-row-pos', 'nav-row-trail', 'nav-row-actions']);
+		// …and no time while the reader has not asked for one: the setting is off in
+		// this harness, and nothing in the list prints a time of its own accord.
 		expect(row.querySelector('.nav-row-time')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-list .nav-row-time')).toBeNull();
+	});
+
+	it('gives a landing its OWN time — the last visit to that spot, not to the note', () => {
+		// A note's row is stamped with the NEWEST of its places (see fileRow), which
+		// answers "when was I in this file" and not "when was I here": a spot the
+		// reader has not been back to keeps the time it earned, and that is the moment
+		// the words its row quotes were captured at.
+		const spots = [
+			visit('x.md', NOW - 30 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('x.md', NOW - 10 * MINUTE, captured(SPREAD_DOC, 35)),
+			visit('y.md', NOW),
+		];
+		const h = harness(spots, 2, { 'x.md': '', 'y.md': '' }, [], {}, SPREAD_HEADINGS,
+			false, {}, prefs({ landings: 'all', time: true }).browser);
+		const time = (row: HTMLElement) => row.querySelector<HTMLElement>('.nav-row-time');
+
+		// The note says the newest of the two spots; each spot says its own visit.
+		expect(time(h.note('x'))?.textContent).toBe(ageLabel(NOW - 10 * MINUTE, Date.now()));
+		expect(time(h.place('L7'))?.textContent).toBe(ageLabel(NOW - 30 * MINUTE, Date.now()));
+		expect(time(h.place('L36'))?.textContent).toBe(ageLabel(NOW - 10 * MINUTE, Date.now()));
+		// …and the row's shape follows the label it was built with, as a note's does.
+		expect(h.place('L7').classList.contains('is-timed')).toBe(true);
+
+		// The exact moment is one hover away, ON THE LABEL: hovering anywhere else on
+		// the row says what the place was (see placeRow).
+		h.unhover(h.place('L7'));
+		expect(h.hover(time(h.place('L7'))!)?.textContent)
+			.toBe(new Date(NOW - 30 * MINUTE).toLocaleString());
 	});
 });
 
@@ -1674,7 +2283,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 	};
 	const attr = (row: HTMLElement) => ({
 		name: row.querySelector('.nav-row-name')?.textContent,
-		badge: row.querySelector('.nav-row-badge')?.textContent,
+		badge: row.querySelector('.nav-file-tag')?.textContent,
 		path: row.querySelector('.nav-row-path')?.textContent,
 	});
 	// What one file's row says on hover, found by the path the fixture named it with.
@@ -2093,20 +2702,24 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('hands the app a menu for a file row, with its own one item on top', () => {
+	it('hands the app a menu for a file row, with its own items on top', () => {
 		// The menu is the app's — what a reader can do with a file is not this plugin's
-		// business — and the ONE item added is the one the app cannot know: this row stands
-		// for a PLACE, so "open in a new tab" here means this note, at the spot the row
-		// stands for. Taking the row off the list is no longer in here: that is the × the
-		// row carries, which needs no file to be about (see the two tests below).
+		// business — and what is added is what the app cannot know: this row stands for a
+		// PLACE, so "open in a new tab" here means this note, at the spot the row stands
+		// for; and whether the note is pinned, which is this list's own answer and nobody
+		// else's. Taking the row off the list is no longer in here: that is the × the row
+		// carries, which needs no file to be about (see the two tests below).
 		const h = harness(entries(), 1, files);
 		const ev = h.rightClick(h.note('a'));
 
 		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
 		const menu = menuOf(h.trigger);
-		expect(menu.items).toHaveLength(1);
-		expect(menu.items[0].title).toBe(t('recentFiles.menu.openInNewTab'));
+		expect(menu.items.map(i => i.title))
+			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
+		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
+		// …and it carries the app's own glyph for a new tab, so the item reads as the
+		// app's own promise one row up rather than as a second kind of opening.
 		expect(menu.items[0].icon).toBe('file-plus');
 		// The context asked for is a LINK's, not the file explorer's: the app decides
 		// what belongs there, and the file-managing actions do not (see contextRow).
@@ -2164,14 +2777,15 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		h.rightClick(h.note('a'));
 
 		const menu = menuOf(h.trigger);
-		expect(menu.items[0].title).toBe(t('recentFiles.menu.openHereInNewTab'));
+		expect(menu.items[0].title).toBe(t('recentFiles.openHereInNewTab'));
 		menu.items[0].click!();
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('raises no menu at all for a pathless view', () => {
-		// The graph is not a file: a file menu has nothing to be about, so the event is
-		// refused (the callout) and nothing is built.
+	it('raises its OWN menu for a pathless view, and asks the app about nothing', () => {
+		// The graph is not a file, so there is no file menu for it to be about: what
+		// comes up is this list's own two items, and NO `file-menu` event is sent —
+		// the app would be asked to speak about a file that does not exist.
 		const h = harness([
 			visit('a.md', NOW - MINUTE),
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
@@ -2181,6 +2795,12 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 
 		expect(ev.defaultPrevented).toBe(true);
 		expect(h.trigger).not.toHaveBeenCalled();
+		// …and it was put on the screen, which is the only way to read a menu no
+		// event was raised for (see obsidian-stub's Menu.shown).
+		const menu = Menu.shown.at(-1)!;
+		expect(menu.shownAt).toBeDefined();
+		expect(menu.items.map(i => i.title))
+			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 	});
 
 	it('gives a pathless view the same × a note gets, since its row is a row', () => {
@@ -2240,9 +2860,14 @@ describe('RecentFilesModal — same-named notes', () => {
 		// front (see styles.css, and the `after` mode, where it is not applied).
 		const index = h.note('index');
 		expect(index.classList.contains('is-path-before')).toBe(true);
-		// …and with one landing there is no count riding after the name.
+		// …and THE NAME AND ITS MARK are one piece: two siblings would let the cell
+		// wrap between them, printing the type on a line of its own under the name it
+		// belongs to (see styles.css's .nav-row-head). The folder is the cell's other
+		// half.
 		expect([...index.querySelector('.nav-row-file')!.children].map(el => el.className))
-			.toEqual(['nav-row-name', 'nav-row-path']);
+			.toEqual(['nav-row-head', 'nav-row-path']);
+		expect([...index.querySelector('.nav-row-head')!.children].map(el => el.className))
+			.toEqual(['nav-row-name']);
 	});
 
 	it('gives a same-named note at the vault root a folder to show', () => {
@@ -2280,28 +2905,21 @@ describe('RecentFilesModal — same-named notes', () => {
 
 
 describe('RecentFilesModal — the recorded landing block', () => {
-	// An entry carries the lines it was left on (see NavEntryState.context). The
-	// SEARCH BOX is the block's one reader: "the words I saw when I left" is how a
-	// reader finds an old spot, and a phrase from anywhere in the recorded window has
-	// to hit the note. (The details panel that rendered those lines is gone — see
-	// body.ts — which is why search is the only reader pinned here.)
+	// An entry carries the lines that stood below its landing (see
+	// NavEntryState.context). The SEARCH BOX is their one reader: "the words I saw
+	// when I left" is how a reader finds an old spot, and a phrase from anywhere in
+	// the recorded lines has to hit the note. (The details panel that rendered those
+	// lines is gone — see body.ts — which is why search is the only reader pinned
+	// here.)
 	const blockState = (extra: NavEntryState = {}): NavEntryState => ({
 		scroll: 11,
-		context: [
-			{ line: 10, text: '上一段：从哪里来' },
-			{ line: 11, text: '落点这一行' },
-			{ line: 12, text: '下一段：到哪里去' },
-		],
-		contextAt: 1,
+		context: ['下一段：到哪里去'],
 		mtime: 1000,
 		...extra,
 	});
 	const withBlock = (extra: NavEntryState = {}): NavEntry =>
 		visit('a.md', NOW - MINUTE, blockState(extra));
 	const files = { 'a.md': 'live ten\nlive eleven\nlive twelve', 'b.md': '' };
-	// A step made by clicking a plain [[link]]: keyless, so it keeps an origin.
-	const linkVisit = (viaPath: string, viaText: string, st?: NavEntryState): NavEntry =>
-		({ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: NOW - MINUTE, st, via: 'link', viaPath, viaText });
 	const search = (h: ReturnType<typeof harness>, q: string) => {
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = q;
@@ -2331,14 +2949,6 @@ describe('RecentFilesModal — the recorded landing block', () => {
 		expect(h.notes()).toHaveLength(1);
 	});
 
-	it('finds a note by the note a plain link came from', () => {
-		const linked = linkVisit('notes/来源笔记.md', 'a');
-		const h = harness([linked, visit('b.md', NOW)], 1, files);
-
-		search(h, '来源笔记');
-
-		expect(h.notes()).toHaveLength(1);
-	});
 });
 
 describe('RecentFilesModal — touch', () => {
@@ -2542,6 +3152,628 @@ describe('RecentFilesModal — a finger in the list', () => {
 	});
 });
 
+// A FINGER THAT STOPPED ON A ROW — what a hover is on a device that has none (see
+// long-press.ts). The row answers for itself: the words it cannot print, and the two
+// things THIS panel knows about it that the app cannot. Everything below is heard from
+// a TOUCH harness, because a desktop's hover already answers all of it and needs none
+// of this — which is what the last-but-one test here says.
+describe('RecentFilesModal — a finger that stopped on a row', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
+	const phone = () => harness(entries(), 1, files, [], {}, {}, true);
+	const timed = () =>
+		harness(entries(), 1, files, [], {}, {}, true, {}, prefs({ time: true }).browser);
+	// The three events a long press is made of, placed by hand: the gesture is judged by
+	// WHERE the finger came down and whether it stayed there (see long-press.ts), so a
+	// test cannot borrow the pointer helper that walks the cursor along.
+	const finger = (el: HTMLElement, type: string, at = { x: 40, y: 40 }) =>
+		el.dispatchEvent(
+			new MouseEvent(type, { bubbles: true, button: 0, clientX: at.x, clientY: at.y }),
+		);
+	const down = (el: HTMLElement) => finger(el, 'pointerdown');
+	const lift = (el: HTMLElement) => finger(el, 'pointerup');
+	// …and the clock, which is the whole of what makes a press a long one rather than a
+	// tap or the beginning of a scroll.
+	const rest = () => vi.advanceTimersByTime(LONG_PRESS_MS);
+	// The menu the panel handed the app, as the app's own event carries it (see
+	// RecentFilesBrowser.contextRow): the armed row's second control is the only door a
+	// phone has to it, the long press having become the row's own gesture.
+	const menuOf = (trigger: unknown) => {
+		const calls = (trigger as { mock: { calls: unknown[][] } }).mock.calls;
+		expect(calls).toHaveLength(1);
+		return calls[0][1] as {
+			items: { title: string; icon: string; click?: () => void }[];
+			shownAt?: { x: number; y: number };
+			hidden: boolean;
+			closed: boolean;
+			hide(): void;
+		};
+	};
+	// A FINGER HAS NO HOVER TO GO BY: between the finger coming down and the travel
+	// going through, nothing on the row changes at all — and the travel is not the end
+	// of it either, because on a phone the drawer folds away behind it. So the press
+	// itself is what the row answers with (see list.ts's markPressed).
+	it('marks the row a finger pressed, for as long as the reader can still see it', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+
+		expect(row.classList.contains('is-pressed')).toBe(true);
+		// …and NOT the row beside it: one finger, one press, one mark.
+		expect(h.note('a').classList.contains('is-pressed')).toBe(false);
+
+		// The finger comes up and the travel goes through, and the mark is STILL there
+		// while the drawer folds away behind it (see PANEL_EXIT_GRACE_MS) — that is the
+		// whole of the time the reader has to see which line they hit.
+		lift(row);
+		vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and then it goes BY ITSELF rather than waiting for anything else: a mark
+		// that stayed would be a mark on a row the reader is no longer pointing at.
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS);
+		expect(row.classList.contains('is-pressed')).toBe(false);
+
+		// …and a gesture the platform took AWAY is not one the reader finished, so it
+		// takes the mark with it at once rather than leaving the row lit for a beat it
+		// did not earn.
+		down(row);
+		finger(row, 'pointercancel');
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
+	// The mark is ended by the LIFT and not by a moment fixed when the finger went
+	// down: a finger that is still resting on its way to becoming a long press is a
+	// finger the reader is still pointing with, and a mark that blinked out halfway
+	// through would say the row had stopped answering (see list.ts's releaseMark).
+	it('keeps the mark lit for the whole of a long press', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		// The beat a TAP's mark is given, and not the end of this one: the finger is
+		// still down.
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and then the press becomes an arm, with the mark still on the row.
+		rest();
+		expect(row.classList.contains('is-armed')).toBe(true);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and the finger coming UP does not take it: the reader lifted it to reach for
+		// what the arm put on the row, so the mark lasts as long as the arm does.
+		lift(row);
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS * 2);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+	});
+
+	// …while a finger the platform never reported coming up does not leave a row lit
+	// for good: the mark has a latest moment of its own (see ROW_PRESS_HOLD_MAX_MS).
+	it('lets the mark go when the finger never came up at all', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		// Not a long press after all: the finger left the spot it came down on (see
+		// LONG_PRESS_SLOP_PX), so nothing arms the row and nothing holds the mark.
+		finger(row, 'pointermove', { x: 240, y: 240 });
+		vi.advanceTimersByTime(ROW_PRESS_HOLD_MAX_MS);
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
+	// …and it belongs to the ROW and not to the list, so it does not outlive one: the
+	// travel the press asked for redraws the list, and the row drawn in its place is a
+	// row the reader never pressed.
+	it('takes the mark off with the row it was put on', () => {
+		const h = phone();
+		down(h.note('b'));
+		expect(h.note('b').classList.contains('is-pressed')).toBe(true);
+
+		h.clickRow(h.note('b'));
+
+		expect(h.jumpTo).toHaveBeenCalled();
+		expect(h.note('b').classList.contains('is-pressed')).toBe(false);
+	});
+
+	// …and a press does not stop being a press when it becomes an arm: the finger is
+	// still on the row the whole time the arm is standing.
+	it('keeps the mark under a finger that rested, and lets it go with the arm', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+
+		// The clock that was going to take the mark off was set for a tap (see
+		// ROW_PRESS_MARK_MS), and this was not one.
+		vi.advanceTimersByTime(ROW_PRESS_MARK_MS * 2);
+		expect(row.classList.contains('is-armed')).toBe(true);
+		expect(row.classList.contains('is-pressed')).toBe(true);
+
+		// …and the two go together: tapping another row takes the arm off this one, and
+		// a mark left standing on it would be a mark on a row nobody is pointing at.
+		h.pressRow(h.note('a'));
+		h.clickRow(h.note('a'));
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
+	it('arms the row a finger stopped on, and says what the row cannot print', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+
+		expect(row.classList.contains('is-armed')).toBe(true);
+		// The words are the ones a hover earns, and they are up AT ONCE: the finger has
+		// already been resting for the whole of the press, which is longer than a mouse
+		// is ever asked to wait (see tip.ts's speak).
+		expect(tip()?.querySelector('.nav-tip-path')?.textContent).toBe('b.md');
+		// …and ONE row is armed, because one finger can only stop on one.
+		expect(h.note('a').classList.contains('is-armed')).toBe(false);
+	});
+
+	it('says the moment behind the age, when the finger stopped on the time', () => {
+		// Which element the finger came down on decides WHICH of the two things the row
+		// says, exactly as it does for a pointer (see tip.ts's subject): the time answers
+		// for the moment behind it, and the row answers for which file this is.
+		const h = timed();
+
+		down(h.note('b').querySelector<HTMLElement>('.nav-row-time')!);
+		rest();
+
+		expect(tip()?.querySelector('.nav-tip-path')).toBeNull();
+		expect(tip()?.querySelector('.nav-tip-text')?.textContent)
+			.toBe(new Date(NOW).toLocaleString());
+	});
+
+	it('opens nothing on the click a long press delivers when the finger lifts', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		// The finger coming up is not the pointer leaving the row — a touch pointer
+		// ceases to exist when it does, and the browser says `out` all the same — so the
+		// words the press earned have to outlive it: the reader lifted the finger to
+		// reach for what the press put on the row, not because they stopped looking.
+		lift(row);
+		row.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+		expect(tip()).not.toBeNull();
+
+		// …and the click the browser may still deliver is the press's own tail rather
+		// than a second gesture: a reader who stopped on a row did not ask to go there.
+		h.clickRow(row);
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('arms nothing when the finger was only beginning to scroll', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		// A drag and not a rest: the finger left the spot it came down on by more than
+		// the slop a resting finger is allowed (see LONG_PRESS_SLOP_PX).
+		finger(row, 'pointermove', { x: 240, y: 240 });
+		rest();
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('takes the row off the list from the × the arm put on it', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		// The press's own tail, which the lift delivers before any tap of the reader's
+		// (see the test below): it is answered by nobody.
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(h.forgetButton(row));
+
+		// The row's own identity, carried by the control rather than worked out from an
+		// index a redraw may have moved (see RecentFilesList.fileRow).
+		expect(h.forget).toHaveBeenCalledWith('b.md');
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('raises the app\'s menu from the control the arm put on it', () => {
+		// The menu a desktop gets from a right-click (see body.ts's contextRow): the app's
+		// own actions for the file, with this panel's one item on top of them. On a phone
+		// the long press that used to raise it arms the row instead, so the menu comes
+		// back on the armed row's own control rather than behind the press.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		// The finger comes up, and the browser clicks whatever is under it — the
+		// press's own tail, which opens nothing (see the test above).
+		lift(row);
+		h.clickRow(row);
+		// …and THEN the reader taps the control the press put on the row.
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+
+		const menu = menuOf(h.trigger);
+		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
+		// …and it was OPENED, and placed at the control the reader tapped rather than at
+		// wherever the platform said the tap happened: a menu merely built is a menu
+		// nobody can see, and one placed at the screen's corner is a menu to go looking
+		// for (see RecentFilesList.menuControl).
+		expect(menu.shownAt).toBeDefined();
+		// NOTHING TRAVELLED, and that is the whole of the difference from the shortcut
+		// this control used to be: the menu is a question, and opening the row one tab
+		// over is one of its answers rather than the tap's.
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		// …and the arm stays on the row behind the menu: it is still the row the reader
+		// was reaching into when the menu closes.
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('opens the row one tab over from the menu\'s own item, on a phone as on a desktop', () => {
+		// The one thing the app cannot know about this row (see body.ts's contextRow) is
+		// still one tap away: it is the first item of the menu the control raises.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+
+		menuOf(h.trigger).items[0].click!();
+		expect(h.jumpTo).toHaveBeenCalledWith(1, 'tab');
+	});
+
+	it('takes the menu with it when the panel itself closes', () => {
+		// The menu is put on the DOCUMENT and not into the panel's element, so a shell
+		// that closes takes none of it with it: a dialog closed under an open menu
+		// would leave the app's menu standing over nothing at all (see
+		// RecentFilesBrowser.destroy).
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+		const menu = menuOf(h.trigger);
+
+		h.modal.close();
+
+		expect(menu.closed).toBe(true);
+	});
+
+	it('takes the menu back when the control that raised it is tapped again', () => {
+		// ONE DOOR, TWO ENDS. The app cannot answer this tap: the control stops its own
+		// press so that reaching for it does not open the note (see menuControl), and a
+		// press the document never hears is a press that cannot close the app's menu
+		// from outside it. So the tap is the answer itself — and raising the menu again
+		// in the same breath would be a menu that never went away, which reads as a
+		// control that does nothing.
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(more());
+		const menu = menuOf(h.trigger);
+		expect(menu.closed).toBe(false);
+
+		// …and the SAME control again — a finger comes DOWN on it first, which is where
+		// the question is asked and not at the click it delivers.
+		down(more());
+		h.clickRow(more());
+
+		expect(menu.closed).toBe(true);
+		// …and the app was not asked for a second one: a tap that took the menu back is
+		// not a tap that asked for another.
+		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
+		// …and the ARM IS STILL ON THE ROW: the menu was a question, and the × may yet
+		// be the answer the reader was reaching for.
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('takes the menu back when the press lands on the menu\'s own surface', () => {
+		// THE TABLET CASE, and the whole of why the control cannot answer it alone. When
+		// there is no room below the point it was given, the app moves a menu UP BY ITS
+		// OWN HEIGHT — over the row, and over the very control that raised it. A finger
+		// aiming at the control then lands on the menu, and the app answers a press there
+		// with nothing: only the backdrop beside the menu closes it, and only on a click.
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(more());
+		const menu = menuOf(h.trigger);
+		expect(menu.closed).toBe(false);
+
+		// …and the menu is standing where the control was, so the finger lands on it.
+		const surface = document.body.createDiv({ cls: 'menu' });
+		down(surface);
+
+		expect(menu.closed).toBe(true);
+		surface.remove();
+	});
+
+	it('leaves the menu alone when the press lands on one of its items', () => {
+		// The one press that must NOT take the menu away: choosing an item is the menu's
+		// own answer, and a menu pulled out from under the press would take the item with
+		// it — a tap that resolves to nothing at all.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
+		const menu = menuOf(h.trigger);
+
+		const item = document.body.createDiv({ cls: 'menu-item' });
+		down(item);
+
+		expect(menu.closed).toBe(false);
+		item.remove();
+	});
+
+	it('raises a menu again after the app took the last one off itself', () => {
+		// An item chosen on it, or a tap away from it: the app's own gestures, and the
+		// app's own menu to take off the screen. From that moment the panel owes it
+		// nothing — and the control goes back to RAISING one, because a tap that takes a
+		// menu back only means that while one is standing (see contextRow).
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(more());
+		menuOf(h.trigger).hide();
+
+		// …and the same control again, now asking for a menu rather than for one to go.
+		h.clickRow(more());
+
+		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
+	});
+
+	it('opens nothing when the press\'s own click lands on a control it put there', () => {
+		// The controls arrive at the row's far end — which is where the finger may
+		// already be resting. The click the lift then delivers is the press's tail and
+		// not a second gesture: a reader who stopped on a row did not ask for its menu,
+		// and above all did not ask to DROP it (see the × in fileRow).
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		h.clickRow(more());
+
+		expect(h.trigger).not.toHaveBeenCalled();
+		expect(h.forget).not.toHaveBeenCalled();
+		// …and the arm is still on the row: the reader was reaching for it.
+		expect(row.classList.contains('is-armed')).toBe(true);
+
+		// The NEXT tap is the reader's own — and a tap is a finger coming DOWN first,
+		// which is what spends the claim the press was holding (see long-press.ts's
+		// release, and the test below).
+		down(more());
+		h.clickRow(more());
+		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
+	});
+
+	it('answers the first tap after a press whose own click NEVER came', () => {
+		// Whether the tail of a long press is delivered at all is the platform's
+		// business: a WebView that raised a menu for the press, or a finger that
+		// drifted past the slop on its way up, may deliver no click with it. The
+		// claim then OUTLIVES the press that made it — and the controls stop their
+		// own presses from reaching the gesture (see RecentFilesList.fileRow), so
+		// nothing reset it: the reader's first tap on a control did nothing, and the
+		// tap after it landed on a row that had been disarmed under them and opened
+		// the note. A finger arriving anywhere on the row's controls spends it.
+		const h = phone();
+		const row = h.note('b');
+		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
+
+		down(row);
+		rest();
+		lift(row);
+		// …and no click: the platform delivered nothing for the finger coming up.
+
+		down(more());
+		h.clickRow(more());
+
+		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
+	});
+
+	it('answers the first tap on the × after such a press, too', () => {
+		// The same claim, on the control that is not survivable: a reader who stopped
+		// on a row and then aimed at its × got nothing, and the tap after it opened
+		// the note they were trying to drop.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+
+		down(h.forgetButton(row));
+		h.clickRow(h.forgetButton(row));
+
+		expect(h.forget).toHaveBeenCalledWith('b.md');
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('opens nothing when a tap lands on the strip beside the controls', () => {
+		// Two targets side by side are missed by a finger that drifts — and a finger
+		// that comes down on one and lifts over the other has clicked NEITHER: the
+		// browser clicks their nearest common ancestor, which without the strip's own
+		// answer is the ROW (see RecentFilesList.actionStrip). A miss is a miss:
+		// nothing opens, and the arm waits for the reader to aim again.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		lift(row);
+		h.clickRow(row);
+		h.clickRow(row.querySelector<HTMLElement>('.nav-row-actions')!);
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		expect(row.classList.contains('is-armed')).toBe(true);
+	});
+
+	it('disarms the row when the reader taps another one', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		h.pressRow(h.note('a'));
+		h.clickRow(h.note('a'));
+
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+		// One row at a time, and the words go with it: an armed row that has stopped
+		// saying anything is a row the reader has to guess at.
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('disarms it on a scroll, and on a redraw', () => {
+		// A scroll takes the rows out from under words that are standing still, and a
+		// redraw throws away the row the finger stopped on: a × left standing on the row
+		// drawn in its place would be a control for a row nobody armed.
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		h.list().dispatchEvent(new Event('scroll'));
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+
+		down(row);
+		rest();
+		h.changed();
+		expect(h.note('b').classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('arms it from the menu event a WebView raises for the same finger', () => {
+		// A long press arrives as a `contextmenu` on some platforms and not on others
+		// (see long-press.ts), so both doors are open and the arm is idempotent: what
+		// matters is that the row is armed either way, and that the app's file menu is
+		// NOT raised — on a phone the press is the ROW's answer, not the file's.
+		const h = phone();
+		const row = h.note('b');
+
+		const ev = h.longPress(row);
+
+		expect(row.classList.contains('is-armed')).toBe(true);
+		// …and the press is still refused, or the platform's own selection callout would
+		// come up over the row while the reader is waiting for it to answer.
+		expect(ev.defaultPrevented).toBe(true);
+		expect(h.trigger).not.toHaveBeenCalled();
+	});
+
+	it('arms nothing on a desktop, where a rest is a hover', () => {
+		// The gesture is not heard at all where a pointer can hover: the controls are
+		// already on the row the pointer is over, and so are the words.
+		const h = harness(entries(), 1, files);
+		const row = h.note('b');
+
+		down(row);
+		rest();
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		expect(tip()).toBeNull();
+	});
+
+	it('puts the row\'s menu on a note and on its landings, and the × on both', () => {
+		// A landing is a record of its own on this list now, so it carries the same
+		// removal the note's row does — what its × takes off is the SPOT, and the note's
+		// row above stays (see onForgetLanding). The two rows say so differently: the
+		// note's × is "remove from recent files", the spot's is "remove this place", and
+		// a reader pointing at one of them is never guessing which one they got.
+		//
+		// The menu goes on both for the reason it always did: the spot IS a place a
+		// reader can ask for one tab over, and only this panel knows which place that is.
+		const spots = [
+			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
+			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
+			visit('y.md', NOW),
+		];
+	const h = harnessAll(spots, 2, { 'x.md': '', 'y.md': '' }, [], {}, {}, true);
+	const note = h.note('x');
+	const landing = h.rows()[0];
+
+	expect(note.querySelector('.nav-row-forget')).not.toBeNull();
+	expect(note.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
+		.toBe(t('recentFiles.rowMenu'));
+	expect(landing.querySelector('.nav-row-forget')?.getAttribute('aria-label'))
+		.toBe(t('recentFiles.forgetLanding'));
+	expect(landing.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
+		.toBe(t('recentFiles.rowMenu'));
+
+	// …and the two controls stand in the SAME ORDER on both: the menu inside, the ×
+	// at the very end. A reader who learned the row's far end on a note's row reads
+	// the same end on a landing's, and the removal never moves inward.
+	const ends = (el: HTMLElement) => Array.from(el.querySelectorAll('.nav-row-actions > *'))
+		.map(c => c.classList.contains('nav-row-forget') ? 'x' : 'menu');
+	expect(ends(note)).toEqual(['menu', 'x']);
+	expect(ends(landing)).toEqual(['menu', 'x']);
+});
+
+	it('takes one spot off the list from the × on its own row, and leaves the note', () => {
+		// What goes is the SPOT: the note keeps its own row, and so does every other
+		// place in it. A row is a LINE, so what the × hands the store is the identity of
+		// every place that landed on it (see landingKeys) — one of them alone would put
+		// the row straight back.
+		const spots = [
+			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
+			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
+			visit('y.md', NOW),
+		];
+		const h = harnessAll(spots, 2, { 'x.md': '', 'y.md': '' });
+		const gone = placeKey(spots[0]);
+
+		h.clickRow(h.forgetButton(h.place('L101')));
+
+		expect(h.forgetLanding).toHaveBeenCalledWith([gone]);
+		// The spot is off the list; the note's own record and the other spot are not.
+		expect(h.entries.map(e => (e.kind === 'jump' ? e.st?.scroll : 'note')))
+			.toEqual([412, 'note']);
+		expect(h.jumpTo).not.toHaveBeenCalled();
+		// …and the redraw is the panel's own (see body.ts's forgetLanding), so the row is
+		// gone from the screen too — with the note's row standing for the spot that is
+		// left, since one place is not a list (see printsLandings).
+		expect(h.rows()).toHaveLength(0);
+		expect(h.note('x')).toBeDefined();
+	});
+});
+
 // A HOVER OVER A ROW ASKS THE APP FOR THE NOTE ITSELF (see RecentFilesBrowser.hoverRow).
 // There is no preview in this plugin and nothing to test of one: what this panel draws when
 // a row is hovered is still nothing, and what it SAYS is one event naming the file the row
@@ -2567,9 +3799,15 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 	const heading = (text: string, line: number) => ({
 		heading: text, level: line === 0 ? 1 : 2, position: { start: { line } },
 	});
-	const withHeadings = (headings: unknown[], saved?: Record<string, EphemeralState>) =>
-		harnessAll(jumped(), 3, files, [], {}, { 'a.md': headings }, false, {},
-			path => saved?.[path]);
+	// …and the same note with a spot of its own saved for it, which is what the note's
+	// OWN row has wherever it can be previewed from (`focus` picks the stop, see
+	// PreviewFocusMode: the row's line is a choice now, and not the row's default).
+	const withHeadings = (
+		headings: unknown[],
+		saved?: Record<string, EphemeralState>,
+		focus?: PreviewFocusMode,
+	) => harnessAll(jumped(), 3, files, [], {}, { 'a.md': headings }, false, {},
+		path => saved?.[path], focus);
 	// The questions the app was asked, in order: the panel hands each one over as the
 	// app's own event, with the request as its second argument (see hoverRow).
 	const asked = (trigger: unknown) =>
@@ -2698,13 +3936,13 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('asks for the WHOLE NOTE for the note’s own row, even where it could name a section', () => {
-		// THE ROW IS THE FILE, so the note is what it asks to see: its click opens the note
-		// the plain way (see RecentFilesList.activeRep), and the preview is that same promise
-		// opening under the pointer instead of in a pane. Its line DOES sit under "Beta" —
-		// but a reader hovering "meeting-notes" and getting its third heading has not been
-		// shown what they pointed at, however instantly it arrived, so the note comes whole
-		// and travels to the line, behind the cover (see hover-settle.ts).
+	it('asks for the note and nothing else for the note’s own row', () => {
+		// THE ROW IS THE FILE, so the file is what it asks to see — and it asks the way
+		// every list the app ships asks: no section, and no line to travel to. The line
+		// DOES sit under "Beta", and knowing that changes nothing, for two reasons. A
+		// reader hovering "meeting-notes" and being shown its third heading has not been
+		// shown what they pointed at, however soon it arrived. And the note opens there
+		// anyway: the row's own CLICK is that arrival, one gesture later.
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
 
 		movedOnto(h.note('a'));
@@ -2712,10 +3950,37 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
 		expect(question[0].linktext).toBe('a.md');
-		// …and the line named is where the note would have been opened anyway: the
-		// position database's own answer, which is what makes this preview agree with the
-		// click standing behind it.
+		expect(question[0].state).toBeUndefined();
+	});
+
+	it('asks for the note WHOLE, moved to its line, when the reader chose that', () => {
+		// The other stop (see PreviewFocusMode), asked for by name because it is not the
+		// default: named a line, the app draws the whole note first and travels to it
+		// behind the cover (see hover-settle.ts), arriving at the spot the row's click
+		// would have opened at — which is what lets this preview agree with the click
+		// standing behind it.
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } },
+			'line');
+
+		movedOnto(h.note('a'));
+
+		const question = asked(h.trigger);
+		expect(question).toHaveLength(1);
+		expect(question[0].linktext).toBe('a.md');
 		expect(question[0].state).toEqual({ scroll: 11 });
+	});
+
+	it('reads no file for a preview that names no line', async () => {
+		// What a line COSTS, and what the default stop therefore does not pay: a line is
+		// re-found in the note's own TEXT, which for a note no tab is holding is a whole
+		// file read — one that lands with the whole list redrawn sixty milliseconds
+		// later, right where the app is drawing the card this hover asked for.
+		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
+
+		movedOnto(h.note('a'));
+		await vi.advanceTimersByTimeAsync(LATE_READ_REDRAW_MS * 2);
+
+		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
 	it('names the SECTION the row stands in, when the note has one there', () => {
@@ -2867,5 +4132,493 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		card.remove();
 
 		expect(h.hover(h.note('b'))).not.toBeNull();
+	});
+});
+
+// A ROW'S LINE NUMBER IS AN ADDRESS, AND THE NOTE MOVES UNDER IT. What the app is
+// asked for from here is a SPOT, and a spot recorded last week may have had the ground
+// shift under its own number since: a paragraph written above it moves every line below.
+// So the number handed over is the one the note's own text answers to TODAY — or none at
+// all (see now-line.ts), which is the honest asking: a preview that opens the note without
+// naming a line was never wrong about where the spot was.
+describe('RecentFilesModal — a hover asks for the spot as it stands today', () => {
+	// The note as it was when the record was taken, and the spot: line 11 of it.
+	const SPOT = 11;
+	const st = captured(SPREAD_DOC, SPOT);
+	// …and as it stands now, with two lines written in above the spot: everything below
+	// has moved down by two, and the spot's own text has moved down with it.
+	const edited = [...SPREAD_DOC.slice(0, 2), '补记一行', '', ...SPREAD_DOC.slice(2)].join('\n');
+	const files = { 'a.md': SPREAD_DOC.join('\n') };
+	// The questions the app was asked, in order (see the suite above).
+	const asked = (trigger: unknown) =>
+		(trigger as { mock: { calls: unknown[][] } }).mock.calls
+			.filter(c => c[0] === 'hover-link')
+			.map(c => c[1] as { linktext?: string; state?: { scroll?: number } });
+	const one = (): NavEntry[] => [visit('a.md', NOW, st)];
+
+	// The three below ask for the line the app MOVED TO AFTERWARDS — which is the stop
+	// this list offers rather than the one it ships (see PreviewFocusMode), so each one
+	// says so where the panel read its own preference.
+	it('names the line the spot stands at now, when the note is open', () => {
+		// The buffer of a note that is OPEN is the only source that cannot be behind: it
+		// is the text the reader is looking at, saved or not — and the file's own clock
+		// says the note has been written since the record was taken.
+		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 },
+			prefs({ focus: 'line' }).browser);
+
+		movedOnto(h.note('a'));
+
+		expect(asked(h.trigger)[0]).toMatchObject({
+			linktext: 'a.md',
+			state: { scroll: SPOT + 2 },
+		});
+	});
+
+	it('reads the note off the disk when no tab holds it, and names the line one hover later', async () => {
+		// Nothing is in hand the first time — the lines sit behind an await, and an asking
+		// is not going to wait for a file — so that hover asks for the note with NO number,
+		// and the reading it started is what lets the next one name the spot.
+		const h = harness(one(), 0, { 'a.md': edited }, [], {}, {}, false, { 'a.md': 9 },
+			prefs({ focus: 'line' }).browser);
+
+		movedOnto(h.note('a'));
+		expect(asked(h.trigger)[0].state).toBeUndefined();
+
+		// The reading lands, and the panel redraws with it (see redrawAfterLateRead).
+		await vi.advanceTimersByTimeAsync(LATE_READ_REDRAW_MS * 2);
+		movedOnto(h.note('a'));
+
+		expect(asked(h.trigger).at(-1)!.state).toEqual({ scroll: SPOT + 2 });
+	});
+
+	it('keeps the recorded number when the note has not been written since', () => {
+		// The file's clock says what the record says: nothing has been written, so the
+		// recorded line is still the line.
+		const h = harness([visit('a.md', NOW, { ...st, mtime: 4 })], 0, files, [], {}, {}, false,
+			{ 'a.md': 4 }, prefs({ focus: 'line' }).browser);
+
+		movedOnto(h.note('a'));
+
+		expect(asked(h.trigger)[0].state).toEqual({ scroll: SPOT });
+	});
+
+	it('names no line where the ROW has one but the note is asked for the app’s own way', () => {
+		// The same open note, the same spot two lines off and found again — and nothing
+		// named, because the DEFAULT stop asks for the note the way every list the app
+		// ships asks for it. Everything above this test is an expedition the reader
+		// chose, not a duty this row has.
+		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 });
+
+		movedOnto(h.note('a'));
+
+		const question = asked(h.trigger)[0];
+		expect(question.linktext).toBe('a.md');
+		expect(question.state).toBeUndefined();
+	});
+
+	it('names no line at all where the spot cannot be found again', () => {
+		// The note was rewritten: nothing left in it is the line the record's anchor names.
+		const h = harness(one(), 0, files, [], { 'a.md': '全新的一段\n'.repeat(20) }, {}, false,
+			{ 'a.md': 9 });
+
+		movedOnto(h.note('a'));
+
+		const question = asked(h.trigger)[0];
+		expect(question.state).toBeUndefined();
+		// …and no SECTION either: a heading belongs to a line, and there is no line.
+		expect(question.linktext).toBe('a.md');
+	});
+});
+
+describe('RecentFilesModal — the pinned rows', () => {
+	// A PIN is a bookmark for a NOTE, so the block holds one row per note and no
+	// landings under any of them; what the reader loses is the list of spots, not
+	// the newest one, which the row still stands for (see RecentFilesList).
+	const three = () => [
+		visit('a.md', NOW - 5 * MINUTE),
+		visit('b.md', NOW - 2 * MINUTE),
+		visit('c.md', NOW),
+	];
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+
+	it('draws the pinned rows first, in the reader’s own order, above a line', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['b.md', 'c.md']);
+
+		const names = h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+		// The pin order and not the clock: c.md is the newest place here and b.md
+		// is the older of the two pins, and the reader put b first.
+		expect(names).toEqual(['b', 'c', 'a']);
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+		expect(h.notes()[1].classList.contains('is-pinned')).toBe(true);
+		expect(h.notes()[2].classList.contains('is-pinned')).toBe(false);
+		// ONE line, under the block and nowhere else.
+		const lines = h.el.querySelectorAll('.position-restore-nav-pinned-sep');
+		expect(lines).toHaveLength(1);
+		expect(lines[0].nextElementSibling).toBe(h.notes()[2]);
+	});
+
+	it('prints no landings under a pinned row, even where the setting asks for them', () => {
+		const spots = [
+			visit('a.md', NOW - 5 * MINUTE, { scroll: 10 }),
+			visit('a.md', NOW - 4 * MINUTE, { scroll: 20 }),
+			visit('b.md', NOW - 3 * MINUTE, { scroll: 100 }),
+			visit('b.md', NOW - 2 * MINUTE, { scroll: 400 }),
+			visit('c.md', NOW),
+		];
+		const h = harness(spots, 4, files, [], {}, {}, false, {},
+			prefs({ landings: 'all' }).browser, undefined, ['b.md']);
+
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
+			.toEqual(['b', 'c', 'a']);
+		// b.md's two spots are not printed — the block is one row per note — while
+		// a.md, which nobody pinned, keeps both of its own.
+		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
+			.toEqual(['L11', 'L21']);
+	});
+
+	it('draws no line when the block is the whole list', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md', 'c.md']);
+
+		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+	});
+
+	it('skips a pin whose row is not on screen, and takes it up when the pin is made', () => {
+		// A pin naming a note the filter dropped is not a promise that it is listed.
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['gone.md']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
+			.toEqual(['c', 'b', 'a']);
+		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+
+		h.pinned.unshift('a.md');
+		h.changed();
+		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('a');
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+	});
+
+	it('opens what a pinned row stands for, and takes it off the list the same way', () => {
+		const spots = [visit('a.md', NOW - MINUTE, { scroll: 412 }), visit('b.md', NOW)];
+		const h = harness(spots, 1, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md']);
+
+		h.clickRow(h.note('a'));
+		// The row stands for the note's newest landing, as it does unpinned.
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+
+		h.clickRow(h.forgetButton(h.note('a')));
+		expect(h.forget).toHaveBeenCalledWith('a.md');
+	});
+});
+
+describe('RecentFilesModal — the pin on a row’s menu', () => {
+	// WHAT THIS LIST ADDS to the app's own menu for a file: the pin, which is a
+	// bookmark for a NOTE and belongs on a note's row — and the two steps, which
+	// are about the pinned block's own order and nowhere else.
+	const three = () => [
+		visit('a.md', NOW - 5 * MINUTE),
+		visit('b.md', NOW - 2 * MINUTE),
+		visit('c.md', NOW),
+	];
+	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
+	const open = t('recentFiles.openInNewTab');
+	const items = (h: ReturnType<typeof harness>) => {
+		const calls = (h.trigger as { mock: { calls: unknown[][] } }).mock.calls;
+		expect(calls).toHaveLength(1);
+		const menu = calls[0][1] as {
+			items: { title: string; section: string; icon: string; click?: () => void }[];
+		};
+		return menu.items;
+	};
+	const item = (h: ReturnType<typeof harness>, title: string) =>
+		items(h).find(i => i.title === title)!;
+	const names = (h: ReturnType<typeof harness>) =>
+		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+
+	it('offers the pin on a note’s row, and not on a landing’s', () => {
+		// A pin is a bookmark for the NOTE: a landing is a spot INSIDE one, and
+		// pinning it would be a second, smaller kind of pin (see body.ts's pinItems).
+		const spread = [
+			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
+			visit('a.md', NOW - 2 * MINUTE, { scroll: 20 }),
+		];
+		const h = harness(spread, 1, files, [], {}, {}, false, {},
+			prefs({ landings: 'all' }).browser);
+		h.rightClick(h.note('a'));
+		expect(items(h).map(i => i.title)).toContain(t('recentFiles.pin'));
+		expect(items(h)[1].section).toBe('action');
+
+		const landing = harness(spread, 1, files, [], {}, {}, false, {},
+			prefs({ landings: 'all' }).browser);
+		landing.rightClick(landing.rows()[0]);
+		expect(items(landing).map(i => i.title)).toEqual([t('recentFiles.openHereInNewTab')]);
+	});
+
+	it('pins the note and puts its row at the top of the list', () => {
+		// The row moves AT ONCE: the panel is the only thing that can say so, and a
+		// dialog does not subscribe to the store (see body.ts's pin).
+		const h = harness(three(), 2, files);
+
+		h.rightClick(h.note('a'));
+		expect(items(h).map(i => i.title)).toEqual([open, t('recentFiles.pin')]);
+		item(h, t('recentFiles.pin')).click!();
+
+		expect(h.pin).toHaveBeenCalledWith('a.md');
+		expect(names(h)).toEqual(['a', 'c', 'b']);
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+	});
+
+	it('offers the two steps only where there is a step to take', () => {
+		// At either end of the block an item that would do nothing is worse than an
+		// item that is not there.
+		const alone = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md']);
+		alone.rightClick(alone.note('a'));
+		expect(items(alone).map(i => i.title)).toEqual([open, t('recentFiles.unpin')]);
+
+		const first = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md']);
+		first.rightClick(first.note('a'));
+		expect(items(first).map(i => i.title))
+			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinDown')]);
+
+		const last = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md']);
+		last.rightClick(last.note('b'));
+		expect(items(last).map(i => i.title))
+			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp')]);
+	});
+
+	it('moves a pinned row one step inside the block, and draws what it did', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md']);
+
+		h.rightClick(h.note('a'));
+		item(h, t('recentFiles.pinDown')).click!();
+
+		expect(h.movePinned).toHaveBeenCalledWith('a.md', 1);
+		expect(h.pinned).toEqual(['b.md', 'a.md']);
+		expect(names(h)).toEqual(['b', 'a', 'c']);
+	});
+
+	it('takes the pin off, and the row goes back to the list in its own place', () => {
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md']);
+
+		h.rightClick(h.note('a'));
+		item(h, t('recentFiles.unpin')).click!();
+
+		expect(h.unpin).toHaveBeenCalledWith('a.md');
+		expect(names(h)).toEqual(['c', 'b', 'a']);
+		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+	});
+
+	it('offers the whole way only where it is MORE than one step', () => {
+		// "Move to the front" beside the front would do exactly what "move up"
+		// just offered, so it is not there — a block of three has no row far
+		// enough from either end to need one.
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md', 'c.md']);
+		h.rightClick(h.note('b'));
+		expect(items(h).map(i => i.title))
+			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'), t('recentFiles.pinDown')]);
+
+		// Four is where a row is two steps from an end: the FRONT row has no way
+		// up at all, the one below it is one step up and two down.
+		const four = { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' };
+		const block = harness([
+			visit('a.md', NOW - 5 * MINUTE),
+			visit('b.md', NOW - 4 * MINUTE),
+			visit('c.md', NOW - 3 * MINUTE),
+			visit('d.md', NOW),
+		], 3, four, [], {}, {}, false, {}, defaultPrefs(),
+		undefined, ['a.md', 'b.md', 'c.md', 'd.md']);
+		const titles = (name: string) => {
+			const row = harness([
+				visit('a.md', NOW - 5 * MINUTE),
+				visit('b.md', NOW - 4 * MINUTE),
+				visit('c.md', NOW - 3 * MINUTE),
+				visit('d.md', NOW),
+			], 3, four, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md', 'b.md', 'c.md', 'd.md']);
+			row.rightClick(row.note(name));
+			return items(row).map(i => i.title);
+		};
+		expect(titles('a')).toEqual([open, t('recentFiles.unpin'),
+			t('recentFiles.pinDown'), t('recentFiles.pinLast')]);
+		expect(titles('b')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
+			t('recentFiles.pinDown'), t('recentFiles.pinLast')]);
+		expect(titles('c')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
+			t('recentFiles.pinFirst'), t('recentFiles.pinDown')]);
+		expect(titles('d')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
+			t('recentFiles.pinFirst')]);
+		// …and the block itself is still drawn in the reader's own order.
+		expect(names(block)).toEqual(['a', 'b', 'c', 'd']);
+	});
+
+	it('moves a pinned row to the end of the block in one answer', () => {
+		const four = { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' };
+		const h = harness([
+			visit('a.md', NOW - 5 * MINUTE),
+			visit('b.md', NOW - 4 * MINUTE),
+			visit('c.md', NOW - 3 * MINUTE),
+			visit('d.md', NOW),
+		], 3, four, [], {}, {}, false, {}, defaultPrefs(),
+		undefined, ['a.md', 'b.md', 'c.md', 'd.md']);
+
+		h.rightClick(h.note('b'));
+		item(h, t('recentFiles.pinLast')).click!();
+
+		// What the store is handed is the DISTANCE, not the index: how far a row
+		// has to travel is the block's business.
+		expect(h.movePinned).toHaveBeenCalledWith('b.md', 2);
+		expect(h.pinned).toEqual(['a.md', 'c.md', 'd.md', 'b.md']);
+		expect(names(h)).toEqual(['a', 'c', 'd', 'b']);
+	});
+});
+
+describe('RecentFilesModal — the pin on a view’s row', () => {
+	// WHAT the reader pins is their own business: a pathless view is a place this
+	// list remembers and a row this list draws, and a pin is about the ROW. What
+	// differs from a note is only the menu's SIZE — a view names no file, so
+	// nothing is asked of the app (see body.ts's contextRow).
+	const graph = { kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry;
+	const spots = () => [visit('a.md', NOW - MINUTE), graph];
+	const files = { 'a.md': '' };
+	const graphRow = (h: ReturnType<typeof harness>) =>
+		h.notes().find(r =>
+			r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
+
+	it('pins a view from its own menu, and the block draws it', () => {
+		const h = harness(spots(), 1, files);
+
+		h.rightClick(graphRow(h));
+		Menu.shown.at(-1)!.items.find(i => i.title === t('recentFiles.pin'))!.click!();
+
+		// A view is named by its TYPE, which is exactly what a path cannot say
+		// (see nav/entry.ts's navGroupKey).
+		expect(h.pin).toHaveBeenCalledWith('view:graph');
+		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
+		expect(h.notes()[0]).toBe(graphRow(h));
+	});
+
+	it('gives a phone the same menu, from the armed row’s own control', () => {
+		// The control is the ONLY door on a phone, and a view's row used to have
+		// none at all — which left a view unpinnable where most readers pin.
+		const h = harness(spots(), 1, files, [], {}, {}, true);
+		const row = graphRow(h);
+
+		h.longPress(row);
+		const more = row.querySelector<HTMLElement>('.nav-row-menu');
+		expect(more).not.toBeNull();
+		h.clickRow(more!);
+
+		expect(Menu.shown.at(-1)!.items.map(i => i.title))
+			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
+	});
+});
+
+describe('RecentFilesModal — the name a row calls the note', () => {
+	// ONE property the reader named in the settings, and the file's own name
+	// where a note has none of it: that is the whole of the rule, which is why
+	// there is no second setting saying which to prefer (see reads.ts's titleOf).
+	const spots = () => [visit('b.md', NOW - MINUTE), visit('a.md', NOW)];
+	const files = { 'a.md': '', 'b.md': '' };
+	const named = (title: string) => prefs({ title }).browser;
+	const cacheWith = (props: Record<string, unknown>) => ({ frontmatter: props });
+	const names = (h: ReturnType<typeof harness>) =>
+		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+
+	it('prints the property the reader named, and the file name where it is missing', () => {
+		const h = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+			'b.md': cacheWith({}),
+		}, false, {}, named('title'));
+
+		// a.md is the newest, and it is the one with a name of its own.
+		expect(names(h)).toEqual(['每周回顾', 'b']);
+	});
+
+	it('prints file names while the setting is empty, however the notes are written', () => {
+		// OFF is the default and it has to mean OFF: a vault that names its notes
+		// in their file names owes this row nothing, and a `title` sitting in a
+		// note is then just another name it can be SEARCHED by (see the suite
+		// above).
+		const h = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+		}, false, {}, prefs().browser);
+
+		expect(names(h)).toEqual(['a', 'b']);
+	});
+
+	it('takes only a single piece of text as a name', () => {
+		// A list, a year or an emptied property is not a name: a row that guessed
+		// would print "[object Object]" or "2024" where the reader's note goes.
+		const h = harness([
+			visit('b.md', NOW - 3 * MINUTE),
+			visit('c.md', NOW - 2 * MINUTE),
+			visit('a.md', NOW),
+		], 2, { 'a.md': '', 'b.md': '', 'c.md': '' }, [], {}, {
+			'a.md': cacheWith({ title: ['one', 'two'] }),
+			'b.md': cacheWith({ title: 2024 }),
+			'c.md': cacheWith({ title: '   ' }),
+		}, false, {}, named('title'));
+
+		expect(names(h)).toEqual(['a', 'c', 'b']);
+	});
+
+	it('finds a note by the name it PRINTS, and tells two same-named notes apart', () => {
+		// What is searched and what is disambiguated is the same name the row
+		// prints: a note renamed in frontmatter is one name everywhere on it.
+		const h = harness([
+			visit('notes/a.md', NOW - MINUTE),
+			visit('other/b.md', NOW),
+		], 1, { 'notes/a.md': '', 'other/b.md': '' }, [], {}, {
+			'notes/a.md': cacheWith({ title: '周会' }),
+			'other/b.md': cacheWith({ title: '周会' }),
+		}, false, {}, named('title'));
+
+		// Two rows reading 周会 are two rows a reader cannot choose between, so
+		// the folder is printed — exactly as it is for two files of one name.
+		expect(names(h)).toEqual(['周会', '周会']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
+			.toEqual(['other/', 'notes/']);
+
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '周会';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(names(h)).toEqual(['周会', '周会']);
+		// …and the file's own name still finds it, which is the name the reader
+		// sees everywhere else.
+		box.value = 'a.md';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(names(h)).toEqual(['周会']);
+	});
+
+	it('redraws when the name it prints changes, and not for any other edit', () => {
+		// The reader is TYPING that property, in the note, while the row stands
+		// there printing the old name. An edit anywhere in a note re-parses it,
+		// so what earns a redraw is the name being different now — a full
+		// rebuild of the list per keystroke is the cost of not comparing.
+		const cache = { 'a.md': cacheWith({ title: 'One' }) };
+		const h = harness([visit('a.md', NOW)], 0, files, [], {}, cache, false, {},
+			named('title'));
+		expect(names(h)).toEqual(['One']);
+
+		// By position and not by name: the row's name is the thing that is
+		// about to change under the reader.
+		const row = h.notes()[0];
+		cache['a.md'].frontmatter.title = 'Two';
+		h.changeFile('a.md');
+		expect(names(h)).toEqual(['Two']);
+		// …and it was drawn again rather than patched: the row is a new element.
+		expect(h.notes()[0]).not.toBe(row);
+
+		const same = h.notes()[0];
+		cache['a.md'].frontmatter.aliases = 'something else';
+		h.changeFile('a.md');
+		expect(names(h)).toEqual(['Two']);
+		expect(h.notes()[0]).toBe(same);
 	});
 });

@@ -3,27 +3,23 @@ import { NavEntryState } from '@/types';
 import { PositionState, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
 
-// The recording surface the outline capture needs — the funnel's own two calls
-// (see funnel.ts), stated here so this module depends on nothing else.
+// The funnel's own two calls, stated here so this module depends on nothing else.
 export interface OutlineCaptureHost {
 	state: PositionState;
 	leave(path: string, leafId: string, st: NavEntryState): void;
 	recordOpen(path: string, leafId: string, opts: { key: string }): void;
 }
 
-// Reading-mode outline clicks are invisible to every other
-// recording path: core resolves an item click into setActiveLeaf +
-// view.setEphemeralState({ line }) — no openLinkText, no setViewState,
-// and preview has no cursor for the poll's teleport — so nothing pushes.
-// Source mode is recorded here TOO: the capture itself pushes the keyed
-// outline entry, and the landing-absorb window it arms gates the
-// imminent cursor jump on both teleport paths (selection event / poll),
-// so one click pushes exactly one entry (no teleport double-record).
-// This capture listener runs before core's handlers (capture phase on
-// the workspace root), which is what lets refreshTop see the exact
-// pre-click position. Every resolution step degrades silently: unknown
-// DOM, missing outline view, unresolvable target leaf — the hook does
-// nothing and the standard pipeline covers the not-open case on its own.
+// Reading-mode outline clicks are invisible to every other recording path:
+// core resolves an item click into setActiveLeaf + setEphemeralState({line})
+// — no openLinkText, no setViewState, and preview has no cursor for the
+// poll's teleport. Source mode is recorded here TOO: the capture pushes the
+// keyed entry, and the landing-absorb window it arms gates the imminent
+// cursor jump, so one click pushes exactly one entry.
+// The listener runs in the capture phase on the workspace root, i.e. before
+// core's handlers — that's what lets refreshTop see the pre-click position.
+// Every resolution step degrades silently: unknown DOM, missing outline,
+// unresolvable target leaf → the standard pipeline covers the rest.
 export function installOutlineCapture(
 	app: App,
 	host: OutlineCaptureHost,
@@ -32,18 +28,16 @@ export function installOutlineCapture(
 	const onClick = (ev: MouseEvent) => {
 		if (!(ev.target instanceof HTMLElement))
 			return;
-		// Collapse arrows preventDefault core's jump handler downstream, but
-		// this capture listener runs before that happens — exclude them here.
+		// Collapse arrows preventDefault core's jump downstream, but this
+		// listener runs before that — exclude them here.
 		if (ev.target.closest('.collapse-icon'))
 			return;
-		// Outline tree items only (the clickable selfEl): excludes the
-		// panel's search box, toolbar buttons, and every non-outline click.
+		// Outline tree items only: excludes the panel's search box and toolbar.
 		const selfEl = ev.target.closest('.tree-item-self.is-clickable');
 		const contentEl = selfEl?.closest('.workspace-leaf-content[data-type="outline"]');
 		if (!selfEl || !contentEl)
 			return;
-		// The outline leaf owning the clicked panel (a view's containerEl IS
-		// the workspace-leaf-content element).
+		// A view's containerEl IS the workspace-leaf-content element.
 		let outlineLeaf: WorkspaceLeaf | undefined;
 		app.workspace.iterateAllLeaves((leaf) => {
 			if (!outlineLeaf && leaf.view.getViewType() === 'outline'
@@ -53,13 +47,11 @@ export function installOutlineCapture(
 		const outlineFile = (outlineLeaf?.view as unknown as { file?: unknown })?.file;
 		if (!(outlineFile instanceof TFile))
 			return;
-		// The markdown leaf the jump will land in — mirrors core's
-		// findCorrespondingLeaf: linked-pane group first, else the active
-		// markdown view when it tracks the same file. No match means core
-		// opens the file fresh (new leaf) — that open records through the
-		// setViewState pipeline already.
-		// (leaf.group is runtime API absent from the public typings — same
-		// cast family as isMainAreaLeaf's containerEl.)
+		// The leaf the jump lands in — mirrors core's findCorrespondingLeaf:
+		// linked-pane group first, else the active markdown view tracking the
+		// same file. No match means core opens the file fresh; that open
+		// records through the setViewState pipeline already.
+		// (leaf.group is runtime API absent from the public typings.)
 		const group = (outlineLeaf as unknown as { group?: string } | undefined)?.group;
 		let view: MarkdownView | undefined;
 		if (group) {
@@ -71,14 +63,11 @@ export function installOutlineCapture(
 				}
 			}
 		} else {
-			// Core's findCorrespondingLeaf resolves through getActiveFileView,
-			// NOT getActiveViewOfType: the click's pointerdown focuses the
-			// outline panel's leaf FIRST (the capture phase sees activeLeaf =
-			// the outline view), and getActiveViewOfType — strictly the
-			// focused leaf — returns null there, so the jump would never
-			// record. getActiveFileView falls back to the most recently
-			// active FILE view. (Runtime API absent from the public typings —
-			// same cast family as isMainAreaLeaf's containerEl.)
+			// Must resolve through getActiveFileView, NOT getActiveViewOfType:
+			// the click's pointerdown focuses the outline leaf FIRST, so the
+			// strictly-focused getActiveViewOfType returns null there and the
+			// jump would never record. getActiveFileView falls back to the most
+			// recently active FILE view.
 			const active = (app.workspace as unknown as {
 				getActiveFileView?: () => unknown;
 			}).getActiveFileView?.();
@@ -93,20 +82,17 @@ export function installOutlineCapture(
 		const fromSt = readNavEntryState(view);
 		if (fromSt)
 			host.leave(view.file.path, leafId, fromSt);
-		// Key = heading text (core renders the heading as the item's inner
-		// text): repeated clicks to one heading dedup, different headings
-		// push — the anchor-link key semantics. No text → no key → skip
-		// (a keyless entry would wrongly absorb every later click).
+		// Key = heading text: repeated clicks to one heading dedup, different
+		// headings push — the anchor-link key semantics. No text → no key →
+		// skip (a keyless entry would wrongly absorb every later click).
 		const heading = selfEl.querySelector('.tree-item-inner')?.textContent?.trim();
 		if (heading) {
 			host.recordOpen(view.file.path, leafId, { key: `outline:${heading}` });
-			// Arm the landing absorb (same contract as open-kind jumps):
-			// core resolves the jump asynchronously, and the poll/scroll
-			// capture must stay absorbed until it settles — the settled read
-			// then becomes this entry's precise landing (Sampler
-			// settle-capture). Not armed when nothing was recorded (no
-			// heading text): the settle-capture would overwrite an unrelated
-			// top entry.
+			// Arm the landing absorb (same contract as open-kind jumps): core
+			// resolves the jump asynchronously, and capture must stay absorbed
+			// until it settles — the settled read becomes this entry's precise
+			// landing. Not armed when nothing was recorded: the settle-capture
+			// would overwrite an unrelated top entry.
 			host.state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 		}
 	};

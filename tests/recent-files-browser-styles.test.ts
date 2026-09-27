@@ -2,7 +2,7 @@
 // the DOM, because jsdom never loads a stylesheet and every one of these is a
 // contract no rendering test here could catch.
 //
-// Five of them:
+// Six of them:
 //
 // 1. The quiet tiers (the section, the coordinate, the age, the toolbar chrome)
 //    must NOT be painted with --text-faint / --text-muted. Those are ordinary
@@ -27,10 +27,17 @@
 //    the coordinate and the age below 480px and left the list saying nothing but
 //    file names.
 //
-// 4. The × that takes a row off the list FLOATS over the row's far end, out of the
-//    row's own flow, so summoning it moves nothing — and what gives way when the two
-//    trade places is the age's colour, not the track it stands in. On touch there is
-//    no hover to summon it with, so it stands there instead.
+// 4. The row's controls — the × that takes it off the list, and on a phone the tab
+//    that opens it one over — FLOAT over the row's far end, in ONE box out of the
+//    row's own flow, so summoning them moves nothing; and what gives way when they
+//    trade places with the age is the age's colour, not the track it stands in. On
+//    touch there is no hover to summon them with: a LONG PRESS arms the row instead,
+//    and the row carries the arm as a class of its own, because a press has to outlive
+//    the finger that made it. A HOVER is one row at a time and moves nothing, so what
+//    the age gives up is its colour; an ARMED row on a phone gives up the ROOM as
+//    well, because two icons standing over a name are two things read at once — and
+//    nothing is reserved while the row is not armed, so the age keeps the row's far
+//    end to itself, as the setting asks.
 //
 // 5. A landing row's section chain collapses FROM THE OUTSIDE IN, and ONLY from there:
 //    the outer level carries every pixel of a deficit, while the deepest level is not a
@@ -165,7 +172,10 @@ describe('recent-files browser quiet tiers', () => {
 	// its .tree-item-self), so a row matches its neighbour without this file picking a
 	// number — and the strip and the setting menu keep the smaller tiers they name.
 	it('sets a row in the app\'s own nav-list tier', () => {
-		const row = browser.match(/\.position-restore-nav-row\s*\{[^}]*\}/)?.[0] ?? '';
+		// The row's OWN rule, and not the desktop dialog's override of its padding, which
+		// starts with the same class: anchored at the line's start so nothing prefixed
+		// can be read as it.
+		const row = browser.match(/(?:^|\n)\.position-restore-nav-row \{[^}]*\}/)?.[0] ?? '';
 		expect(row).not.toBe('');
 		expect(row).toMatch(/font-size: var\(--nav-item-size/);
 	});
@@ -184,8 +194,9 @@ describe('recent-files browser quiet tiers', () => {
 	// screen share, or every row — and WHICH HALF of the row gives way when it does not
 	// fit is the same setting's other half: a flex line wraps at the end it is laid out
 	// in, so the item ordered LAST is the one that drops to the second line. The DOM
-	// order never changes (name, badge, folder), so this one class is the whole of the
-	// difference between the two "always" modes (see PathDisplayMode).
+	// order never changes (the name's own box, then the folder), so this one class is
+	// the whole of the difference between the two "always" modes (see
+	// PathDisplayMode).
 	it('prints the folder on the side the setting asks for, and wraps the other half', () => {
 		// The cell wraps, and separates what shares a line with a COLUMN gap: a margin
 		// would indent the line that wrapped, and the two lines would read as unrelated.
@@ -207,18 +218,63 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('nav-row-folder');
 	});
 
-	// The type badge (see badgeOf): TEXT in a box, never an icon. An icon name the
-	// app's build does not have draws an empty slot where the badge should be — worse
-	// than no badge, and invisible in any test that does not render a real theme.
-	it('marks a note\'s type with text in a box, not with an icon', () => {
-		const badge = browser.match(/\.nav-row-badge\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(badge).not.toBe('');
-		expect(badge).toMatch(/border: 1px solid/);
-		expect(badge).toMatch(/font-size: var\(--font-ui-smaller\)/);
-		expect(badge).toMatch(/color: var\(--nav-faint\)/);
-		// it cannot swallow the row however long the extension is
-		expect(badge).toMatch(/max-width: 10ch/);
-		expect(badge).toMatch(/text-overflow: ellipsis/);
+	// ROOM BOUGHT ONE THING IN THE WIDE DIALOG, and it is not a second line forced on every
+	// row: a path too long for the row is WRAPPED rather than cut. Where the path stands is
+	// still the reader's setting (asserted above) — the dialog does not override the SIDE it
+	// asked for, only whether the path may spend a line saying all of itself.
+	it('wraps a long path in the desktop dialog instead of cutting it', () => {
+		const path = browser.match(
+			/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \.position-restore-nav-row \.nav-row-path\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(path).not.toBe('');
+		expect(path).toMatch(/white-space: normal/);
+		expect(path).toMatch(/overflow-wrap: break-word/);
+		expect(path).toMatch(/text-overflow: clip/);
+		// PRINTED IN FRONT OF THE NAME and not faintly behind it, the faintest tier was too
+		// quiet to read; one step up, still under the name's own.
+		expect(path).toMatch(/color: var\(--nav-muted\)/);
+		// …and the SIDE IS STILL THE READER'S: this rule may not reorder the two halves, or
+		// 'before' and 'after' would answer the same question with one answer.
+		expect(path).not.toMatch(/order:/);
+		// NO CELL IS A STACK either: giving the path a line of its own in every row is the
+		// shape that was tried here and undone — the wrap above happens only when it must.
+		expect(browser).not.toMatch(
+			/(?:^|\n)\.position-restore-nav-row \.nav-row-file\s*\{[^}]*flex-direction: column/,
+		);
+	});
+
+	// The type (see badgeOf) is marked with the APP'S OWN tag — the class the file
+	// explorer puts beside a file's name — and not with a box of our own: a type that
+	// looked like a type everywhere but here was a type the reader had to learn twice,
+	// and a look of ours is a look no theme can reach. Two things the class brings are
+	// right for the explorer and wrong for a name, and both are taken back: the tag
+	// there is pushed to the FAR END of its line (it stands for the whole row) and it
+	// is allowed to shrink (a squeezed tag reads "PD / F").
+	it('marks a note\'s type with the app\'s own tag, and only corrects it', () => {
+		const tag = browser.match(/\.position-restore-nav-row \.nav-file-tag\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(tag).not.toBe('');
+		expect(tag).toMatch(/margin-inline-start: 0/);
+		expect(tag).toMatch(/flex: 0 0 auto/);
+		// …and nothing else is ours to say about how it looks: no colour, no border,
+		// no size of our own.
+		expect(tag).not.toMatch(/color:/);
+		expect(tag).not.toMatch(/border/);
+		expect(tag).not.toMatch(/font-size/);
+		// The old badge is GONE, not kept beside it: a row carrying both would print
+		// the type twice.
+		expect(browser).not.toContain('nav-row-badge');
+	});
+
+	// …and the mark stays ON THE NAME'S LINE: as a sibling of the name it is the first
+	// thing the wrapping cell drops, which prints the type on a line of its own, under
+	// the name it belongs to. The name and its mark are one box that never wraps.
+	it('keeps the name and its mark on one line, whatever the row has room for', () => {
+		const head = browser.match(/\.nav-row-head\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(head).not.toBe('');
+		expect(head).toMatch(/flex-wrap: nowrap/);
+		// …and it is the NAME inside that box which gives way, not the mark: the box
+		// shrinks (see .nav-row-name) and the mark keeps its own width.
+		expect(head).toMatch(/min-width: 0/);
 	});
 
 
@@ -243,46 +299,120 @@ describe('recent-files browser quiet tiers', () => {
 			/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
 		);
 		expect(browser).not.toMatch(/\.nav-row-time\s*\{[^}]*margin-inline-start: auto/);
+		// …and a LANDING's row ends its own age in the SAME column: it is coordinate |
+		// section | age, where the section is the track that takes the slack and gives
+		// way. The times of the two kinds of row then read as one column, which is the
+		// whole point of printing them.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-place\.is-timed\s*\{\s*grid-template-columns: auto minmax\(0, 1fr\) auto/,
+		);
 	});
 
-	// …and the × that takes the row off the list rides in that SAME far end, out of the
-	// row's own flow (see list.ts's fileRow). Being absolutely positioned is the
-	// load-bearing part: laid out inside the row it would take its width from the name,
-	// and the row would move under the pointer that summoned it — the one thing this list
-	// never does (see the hover tint below). The age gives up its COLOUR and not its
-	// track when the two trade places, so nothing moves there either.
-	it('floats the row\'s × over that far end, and moves nothing to show it', () => {
-		const forget =
-			browser.match(/\.position-restore-nav-row \.nav-row-forget\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(forget).not.toBe('');
-		expect(forget).toMatch(/position: absolute/);
-		expect(forget).toMatch(/inset-inline-end: 4px/);
+	// …and the row's controls ride in that SAME far end, out of the row's own flow (see
+	// list.ts's fileRow). Being absolutely positioned is the load-bearing part: laid out
+	// inside the row they would take their width from the name, and the row would move
+	// under the pointer that summoned them — the one thing this list never does (see the
+	// hover tint below). The age gives up its COLOUR and not its track when the two trade
+	// places, so nothing moves there either.
+	it('floats the row\'s controls over that far end, and moves nothing to show them', () => {
+		const actions =
+			browser.match(/\.position-restore-nav-row \.nav-row-actions\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(actions).not.toBe('');
+		expect(actions).toMatch(/position: absolute/);
+		expect(actions).toMatch(/inset-inline-end: 4px/);
 		// Painted with the ROW's own wash rather than a colour of this file's, so the strip
-		// under the icon is the row it stands on — the hover tint, or the position's accent.
-		expect(forget).toMatch(/background: inherit/);
-		// …and it says nothing until the pointer is on the row.
-		expect(forget).toMatch(/opacity: 0/);
-		expect(forget).toMatch(/pointer-events: none/);
+		// under the icons is the row they stand on — the hover tint, the arm's own tint, or
+		// the position's accent.
+		expect(actions).toMatch(/background: inherit/);
+		// ONE BOX HOLDS BOTH, so a row that carries only one of them leaves no gap where
+		// the other would have stood.
+		const controls = browser.match(
+			/\.position-restore-nav-row \.nav-row-forget,\s*\.position-restore-nav-row \.nav-row-menu\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(controls).not.toBe('');
+		// …and they say nothing until the row is pointed at.
+		expect(controls).toMatch(/opacity: 0/);
+		expect(controls).toMatch(/pointer-events: none/);
+		// THE STRIP THEY STAND IN IS NOT THERE EITHER while they are not: it lies over
+		// the age, and the age is a cell with an answer of its own (the moment behind
+		// "5m", see list.ts's fileRow) — a strip that swallowed the pointer while
+		// invisible would answer for the ROW instead, and "which file" is not what a
+		// reader pointing at a time asked.
+		expect(actions).toMatch(/pointer-events: none/);
+		// …and it comes back WITH them, on either device, so that a press landing inside
+		// it but on neither control is a MISS and not a click on the row: a finger that
+		// drifts from one control to the next has clicked neither, and what the browser
+		// clicks is their common ancestor (see RecentFilesList.actionStrip).
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-actions,\s*\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions\s*\{[^}]*pointer-events: auto/,
+		);
 
 		// The age keeps its track and gives up only its colour…
 		expect(browser).toMatch(
 			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-time\s*\{[^}]*color: transparent/,
 		);
-		// …the × arrives on the very same terms, scoped away from touch exactly as the
-		// hover tint is (a finger's tap leaves `:hover` stuck on the row it touched)…
+		// …the controls arrive on the very same terms, scoped away from touch exactly as
+		// the hover tint is (a finger's tap leaves `:hover` stuck on the row it touched)…
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-forget\s*\{[^}]*opacity: 1/,
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover \.nav-row-actions > \*\s*\{[^}]*opacity: 1/,
 		);
-		// …and on touch it simply STANDS there instead, with the age giving way to it: a
-		// finger has no hover to summon it with, and the row is the only way to drop it
-		// there — a long press raises the app's own file menu, and a view row has no file
-		// for that menu to be about (see body.ts's contextRow).
+		// …and ON TOUCH THEY ARRIVE FOR A LONG PRESS INSTEAD, which is what a hover is on
+		// a device that has none (see long-press.ts): the row carries the arm as a class of
+		// its own rather than as a state of the pointer's, because a press has to OUTLIVE
+		// the finger that made it — the reader lifts that finger to reach for what the
+		// press put on the row.
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row \.nav-row-forget\s*\{[^}]*opacity: 1/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions > \*\s*\{[^}]*opacity: 1/,
 		);
+		// …with a target a finger can hit without aiming, taken as a MINIMUM WIDTH so
+		// the icon keeps its size and only the box around it grows — and named once
+		// (--nav-action-target) so the room the row gives up cannot disagree with it.
 		expect(browser).toMatch(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row \.nav-row-time\s*\{[^}]*color: transparent/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions > \*\s*\{[^}]*min-width: var\(--nav-action-target\)/,
 		);
+		// …and WHILE THE ROW IS ARMED THE STRIP IS THE ROW'S WHOLE FAR END: as tall as
+		// the row (which clips it), and with the two controls meeting EDGE TO EDGE —
+		// the gap between them was a lane a finger fell through onto the row.
+		// (The strip is named by two rules — this one, and the one that makes it
+		// reachable — so the one being asserted here is the one that sizes it.)
+		const armedStrip = (browser.match(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-actions\s*\{[^}]*\}/g,
+		) ?? []).find(rule => rule.includes('inset-block')) ?? '';
+		expect(armedStrip).not.toBe('');
+		expect(armedStrip).toMatch(/inset-block: 0/);
+		expect(armedStrip).toMatch(/gap: 0/);
+		// …and the gutters either side of the two controls are the STRIP's own padding
+		// rather than room beside it, so a finger landing there lands in the strip —
+		// which answers nothing — and not on the row, which opens the note.
+		expect(armedStrip).toMatch(/padding-inline: 8px 4px/);
+		expect(armedStrip).toMatch(/inset-inline-end: 0/);
+		// …and an armed row says WHICH ONE it is: nothing else on a phone tints a row.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed:not\(\.is-pressed\)\s*\{[^}]*background: var\(--background-modifier-hover\)/,
+		);
+		// …and the ARMED ROW GIVES THE TWO OF THEM THE ROOM, measured from the same
+		// number the targets are: a strip painted over the row was a strip painted
+		// over the folder and the name, and two icons legible over text are two
+		// things read at once.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed\s*\{[^}]*padding-inline-end: calc\(2 \* var\(--nav-action-target\)/,
+		);
+		// …and the room is reserved WHETHER OR NOT the finger is still on the row: what
+		// gives way to a press is the arm's wash, never the space the controls stand in.
+		// A strip is painted with the row's own wash, which is a thin one (see the
+		// `background: inherit` above) — over a name that had not stepped aside it is
+		// two things read at once, and neither of them read.
+		expect(browser).not.toMatch(
+			/\.is-armed:not\(\.is-pressed\)\s*\{[^}]*padding-inline-end/,
+		);
+		// The arm takes the age's PLACE rather than standing beside it, exactly as a hover
+		// does — and NOTHING IS RESERVED while the row is not armed, so a phone, where
+		// this list is the whole of the reader's history, keeps the times the setting
+		// asked for (see recentFilesRowTime).
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed \.nav-row-time\s*\{[^}]*color: transparent/,
+		);
+		expect(browser).not.toMatch(/is-touch [^{]*\.is-file\s*\{[^}]*padding-inline-end/);
 	});
 
 	// "You are here" is a dot on the note and on the landing the current entry
@@ -328,7 +458,7 @@ describe('recent-files browser quiet tiers', () => {
 	it('tints the row under the pointer, without touching the position or a finger', () => {
 		const hover =
 			browser.match(
-				/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\)\s*\{[^}]*\}/,
+				/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\):not\(\.is-pressed\)\s*\{[^}]*\}/,
 			)?.[0] ?? '';
 		expect(hover).not.toBe('');
 		expect(hover).toMatch(/background-color: var\(--background-modifier-hover\)/);
@@ -336,6 +466,41 @@ describe('recent-files browser quiet tiers', () => {
 		// be mistaken for the row the keyboard is on.
 		expect(browser).toMatch(
 			/\.position-restore-nav-row\.is-selected\s*\{[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\) 12%/,
+		);
+	});
+
+	// A FINGER HAS NO HOVER TO GO BY, and the travel a tap asked for is a moment away
+	// and happens somewhere else — a note opening, a drawer folding away — so the press
+	// itself is the only thing a row can answer with (see list.ts's markPressed).
+	it('marks the row a press landed on, and outranks the two tints it could lose to', () => {
+		const pressed =
+			browser.match(
+				/\.position-restore-nav-panel \.position-restore-nav-row\.is-pressed\s*\{[^}]*\}/,
+			)?.[0] ?? '';
+		expect(pressed).not.toBe('');
+		// The app's own ACTIVE tint where its theme has one, so a press reads as the
+		// deeper of the two things a pointer does to a row — and where it has none the
+		// mark still lands on the hover tint rather than on nothing at all.
+		expect(pressed).toMatch(
+			/background-color: var\(--background-modifier-active, var\(--background-modifier-hover\)\)/,
+		);
+		// …NOT scoped to touch: a desktop answers a mouse with a hover already, but a
+		// button held down on a row is a press, and a hover cannot tell that from a
+		// pointer that simply happens to be there.
+		expect(pressed).not.toMatch(/is-touch/);
+		// …and it WINDOWS over both of the tints that would otherwise paint the row at
+		// the same moment: the hover's, whose pointer is on the row in either case, and
+		// the arm's, whose wash is what the row keeps once the finger has GONE.
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\):not\(\.is-pressed\)\s*\{/,
+		);
+		expect(browser).toMatch(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\.is-armed:not\(\.is-pressed\)\s*\{/,
+		);
+		// …and the POSITION'S own row deepens under a press rather than losing its
+		// accent to a neutral tint, exactly as it does under a hover.
+		expect(browser).toMatch(
+			/\.position-restore-nav-row\.is-selected\.is-pressed\s*\{[^}]*color-mix\(in srgb, var\(--interactive-accent\)/,
 		);
 	});
 
@@ -370,13 +535,103 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).not.toContain('position-restore-nav-body');
 	});
 
+	// THE DESKTOP DIALOG IS SIZED THE WAY THE APP SIZES ITS OWN answer to the same question
+	// (the quick switcher): the width its prompt takes, standing where that prompt stands, in
+	// the type its suggestions are set in. Every one of those is READ OUT OF THE APP rather
+	// than measured here, so a theme that retunes the prompt retunes this dialog with it — and
+	// so none of them can be allowed to fall back to a number of this file's own. A PHONE
+	// KEEPS ITS OWN SIZE (see the base rules these two override): a 700px dialog is a screen
+	// it cannot put away.
+	it('sizes the desktop dialog the way the app sizes its own prompt', () => {
+		const desktop =
+			browser.match(/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \{[^}]*\}/)?.[0] ?? '';
+		expect(desktop).not.toBe('');
+		// the app's own prompt width, and the closely-related `--nav-modal-top` the same
+		// rule names for the two places below to read
+		expect(desktop).toMatch(/width: var\(--prompt-width/);
+		expect(desktop).toMatch(/max-width: min\(var\(--prompt-max-width/);
+		expect(desktop).toMatch(/--nav-modal-top: 80px/);
+		// UP, AND NOT CENTRED: the container centres what it holds, so this is the dialog
+		// asking for the start of that line instead.
+		expect(desktop).toMatch(/align-self: flex-start/);
+		expect(desktop).toMatch(/margin-top: var\(--nav-modal-top\)/);
+		// A ROW IS SET IN A TIER OF THE APP'S OWN: `--nav-item-size` is the variable it sets
+		// its own nav lists in — 13px here, 15px on a phone — so the desktop asks for the
+		// phone's number rather than inventing a fourth one (see the row's own rule).
+		expect(desktop).toMatch(/--nav-item-size: var\(--font-ui-medium\)/);
+		// …and the base rule the phone answers is still its own narrow width, so nothing
+		// above can fall back onto a phone.
+		expect(browser).toMatch(/\.modal\.position-restore-nav-modal \{[^}]*width: min\(23em/);
+	});
+
+	// …and THE HEIGHT IS PINNED WHATEVER THE LIST HOLDS (see modal.ts: on a desktop `is-fixed`
+	// no longer waits for a long history). The whole reason the height is pinned is that a
+	// dialog sized by its content SHRINKS under every keystroke and drags itself back toward
+	// the middle of the window while the reader is still typing, so this is the assertion that
+	// keeps anyone from making the pin conditional on the list again. A phone keeps its own.
+	it('pins the desktop dialog\'s height so filtering cannot resize it', () => {
+		const pinned =
+			browser.match(
+				/\.modal\.position-restore-nav-modal\.is-fixed:not\(\.is-touch\) \{[^}]*\}/,
+			)?.[0] ?? '';
+		expect(pinned).not.toBe('');
+		expect(pinned).toMatch(/height: min\(var\(--prompt-max-height/);
+		expect(browser).toMatch(/\.modal\.position-restore-nav-modal\.is-fixed \{[^}]*height: min\(84vh/);
+	});
+
+	// THE DESKTOP DIALOG OPENS ON THE BOX and not on its own name standing over it: a heading
+	// spends the dialog's first row saying what the reader already asked for, and it is the
+	// one thing left between this dialog and the app's answer to the same question (a prompt
+	// is a filter box and a list, nothing above them). The name is not unset but DISPLAYED
+	// AWAY — the title going empty leaves the header its row, margin-bottom and all — and the
+	// list below still carries the string for assistive tech (see body.ts).
+	it('puts the filter box at the top of the desktop dialog', () => {
+		const header = browser.match(
+			/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \.modal-header\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(header).not.toBe('');
+		expect(header).toMatch(/display: none/);
+		// A phone KEEPS ITS NAME: the short-window rules set it aside by their own class.
+		expect(browser).not.toMatch(/\.position-restore-nav-modal \.modal-header\s*\{[^}]*display: none/);
+	});
+
+	// …and with the name goes THE × THAT STOOD BESIDE IT, rather than the dialog showing two
+	// glyphs for one act. The way out is not lost with it: in a shell that can be put away, the
+	// box's own × closes it when there is nothing typed to clear (see RecentFilesBrowser.toolbar)
+	// — one glyph doing both jobs where the app's own prompt puts it. A phone keeps the app's ×,
+	// since it keeps the name that × belongs to.
+	it('leaves one × where the app leaves one', () => {
+		const x = browser.match(
+			/\.modal\.position-restore-nav-modal\.is-dismissive:not\(\.is-touch\) \.modal-header-button,\n[^}]*\}/,
+		)?.[0] ?? '';
+		expect(x).not.toBe('');
+		expect(x).toMatch(/display: none/);
+		// Nothing else has to make room for it, then: the toolbar's own inset is left alone.
+		expect(browser).not.toMatch(/\.position-restore-nav-toolbar\s*\{[^}]*padding-inline-end: var\(--size-4-6/);
+	});
+
+	// WHERE THE PINNED ROWS STOP is a line and nothing else: a heading would spend a
+	// row's height saying what the line already says, and an icon on each pinned row
+	// has nowhere to stand — the row's far end belongs to its own controls.
+	it('ends the pinned block with a line, and names the block nowhere', () => {
+		const sep = browser.match(/\.position-restore-nav-pinned-sep\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(sep).not.toBe('');
+		expect(sep).toMatch(/border-top: 1px solid/);
+		// A line, not a row: no height of its own, no text, no icon of ours.
+		expect(sep).toMatch(/height: 0/);
+		expect(browser).not.toContain('nav-pinned-title');
+		expect(browser).not.toContain('nav-row-pin');
+	});
+
 	// A phone gets the SAME rows as a desktop — every cell, one line each — instead
 	// of the narrow-screen rule that hid the coordinate and the age and left the list
 	// saying nothing but file names. What is worth pinning is that nothing is hidden
 	// on touch, and that the row is a finger's target.
 	it('gives a phone the desktop rows, one line each and never a hidden cell', () => {
+		// The ROOM a row gives a finger, and not the first rule the selector matches —
+		// a phone's rows carry more than one (see the long press's own rule above).
 		const touch = browser.match(
-			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\s*\{[^}]*\}/,
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\s*\{[^}]*padding: 6px 8px[^}]*\}/,
 		)?.[0] ?? '';
 		expect(touch).toMatch(/padding: 6px 8px/);
 		// …and no landing gets a second line of its own: the coordinate and the
@@ -442,18 +697,46 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
+	// A line quoted out of the note (see TipContent.quotes): set off by a rule rather
+	// than by a typeface, and never clipped — a line of the note cut off in the middle
+	// says something the note never said, and this is the one thing on a landing's row
+	// the reader is reading for its own sake.
+	it('draws a quoted line as a quote, and lets it wrap', () => {
+		const quote = browser.match(/\.nav-tip-quote\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(quote).toMatch(/border-inline-start: 2px solid var\(--background-modifier-border\)/);
+		expect(quote).toMatch(/padding-inline-start: 6px/);
+		expect(quote).toMatch(/overflow-wrap: anywhere/);
+		// No line-clamp, and no max-height: the whole line is the answer.
+		expect(quote).not.toMatch(/line-clamp/);
+		expect(quote).not.toMatch(/text-overflow/);
+	});
+
+	// …and the one line a hover says ABOUT those quotes — the note has been written
+	// since they were taken — is set apart by INK and not by a rule: it is this panel
+	// speaking about the note's words, and a reader has to be able to tell the two
+	// apart at a glance. Fainter than a quote, and in the panel's own faint tier
+	// rather than --text-faint, which a theme is free to re-hue.
+	it('sets the line about the quotes apart by ink, not by a rule', () => {
+		const note = browser.match(/\.nav-tip-note\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(note).toMatch(/color: var\(--nav-faint\)/);
+		expect(note).not.toMatch(/border-inline-start/);
+	});
+
 	// The × at the end of the box, and the one rule that makes it a control rather than
 	// a mark: it is there exactly while there is something to clear, asked of the BOX's
 	// own state (`:placeholder-shown` is what an empty, unfocused or focused, filter
-	// looks like) instead of a class a listener has to keep in step.
+	// looks like) instead of a class a listener has to keep in step. A box whose × also
+	// DISMISSES the shell it stands in never has nothing for it to do, and so never
+	// hid it — see RecentFilesBrowser.toolbar.
 	it('shows the clear button only while the box has something in it', () => {
 		expect(browser).toMatch(
-			/\.position-restore-nav-search input:placeholder-shown ~ \.position-restore-nav-clear\s*\{\s*display: none/,
+			/\.position-restore-nav-panel:not\(\.is-dismissive\) \.position-restore-nav-search input:placeholder-shown ~ \.position-restore-nav-clear\s*\{\s*display: none/,
 		);
 		// …and the room it takes on the line is reserved only while it is there, so a
-		// reader typing into an empty box is not typing into a narrower one.
+		// reader typing into an empty box is not typing into a narrower one — except
+		// where the glyph stays for good, and says so with its own selector.
 		expect(browser).toMatch(
-			/input\.position-restore-nav-filter\[type='text'\]:not\(:placeholder-shown\)\s*\{[^}]*padding-inline-end: 1\.6em/,
+			/\.position-restore-nav-modal\.is-dismissive:not\(\.is-touch\) input\.position-restore-nav-filter\[type='text'\]\s*\{[^}]*padding-inline-end: 1\.6em/,
 		);
 	});
 
@@ -550,6 +833,19 @@ describe('recent-files browser quiet tiers', () => {
 		// this test exists.
 		expect(browser).not.toMatch(/\[data-type=/);
 		expect(browser).not.toContain('position-restore-nav-history');
+	});
+
+	// 6. A landing whose heading the note has LOST keeps printing the words the
+	//    record carries, struck through and down a tier — those words are the last
+	//    thing naming the spot, and what is struck is only the claim that the note
+	//    still has them (see RecentFilesList.placeRow / landingNote).
+	it('strikes the heading a note no longer has, rather than dropping it', () => {
+		const lost = browser.match(/\.position-restore-nav-row \.nav-row-trail\.is-lost \{[^}]*\}/)?.[0] ?? '';
+		expect(lost).not.toBe('');
+		expect(lost).toMatch(/text-decoration: line-through/);
+		// …two shades down from the tier a live section sits at, and still mixed out
+		// of the theme's own text rather than painted with a theme's variable
+		expect(lost).toMatch(/color: var\(--nav-faint\)/);
 	});
 
 	// A PHONE SCROLLS THE LIST WITH A FINGER, inside a pane that a finger also drags

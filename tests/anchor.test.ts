@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { outlinePathAtLine, resolveAnchorLine } from '@/position/restore/anchor';
+import { outlineHeading } from '@/nav/entry';
 
 function cache(headings: Array<[string, number] | [string, number, number]>, blocks?: Record<string, number>) {
 	return {
@@ -39,6 +40,15 @@ describe('resolveAnchorLine', () => {
 	it('resolves a ^block reference by exact id', () => {
 		const c = cache([], { '2024-01-01': 5 });
 		expect(resolveAnchorLine(c, 'note.md^2024-01-01')).toBe(5);
+	});
+
+	it('resolves a block link in the form Obsidian writes it', () => {
+		// [[note#^id]] hands over `note.md#^id`, and the `#` used to send it down the
+		// heading-slug branch, where no heading is named after a block id — so every block
+		// link missed its block and fell back to the text-snippet remap.
+		const c = cache([], { b1: 7 });
+		expect(resolveAnchorLine(c, 'note.md#^b1')).toBe(7);
+		expect(resolveAnchorLine(c, '#^b1')).toBe(7);
 	});
 
 	it('returns undefined when the heading is renamed or removed', () => {
@@ -133,5 +143,34 @@ describe('outlinePathAtLine', () => {
 	it('strips a closing hash run and inline comment from the heading text', () => {
 		expect(trail(['## Title ##'], 0)).toEqual(['Title']);
 		expect(trail(['## Title %%note%%'], 0)).toEqual(['Title']);
+	});
+});
+
+// WHAT AN OUTLINE KEY NAMES, which is asked exactly where the file cannot answer: a note
+// whose headings no longer include this one leaves these words as the only thing still
+// naming the landing (see recent-files/browser/body.ts's trailFor).
+describe('outlineHeading', () => {
+	it('reads the heading off both key forms', () => {
+		// The SOURCE form a settle upgrades to (level and exact source), and the rendered
+		// form a key has until then: one heading, one answer.
+		expect(outlineHeading('outline:## Beta')).toBe('Beta');
+		expect(outlineHeading('outline:Beta')).toBe('Beta');
+	});
+
+	it('keeps whatever the heading itself says', () => {
+		// A level is not words, and neither is the space after it — while a heading carrying
+		// its own marks is its own text.
+		expect(outlineHeading('outline:   ###  Beta ')).toBe('Beta');
+		expect(outlineHeading('outline:## 3 個步驟')).toBe('3 個步驟');
+	});
+
+	it('names nothing for a key that carries no heading', () => {
+		// A heading link's slug, a block id and a caller target are not words a row could
+		// print as its section — a row that did would be naming something else again.
+		expect(outlineHeading('note.md#beta')).toBeUndefined();
+		expect(outlineHeading('note.md#^id')).toBeUndefined();
+		expect(outlineHeading('caller:1700000000000')).toBeUndefined();
+		expect(outlineHeading('outline:')).toBeUndefined();
+		expect(outlineHeading(undefined)).toBeUndefined();
 	});
 });

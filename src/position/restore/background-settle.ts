@@ -7,29 +7,25 @@ import { RestoreModes } from './modes';
 
 // Settles background splits whose open never fired 'file-open'
 // (restart-restored tabs with BUILT views). Source-injected tabs hold an
-// unconsumed injected marker; reading and source-glide tabs are restored
-// from their saved record with no marker at all. Without this sweep, only
-// the active tab's 'file-open' corrects its landing — background tabs sit
-// at the drifted (source) or top (reading) position until first
-// activation. Iterate all markdown leaves and restore each unconsumed one
-// under its own cover, consuming its bookkeeping, WITHOUT touching the
-// active-leaf recording baseline (see RestoreModes.settleInjectedReveal /
-// the anchor-skipping background restore variants).
+// unconsumed injected marker; reading and source-glide tabs are restored from
+// their saved record with no marker at all. Without this sweep only the active
+// tab's 'file-open' corrects its landing — background tabs sit at the drifted
+// (source) or top (reading) position until first activation. Each unconsumed
+// leaf is restored under its own cover, WITHOUT touching the active-leaf
+// recording baseline (see RestoreModes.settleInjectedReveal).
 //
-// Skips: the active leaf (its own 'file-open' / completeInjectedRestore
-// owns it), in-flight restores, stale markers (handled pair moved to a
-// different file), and leaves already handled (caller-target opens, which
-// ride Obsidian's own cached position — matching the active tab's
-// behavior). Deferred leaves (no built view) keep their state and settle
-// on activation via completeInjectedRestore.
+// Skips: the active leaf (its own 'file-open' / completeInjectedRestore owns
+// it), in-flight restores, stale markers (handled pair moved to another file),
+// and leaves already handled (caller-target opens ride Obsidian's own cached
+// position, matching the active tab's behavior). Deferred leaves (no built
+// view) keep their state and settle on activation.
 export class BackgroundSettler {
 	private app: App;
 	private settings: PluginSettings;
 	private state: PositionState;
 	private store: PositionStore;
 	private modes: RestoreModes;
-	// Reentrancy guard: a pass routinely outlasts the 200ms poll (settleAndHold
-	// holds a quiet window per leaf; maskedRestore waits on the renderer), and
+	// Reentrancy guard: a pass routinely outlasts the 200ms poll, and
 	// overlapping passes would double-run settle/restoreBackground on leaves
 	// whose markers are only consumed at the end of each pass.
 	private settleInProgress = false;
@@ -42,10 +38,6 @@ export class BackgroundSettler {
 		this.modes = new RestoreModes(settings, this.state);
 	}
 
-	// Background split tabs restored at startup are BUILT (so they render)
-	// but never fire 'file-open', so only the active tab's open corrects its
-	// landing — background tabs sit at a drifted (source) or top (reading)
-	// position until first activation (see completeBackgroundRestores).
 	// Settle them under their own first-paint covers as soon as their views
 	// exist: a short bounded poll that stops when no built leaf still needs
 	// work. Deferred tabs (no built view) keep their state and settle on
@@ -65,9 +57,9 @@ export class BackgroundSettler {
 		registerCleanup(() => window.clearInterval(interval));
 	}
 
-	// Returns true when no built leaf still needs work, so the caller can stop
-	// polling; deferred leaves keep returning false until the caller's deadline.
-	// Overlapping calls return false immediately without touching any leaf.
+	// True when no built leaf still needs work, so the caller can stop
+	// polling; deferred leaves keep returning false until the deadline.
+	// Overlapping calls return false without touching any leaf.
 	async completeBackgroundRestores(): Promise<boolean> {
 		if (this.settleInProgress)
 			return false;
@@ -104,9 +96,9 @@ export class BackgroundSettler {
 				continue; // a real restore owns this leaf right now
 			const marker = this.state.injectedOpenLeafIds.has(leafId);
 			if (marker && this.state.handledLeafIdMap.get(leafId) !== filePath) {
-				// Stale marker (the leaf moved to another file after injection):
-				// the current open was not injected, nothing to settle. Consume
-				// the marker so it can't misdirect a later activation.
+				// Stale marker (the leaf moved to another file after
+				// injection): the current open was not injected. Consume the
+				// marker so it can't misdirect a later activation.
 				this.state.injectedOpenLeafIds.delete(leafId);
 				continue;
 			}
@@ -118,7 +110,7 @@ export class BackgroundSettler {
 				await this.settleBackground(view, leafId, filePath);
 			} else if (this.state.handledLeafIdMap.get(leafId) !== filePath) {
 				// Unhandled and un-injected: a reading or source-glide tab
-				// whose saved position was never applied. Restore it now.
+				// whose saved position was never applied.
 				const st = this.store.read(leafId, filePath);
 				if (!st)
 					continue;
@@ -128,10 +120,9 @@ export class BackgroundSettler {
 		return !pending;
 	}
 
-	// Settle one built background source-injected leaf's landing under its
-	// own cover and consume its marker. Bounded by the settle's own deadline;
-	// a scroll-0 (cursor-only) injection never moved the viewport, so it only
-	// reveals.
+	// Settle one built background source-injected leaf's landing under its own
+	// cover and consume its marker. A scroll-0 (cursor-only) injection never
+	// moved the viewport, so it only reveals.
 	private async settleBackground(view: MarkdownView, leafId: string, filePath: string) {
 		const st = this.store.read(leafId, filePath);
 		const isCurrent = () => view.file?.path === filePath;
@@ -156,15 +147,13 @@ export class BackgroundSettler {
 
 	// Restore one built background reading or source-glide tab from its saved
 	// record (no injected marker — the open was never covered/injected).
-	// Dispatches by view mode and the user's restore-method settings exactly
-	// like restoreMarkdown, but with the shared anchor disabled (the recording
+	// Dispatches by view mode and the restore-method settings exactly like
+	// restoreMarkdown, but with the shared anchor disabled (the recording
 	// baseline belongs to the active leaf only). Records the handled pair so a
-	// later activation / re-assert dedups instead of re-restoring.
+	// later activation dedups instead of re-restoring.
 	private async restoreBackground(view: MarkdownView, leafId: string, filePath: string, st: EphemeralState) {
 		const isCurrent = () => view.file?.path === filePath;
-		// The shared anchor is disabled for this restore (the recording
-		// baseline belongs to the active leaf only); anchorToSettledState reads
-		// the per-leaf flag and skips.
+		// anchorToSettledState reads this per-leaf flag and skips.
 		this.state.noAnchorLeafIds.add(leafId);
 		this.state.restoreStarted();
 		try {

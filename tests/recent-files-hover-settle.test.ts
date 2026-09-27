@@ -117,7 +117,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		await look();
 		expect(content.style.opacity).toBe('0');
 
-		await vi.advanceTimersByTimeAsync(1600);
+		await vi.advanceTimersByTimeAsync(700);
 
 		expect(content.style.opacity).toBe('');
 	});
@@ -163,7 +163,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 
 		settle.ask(true);
 		expect(content.style.opacity).toBe('0');
-		await vi.advanceTimersByTimeAsync(1600);
+		await vi.advanceTimersByTimeAsync(700);
 
 		expect(content.style.opacity).toBe('');
 	});

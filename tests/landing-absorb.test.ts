@@ -173,6 +173,7 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 
 		// Absorb expired: the first deliberate user move records normally.
 		state.searchAnchorUntil = Date.now() - 1;
+		state.lastUserInputAt = Date.now(); // the reader moved the cursor themselves
 		setCursor(view, 20, 0);
 		sampler.sampleActiveView();
 		expect(database.setState).toHaveBeenCalledTimes(1);

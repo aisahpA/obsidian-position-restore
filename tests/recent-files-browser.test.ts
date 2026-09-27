@@ -5,22 +5,19 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-	describeNavEntry, headingTrailAtLine, rowTrail, dropsOuterLevel, baseName, badgeOf, displayName,
+	describeNavEntry, headingTrailAtLine, headingsFromText, rowTrail, dropsOuterLevel, baseName,
+	badgeOf, displayName,
 	duplicateNames, folderOf, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
-import { groupByFile, matchesNavFilter } from '@/recent-files/browser/listing';
+import { groupByFile, matchesNavFilter, matchedContextLine } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
 import { t } from '@/i18n';
 import { NavEntry } from '@/nav/entry';
 import { NavEntryState } from '@/types';
 
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
-// A recorded landing block, as capture writes it: surrounding lines with the
-// landing at `at`.
-const block = (lines: string[], at: number): NavEntryState => ({
-	context: lines.map((text, i) => ({ line: i, text })),
-	contextAt: at,
-});
+// The lines capture recorded BELOW a landing, as capture writes them.
+const block = (lines: string[]): NavEntryState => ({ context: lines });
 
 describe('describeNavEntry', () => {
 	it('a file entry shows its name, without the extension', () => {
@@ -33,16 +30,31 @@ describe('describeNavEntry', () => {
 		expect(d.lineIndex).toBeUndefined();
 	});
 
-	it('reads the landing line from the recorded block', () => {
-		const edit = describeNavEntry({
-			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'cursor line', 'z'], 2) },
+	it('reads a jump landing line from its KEY, not from the position it recorded', () => {
+		// Every landing either list keeps was a heading jump, and the key's line is that
+		// heading as metadataCache placed it (see NavJump.keyLine) — authoritative where a
+		// scroll is a viewport top and a cursor is wherever the reader last clicked.
+		const d = describeNavEntry({
+			kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', keyLine: 17,
+			st: { scroll: 42, cursor: line(99) },
 		} as NavEntry);
-		// the landing line, not the viewport top and not the cursor
-		expect(edit.line).toBe('L3');
+		expect(d.line).toBe('L18');
 		// the same landing as a 0-based index: what the list keys a spot by, and what
 		// the section chain is looked up against
-		expect(edit.lineIndex).toBe(2);
+		expect(d.lineIndex).toBe(17);
+	});
+
+	it('reads any other step landing off the position it recorded', () => {
+		// Nothing structural to answer from: a teleport, whose own target line is the jump's,
+		// and a jump whose target has since been renamed away. The words recorded below the
+		// landing say nothing about where anything stands.
+		const edit = describeNavEntry({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'z']) },
+		} as NavEntry);
+		// the recorded viewport top, not the cursor
+		expect(edit.line).toBe('L43');
+		expect(edit.lineIndex).toBe(42);
 	});
 
 	it('a teleport whose landing never settled falls back to the recorded target line', () => {
@@ -70,6 +82,23 @@ describe('describeNavEntry', () => {
 			st: { scroll: 41, anchor: 'viewport top' },
 		} as NavEntry);
 		expect(d.line).toBe('L42');
+	});
+
+	it('calls a note by the reader’s own property, and by its file name without one', () => {
+		// `titleOf` is the vault's answer, not this model's: one property the reader
+		// named in the settings (see reads.ts). Its UNDEFINED is the file name's
+		// turn rather than an absence — a note without the property is not nameless.
+		const entry = { kind: 'visit', path: 'notes/a.md', leafId: 'leaf-1' } as NavEntry;
+		const named = describeNavEntry(entry, undefined, () => '每周回顾');
+		expect(named.name).toBe('每周回顾');
+		// …and the coordinate is the same question as ever, answered the same way.
+		expect(named.line).toBeUndefined();
+
+		const plain = describeNavEntry(entry, undefined, () => undefined);
+		expect(plain.name).toBe('a');
+		// No reader of a name at all is the ordinary case: it is what the model did
+		// before this existed.
+		expect(describeNavEntry(entry).name).toBe('a');
 	});
 
 	it('a pathless view with no name of its own falls back, and has no coordinate', () => {
@@ -469,17 +498,12 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(thino, 'thino_view')).toBe(true);
 	});
 
-	it('matches the recorded context block, not only the landing line', () => {
-		// The block is what the user was looking at when they left (see
-		// NavEntryState.context) — the whole point of recording it is that a
-		// search may hit any line of it.
+	it('matches the recorded context, any line of it', () => {
+		// The lines below the landing are what the user was looking at when they left
+		// (see NavEntryState.context) — the whole point of recording them is that a
+		// search may hit any one of them.
 		const e = visit('notes/a.md', {
-			context: [
-				{ line: 10, text: '前一段：换行与量化' },
-				{ line: 11, text: '落点这一行' },
-				{ line: 12, text: '后一段：读取死区' },
-			],
-			contextAt: 1,
+			context: ['前一段：换行与量化', '落点这一行', '后一段：读取死区'],
 		});
 		expect(matchesNavFilter(e, '读取死区')).toBe(true);
 		expect(matchesNavFilter(e, '换行 落点')).toBe(true);
@@ -502,6 +526,15 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
 	});
 
+	it('matches a visit on its anchor alone, the block being absent', () => {
+		// A visit records no context (see readNavEntryState): the one piece of the NOTE's
+		// own text it carries is the anchor — the line that stood at the viewport top. So
+		// a reader who searches a sentence they were reading finds the note, and what
+		// matched is a line no row prints.
+		const e = visit('notes/a.md', { anchor: '落点这一行' });
+		expect(matchesNavFilter(e, '落点')).toBe(true);
+	});
+
 	it('ignores a caller target key: a timestamp, not words', () => {
 		// Caller-target jumps (a search-result click) are keyed `caller:<ms>`
 		// purely to take the keyed landing regime — there is nothing in there
@@ -510,14 +543,60 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
 	});
 
-	it('matches where a plain link came from, and what it said', () => {
-		const e = {
-			kind: 'visit', path: 'b.md', leafId: 'l', t: 0,
-			via: 'link', viaPath: 'notes/来源笔记.md', viaText: 'b|另见',
-		} as NavEntry;
-		expect(matchesNavFilter(e, '来源笔记')).toBe(true);
-		expect(matchesNavFilter(e, '另见')).toBe(true);
-		expect(matchesNavFilter(e, '别的笔记')).toBe(false);
+});
+
+describe('matchedContextLine', () => {
+	const jump = (st?: NavEntryState): NavEntry =>
+		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
+	const visit = (path: string, st?: NavEntryState): NavEntry =>
+		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
+	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区']));
+
+	it('is the line that carries the whole query', () => {
+		expect(matchedContextLine(ctx, '读取死区')).toBe('后一段：读取死区');
+		// A phrase standing on one line, which is what a reader usually types.
+		expect(matchedContextLine(ctx, '后一段 死区')).toBe('后一段：读取死区');
+	});
+
+	it('falls back to the first token\'s line when the tokens are spread over the block', () => {
+		// The filter matched the block joined together (see matchesNavFilter), so
+		// no single line carries the query — and a row that then said nothing
+		// would be a row that matched by magic.
+		expect(matchedContextLine(ctx, '量化 死区')).toBe('前一段：换行与量化');
+	});
+
+	it('is undefined when the query hit none of the block', () => {
+		// A row may match on its name, its path, an alias or its section, and
+		// every one of those is either printed on the row or said on hover
+		// already.
+		expect(matchedContextLine(ctx, '没写过的词')).toBeUndefined();
+		expect(matchedContextLine(ctx, '')).toBeUndefined();
+		expect(matchedContextLine(ctx, '   ')).toBeUndefined();
+		expect(matchedContextLine(jump(), '落点')).toBeUndefined();
+	});
+
+	it('is case-insensitive, as the filter that matched it is', () => {
+		const e = jump(block(['Alpha Beta', 'gamma']));
+		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
+	});
+
+	it('quotes nothing for a visit that matched on its anchor', () => {
+		// THE CASE A READER MEETS: the row is on the list because the query matched the
+		// anchor (see the filter suite above), and the block — the only thing this answer
+		// reads — is what a visit does not carry. So the row matches and quotes nothing.
+		// Locked as it stands: the anchor is the line the restore re-finds, not a line a
+		// row shows, and a quote of it would claim a landing the reader never asked for.
+		const e = visit('notes/a.md', { anchor: '落点这一行' });
+		expect(matchesNavFilter(e, '落点')).toBe(true);
+		expect(matchedContextLine(e, '落点')).toBeUndefined();
+	});
+
+	it('quotes a visit that does carry a block: the block decides, not the kind', () => {
+		// What withholds the quote is the ABSENT BLOCK, not the kind — a visit handed one
+		// is quoted like any landing. The distinction is what keeps the case above from
+		// hardening into "a visit never quotes".
+		const e = visit('notes/a.md', { anchor: '落点这一行', ...block(['前一段：换行与量化']) });
+		expect(matchedContextLine(e, '量化')).toBe('前一段：换行与量化');
 	});
 });
 
@@ -529,22 +608,25 @@ describe('folderOf / duplicateNames', () => {
 		expect(folderOf('')).toBeUndefined();
 	});
 
-	it('reports exactly the names two paths share', () => {
-		const doubles = duplicateNames(['a/index.md', 'b/index.md', 'notes.md']);
+	// What it counts is the names as PRINTED, which the caller has already
+	// resolved: a name may come from the file or from the property the reader
+	// named, and which it was is not this question.
+	it('reports exactly the names two rows print twice', () => {
+		const doubles = duplicateNames(['index', 'index', 'notes']);
 		expect([...doubles]).toEqual(['index']);
-		expect(duplicateNames(['a.md', 'b.md']).size).toBe(0);
+		expect(duplicateNames(['a', 'b']).size).toBe(0);
 	});
 
-	it('counts two files as a collision on the name they both PRINT', () => {
+	it('counts two rows as a collision on the name they both print', () => {
 		// The collision is about what is on screen, and what is on screen is the name
 		// without its extension: "x.md" and "x.canvas" are one word twice, so the
 		// folder is printed on both. (The badge differs — that is what tells them
 		// apart once the eye is on the right pair of rows — but two rows reading "x"
 		// are still two rows a reader cannot choose between.)
-		expect([...duplicateNames(['a/x.md', 'b/x.canvas'])]).toEqual(['x']);
-		// …and the extension is not part of the name it is counted by, so one note
-		// and one directory-looking name do not collide.
-		expect(duplicateNames(['a.md']).size).toBe(0);
+		expect([...duplicateNames(['x', 'x'])]).toEqual(['x']);
+		// …and two notes that print different names do not collide, however
+		// their files are called.
+		expect(duplicateNames(['a']).size).toBe(0);
 	});
 });
 
@@ -682,6 +764,48 @@ describe('headingTrailAtLine', () => {
 	it('is empty above the first heading and without headings', () => {
 		expect(headingTrailAtLine([h('A', 1, 5)], 4)).toEqual([]);
 		expect(headingTrailAtLine(undefined, 4)).toEqual([]);
+	});
+});
+
+// …and the same reading taken out of the note's own text, which is where a row gets
+// its chain when the metadata cache has nothing to say about the note (see reads.ts):
+// a sync replaced it, or the app has not re-parsed it, and on a phone neither ends
+// when the note is opened.
+describe('headingsFromText', () => {
+	it('reads ATX headings with the line they stand on', () => {
+		expect(headingsFromText('# 面板设计\n\n## 呈现方案\n\n正文\n'))
+			.toEqual([
+				{ heading: '面板设计', level: 1, line: 0 },
+				{ heading: '呈现方案', level: 2, line: 2 },
+			]);
+	});
+
+	it('names the same section the cache names', () => {
+		// The point of the fallback: it has to be the SAME reading, or a row would say
+		// one thing while the app had not parsed the note and another once it had.
+		const text = '# A\n\n## B\n\n正文\n\n### C\n';
+		expect(headingsFromText(text)).toEqual([
+			{ heading: 'A', level: 1, line: 0 },
+			{ heading: 'B', level: 2, line: 2 },
+			{ heading: 'C', level: 3, line: 6 },
+		]);
+		expect(headingTrailAtLine(headingsFromText(text), 4)).toEqual(['A', 'B']);
+	});
+
+	it('reads no heading out of a tag, a comment or a value', () => {
+		// `#标签` is one of the app's TAGS; a `#` inside a fence is a line of somebody's
+		// shell; `title: # 1` is a frontmatter VALUE. All three were sections to a
+		// reading that split on `#`, and the row would have named a section that is not
+		// there — worse than naming none.
+		expect(headingsFromText('#标签\n')).toEqual([]);
+		expect(headingsFromText('```bash\n# 安装\n```\n')).toEqual([]);
+		expect(headingsFromText('---\ntitle: # 1\n---\n# 真的标题\n'))
+			.toEqual([{ heading: '真的标题', level: 1, line: 3 }]);
+	});
+
+	it('closes the trailing marks of the closed form, and skips a bare one', () => {
+		expect(headingsFromText('## 一 ##\n#\n'))
+			.toEqual([{ heading: '一', level: 2, line: 0 }]);
 	});
 });
 

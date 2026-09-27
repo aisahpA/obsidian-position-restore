@@ -132,10 +132,10 @@ describe('loading a stored view snapshot', () => {
 			],
 		}));
 
-		const places = loadNavPlaces(app);
+		const blob = loadNavPlaces(app);
 
-		expect(places).toHaveLength(1);
-		expect((places[0] as { state?: unknown }).state).toBeUndefined();
+		expect(blob.entries).toHaveLength(1);
+		expect((blob.entries[0] as { state?: unknown }).state).toBeUndefined();
 	});
 
 	it('reads a sound snapshot straight back, in either list', () => {

@@ -16,16 +16,31 @@ import { NavEntry } from '@/nav/entry';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
 
+// `missingViewTypes` are the ones this vault cannot build: no factory in the registry, so a tab
+// asking for one gets the placeholder pane that claims to be it (see shared/leaf). Every other
+// type answers with a factory, the way every type the app itself installed does.
+// `blocks` is a block id to its line, the shape a vault's cache carries for a `^id` target.
 export function makeApp(
 	headings?: Array<{ heading: string; level: number; position: { start: { line: number } } }>,
+	missingViewTypes: readonly string[] = [],
+	blocks?: Record<string, number>,
 ): App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } } {
+	const missing = new Set(missingViewTypes);
+	const cache = headings || blocks
+		? {
+			headings,
+			blocks: blocks && Object.fromEntries(Object.entries(blocks).map(
+				([id, line]) => [id, { id, position: { start: { line }, end: { line } } }],
+			)),
+		}
+		: null;
 	return {
 		appId: 'test-vault',
 		vault: {
 			getName: () => 'Test',
 			getAbstractFileByPath: (path: string) => Object.assign(new TFile(), { path }),
 		},
-		metadataCache: { getFileCache: () => (headings ? { headings } : null) },
+		metadataCache: { getFileCache: () => cache },
 		workspace: {
 			layoutReady: true,
 			rootSplit: { containerEl: { contains: (el: unknown) => el === 'main' } },
@@ -41,6 +56,9 @@ export function makeApp(
 			getLeaf: () => ({ setViewState: vi.fn(), detach: vi.fn() }),
 		},
 		commands: { executeCommandById: vi.fn() },
+		viewRegistry: {
+			getViewCreatorByType: (type: string) => missing.has(type) ? undefined : () => undefined,
+		},
 	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
 }
 
@@ -121,10 +139,46 @@ export function viewLeaf(
 	} as unknown as WorkspaceLeaf;
 }
 
+// A FileView that FOLLOWS the note instead of standing for one — outline, backlinks, local graph,
+// file properties — as it looks once it is in the main area (opened there by hand, or by a mobile
+// layout). It answers every question a FileView does, see shared/leaf's isFileDestination.
+export function followingLeaf(
+	id: string,
+	viewType: string,
+	file?: string,
+	opts: { label?: string; icon?: string } = {},
+): WorkspaceLeaf {
+	return {
+		id,
+		containerEl: 'main',
+		view: Object.assign(Object.create(FileView.prototype), {
+			navigation: false,
+			file: file ? { path: file } : null,
+			getViewType: () => viewType,
+			getDisplayText: () => opts.label,
+			getIcon: () => opts.icon,
+		}),
+	} as unknown as WorkspaceLeaf;
+}
+
+// A leaf restored from a saved tab whose VIEW WAS NEVER BUILT (see shared/leaf's
+// isDeferredLeaf): it answers a view's questions off the state it was saved with, and is not
+// the view's own class. Mobile comes back to the note it was last reading this way.
+export function deferredLeaf(
+	id: string,
+	state?: Record<string, unknown>,
+	viewType = 'markdown',
+	containerEl: unknown = 'main',
+): WorkspaceLeaf {
+	return {
+		id, containerEl, isDeferred: true,
+		view: { getViewType: () => viewType, getState: () => state },
+	} as unknown as WorkspaceLeaf;
+}
+
 // These tests build file-only stacks (a graph entry appears in exactly one
 // full-object equality assertion); the helpers narrow the file kinds so the
 // per-index reads stay terse.
 export const pathOf = (e: NavEntry) => (e.kind !== 'view' ? e.path : undefined);
 export const keyOf = (e: NavEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
 export const stOf = (e: NavEntry) => (e.kind !== 'view' ? e.st : undefined);
-export const viaOf = (e: NavEntry) => (e.kind === 'visit' ? e.via : undefined);

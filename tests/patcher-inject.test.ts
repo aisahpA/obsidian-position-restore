@@ -71,9 +71,11 @@ function makeHarness(
 	db: Record<string, unknown> = {},
 	lastStateByLeaf: Map<string, TabStateRecord> = new Map(),
 	layoutReady = true,
+	// Where the leaf lives decides what it is: the default is a main-area pane,
+	// and a test about a leaf hosted by a popover passes its own.
+	leaf: WorkspaceLeaf & { containerEl: ParentNode } = makeLeaf('leaf-1'),
 ) {
 	const state = new PositionState(DEFAULT_SETTINGS);
-	const leaf = makeLeaf('leaf-1');
 	const app = {
 		workspace: {
 			layoutReady,
@@ -125,6 +127,29 @@ describe('OpenPatcher open classification', () => {
 		inject(leaf, SOURCE_OPEN_A(), undefined);
 
 		expect(flushOnLeave).toHaveBeenCalledWith(leavingView, 'b.md', { scroll: 3 });
+	});
+
+	it('injects nothing into a leaf a hover popover hosts', () => {
+		// A preview that happens to be an editable pane is a preview: it opens
+		// where the app opens one. Restoring there lands the card on a line no
+		// one pointed at, and the cover that comes with it holds the card blank
+		// for as long as the settle takes.
+		const popover = document.createElement('div');
+		popover.className = 'hover-popover';
+		const host = document.createElement('div');
+		popover.appendChild(host);
+		document.body.appendChild(popover);
+		const { state, leaf, inject, recordOpen } =
+			makeHarness({ 'a.md': RECORD }, undefined, true, makeLeaf('leaf-1', host));
+
+		const result = inject(leaf, SOURCE_OPEN_A(), undefined);
+
+		expect(result).toBeUndefined();
+		expect(state.cover.isCovered(leaf)).toBe(false);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
+		// Not a pane the reader opened, so not a step in their navigation either.
+		expect(recordOpen).not.toHaveBeenCalled();
+		popover.remove();
 	});
 
 	it('a fresh open with a caller target (search match) yields and records the pair', () => {
@@ -304,42 +329,15 @@ describe('OpenPatcher open classification', () => {
 		expect(recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
 
-	it('records where a plain link came from, and keeps the step keyless', () => {
-		// A [[note]] link carries no #/^ target, so pendingLinkText stays unset:
-		// the entry must remain a keyless visit (the key regime decides restore
-		// behavior) while still remembering the note the link was clicked in.
-		const { state, leaf, inject, recordOpen } = makeHarness();
-		state.pendingViaPath = 'notes/来源.md';
-		state.pendingViaText = 'b|另见';
-
-		inject(leaf, SOURCE_OPEN_A('b.md'), undefined);
-
-		expect(recordOpen).toHaveBeenCalledWith('b.md', 'leaf-1', {
-			key: undefined,
-			force: false,
-			via: 'link',
-			viaPath: 'notes/来源.md',
-			viaText: 'b|另见',
-		});
-		// Consumed, so the next unrelated open cannot inherit the origin.
-		expect(state.pendingViaPath).toBeUndefined();
-		expect(state.pendingViaText).toBeUndefined();
-	});
-
-	it('a keyed anchor link keeps its key and carries no separate origin', () => {
+	it('a keyed anchor link keeps its key', () => {
 		const { state, leaf, inject, recordOpen } = makeHarness();
 		state.pendingLinkText = 'b.md#安装步骤';
-		state.pendingViaPath = 'notes/来源.md';
-		state.pendingViaText = 'b.md#安装步骤';
 
 		inject(leaf, SOURCE_OPEN_A('b.md'), undefined);
 
 		expect(recordOpen).toHaveBeenCalledWith('b.md', 'leaf-1', {
 			key: 'b.md#安装步骤',
 			force: false,
-			via: undefined,
-			viaPath: undefined,
-			viaText: undefined,
 		});
 	});
 });

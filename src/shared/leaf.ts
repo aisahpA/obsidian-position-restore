@@ -1,44 +1,52 @@
-import { App, View, WorkspaceLeaf } from 'obsidian';
+import { App, MarkdownView, View, WorkspaceLeaf } from 'obsidian';
 
-// Workspace-leaf helpers that are not specific to any one feature: the leaf
-// identity used as a map key by both the position state and the nav history,
-// and the "is this leaf part of the main editor area" test shared by the open
-// patches and the recent-files browser. They live here — not in nav/entry —
-// so the position core never has to depend on the navigation feature.
+// Leaf helpers shared by the position core and the nav feature. They live here
+// and not in nav/entry, so the position core never depends on navigation.
 
-// Only main-area leaves record as navigation entries. Sidebar panels
-// (outline, backlinks, local graph…) track the active file in their own
-// view state: focusing the panel (or its state re-assertion) carries that
-// file through activation/setViewState, and recording it creates a phantom
-// entry whose "leaf" is the panel — a traversal targeting it would only
-// re-focus the panel. Hover previews and pop-out windows are equally not
-// entries of this workspace.
+// Only main-area leaves record as navigation entries. A sidebar panel (outline,
+// backlinks, local graph) tracks the active file in its own view state, so
+// recording it makes a phantom entry whose traversal only re-focuses the panel.
 export function isMainAreaLeaf(app: App, leaf: WorkspaceLeaf): boolean {
-	// (rootSplit.containerEl and leaf.containerEl are runtime API absent
-	// from the public typings — same cast family as leafIdOf.)
 	const root = app.workspace.rootSplit as { containerEl?: HTMLElement } | undefined;
 	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
 	return !!root?.containerEl && !!el && root.containerEl.contains(el);
 }
 
-// A leaf's id. Runtime API, absent from the public typings — the single place
-// that knows how to read it (PositionState.leafId delegates here).
+// A real leaf hosted inside a hover popover — what a plugin that turns the
+// preview into an editable pane puts there. It is a PREVIEW, not a pane the
+// reader opened: restoring a position in one lands the card on a line nobody
+// asked to see, and the cover that comes with the restore holds it blank until
+// the settle finishes.
+export function isPopoverLeaf(leaf: WorkspaceLeaf): boolean {
+	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
+	return !!el && !!el.closest?.('.hover-popover');
+}
+
+// The markdown view SHOWING one path right now, if any — the only place a note's
+// lines can be read as the reader has it, saved or not: the editor is ahead of
+// the disk by whatever they typed.
+export function markdownViewFor(app: App, path: string): MarkdownView | undefined {
+	for (const leaf of app.workspace.getLeavesOfType('markdown')) {
+		const view = leaf.view as MarkdownView | undefined;
+		if (view?.file?.path === path && typeof view.editor?.getLine === 'function')
+			return view;
+	}
+	return undefined;
+}
+
+// A leaf's id. Runtime API, absent from the public typings — and the same cast
+// family as the one above.
 export function leafIdOf(leaf: WorkspaceLeaf): string {
 	return (leaf as unknown as { id: string }).id;
 }
 
-// The name a view gives itself — what its own tab header prints, and therefore
-// what a recent-files row standing for it says (see nav/entry's NavView.label).
-// Obsidian's getDisplayText is the app's own channel for this, so the global graph
-// answers in the app's language and a third-party view names itself without this
-// plugin having to know that plugin exists.
+// The name a view gives itself — what its own tab header prints. getDisplayText
+// is the app's own channel for it, so a third-party view names itself without
+// this plugin knowing that plugin exists.
 //
-// Empty (or absent) is NO NAME rather than an empty one: a view that never
-// overrode it has nothing to say, and the browser has its own wording for that
-// case (see recent-files/browser/model.ts's viewName). Guarded because this is a
-// foreign method called from a workspace event handler: a view that throws here
-// would take the reader's own tab switch down with it, and a row's wording is
-// never worth that.
+// Empty is NO NAME rather than an empty one: the row has its own wording for a
+// view that never named one. Guarded because it is a foreign method called from
+// a workspace event handler — a throw here would take a tab switch down with it.
 export function viewLabel(view: View | undefined): string | undefined {
 	if (!view)
 		return undefined;
@@ -50,17 +58,11 @@ export function viewLabel(view: View | undefined): string | undefined {
 	}
 }
 
-// The ICON a view gives itself, for the mark a row standing for it prints
-// (see recent-files/browser/list.ts's fileRow). Same channel and same guards as
-// the label above, for the same reasons: it is what the reader saw on the tab
-// they clicked, it names a third-party view without this plugin knowing that
-// plugin, and it is a foreign method called from an event handler.
+// The icon a view gives itself, for the mark a row standing for it prints. Same
+// channel, same guards.
 //
-// Absent is NO ICON, not a default one: a view that never named an icon leaves
-// the row to say "view" in WORDS instead, which is deliberate — an icon id the
-// app's build does not know draws an empty slot, and an empty slot says less
-// than a word does (the same reasoning as the type badge, see the stylesheet's
-// nav-row-badge note).
+// Absent is NO ICON and not a default one: an icon id the app's build does not
+// know draws an empty slot, and an empty slot says less than a word does.
 export function viewIcon(view: View | undefined): string | undefined {
 	if (!view)
 		return undefined;
@@ -72,36 +74,64 @@ export function viewIcon(view: View | undefined): string | undefined {
 	}
 }
 
-// The most a single view's state may take in this plugin's storage. Counted as
-// the serialized length (UTF-16 units) — the same number as bytes for the ASCII
-// such states are nearly always made of, and close enough either way for a
-// ceiling whose job is catching an order-of-magnitude mistake rather than
-// metering. The blob it shares storage with is a whole list of places (see
-// recent-files/places-store.ts), so a plugin that decides to keep its cache in
-// its own view state must not be able to take the list's budget with it.
+// A leaf whose VIEW HAS NOT BEEN BUILT: the workspace restores a tab as a placeholder that
+// answers a view's questions off the state it was saved with — and that placeholder is not the
+// view's own class, so `instanceof FileView` is false for a note's tab (mobile comes back to
+// one this way). Runtime-only, absent from the public typings.
+export function isDeferredLeaf(leaf: WorkspaceLeaf | null | undefined): boolean {
+	return !!(leaf as unknown as { isDeferred?: boolean } | null | undefined)?.isDeferred;
+}
+
+// Whether the app can still BUILD that view. Its factory table holds one entry per type, and a
+// type with none (a plugin switched off, uninstalled, or not loaded yet) is answered by a
+// placeholder pane that CLAIMS to be it — nothing the reader can ever return to. A read that
+// fails, or a table this build does not expose, answers "not missing": the call can only ever
+// EXCLUDE, so losing it degrades to today rather than to recording nothing at all.
+export function viewTypeIsMissing(app: App, viewType: string): boolean {
+	const registry = (app as unknown as {
+		viewRegistry?: { getViewCreatorByType?: (type: string) => unknown };
+	}).viewRegistry;
+	if (!registry?.getViewCreatorByType)
+		return false;
+	try {
+		return !registry.getViewCreatorByType(viewType);
+	} catch {
+		return false;
+	}
+}
+
+// Whether that FileView IS the note's destination. A FileView may instead FOLLOW the note it is
+// looking at — outline, backlinks, local graph, file properties — which the app records in a
+// runtime-only flag absent from the typings. Those answer every question a FileView does, so in
+// the main area only this tells them apart (see nav/funnel.ts for what recording them as the file
+// costs: a second row for a note the reader never went to).
+//
+// ONLY `false` excludes: a build that renames or drops the field reads undefined, and answering
+// "not a file" then would take every real file view with it.
+export function isFileDestination(view: View): boolean {
+	return (view as unknown as { navigation?: boolean }).navigation !== false;
+}
+
+// The file a deferred placeholder stands in for, read off the state it was restored with: the
+// tab is still that note, and recording it as a view would mint a place with no file behind it.
+export function deferredFilePath(view: View | undefined): string | undefined {
+	const file = viewState(view)?.file;
+	return typeof file === 'string' && file ? file : undefined;
+}
+
+// The most one view's state may take in storage, as serialized length. The blob
+// it shares is a whole list of places (places-store.ts), so a plugin keeping its
+// cache in its view state must not be able to take the list's budget.
 const VIEW_STATE_MAX_BYTES = 2048;
 
-// The STATE a view had while the reader was there — what a place is rebuilt with
-// when its own tab is gone (`setViewState({ type, state })`: the local graph's
-// file, a search's query, a plugin view's filters). This is the difference
-// between "the view" and "the place you went to", and it is the one thing about
-// a view that cannot be re-derived later, which is why it is recorded rather
-// than looked up (see nav/entry's NavView.state).
+// The state a view had while the reader was there — what the place is rebuilt
+// with when its tab is gone (`setViewState({ type, state })`). The one thing
+// about a view that cannot be re-derived later.
 //
-// Optional, and three gates decide that — each one a real way this can fail:
-//   - it throws: no state (see the guards above);
-//   - it is not a plain object, or serializes to nothing at all (every field
-//     undefined): no state, because only an object can be replayed;
-//   - it is over the ceiling above: no state. A place is still a place without
-//     one — the row keeps its name and the view is rebuilt at its defaults —
-//     and losing the whole list to one fat state is not a trade worth making.
-//
-// The JSON round-trip does two jobs, and the second is the one that is easy to
-// miss: it rejects what cannot be stored at all (a cyclic reference throws), and
-// it keeps a COPY. A view goes on mutating its own state object after the
-// recording; a row holding a reference to it would drift along with the view —
-// and replaying a place would then take the reader to wherever the view happens
-// to be NOW, which is the opposite of what a recorded place is for.
+// The JSON round-trip's second job is the one that is easy to miss: it keeps a
+// COPY. A view goes on mutating its own state object, and a row holding a
+// reference would drift with it — replaying the place would then take the reader
+// to wherever the view happens to be NOW.
 export function viewState(view: View | undefined): Record<string, unknown> | undefined {
 	if (!view)
 		return undefined;

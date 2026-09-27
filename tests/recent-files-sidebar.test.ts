@@ -5,8 +5,13 @@
 // landing panel, the keyboard, the travel — is covered in
 // recent-files-browser-dom.test.ts, where it is driven through the modal.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
+// …and the app's menu, reached by its own path rather than through 'obsidian' for the
+// same reason the browser's suite does (see recent-files-browser-dom.test.ts): what a
+// test reads off it — the items a view added — is the stub's registry, not the app's
+// typings.
+import { Menu } from './support/obsidian-stub';
 
 import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
@@ -59,6 +64,12 @@ function browserPrefs(
 		// the body is (see recent-files-browser-dom.test.ts); what the shell adds is the
 		// lifetime of the timer that keeps it fresh (see the test below).
 		rowTime: () => held.time,
+		// What a row calls the note: none of these tests names one, so the file's
+		// own name is what prints (see the browser suite).
+		titleProperty: () => '',
+		// Where a hover opens the note: none of these tests hovers one, and it is a
+		// question asked per hover rather than per panel (see PreviewFocusMode).
+		previewFocus: () => 'head',
 		setLandings: (how) => {
 			held.landings = how;
 		},
@@ -85,6 +96,10 @@ const place = (path: string, stamp: number, line: number): NavEntry =>
 class FakeNav {
 	entries: NavEntry[] = [];
 	index = -1;
+	// The rows the reader pinned, as the store hands them over (see
+	// NavPlaces.pinned): a test writes the array itself, which is what the
+	// right-click menu does to the store's.
+	pinned: string[] = [];
 	readonly jumped: number[] = [];
 	private listeners = new Set<() => void>();
 
@@ -123,6 +138,49 @@ class FakeNav {
 			fn();
 	}
 
+	// The pin, in miniature: `pinned` IS the block, and a change tells the listeners
+	// exactly as a removal does (see NavPlaces.afterPinChange).
+	pin(key: string): void {
+		if (!this.pinned.includes(key))
+			this.pinned.push(key);
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	unpin(key: string): void {
+		const at = this.pinned.indexOf(key);
+		if (at >= 0)
+			this.pinned.splice(at, 1);
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	movePinned(key: string, delta: number): void {
+		const at = this.pinned.indexOf(key);
+		if (at < 0)
+			return;
+		const to = Math.min(Math.max(at + delta, 0), this.pinned.length - 1);
+		if (to === at)
+			return;
+		this.pinned.splice(at, 1);
+		this.pinned.splice(to, 0, key);
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	isPinned(key: string): boolean {
+		return this.pinned.includes(key);
+	}
+
+	// The whole list, taken off at once (see NavPlaces.clear): what the real store
+	// spares is the pinned block, and the listeners hear it exactly as they hear a
+	// removal.
+	clear(): void {
+		this.entries = this.entries.filter(e => this.pinned.includes(navGroupKey(e)));
+		for (const fn of this.listeners)
+			fn();
+	}
+
 	// A step the reader made elsewhere: every browser on screen is told (see
 	// NavPlaces.changed).
 	moved(index: number): void {
@@ -139,25 +197,46 @@ class FakeNav {
 function makeApp(paths: string[] = []) {
 	const files: Record<string, TFile> = {};
 	for (const path of paths)
-		files[path] = Object.assign(new TFile(), { path });
+		// A stat, as every TFile has one: a section chain read out of the file's own
+		// text is remembered against its mtime (see reads.ts).
+		files[path] = Object.assign(new TFile(), { path, stat: { ctime: 0, mtime: 0, size: 0 } });
+	// The app's own file-menu event: a row asks the APP what it can do with the file
+	// (see RecentFilesBrowser.contextRow), and what this panel hands the app is the
+	// menu OBJECT — so it is RECORDED rather than merely swallowed. A test that wants
+	// to know who took a menu off the screen has to be able to find it again.
+	const trigger = vi.fn();
 	const app = {
 		vault: {
 			getAbstractFileByPath: (path: string) => files[path] ?? null,
 			cachedRead: async () => '',
+			// The file events the panel listens for while it stands (see body.ts's
+			// watchExistence). None is ever fired here — this suite is about the
+			// shell — so what is stubbed is only that listening costs nothing.
+			on: () => () => {},
+			offref: () => undefined,
 		},
 		metadataCache: { getFileCache: () => null },
 		workspace: {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
-			// The app's own file-menu event: a row's right-click asks the APP what it can
-			// do with the file (see RecentFilesBrowser.contextRow), and this panel is not
-			// what is being tested by it. Without an answer here the right-click tests
-			// threw out of the listener instead of asserting what they came for.
-			trigger: () => undefined,
+			// No markdown leaf is open in this file's harness: a note's lines are read
+			// off the disk here, if they are read at all (see now-line.ts).
+			getLeavesOfType: () => [],
+			trigger,
 		},
 	};
-	return app as never;
+	return { app: app as never, trigger };
 }
+
+// A mounted panel owns two timers — the five-minute tick, and the redraw a late
+// reading owes — and closing it is what stops them. Left open, one fires after
+// the environment it was drawn in is gone.
+const mounted: RecentFilesView[] = [];
+
+afterEach(async () => {
+	while (mounted.length)
+		await mounted.pop()?.onClose();
+});
 
 async function mount(
 	entries: NavEntry[],
@@ -171,12 +250,13 @@ async function mount(
 	const nav = new FakeNav();
 	nav.entries = entries;
 	nav.index = index;
-	const app = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
+	const { app, trigger } = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
 	// jsdom lays nothing out, so the pane reports width 0 — which is the INLINE
 	// presentation, the one that needs no second column (see RecentFilesView.measure).
 	const view = new RecentFilesView(leaf, nav as never, () => undefined, prefs);
 	await view.onOpen();
+	mounted.push(view);
 	// The view's OWN container and content elements: what the pane hands the
 	// panel, and what Obsidian asks the view to build in.
 	const el = view.containerEl;
@@ -185,7 +265,7 @@ async function mount(
 	// The listbox itself: what the pointer events that decide whether the list is
 	// being READ arrive on (see RecentFilesBrowser.freezeOrder).
 	const list = () => el.querySelector<HTMLElement>('.position-restore-nav-list')!;
-	return { view, el, nav, rows, names, list };
+	return { view, el, nav, rows, names, list, trigger };
 }
 
 describe('RecentFilesView — the resident panel', () => {
@@ -395,6 +475,41 @@ describe('RecentFilesView — the resident panel', () => {
 			Platform.isMobile = wasMobile;
 		}
 		expect(nav.jumped).toHaveLength(2);
+	});
+
+	it('takes the menu it raised off the screen before it folds the drawer away', async () => {
+		// The menu stands on the DOCUMENT and not in this panel's element, and it is the
+		// app's: what the app takes one off the screen for is a click outside it, an
+		// item chosen on it, or Escape. Folding a drawer is none of those, so a panel
+		// that steps out of the reader's way has to take its own menu with it (see
+		// RecentFilesBrowser.closeMenu).
+		const wasMobile = Platform.isMobile;
+		// …and the row's menu control is a PHONE's (see RecentFilesList.menuControl),
+		// which is decided while the panel is being mounted.
+		Platform.isMobile = true;
+		try {
+			const { el, trigger, view } = await mount(
+				[visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1);
+			const pane = drawer();
+			(view.leaf as unknown as { parent?: unknown }).parent = pane;
+			const click = (on: HTMLElement) =>
+				on.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			const row = Array
+				.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
+				.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
+
+			click(row.querySelector<HTMLElement>('.nav-row-menu')!);
+			const menu = trigger.mock.calls[0][1] as { closed: boolean };
+			expect(menu.closed).toBe(false);
+
+			// …and then the reader travels, and the drawer folds.
+			click(row);
+
+			expect(pane.collapsed).toBe(true);
+			expect(menu.closed).toBe(true);
+		} finally {
+			Platform.isMobile = wasMobile;
+		}
 	});
 
 	it('travels even when the shell\'s reaction throws', async () => {
@@ -695,6 +810,69 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		// that nothing is left POINTED at (see RecentFilesList.collapse).
 		expect(places()).toBe(2);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
+	});
+});
+
+// The TAB's own menu: the app raises it for a right-click on the tab and hands it to
+// the view to fill in (see RecentFilesView.onPaneMenu), so what the panel owes is an
+// ITEM rather than a surface of its own — and the one item it adds is about the LIST,
+// where everything the app puts there is about the PANE.
+//
+// The menu the app hands over is the app's own class; the one a test can read items
+// off is the stub's, and the two meet in one cast, as they do everywhere else in this
+// file (see `nav as never` in mount).
+const menuFor = (view: RecentFilesView) => {
+	const menu = new Menu();
+	view.onPaneMenu(menu as never);
+	return menu;
+};
+
+describe('RecentFilesView — the tab’s own menu', () => {
+	it('offers the whole list to be cleared, and leaves the pinned block standing', async () => {
+		// The list as the store holds it — OLDEST FIRST, the order a real history is
+		// built in (see NavPlaces.remember) — and as the panel draws it, newest first
+		// under the pinned block.
+		const { view, el, nav, names } = await mount([
+			visit('c.md', NOW - 2 * MINUTE),
+			visit('b.md', NOW - MINUTE),
+			visit('a.md', NOW),
+		], 2);
+		nav.pin('a.md');
+		expect(names()).toEqual(['a', 'b', 'c']);
+
+		const menu = menuFor(view);
+
+		expect(menu.items).toHaveLength(1);
+		expect(menu.items[0].title).toBe(t('recentFiles.clearList'));
+		// 'action' is where the app sorts a view's own items ahead of its own (see
+		// body.ts's contextRow).
+		expect(menu.items[0].section).toBe('action');
+
+		// Chosen: everything the list remembered BY ITSELF goes — b and c — and the pin
+		// stands. The panel heard it through its subscription rather than being asked:
+		// a resident panel is drawn from the list as it stands (see hearPlaces).
+		menu.items[0].click?.();
+
+		expect(names()).toEqual(['a']);
+		expect(el.querySelectorAll('.position-restore-nav-row')).toHaveLength(1);
+	});
+
+	it('offers nothing to clear where a clear would take nothing off', async () => {
+		// An item that would empty nothing is worse than an item that is not there
+		// (see body.ts's pinItems), and a list of pins alone is already what a clear
+		// leaves behind.
+		const { view, nav } = await mount([visit('a.md', NOW)], 0);
+		nav.pin('a.md');
+
+		expect(menuFor(view).items).toEqual([]);
+	});
+
+	it('offers nothing to clear on a list that holds nothing at all', async () => {
+		// A panel opened before the reader has been anywhere: the menu is the app's,
+		// and this panel puts nothing on it.
+		const { view } = await mount([], -1);
+
+		expect(menuFor(view).items).toEqual([]);
 	});
 });
 

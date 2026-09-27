@@ -134,6 +134,99 @@ body.is-mobile .position-restore-cue {
 	max-width: min(23em, 94vw);
 }
 
+/* THE DESKTOP DIALOG IS SIZED THE WAY THE APP SIZES ITS OWN ANSWER to the same question —
+   the quick switcher. Every number below is therefore READ OUT OF THE APP rather than
+   measured here: `--prompt-width` is what its prompt takes (700px, capped at 80vw),
+   `--nav-modal-top` where that prompt stands, `--prompt-max-height` how tall it may grow,
+   `--font-ui-medium` the type its suggestions are set in. A theme that retunes any of them
+   retunes this dialog with it, and a number of ours would have been a second answer to a
+   question the app already answered.
+   A PHONE IS LEFT ALONE (`is-touch`): the width above stays its own. */
+.modal.position-restore-nav-modal:not(.is-touch) {
+	--nav-modal-top: 80px;
+	width: var(--prompt-width, 700px);
+	max-width: min(var(--prompt-max-width, 80vw), 94vw);
+	/* UP, AND NOT CENTRED: the container centres its child vertically, so asking for the
+	   START of that line is what puts the dialog where the app's own prompt stands — a
+	   question asked of a note the reader is already looking at. */
+	align-self: flex-start;
+	margin-top: var(--nav-modal-top);
+	/* A ROW IS SET IN THE TIER THE APP SETS ITS OWN LISTS IN, asked for the tier it gives
+	   them on a PHONE rather than a fourth number of ours: `--nav-item-size` is 13px here
+	   and 15px there (see the fallback in the row's own rule). This dialog is twice the
+	   width of the sidebar panel it shares its rows with, and it is read from further off. */
+	--nav-item-size: var(--font-ui-medium);
+}
+
+/* …and THE HEIGHT THE READER TYPES AGAINST, pinned on a desktop whatever the list holds
+   (see modal.ts): the alternative is a dialog that shrinks under every keystroke and drags
+   itself back toward the middle as the filter narrows the results. `100vh` less the top
+   inset is what keeps the foot off the window in a SHORT window, where 70vh alone would
+   overhang it. */
+.modal.position-restore-nav-modal.is-fixed:not(.is-touch) {
+	height: min(var(--prompt-max-height, 70vh), calc(100vh - var(--nav-modal-top) - 24px));
+}
+
+/* THE ROW'S SHARE of that step up: its own RIB of padding — the app's two numbers for a
+   suggestion (`--size-2-3`, `--size-4-3`), which is what the row is being compared with —
+   and the fine print one tier behind its text rather than two, or a 15px name is read over
+   a 12px folder. */
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row {
+	padding: 6px 12px;
+}
+
+/* …and the row's own controls come off the edge WITH the row's own inset, rather than
+   standing 4px off it as they do in the narrow panel. */
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-actions {
+	inset-inline-end: 10px;
+}
+
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-path,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-time,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-pos,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-line,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-trail,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-here,
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-empty {
+	font-size: var(--font-ui-small);
+}
+
+/* A NAME MAY BE AS LONG AS IT IS: the 20em cap was written against a third of this
+   width, and every name past it was cut with two thirds of the line standing empty. */
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-name {
+	max-width: 34em;
+}
+
+/* THE BOX ANSWERS WITH ROOM AND NOT WITH A HEAVIER RULE — it stays one underline the
+   caret sits on (see the toolbar below). The pad above the caret is what a 15px line
+   wants; the pad BELOW is left alone, and deliberately so: it is what the × measures
+   its own place on the line from (see the clear button below). */
+.position-restore-nav-modal:not(.is-touch) input.position-restore-nav-filter[type='text'] {
+	font-size: var(--font-ui-medium);
+	padding-top: 8px;
+}
+
+/* WHAT THE DESKTOP DIALOG OPENS ON IS THE BOX ITSELF: its own name goes, the way the app's
+   answer to this same question carries no heading — a quick switcher is a filter box and a
+   list, nothing standing over them. `display: none` and not an empty title, because the
+   header keeps its own row either way (see its margin-bottom). The dialog is still NAMED
+   for assistive tech: the list below carries the same string (see body.ts). Nothing below
+   needs lifting with it — the dialog's own padding and the box's pad come to the 24px the
+   app gives its own prompt box. */
+.modal.position-restore-nav-modal:not(.is-touch) .modal-header {
+	display: none;
+}
+
+/* …and THAT HEADER WAS WHAT STOOD BETWEEN THE APP'S × AND EVERYTHING ELSE — so rather than give
+   the dialog's corner up to a second glyph, THAT × GOES and the box's own takes both jobs: it
+   empties a box with a query in it, and closes the dialog with none (see RecentFilesBrowser
+   .toolbar), which is the one-stop trade the app's own prompt makes. A phone keeps both its name
+   and the × beside it, having no such corner to share. */
+.modal.position-restore-nav-modal.is-dismissive:not(.is-touch) .modal-header-button,
+.modal.position-restore-nav-modal.is-dismissive:not(.is-touch) .modal-close-button {
+	display: none;
+}
+
 /* This panel's two quiet tiers, defined on the shell both forms share and used by
    every rule below in place of --text-faint / --text-muted. Those two are ordinary
    theme variables: a theme may re-hue them to anything, and then the QUIETEST tier
@@ -151,6 +244,19 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-panel {
 	--nav-muted: color-mix(in srgb, var(--text-normal) 88%, transparent);
 	--nav-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
+	/* WHAT A FINGER HAS TO LAND IN: the width of ONE of the row's controls on a
+	   touch device, and — twice over — the room the armed row gives up for them
+	   (see the armed row below). ONE NUMBER, because the room and the target are
+	   the same measurement taken from opposite ends: reserve less than the two
+	   controls take and they stand on the name again, which is what a strip
+	   painted over the row did.
+
+	   Smaller than the app's own --touch-size-m (44px), which wraps an icon in so
+	   much air that two of them read as two separate buttons with a lane between
+	   them; 36px keeps the pair a PAIR, and is still a box a thumb lands in
+	   rather than a glyph it has to aim at — the row's whole height is behind it
+	   besides (see `align-self: stretch`). */
+	--nav-action-target: 36px;
 	/* THE PANEL OWNS ITS TOOLTIPS, and this is how it says so. The app hangs a tooltip
 	   off every element that carries an `aria-label` (see its own tooltip listener),
 	   and an accessible name is not a hover hint: the listbox is named "Recent files"
@@ -225,6 +331,15 @@ body.is-mobile .position-restore-cue {
 	-webkit-overflow-scrolling: touch;
 }
 
+/* WHERE THE PINNED ROWS STOP. A LINE and nothing else: a heading would spend a
+   row's height saying what the line already says, and an icon on each row has
+   nowhere to stand — the row's far end belongs to its own controls. */
+.position-restore-nav-pinned-sep {
+	height: 0;
+	margin: 5px 8px 6px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
 /* Toolbar above the list: the filter box and the keyboard hint — the strip holds
    nothing else now that the panel's own settings are rows of the plugin's settings
    tab (see RecentFilesBrowserPrefs). A deliberately QUIET strip — the list below is what
@@ -279,8 +394,10 @@ body.is-mobile .position-restore-cue {
 
 /* Room for the × at the end of the line, and ONLY while there is a × there: the
    reserved strip appears with what has to be cleared, so a reader typing into an
-   empty box keeps the full width and the text never runs under the glyph. */
-.position-restore-nav-panel input.position-restore-nav-filter[type='text']:not(:placeholder-shown) {
+   empty box keeps the full width and the text never runs under the glyph. Where that
+   × never leaves (a shell it dismisses — see above), the room is kept for good. */
+.position-restore-nav-panel input.position-restore-nav-filter[type='text']:not(:placeholder-shown),
+.position-restore-nav-modal.is-dismissive:not(.is-touch) input.position-restore-nav-filter[type='text'] {
 	padding-inline-end: 1.6em;
 }
 
@@ -326,8 +443,10 @@ body.is-mobile .position-restore-cue {
 
 /* There is nothing to clear, and the control says so by not being there: an empty box
    shows its placeholder, which is the state the reader can SEE (see the note above the
-   button in body.ts). No class, no listener, and nothing to keep in step. */
-.position-restore-nav-panel .position-restore-nav-search input:placeholder-shown ~ .position-restore-nav-clear {
+   button in body.ts). No class, no listener, and nothing to keep in step.
+   `is-dismissive` is what takes it out of that rule: in a shell the × closes, an empty box
+   still has work for it, and the glyph is what stands between the reader and the way out. */
+.position-restore-nav-panel:not(.is-dismissive) .position-restore-nav-search input:placeholder-shown ~ .position-restore-nav-clear {
 	display: none;
 }
 
@@ -383,9 +502,36 @@ body.is-mobile .position-restore-cue {
    Scoped away from touch, by the same class the panel's own layout reads (see
    `is-touch`): a finger's tap leaves `:hover` stuck on whatever it last touched, so
    without this a row stays tinted after the finger is gone — a mark for a pointer that
-   is not there. */
-.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover:not(.is-selected) {
+   is not there.
+   Left out for a row being PRESSED (see .is-pressed below): a press and a hover are
+   the same pointer on the same row, and the press is the louder of the two, so the
+   tint the press asks for has to be free to win. */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover:not(.is-selected):not(.is-pressed) {
 	background-color: var(--background-modifier-hover);
+}
+
+/* THE PRESS ITSELF, which on a phone is the ONLY thing a row can answer a finger
+   with: nothing hovers on a device that has no pointer, and the travel the tap asked
+   for is a moment away and happens somewhere else — a note opening, a drawer folding
+   away (see list.ts's markPressed, and PANEL_EXIT_GRACE_MS) — so until it does, the
+   row says "this one" by taking the tint a hover would have given it, and keeps it
+   for as long as the row is still on screen.
+   DEEPER than that tint where the theme has one, so that a press is not mistaken for
+   the arm's own wash (see .is-armed below), which is the same question a moment
+   later: an arm is what a press becomes when the finger rests.
+   NOT scoped to touch: a desktop's hover already says which row the pointer is on,
+   but a mouse that is DOWN on a row is a press too, and a button held on a row that
+   answered nothing is the one case a hover cannot tell apart from a miss. */
+.position-restore-nav-panel .position-restore-nav-row.is-pressed {
+	background-color: var(--background-modifier-active, var(--background-modifier-hover));
+}
+
+/* …and the POSITION'S OWN ROW deepens under a press exactly as it does under a hover:
+   the accent wash is the louder statement, and a press that replaced it with the
+   neutral tint would take the reader's own place off the screen at the moment they
+   touched it. */
+.position-restore-nav-row.is-selected.is-pressed {
+	background-color: color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }
 
 /* THE POSITION: the row the reader is on, whichever hand put them there — a click
@@ -444,22 +590,34 @@ body.is-mobile .position-restore-cue {
 	box-shadow: inset 2px var(--background-modifier-border);
 	/* …and it does NOT clip: the ● of "you are here" hangs off the coordinate's START
 	   edge, into the indent this row is set in, and a clip at the row's edge would cut
-	   the marker in half (see .nav-row-here). Nothing here overflows of its own
+	   the 	   marker in half (see .nav-row-here). Nothing here overflows of its own
 	   account — the coordinate is sized to its label and the section is what
 	   ellipsizes — so the clip guarded nothing on this row. */
 	overflow: visible;
 }
 
-/* The note cell: what the row names itself with — the NAME, the type BADGE, and the
-   folder — on one line until it does not fit, and on two when it does not. It takes
-   the row's slack, because the name is what a row that is too narrow gives up first
-   (it ellipsizes; the marks beside it do not).
+/* …and WITH an age the row is three tracks: the coordinate, the section, and the age
+   at the far end — the very column a note's row puts its own age in (see
+   .is-file.is-timed), so the two kinds of row end their times on one x and the list
+   reads as one column of times whatever the row stands for. The SECTION is what gives
+   way, as it does without the age: a coordinate and a time are both short and both
+   are what a reader compares, while the section is the one thing that can be cut
+   short and still name its place. */
+.position-restore-nav-row.is-place.is-timed {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+/* The note cell: what the row names itself with — the name and its mark as ONE
+   piece, and the folder — on one line until it does not fit, and on two when it
+   does not. It takes the row's slack, because the name is what a row that is too
+   narrow gives up first (it ellipsizes; the marks beside it do not).
 
    WHERE it breaks is the reader's setting and not this rule's: the folder's `order`
    below decides which half is laid out first, and the line then wraps after it, so
    the other half is what drops (see PathDisplayMode). Nothing here measures
    anything — a row that fits is one line and a row that does not is two, at whatever
-   width the pane happens to be. */
+   width the pane happens to be. WHAT drops is the folder or the name-with-its-mark,
+   never a mark on its own (see .nav-row-head). */
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
@@ -472,21 +630,34 @@ body.is-mobile .position-restore-cue {
 	column-gap: 0.5em;
 }
 
-/* The type, where the type is worth saying at all (see badgeOf): a boxed label in
-   the faint tier, so it reads as an annotation ON the name rather than as part of
-   it. Text with a border and not an icon — an icon name the app's build does not
-   have draws an empty slot, which is worse than no badge at all. */
-.position-restore-nav-row .nav-row-badge {
+/* THE NAME AND ITS MARK, as one piece (see RecentFilesList.fileRow): this box does
+   NOT wrap — it is the one thing in the cell that would rather be cut in two than
+   moved, because a type printed on a line of its own stops saying what it is a type
+   OF. Being one flex item, it is also one thing for the cell above to break after:
+   a narrow row puts the FOLDER on the second line and keeps these two together.
+   It shrinks (min-width: 0) so that the NAME inside it is what ellipsizes — the mark
+   keeps its own width, see .nav-file-tag below. */
+.position-restore-nav-row .nav-row-head {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: nowrap;
+	min-width: 0;
+	/* Between the name and the mark, the same gap the cell uses between its halves. */
+	column-gap: 0.5em;
+}
+
+/* The type, where the type is worth saying at all (see model.ts's badgeOf): the
+   app's OWN tag class, the one the file explorer puts beside a file's name, so the
+   mark needs no drawing of ours — and a theme that restyles the app's tags restyles
+   this one, which a look of our own could never be. Two things come with that class
+   which are right for the explorer and wrong here, and both are taken back:
+   `margin-inline-start: auto`, which in the explorer pushes the tag to the FAR END of
+   its line (there it stands for the whole row; here it belongs to a name), and a
+   shrinkable box — a tag squeezed below its own text reads "PD / F", and the NAME is
+   the half that gives way (see .nav-row-name). */
+.position-restore-nav-row .nav-file-tag {
+	margin-inline-start: 0;
 	flex: 0 0 auto;
-	padding: 0 0.35em;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	color: var(--nav-faint);
-	font-size: var(--font-ui-smaller);
-	line-height: 1.5;
-	max-width: 10ch;
-	overflow: hidden;
-	text-overflow: ellipsis;
 }
 
 /* A view row's mark: the icon the view itself uses, the one its tab header showed
@@ -522,13 +693,33 @@ body.is-mobile .position-restore-cue {
 
 /* WHICH HALF GIVES WAY. A flex line wraps at the end it is laid out in, so the item
    ordered LAST is the one that ends up on the second line. Ordered first, the folder
-   keeps the line and the NAME drops below it — the quick switcher's shape, the whole
-   path with the file name last. Without the order, the folder is last in the DOM and
+   keeps the line and the NAME drops below it — one long line, the whole path read
+   before the note's own name. Without the order, the folder is last in the DOM and
    the FOLDER drops: the name stays in the left column and the path becomes a second
-   line under it. The DOM order is the same either way (name, badge, folder), so this
-   one declaration is the whole of the difference between the two "always" modes. */
+   line under it. (The app's quick switcher is that second shape, though not by
+   wrapping one line — it gives the path a row of its own under the title, see its
+   .suggestion-note.) The DOM order is the same either way (the name's own box, then the
+   folder), so this one declaration is the whole of the difference between the two
+   "always" modes. */
 .position-restore-nav-row.is-file.is-path-before .nav-row-path {
 	order: -1;
+}
+
+/* THE WIDE DIALOG LETS A LONG PATH WRAP instead of cutting it off: in a box this roomy an
+   ellipsis removes the answer to the question the row exists to answer (which note is this),
+   and the row has the lines to spend. WHERE the folder stands is not this rule's to say —
+   the reader picked a side and this obeys it (see the order above) — only whether the path
+   may be TALLER THAN A LINE is. The app wraps the same text in its own suggestions.
+   Scoped to the dialog and off touch: it is WIDTH talking, and a narrow panel has none. */
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row .nav-row-path {
+	/* The row sets `nowrap` for itself; this takes it back for the one cell that may wrap. */
+	white-space: normal;
+	overflow-wrap: break-word;
+	overflow: visible;
+	text-overflow: clip;
+	/* …and PRINTED IN FRONT OF THE NAME rather than faintly behind it, the faintest tier is
+	   too quiet to read: one step up, still clearly under the name's own. */
+	color: var(--nav-muted);
 }
 
 /* HOW LONG AGO the note was last visited (see model.ts's ageLabel). It never
@@ -544,17 +735,22 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* THE ROW'S OWN REMOVAL — the × over the row's far end, and the only control this list
-   draws (see RecentFilesList.fileRow). It is OUT OF THE FLOW, and that is the whole of
-   why it may exist: laid out inside the row, it would take its width from the name and
-   the row would move under the pointer that summoned it — the one thing this list never
-   does (see the hover rule above) — and it would be a second thing the pointer can be
+/* THE ROW'S OWN CONTROLS — its removal, and on a phone its second act (see
+   RecentFilesList.fileRow) — over the row's far end, and the only controls this list
+   draws. They are OUT OF THE FLOW, and that is the whole of why they may exist: laid
+   out inside the row, they would take their width from the name and the row would
+   move under the pointer that summoned them — the one thing this list never does
+   (see the hover rule above) — and they would be a second thing the pointer can be
    aiming at on the gesture a reader makes a thousand times.
-   It says nothing until the pointer is on the row: a reader aiming at a row is not
+   ONE BOX HOLDS BOTH, and the box is what is placed: two boxes each placed of its
+   own would have to be told apart by the width each happens to take, and a row that
+   carries only one of them would leave the other's strip standing empty.
+   They say nothing until the row is pointed at: a reader aiming at a row is not
    asking what can be done with it.
-   `background: inherit` is what keeps it seamless — the strip under the icon is painted
-   with the row's own wash (the hover tint, or the position's accent), so the × looks
-   like part of the row rather than a patch laid over it.
+   `background: inherit` is what keeps it seamless — the strip under the icons is
+   painted with the row's own wash (the hover tint, the arm's own tint, or the
+   position's accent), so a control looks like part of the row rather than a patch
+   laid over it.
 
    ITS INK IS STATED HERE, and not left to the skin the element already carries. It
    is built with the app's own icon class (`clickable-icon`, see list.ts), and that
@@ -571,19 +767,36 @@ body.is-mobile .position-restore-cue {
    still a mark ON the row rather than a second thing to read on it. Deepening the
    ink is also what the × deserves over the label it replaces: that label is an
    annotation, and this is the one control in the list. */
-.position-restore-nav-row .nav-row-forget {
+.position-restore-nav-row .nav-row-actions {
 	position: absolute;
 	inset-inline-end: 4px;
 	top: 50%;
 	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	background: inherit;
+	/* THE STRIP IS THE CONTROLS', and while there are none on screen it is not there
+	   either: it stands over the AGE, which is a cell of the row with something of
+	   its own to say — the moment behind "5m", one hover away (see list.ts's
+	   fileRow). A strip that swallowed the pointer while invisible would answer for
+	   the row instead, and "which file" is not what a reader pointing at a time
+	   asked. It becomes reachable again with the controls themselves (see the rule
+	   below), and for the same reason: a hit inside the strip is a hit on a control,
+	   or it is a miss. */
+	pointer-events: none;
+}
+
+.position-restore-nav-row .nav-row-forget,
+.position-restore-nav-row .nav-row-menu {
+	display: flex;
+	align-items: center;
 	justify-content: center;
 	padding: 1px;
 	border-radius: var(--radius-s);
-	background: inherit;
-	--nav-forget-ink: var(--nav-muted);
-	color: var(--nav-forget-ink);
+	--nav-action-ink: var(--nav-muted);
+	color: var(--nav-action-ink);
 	--icon-size: var(--icon-xs);
 	opacity: 0;
 	pointer-events: none;
@@ -599,9 +812,9 @@ body.is-mobile .position-restore-cue {
    carrying the stroke width as an ATTRIBUTE of its own does not take the value
    from the element above it — inheritance only fills in what nothing states — so a
    width written on the root alone is a width the lines never see. */
-.position-restore-nav-row .nav-row-forget svg,
-.position-restore-nav-row .nav-row-forget svg * {
-	color: var(--nav-forget-ink);
+.position-restore-nav-row .nav-row-actions svg,
+.position-restore-nav-row .nav-row-actions svg * {
+	color: var(--nav-action-ink);
 	stroke: currentColor;
 	stroke-width: 2.25;
 }
@@ -614,7 +827,7 @@ body.is-mobile .position-restore-cue {
    reason the row's own hover tint is: a finger's tap leaves `:hover` stuck on the
    last thing it touched. */
 .position-restore-nav-panel:not(.is-touch) .position-restore-nav-row .nav-row-forget:hover {
-	--nav-forget-ink: var(--text-normal);
+	--nav-action-ink: var(--text-normal);
 	background-color: var(--background-modifier-hover);
 }
 
@@ -628,24 +841,124 @@ body.is-mobile .position-restore-cue {
 	color: transparent;
 }
 
-.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-forget {
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-actions > * {
 	opacity: 1;
 	pointer-events: auto;
 }
 
-/* A FINGER HAS NO HOVER TO SUMMON IT WITH, so on touch the × simply stands — the row is
-   the only way to drop it there, since a long press raises the app's own file menu and a
-   view row has no file for that menu to be about (see body.ts's contextRow). The age
-   gives way to it for the same reason and by the same means as above: one far end, one
-   thing printed on it. */
-.position-restore-nav-panel.is-touch .position-restore-nav-row .nav-row-forget {
+/* …and the STRIP answers with them, on either device and only while they are on
+   screen: a press that landed inside it but on NEITHER control was a MISS, and a miss
+   opens nothing. This is not a nicety. Two small targets side by side are missed by a
+   finger that drifts — and a finger that drifts off one of them and onto the other has
+   clicked neither: the browser hands the click to their nearest common ancestor, which
+   without this rule is the ROW, so a reader aiming at a control would be sent to the
+   note instead (see RecentFilesList.actionStrip, which stops what lands here). */
+.position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-actions,
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions {
+	pointer-events: auto;
+}
+
+/* A LONG PRESS ON A ROW IS NOT A SELECTION. On a touch device the press is this
+   panel's own gesture (see long-press.ts), and the platform's answer to a finger
+   resting on text — a selection callout, or a magnifier — would be a second thing
+   happening under the reader's finger while they are waiting for the row to answer it.
+   Nothing on a row is text worth copying either: it is a name, shortened, and the
+   whole of it is one long press away (see tip.ts's speak). */
+.position-restore-nav-panel.is-touch .position-restore-nav-row {
+	-webkit-touch-callout: none;
+	user-select: none;
+}
+
+/* ON A TOUCH DEVICE THE LONG PRESS IS THE HOVER: what a pointer coming to rest on a
+   row is on a desktop, a finger stopping on one is here (see long-press.ts), and the
+   row answers with the same two things — its controls, and the words it cannot print
+   (see tip.ts's speak). The ONE difference is how long the reader is entitled to
+   them: a hover is over the moment the pointer moves on, while a long press has to
+   OUTLIVE the finger that made it, because the reader lifts that finger in order to
+   reach for what the press put on the row. So the arm is a class the row carries
+   rather than a state of the pointer's, and it comes off only when the reader does
+   something else (see RecentFilesList.disarm).
+
+   THE × STILL TAKES THE AGE'S PLACE rather than standing beside it, exactly as it
+   does under a hover: both are the row's far end, and a × drawn over a timestamp
+   leaves the two of them half-legible. Only the label's COLOUR goes, so the track it
+   stands in keeps its width and nothing moves as the two swap — which is the same
+   reason the controls are out of the flow in the first place.
+
+   THE ARMED ROW GIVES THEM THE ROOM, and only the armed row: what is reserved is
+   two targets' worth of the row's own far end, so the icons stand beside the name
+   rather than on top of it. A strip painted over a row is a strip painted over
+   whatever the row was printing there — the folder, and then the name — and two
+   icons legible over text are two things read at once and neither of them read.
+   Nothing is reserved while the row is NOT armed, which is what lets the age have
+   the row's far end to itself (see the rowTime setting): a control that only ever
+   exists on one row at a time does not need a strip of every row kept empty for it.
+   Reserving one on every row was the arrangement this replaces — and it silenced
+   the one setting that puts a time on every row, on the one device where this list
+   IS the reader's history.
+
+   TWO CONTROLS WHERE A DESKTOP HAS ONE, and they are the two things THIS panel knows
+   about a row and the app does not: take it off the list, and open the place the row
+   stands for one tab over (see list.ts's newTabControl — on a desktop that one is the
+   first item of the row's menu). A FINGER-SIZED TARGET each, and not an icon-sized
+   one: a hand that has already held still for half a second is not a hand to make
+   aim, and an icon 16px wide is a target a thumb slides off — which is worse than
+   missing it, because what the thumb lands on is the row (see the rule below).
+   An ARMED row that is still being pressed gives its WASH to the press (see .is-pressed
+   above) — the two are one gesture half a second apart, and the wash is what the row
+   keeps AFTER the finger has gone. It does NOT give up the room: a strip painted over a
+   name that had not stepped aside is two things read at once, and the press's own tint
+   is as thin a wash as the arm's, so neither of them hides what is under it. */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed {
+	/* Two targets, the 8px between the name and the first of them, and the 4px the
+	   last stands off the row's edge — which is exactly as wide as the strip itself
+	   (see its paddings below), so the room ends where the strip begins and there
+	   is no lane between them for a finger to fall through onto the row. Taken from
+	   the SAME number the targets are: a reservation and a target that disagreed
+	   would put the second icon back on the name, or leave the row showing
+	   through beside it. */
+	padding-inline-end: calc(2 * var(--nav-action-target) + 12px);
+}
+
+/* …and the wash is the one thing that does give way, and only while the finger is
+   still down (see .is-pressed above). */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed:not(.is-pressed) {
+	background: var(--background-modifier-hover);
+}
+
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-time {
+	color: transparent;
+}
+
+/* …and while the row is armed the strip IS the row's whole far end: as tall as the row
+   (the row clips it — see its `overflow`), and reaching from the row's very edge to
+   where the reserved room begins, so the strip is the only thing there is to hit
+   there. The paddings are what make it that wide, and they are the strip's own rather
+   than air beside it: a lane between the name and the first control — or between the
+   last one and the row's edge — is a lane a finger falls through onto the ROW, and
+   what the row does with a tap is open the note (see RecentFilesList.actionStrip,
+   which answers a hit inside the strip with nothing). The two controls themselves
+   meet EDGE TO EDGE for the same reason. */
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions {
+	inset-block: 0;
+	inset-inline-end: 0;
+	transform: none;
+	gap: 0;
+	padding-inline: 8px 4px;
+}
+
+.position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions > * {
 	opacity: 1;
 	pointer-events: auto;
 	--icon-size: var(--icon-s);
-}
-
-.position-restore-nav-panel.is-touch .position-restore-nav-row .nav-row-time {
-	color: transparent;
+	/* A target a finger can land in (see --nav-action-target), taken as a MINIMUM
+	   WIDTH and not as padding: the icon keeps its own size and is centred in the
+	   box, so what grew is the box a thumb has to land in and not the mark it
+	   reads. The HEIGHT is the row's — the strip above is stretched to it, and a
+	   button taller than the row is a button the row clips — so the width is the
+	   whole of the difference. */
+	align-self: stretch;
+	min-width: var(--nav-action-target);
 }
 
 /* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing
@@ -783,6 +1096,17 @@ body.is-mobile .position-restore-cue {
 	display: none;
 }
 
+/* A landing whose HEADING THE NOTE NO LONGER HAS, which keeps printing the words it
+   was recorded with (see RecentFilesList.placeRow and the browser's trailFor): struck
+   through, and down a tier. What is struck is not the words — they are the only thing
+   left naming the spot, and dropping them would leave the row about nothing — but the
+   claim that the note carries them, so they read as remembered rather than as a label
+   to look for. The row's tooltip is where that is said in so many words. */
+.position-restore-nav-row .nav-row-trail.is-lost {
+	color: var(--nav-faint);
+	text-decoration: line-through;
+}
+
 /* The separator hangs off the level it FOLLOWS rather than standing between the
    two levels as a cell of its own (see RecentFilesList.placeRow, which writes it
    inside that level's span). As a cell it kept its width — the glyph and its 10px
@@ -866,6 +1190,17 @@ body.is-mobile .position-restore-cue {
 	font-weight: 500;
 }
 
+/* The section a row stands for (see TipContent.section), where the row prints no chain
+   of its own: the answer to "why is this row on my list" for a row a query matched on a
+   heading. Same tier as the names below it — both are a second answer, not the thing the
+   reader hovered for — but it stands above them, being about the place and not the name. */
+.position-restore-nav-tip .nav-tip-section {
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
+}
+
 /* The line under the path: the file's other names, or the one fact a cell holds (see
    TipContent). A notch smaller than the path — it is a second answer, not the thing
    the reader hovered for — and allowed to wrap, since a note may go by many names. */
@@ -874,6 +1209,35 @@ body.is-mobile .position-restore-cue {
 	line-height: 1.4;
 	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
 	overflow-wrap: anywhere;
+}
+
+/* A line quoted out of the note — the words a landing sat on when it was taken, or
+   the line the search box hit (see TipContent.quotes). Set off by a rule down its
+   inline start and not by a typeface: what distinguishes these is that they are the
+   reader's own words rather than a name this panel derived, and quoting them in an
+   italic no font here renders well would only make the one line a reader is looking
+   for harder to read. They wrap rather than being clipped — a line of the note cut
+   off in the middle says something the note never said. */
+.position-restore-nav-tip .nav-tip-quote {
+	margin-top: 2px;
+	padding-inline-start: 6px;
+	border-inline-start: 2px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
+}
+
+/* The one line a hover says ABOUT the quotes: the note has been written since
+   they were taken. Fainter than the quotes and unquoted, because it is this
+   panel speaking about them and not the note's own words — a reader has to be
+   able to tell the two apart at a glance. Its ink is the panel's own faint tier
+   (see --nav-faint) and not --text-faint, which a theme is free to re-hue. */
+.position-restore-nav-tip .nav-tip-note {
+	margin-top: 2px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: var(--nav-faint);
 }
 
 .position-restore-nav-panel.is-touch .position-restore-nav-row {
@@ -944,9 +1308,11 @@ body.is-mobile .position-restore-cue {
 }
 
 /* There is no dialog title above the toolbar here — the pane's own header names
-   the panel — so the strip brings its own inset. */
+   the panel — so the strip brings its own inset, and the top one is the wider of
+   the two: the header's own rule already sits close above the filter line, and a
+   few px more is what keeps the two lines from reading as one row. */
 .position-restore-nav-view .position-restore-nav-toolbar {
-	padding: 6px 8px 8px;
+	padding: 12px 8px 8px;
 }
 
 /* A phone held sideways has ~370px of height for everything: the dialog's name, the

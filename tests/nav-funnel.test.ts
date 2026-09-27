@@ -22,14 +22,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
 
-import { MarkdownView, Platform } from 'obsidian';
+import { FileView, MarkdownView, Platform } from 'obsidian';
 import { NavFunnel, NavLeave, NavRecording } from '@/nav/funnel';
 import { NavEntry, NewNavEntry } from '@/nav/entry';
 import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
-import { entry, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
+import { deferredLeaf, entry, followingLeaf, leafWithFile, makeApp, makeNav, pathOf, viewLeaf } from './support/nav-recording-harness';
 
 beforeEach(() => {
 	window.localStorage.clear();
@@ -128,16 +128,6 @@ describe('NavFunnel — what a capture point publishes', () => {
 		});
 	});
 
-	it('carries the link origin for a plain [[note]] open', () => {
-		const { funnel, visits } = makeFunnel();
-
-		funnel.recordOpen('b.md', 'leaf-1', { via: 'link', viaPath: 'a.md', viaText: 'see [[b]]' });
-
-		expect(visits[0].record).toMatchObject({
-			kind: 'visit', path: 'b.md', via: 'link', viaPath: 'a.md', viaText: 'see [[b]]',
-		});
-	});
-
 	it('a pathless view is reached by ACTIVATING its leaf; a pathless, typeless call is nothing', () => {
 		const { funnel, visits } = makeFunnel();
 
@@ -173,7 +163,7 @@ describe('NavFunnel — what a capture point publishes', () => {
 
 		expect(leaves).toEqual([{ cause: 'tab', leaf: next }]);
 		expect(visits).toEqual([
-			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2', via: 'switch' }, cause: 'tab' },
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2' }, cause: 'tab' },
 		]);
 	});
 
@@ -242,6 +232,130 @@ describe('NavFunnel — what a capture point publishes', () => {
 
 		expect(visits).toEqual([]);
 		expect(leaves).toHaveLength(1);
+	});
+
+	it('a tab restored with its view still unbuilt is the note it stands for', () => {
+		// Mobile comes back to the note it was last reading as a DEFERRED tab: a placeholder
+		// that answers a view's questions off the state it was saved with, and is not a
+		// FileView at all. Recorded as a view it would mint a place keyed `view:markdown`,
+		// wearing the note's own name and the file icon, which no delete could ever clean up
+		// — and whose row opens the note without its saved position.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(deferredLeaf('leaf-2', { file: 'b.md', mode: 'source' }));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2' }, cause: 'tab' },
+		]);
+	});
+
+	it('a deferred tab whose saved state names no file is still the view it stands in for', () => {
+		// A pathless view restored this way keeps its place (the type is the one thing the
+		// placeholder answers honestly) — dropping it would leave a reader standing in the
+		// view with no step behind them.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(deferredLeaf('leaf-2', undefined, 'graph'));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'view', leafId: 'leaf-2', viewType: 'graph' }, cause: 'tab' },
+		]);
+	});
+
+	it('a view this vault can no longer build is not a place', () => {
+		// A plugin switched off, uninstalled, or not loaded yet: restoring its tab raises a
+		// placeholder pane that answers getViewType() with the type it stands in for. Recorded
+		// as itself it takes the real place's OWN key and overwrites it, and nothing the reader
+		// does later can return to it.
+		const app = makeApp(undefined, ['thino_view']);
+		const { funnel, visits } = makeFunnel(app);
+
+		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'thino_view', icon: 'lucide-ghost' }));
+
+		expect(visits).toEqual([]);
+	});
+
+	it('the same view, in a vault that can still build it, is recorded all the same', () => {
+		// The registry read is the ONLY thing that tells the two apart, and it must never
+		// exclude by accident: a table this build does not expose keeps every view a place.
+		const { funnel, visits } = makeFunnel(makeApp());
+
+		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
+
+		expect(visits).toHaveLength(1);
+	});
+
+	it('a markdown tab that fails to say it is a file view is not a view place', () => {
+		// Same phantom as the two above, from the last door left: a markdown tab is always a
+		// note, so a place keyed `view:markdown` can never be one the reader went to.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(viewLeaf('leaf-2', 'markdown', { label: 'b', icon: 'file' }));
+
+		expect(visits).toEqual([]);
+	});
+
+	it('a file view whose file has gone is not a place of its own', () => {
+		// A sync replaces a note by removing the file and renaming the download over
+		// it (see position/path-bookkeeping.ts), and for that instant the tab still
+		// showing the note is a FileView whose `file` is null. Recording it as a view
+		// used to mint a phantom place — keyed `view:markdown`, wearing the note's own
+		// name and the file view's icon, indistinguishable from a real row — that no
+		// delete could ever clean up, because a view row has no file to go missing;
+		// it sat in the list until the reader took it off by hand. A FileView is
+		// either the visit it names or nothing at all: an instant is not a
+		// destination. The tab it stands in is still a leave.
+		const { funnel, visits, leaves } = makeFunnel();
+		const emptied = {
+			id: 'leaf-2',
+			containerEl: 'main',
+			view: Object.assign(Object.create(FileView.prototype), { file: null }),
+		} as unknown as WorkspaceLeaf;
+
+		funnel.recordActivation(emptied);
+
+		expect(visits).toEqual([]);
+		expect(leaves).toHaveLength(1);
+	});
+
+	it('a panel view following the note is the VIEW it is, not a second visit to the note', () => {
+		// Outline, backlinks, the local graph and the properties panes extend FileView and turned
+		// the app's own destination flag off: they show whatever note the reader is standing in.
+		// The sidebar hides them (they are not main-area leaves), but "open in main" puts one in
+		// the reader's way — and recorded as the file it points at, the list grows a second row
+		// for a note they never went to.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(followingLeaf('leaf-o', 'outline', 'b.md', { label: 'Outline' }));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'view', leafId: 'leaf-o', viewType: 'outline', label: 'Outline' }, cause: 'tab' },
+		]);
+	});
+
+	it('a panel view with no note to follow is still the view it is', () => {
+		// Nothing changes about what it IS when the file it tracks is gone: the row with no note
+		// behind it is no truer than the one above.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(followingLeaf('leaf-o', 'backlink'));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'view', leafId: 'leaf-o', viewType: 'backlink' }, cause: 'tab' },
+		]);
+	});
+
+	it('a file view that lost the flag is the note it names', () => {
+		// The flag is runtime-only, so a build that renames it reads undefined, and the test above
+		// is then indistinguishable from the ordinary note below it: ONLY `false` may exclude, or
+		// losing the field would take every file recording with it.
+		const { funnel, visits } = makeFunnel();
+
+		funnel.recordActivation(leafWithFile('leaf-2', 'b.md'));
+
+		expect(visits).toEqual([
+			{ record: { kind: 'visit', path: 'b.md', leafId: 'leaf-2' }, cause: 'tab' },
+		]);
 	});
 
 	it('records the state and the icon the view reports, beside its name', () => {
@@ -451,8 +565,8 @@ describe('Sampler in-file teleport detection', () => {
 			scroll: 42,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 		}]);
-		// the entry being left got the poll's read (harness baseline:
-		// scroll 0, cursor line 3)
+		// the entry being left got the poll's read — the harness seeds that
+		// baseline by hand, so unlike a real poll read it carries no stamp
 		expect(h.leave).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 0,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
@@ -483,6 +597,9 @@ describe('Sampler in-file teleport detection', () => {
 		Platform.isMobileApp = true;
 		try {
 			const h = makeSamplerHarness(); // view cursor at 60, poll read at 3
+			// The reader tapped the note: their touch is what makes the move
+			// theirs rather than a re-render's.
+			h.state.lastTouchAt = Date.now();
 			h.sampler.sampleActiveView();
 			expect(h.recordTeleport).not.toHaveBeenCalled();
 			expect(h.leave).not.toHaveBeenCalled();

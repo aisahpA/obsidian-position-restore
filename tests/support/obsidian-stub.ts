@@ -138,6 +138,14 @@ export class ItemView extends View {
 // by level, single newlines as <br> (Obsidian renders them as breaks). Tests
 // assert on the recorded SOURCE and on the mark a reader would see, never on
 // Obsidian's own typography — that is the app's, not this plugin's.
+// The app's preview renderer as this plugin meets it: the one method the
+// file-list preview reaches for (see position/hover/explorer-preview.ts). It is
+// absent from the typings, so a test installs its own recorder on the prototype
+// before patching — an empty body would make the patch fail its own guard.
+export class MarkdownPreviewRenderer {
+	applyScrollDelayed(_line: number, _opts?: { highlight?: boolean; center?: boolean }): void {}
+}
+
 export class MarkdownRenderer {
 	static async render(
 		_app: unknown,
@@ -265,7 +273,15 @@ export class MenuItem {
 
 export class Menu {
 	items: MenuItem[] = [];
-	shownAt: MouseEvent | undefined;
+	// Every menu asked to open, in order. A menu with no FILE behind it — a pathless
+	// view's — is raised without the app's `file-menu` event, so a test that wants to
+	// read what is on it has no event to read it off.
+	static shown: Menu[] = [];
+	// Where it was asked to open, whichever of the two doors the panel came in by (see
+	// RecentFilesBrowser.contextRow): a right-click is placed by its event's coordinates
+	// and a phone's menu control by its own box, and what a test wants to know is that
+	// the menu was placed at all rather than merely built.
+	shownAt: { x: number; y: number } | undefined;
 	addItem(build: (item: MenuItem) => unknown): this {
 		const item = new MenuItem();
 		build(item);
@@ -276,14 +292,40 @@ export class Menu {
 		return this;
 	}
 	showAtMouseEvent(ev: MouseEvent): this {
-		this.shownAt = ev;
+		this.shownAt = { x: ev.clientX, y: ev.clientY };
+		Menu.shown.push(this);
+		return this;
+	}
+	showAtPosition(position: { x: number; y: number }): this {
+		this.shownAt = position;
+		Menu.shown.push(this);
 		return this;
 	}
 	setNoIcon(): this {
 		return this;
 	}
-	hide(): void {}
-	close(): void {}
+	// Whether it went off the screen at all, and whether THIS PANEL was the one that
+	// took it there (see RecentFilesBrowser.closeMenu). The two are told apart
+	// because only one of them is this plugin's promise: the app takes a menu off
+	// the screen for its own gestures — an item chosen, a click away, Escape — and
+	// none of those is a drawer folding.
+	hidden = false;
+	closed = false;
+	// Who to tell when the app has taken it off the screen itself: a menu the app has
+	// closed is not one the panel is still holding (see RecentFilesBrowser).
+	private hideCbs: (() => void)[] = [];
+	onHide(cb: () => void): void {
+		this.hideCbs.push(cb);
+	}
+	hide(): void {
+		this.hidden = true;
+		for (const cb of [...this.hideCbs])
+			cb();
+	}
+	close(): void {
+		this.closed = true;
+		this.hide();
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -401,3 +443,24 @@ function installDomHelpers(): void {
 }
 
 installDomHelpers();
+
+// A row describing itself builds into a DocumentFragment (see settings/page),
+// and a fragment is a Node but not an HTMLElement — so the helpers have to be
+// copied onto it as well. Copied rather than declared twice: one definition of
+// what createDiv does, whichever node it is called on.
+const fragmentHelpers = [
+	'createEl', 'createDiv', 'createSpan', 'empty', 'setText', 'appendText',
+	'addClass', 'removeClass', 'toggleClass', 'setAttr', 'setCssStyles', 'setCssProps',
+];
+const fragmentProto = DocumentFragment.prototype as unknown as Record<string, unknown>;
+const elementProto = HTMLElement.prototype as unknown as Record<string, unknown>;
+for (const name of fragmentHelpers)
+	fragmentProto[name] = elementProto[name];
+
+// createFragment is one of Obsidian's globals — declared, never imported — so it
+// belongs on the global object rather than in this module's exports.
+(globalThis as unknown as { createFragment: () => DocumentFragment }).createFragment =
+	function createFragment(): DocumentFragment {
+		installDomHelpers();
+		return document.createDocumentFragment();
+	};

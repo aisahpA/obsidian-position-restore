@@ -13,7 +13,7 @@ import { App, TFile } from 'obsidian';
 import { NavPlaces, placeKey } from '@/recent-files/places';
 import { RECENT_PLACES_VERSION } from '@/recent-files/places-store';
 import { NavEntry, NavJump, NavTeleport, NavVisit } from '@/nav/entry';
-import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
+import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-recent:test-vault';
 
@@ -266,6 +266,161 @@ describe('NavPlaces — what a place is', () => {
 	});
 });
 
+describe('NavPlaces — one record per landing', () => {
+	// A jump is recorded before its landing settles, so the merge is made at the settle —
+	// the first moment two jumps can be told apart. What it covers is two keys naming ONE
+	// spot: an outline click and a link, both naming one heading.
+	it('merges two jumps that came to rest on the same line', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('a.md', 'a.md#one'));
+		places.settle({ ...jump('a.md', 'a.md#one'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'a.md#one'))]);
+	});
+
+	it('keeps the newest of the two, which is the one the row was already drawn from', () => {
+		// The panel draws a line from its newest step (see groupByFile), so the record
+		// that survives is the one the reader was already clicking.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('a.md', 'a.md#one'));
+		places.settle({ ...jump('a.md', 'a.md#one'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'a.md#one'))]);
+		expect(places.index).toBe(0);
+	});
+
+	it('keeps two landings on two lines apart', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('a.md', 'outline:## Two'));
+		places.settle({ ...jump('a.md', 'outline:## Two'), st: { scroll: 40 } });
+
+		expect(paths(places)).toEqual([
+			placeKey(jump('a.md', 'outline:## One')),
+			placeKey(jump('a.md', 'outline:## Two')),
+		]);
+	});
+
+	it('leaves a jump with no landing alone — no coordinates is not a line', () => {
+		// …and this is also why the merge is not made in remember, where no jump has one.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+
+		expect(places.entries).toHaveLength(2);
+	});
+
+	it('never merges across files', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
+		places.remember(jump('b.md', 'outline:## One'));
+		places.settle({ ...jump('b.md', 'outline:## One'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual([
+			placeKey(jump('a.md', 'outline:## One')),
+			placeKey(jump('b.md', 'outline:## One')),
+		]);
+	});
+});
+
+describe('NavPlaces — the state a landing is recorded with', () => {
+	it('keeps the state it was handed whole, words included', () => {
+		// The words were read WITH the landing (see ephemeral.ts's readLandingState); this list takes
+		// the state as it arrives, rather than reassembling it field by field.
+		const { places } = makePlaces();
+		const st: NavEntryState = { scroll: 10, context: ['L9'] };
+		places.remember(jump('a.md', 'outline:## One'));
+		places.settle({ ...jump('a.md', 'outline:## One'), st });
+
+		expect((places.entries[0] as NavJump).st).toBe(st);
+	});
+});
+
+describe('NavPlaces — a caller target is the note, not a landing', () => {
+	// A search match, or a backlink hit, inside the note already open: core hands the target
+	// over as an ephemeral state, so it names no anchor and its key is a timestamp (see
+	// nav/entry.ts's isCallerKey). Its row could say nothing but a line number already on the
+	// row above, so it is the NOTE that gets recorded — which is what a hit in another file
+	// already was.
+	it('records the note the hit landed in, and no landing', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'caller:111'));
+		places.settle({ ...jump('a.md', 'caller:111'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('keeps one row however many hits the reader clicked in one note', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'caller:111'));
+		places.remember(jump('a.md', 'caller:222'));
+		places.remember(jump('a.md', 'caller:333'));
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('moves the note the reader is in to the end, as a visit does', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.remember(jump('a.md', 'caller:111'));
+
+		expect(paths(places)).toEqual(['b.md', 'a.md']);
+	});
+
+	it('still records a jump that names where it went', () => {
+		// The rule is about the KEY, not about jumps: an outline click is a place.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'outline:## One'))]);
+	});
+});
+
+describe('NavPlaces — a block target is the note, not a landing', () => {
+	// `[[note#^id]]`: the key is the linktext, and the block id it carries names a spot a row
+	// could only print as a line number inside a section — two of them in the same section look
+	// alike, and neither can be told apart without hovering. So it is the note that gets
+	// recorded. The stack still keeps these steps: going back to a block is a real step.
+	it('records the note the block sits in, and no landing', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'a.md#^b1'));
+		places.settle({ ...jump('a.md', 'a.md#^b1'), st: { scroll: 12 } });
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('reads the bare ^id form the same way', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', '^b1'));
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('keeps one row however many blocks the reader clicked in one note', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'a.md#^b1'));
+		places.remember(jump('a.md', 'a.md#^b2'));
+		places.remember(jump('a.md', 'a.md#^b3'));
+
+		expect(paths(places)).toEqual(['a.md']);
+	});
+
+	it('still records a heading link, which a row can name', () => {
+		// The rule is about the TARGET, not about links: a heading names a section.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'a.md#one'));
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'a.md#one'))]);
+	});
+});
+
 describe('NavPlaces — its own folder rule', () => {
 	it('skips the paths the reader excluded, and vault internals', () => {
 		const { places } = makePlaces({ recentFilesExcludeFolders: ['私人', '归档/旧'] });
@@ -389,12 +544,18 @@ describe('NavPlaces — the ceiling', () => {
 	});
 
 	it('never drops the place the reader is standing in', () => {
-		const { places } = makePlaces({ recentFilesCap: 2 });
+		const settings = makeSettings({ recentFilesCap: 3 });
+		const places = new NavPlaces(makeApp(), settings);
 		places.remember(visit('a.md'));
 		places.remember(visit('b.md'));
-		// the reader goes back to the oldest place, then a new one arrives
-		places.markCurrent(visit('a.md'));
 		places.remember(visit('c.md'));
+		// Back to the oldest place — a traversal, which visits nothing new.
+		places.markCurrent(visit('a.md'));
+
+		// …and THEN the list has to give a row up: the ceiling came down
+		// under a reader who has not moved since.
+		settings.recentFilesCap = 2;
+		places.applyCap();
 
 		// Removal stops at the current index: 'a.md' is the row they are on.
 		expect(paths(places)).toEqual(['a.md', 'c.md']);
@@ -437,12 +598,18 @@ describe('NavPlaces — the ceiling', () => {
 	});
 
 	it('never drops the row the reader is standing in, landings and all', () => {
-		const { places } = makePlaces({ recentFilesCap: 2 });
+		const settings = makeSettings({ recentFilesCap: 3 });
+		const places = new NavPlaces(makeApp(), settings);
 		places.remember(visit('a.md'));
 		places.remember(jump('a.md', 'h1'));
 		places.remember(visit('b.md'));
-		places.markCurrent(visit('a.md'));
 		places.remember(visit('c.md'));
+		// Back to the oldest row: the note AND the landing inside it are the
+		// row the ceiling has to step over.
+		places.markCurrent(visit('a.md'));
+
+		settings.recentFilesCap = 2;
+		places.applyCap();
 
 		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'c.md']);
 		expect(places.index).toBe(0);
@@ -565,6 +732,18 @@ describe('NavPlaces — the current place', () => {
 		places.markCurrent(visit('a.md'));
 
 		expect(places.index).toBe(0);
+	});
+
+	it('follows a plain visit and a jump, neither of which publishes "here"', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		expect(places.index).toBe(1);
+
+		// …and a jump stands on the LANDING, not on the note — that is the
+		// difference the panel's dot is drawn for.
+		places.remember(jump('b.md', 'outline:## T'));
+		expect(places.index).toBe(2);
 	});
 
 	it('marks the FILE for an inferred step, which is not a place of its own', () => {
@@ -746,6 +925,87 @@ describe('NavPlaces — forgetting a file', () => {
 	});
 });
 
+describe('NavPlaces — forgetting one landing', () => {
+	// The × on a LANDING's own row (see list.ts's onForgetLanding): what goes is one
+	// spot, and the note's row above stays — the two acts are on two different rows
+	// now, so neither has to be told apart by a gesture.
+	it('drops the spot and leaves the note, and the note\'s other spots', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+		places.remember(visit('b.md'));
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
+
+		// Named through placeKey rather than spelled out: what is pinned is which
+		// places SURVIVED, and a key is the store's own way of naming one.
+		expect(paths(places)).toEqual([
+			'a.md',
+			placeKey(jump('a.md', 'outline:## Two')),
+			'b.md',
+		]);
+	});
+
+	it('drops every place one row stands for, so the row cannot come back', () => {
+		// A row is a LINE, and the panel collapses onto it every place that landed
+		// there — a heading reached by an outline click and by a link are one row to
+		// the reader (see list.ts's landingKeys). A removal that named one of them
+		// would leave the other to draw the row again the moment it was taken off,
+		// which is a × that does nothing.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'a.md#one'));
+		places.remember(visit('b.md'));
+
+		places.forgetLanding([
+			placeKey(jump('a.md', 'outline:## One')),
+			placeKey(jump('a.md', 'a.md#one')),
+		]);
+
+		expect(paths(places)).toEqual(['b.md']);
+	});
+
+	it('tells the panel, so the row goes while the reader is looking at it', () => {
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('says nothing at all for keys the list does not hold', () => {
+		// The keys arrive from a panel that may be a click behind the store (a dialog
+		// holding a snapshot), so a place already gone is not a change to report.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## Gone'))]);
+
+		expect(paths(places)).toEqual([placeKey(jump('a.md', 'outline:## One'))]);
+		expect(seen).not.toHaveBeenCalled();
+	});
+
+	it('stands nowhere when the spot it forgot was the one being read', () => {
+		// "Here" is an index into the list: a place that is gone must not leave one
+		// behind, or the note that arrives next would be named as where the reader is.
+		const { places } = makePlaces();
+		places.remember(jump('a.md', 'outline:## One'));
+		places.markCurrent(jump('a.md', 'outline:## One'));
+		expect(places.index).toBe(0);
+
+		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
+
+		expect(places.entries).toEqual([]);
+		expect(places.index).toBe(-1);
+	});
+});
+
 describe('NavPlaces — bookkeeping', () => {
 	it('re-keys every place that named a renamed file', () => {
 		const { places } = makePlaces();
@@ -780,6 +1040,247 @@ describe('NavPlaces — bookkeeping', () => {
 		places.remember(view('graph'));
 
 		expect(places.knownPaths().sort()).toEqual(['a.md', 'b.md']);
+	});
+});
+
+// A PIN is the reader's own answer about a row: it is kept out of the ceiling,
+// out of the rules and out of the trim, and it leaves with the row it names.
+describe('NavPlaces — pinning a row', () => {
+	it('puts a new pin at the END of the block, and never pins the same row twice', () => {
+		// A pin arriving at the top would push down the rows the reader had
+		// already arranged; the block is a shelf they are filling, not a stack.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+
+		places.pin('a.md');
+		places.pin('b.md');
+		places.pin('b.md');
+
+		expect(places.pinned).toEqual(['a.md', 'b.md']);
+	});
+
+	it('moves a pin one step, and nowhere at either end', () => {
+		const { places } = makePlaces();
+		for (const p of ['a.md', 'b.md', 'c.md'])
+			places.remember(visit(p));
+		places.pin('a.md');
+		places.pin('b.md');
+		places.pin('c.md');
+		expect(places.pinned).toEqual(['a.md', 'b.md', 'c.md']);
+
+		places.movePinned('a.md', -1);
+		expect(places.pinned).toEqual(['a.md', 'b.md', 'c.md']);
+		places.movePinned('a.md', 1);
+		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+		places.movePinned('c.md', 1);
+		expect(places.pinned).toEqual(['b.md', 'a.md', 'c.md']);
+		places.movePinned('c.md', -1);
+		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
+		places.movePinned('nope.md', -1);
+		expect(places.pinned).toEqual(['b.md', 'c.md', 'a.md']);
+	});
+
+	it('moves a pin the WHOLE WAY, and lands on the end rather than past it', () => {
+		// "Move to the front" hands over more steps than the block is long, and
+		// what it means is the end: counting them is the CALLER's arithmetic
+		// about a shape it does not own (see NavPlaces.movePinned).
+		const { places } = makePlaces();
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
+			places.remember(visit(p));
+		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
+			places.pin(p);
+		expect(places.pinned).toEqual(['a.md', 'b.md', 'c.md', 'd.md']);
+
+		places.movePinned('c.md', -2);
+		expect(places.pinned).toEqual(['c.md', 'a.md', 'b.md', 'd.md']);
+		// More steps than there is block: the row lands ON the end it asked for.
+		places.movePinned('a.md', -99);
+		expect(places.pinned).toEqual(['a.md', 'c.md', 'b.md', 'd.md']);
+		places.movePinned('b.md', 99);
+		expect(places.pinned).toEqual(['a.md', 'c.md', 'd.md', 'b.md']);
+	});
+
+	it('takes a pin off, and says nothing for a row that was never pinned', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.pin('a.md');
+		places.pin('b.md');
+
+		places.unpin('a.md');
+		places.unpin('nope.md');
+
+		expect(places.pinned).toEqual(['b.md']);
+		expect(places.isPinned('b.md')).toBe(true);
+		expect(places.isPinned('a.md')).toBe(false);
+	});
+
+	// THE CEILING counts the rows the reader did NOT name: a pin is kept on top of
+	// the number and not out of it, so pinning a note costs them none of the fifty.
+	it('keeps a pinned row on top of the ceiling rather than inside it', () => {
+		const { places } = makePlaces({ recentFilesCap: 2 });
+		for (const p of ['a.md', 'b.md', 'c.md'])
+			places.remember(visit(p));
+		places.pin('b.md');
+
+		for (const p of ['d.md', 'e.md'])
+			places.remember(visit(p));
+
+		// The unnamed rows are c, d, e — one over, and the oldest of them goes.
+		expect(paths(places)).toEqual(['b.md', 'd.md', 'e.md']);
+	});
+
+	it('keeps a pinned row’s own landings out of the landing ceiling', () => {
+		const { places } = makePlaces({ recentFilesCap: 1 });
+		places.remember(visit('a.md'));
+		places.pin('a.md');
+		places.remember(jump('a.md', 'outline:## One'));
+		places.remember(jump('a.md', 'outline:## Two'));
+
+		expect(places.applyCap()).toBe(0);
+		expect(places.entries.filter(e => e.kind === 'jump')).toHaveLength(2);
+	});
+
+	it('keeps a pinned row when a rule added later would exclude it', () => {
+		const settings = makeSettings();
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('b.md'));
+		places.pin('notes/a.md');
+
+		settings.recentFilesExcludeFolders = ['notes'];
+
+		expect(places.pruneExcluded()).toBe(0);
+		expect(paths(places)).toEqual(['notes/a.md', 'b.md']);
+	});
+
+	it('moves a pin with the file it names', () => {
+		const { places } = makePlaces();
+		places.remember(visit('old.md'));
+		places.pin('old.md');
+
+		places.renameFile('old.md', 'new.md');
+
+		expect(places.pinned).toEqual(['new.md']);
+	});
+
+	it('takes the pin with the row when the row is gone', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.pin('a.md');
+
+		places.deleteFile('a.md');
+		expect(places.pinned).toEqual([]);
+
+		places.pin('b.md');
+		places.forget('b.md');
+		expect(places.pinned).toEqual([]);
+	});
+
+	it('writes a pin down at once, rather than leaving it to the next flush', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.persist();
+		places.pin('a.md');
+
+		expect(new NavPlaces(makeApp(), makeSettings()).pinned).toEqual(['a.md']);
+	});
+
+	it('tells the panel about a pin, and about nothing that pinned nothing', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.pin('a.md');
+		places.pin('a.md');
+		places.unpin('nope.md');
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('NavPlaces — clearing the list', () => {
+	it('drops every place the list remembered by itself, and keeps the pinned block', () => {
+		// What a clear leaves is what the reader wrote down by hand: the ceiling and
+		// the rules already spare a pin (see pruneExcluded), and emptying the list is
+		// one more thing the list does BY ITSELF.
+		const { places } = makePlaces();
+		for (const p of ['a.md', 'b.md', 'c.md'])
+			places.remember(visit(p));
+		places.remember(view('graph'));
+		places.pin('b.md');
+
+		places.clear();
+
+		expect(paths(places)).toEqual(['b.md']);
+	});
+
+	it('keeps a pinned row’s own landings, which are that row’s to keep', () => {
+		// The pinned block draws the note and never a spot inside it (see list.ts's
+		// printsLandings) — but the row still OPENS the newest one, and a clear is no
+		// reason to break the promise the reader pinned.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'outline:## One'));
+		places.pin('a.md');
+
+		places.clear();
+
+		expect(paths(places)).toEqual(['a.md', placeKey(jump('a.md', 'outline:## One'))]);
+	});
+
+	it('stands nowhere when the place being read was the one cleared', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.markCurrent(visit('b.md'));
+		expect(places.index).toBe(1);
+
+		places.clear();
+
+		expect(places.entries).toEqual([]);
+		expect(places.index).toBe(-1);
+	});
+
+	it('writes the cleared list down at once, rather than leaving it to the next flush', () => {
+		// For the reason a pin is written down at once: a clear is a rare, deliberate
+		// act, and a quit a few seconds later would otherwise put the whole list back.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.persist();
+
+		places.clear();
+
+		expect(new NavPlaces(makeApp(), makeSettings()).entries).toEqual([]);
+	});
+
+	it('tells the panel, so the rows go while the reader is looking at them', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.clear();
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('says nothing at all when the list held nothing but pins', () => {
+		// A clear of a list that is already what a clear leaves behind changes
+		// nothing, and a change that did not happen owes no redraw and no write.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.pin('a.md');
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.clear();
+
+		expect(paths(places)).toEqual(['a.md']);
+		expect(seen).not.toHaveBeenCalled();
 	});
 });
 
@@ -894,5 +1395,74 @@ describe('NavPlaces — change notification', () => {
 		// A filtered path is never a place, so it is never news either.
 		places.remember(visit('.trash/x.md'));
 		expect(seen).toHaveBeenCalledTimes(4);
+	});
+});
+
+describe('NavPlaces.reland — a landing put back where it stands now', () => {
+	// The line arrives already answered: the store keeps no vault of its own, and what
+	// it writes is what the panel found in one.
+	const landing = (line: number, mtime: number): NavJump => ({
+		...jump('a.md', 'outline:## T'), keyLine: line,
+		st: { scroll: line, anchor: 'a line', context: ['below it'], mtime },
+	});
+	const there = (places: NavPlaces) => places.entries[0] as NavJump;
+
+	it('moves the address and nothing else about the place', () => {
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		const aged = there(places).t;
+		places.reland([{ key: placeKey(there(places)), line: 14, mtime: 500 }]);
+
+		expect(there(places).keyLine).toBe(14);
+		expect(there(places).st?.mtime).toBe(500);
+		// The WORDS stay: they were read once, and reading them again would not make
+		// them truer — it would lose the ones the reader left with.
+		expect(there(places).st?.anchor).toBe('a line');
+		expect(there(places).st?.context).toEqual(['below it']);
+		// Neither a visit nor a re-recording: a row ages by the stamp it already had.
+		expect(there(places).t).toBe(aged);
+	});
+
+	it('tells nobody, and writes itself down', () => {
+		// Nothing is broadcast because nothing ELSE needs to know: the rows these lines
+		// belong to are the rows about to be drawn, and by the panel that asked. A place
+		// lives for months, though, so the answer goes to storage at once.
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.reland([{ key: placeKey(there(places)), line: 14, mtime: 500 }]);
+		expect(seen).not.toHaveBeenCalled();
+		expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"keyLine":14');
+	});
+
+	it('writes nothing when the line already stands there', () => {
+		// The very next draw, every time: a record carrying the note's own clock is the
+		// cheapest answer the panel has, so nothing asks again. Which is what stops the
+		// pass that writes these from being a loop.
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		places.reland([{ key: placeKey(there(places)), line: 4, mtime: 100 }]);
+		const wrote = places.persist = vi.fn();
+
+		places.reland([{ key: placeKey(there(places)), line: 4, mtime: 100 }]);
+		expect(wrote).not.toHaveBeenCalled();
+	});
+
+	it('leaves a place alone when no line could be answered for it', () => {
+		// An entry the pass never mentioned keeps EVERYTHING, its old clock included —
+		// which is exactly what lets its row go on saying it cannot find the spot.
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		const st = there(places).st;
+		places.reland([{ key: 'a.md#outline:## Gone', line: 9, mtime: 500 }]);
+		expect(there(places).keyLine).toBe(4);
+		expect(there(places).st).toBe(st);
+		// …and a clock nobody could read leaves the record saying nothing rather than
+		// claiming a check that was never made.
+		places.reland([{ key: placeKey(there(places)), line: 9 }]);
+		expect(there(places).keyLine).toBe(9);
+		expect(there(places).st?.mtime).toBe(100);
 	});
 });

@@ -57,6 +57,22 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						},
 					},
 				},
+				// WHERE THE APP'S OWN FILE LIST OPENS ITS HOVER PREVIEW. Its own
+				// setting, not the recent-files list's row merged into it: the two
+				// are different ground, and a reader may well want different
+				// answers on each. The note's top ships — see PreviewFocusMode.
+				{
+					name: t('previewFocus.fileExplorer.name'),
+					desc: t('previewFocus.fileExplorer.desc'),
+					control: {
+						type: 'dropdown',
+						key: 'fileExplorerPreviewFocus',
+						options: {
+							head: t('previewFocus.fileExplorer.options.head'),
+							line: t('previewFocus.fileExplorer.options.line'),
+						},
+					},
+				},
 				{
 					name: t('openAndRestore.sourceRestoreMethod.name'),
 					desc: t('openAndRestore.sourceRestoreMethod.desc'),
