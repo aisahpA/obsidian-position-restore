@@ -2,7 +2,7 @@
 // the DOM, because jsdom never loads a stylesheet and every one of these is a
 // contract no rendering test here could catch.
 //
-// Five of them:
+// Six of them:
 //
 // 1. The quiet tiers (the section, the coordinate, the age, the toolbar chrome)
 //    must NOT be painted with --text-faint / --text-muted. Those are ordinary
@@ -833,6 +833,19 @@ describe('recent-files browser quiet tiers', () => {
 		// this test exists.
 		expect(browser).not.toMatch(/\[data-type=/);
 		expect(browser).not.toContain('position-restore-nav-history');
+	});
+
+	// 6. A landing whose heading the note has LOST keeps printing the words the
+	//    record carries, struck through and down a tier — those words are the last
+	//    thing naming the spot, and what is struck is only the claim that the note
+	//    still has them (see RecentFilesList.placeRow / landingNote).
+	it('strikes the heading a note no longer has, rather than dropping it', () => {
+		const lost = browser.match(/\.position-restore-nav-row \.nav-row-trail\.is-lost \{[^}]*\}/)?.[0] ?? '';
+		expect(lost).not.toBe('');
+		expect(lost).toMatch(/text-decoration: line-through/);
+		// …two shades down from the tier a live section sits at, and still mixed out
+		// of the theme's own text rather than painted with a theme's variable
+		expect(lost).toMatch(/color: var\(--nav-faint\)/);
 	});
 
 	// A PHONE SCROLLS THE LIST WITH A FINGER, inside a pane that a finger also drags

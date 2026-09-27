@@ -158,6 +158,24 @@ export function isBlockKey(key: string | undefined): boolean {
 	return !!key && blockAnchor(key) !== undefined;
 }
 
+// What an outline key's target NAMES: the heading's own words as they were recorded, in
+// either of the two forms the key takes (see restore/anchor.ts) — "outline:## H" carries
+// the level and the source, "outline:H" the rendered text alone. Read off THE RECORD and
+// never off the file, because it is asked exactly where the two part ways: a heading the
+// note no longer has leaves these words as the only thing that still says which landing a
+// row stands for (see the browser's trailFor), and a chain read at that row's line number
+// would answer with the section a DIFFERENT spot now sits in.
+//
+// Undefined for every other key: a linktext, a block id or a caller target carries no
+// heading's words, and a row that printed its slug or its timestamp would be naming a
+// section it never stood for either.
+export function outlineHeading(key: string | undefined): string | undefined {
+	if (!key?.startsWith('outline:'))
+		return undefined;
+	const words = key.slice('outline:'.length).trim().replace(/^#{1,6}\s+/, '').trim();
+	return words || undefined;
+}
+
 // Which line a step landed on, or undefined when it recorded none. A jump answers out of its own
 // KEY: every landing either list keeps was a heading jump, and the key's line is where metadataCache
 // put that heading as the landing settled — the line its row travels to. The recorded POSITION is the

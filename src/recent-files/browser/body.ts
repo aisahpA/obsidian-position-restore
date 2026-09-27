@@ -8,9 +8,9 @@
 // are what ONE ROW can be asked for — go there, and go away.
 
 import { App, CachedMetadata, EventRef, HoverParent, Menu, MenuPositionDef, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
-import { NavEntry, navGroupKey } from '@/nav/entry';
+import { NavEntry, NavJump, navGroupKey, outlineHeading } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
-import { PlaceList, placeKey } from '@/recent-files/places';
+import { PlaceList, placeKey, ReclaimedLine } from '@/recent-files/places';
 import { EphemeralState, LandingsMode, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { t } from '@/i18n';
 import { linesSource } from '@/position/capture/ephemeral';
@@ -126,6 +126,10 @@ export class RecentFilesBrowser {
 	// The three facts the vault has to answer for a line number to be re-found. Read through on
 	// every asking: a copy of them would be a copy that goes stale.
 	private nowLines: NowLineFacts;
+	// Where each place's line stands NOW, one answer per entry for one DRAW, shared by the two
+	// things that ask it — the reclaim below, and the chain every row prints. Keyed by the entry's
+	// INDEX, which is this draw's own answer about it (see reclaim).
+	private nowLineBy = new Map<number, number | undefined>();
 
 	constructor(private opts: RecentFilesBrowserOptions) {
 		this.reads = new RecentFilesReads(opts.app, {
@@ -200,8 +204,11 @@ export class RecentFilesBrowser {
 			// Whether a place may be listed at all: a name the list cannot open is not a row. The
 			// store prunes such a place on its own; this is the list agreeing.
 			noteExists: path => this.reads.hasFile(path),
-			trailFor: (entry, d) => this.trailFor(entry, d),
-			mtimeFor: path => this.reads.mtimeOf(path),
+			trailFor: (entry, d, i) => this.trailFor(entry, d, i),
+			// Whether this row's landing has LOST the heading it names (see landingLost): one
+			// answer, given by the ONE side that has already asked where the line stands now, so
+			// that a row's words, what it warns about and where it goes cannot disagree.
+			lostLanding: (entry, d, i) => this.landingLost(entry, this.nowLineAt(i, entry, d)),
 			// The file's other names: searchable, and printed nowhere but the tooltip.
 			aliasesFor: path => this.reads.aliasesFor(path),
 			onActiveRow: id => this.setActiveRow(id),
@@ -274,6 +281,9 @@ export class RecentFilesBrowser {
 	// (Re)draw everything the places and the filter decide. Called by the shell when it mounts and —
 	// for a resident panel — every time the places change.
 	render(): void {
+		// A line the note moved, put back BEFORE anything is drawn from it: the rows below print
+		// the coordinate they travel to, and asking twice would print two answers (see reclaim).
+		this.reclaim();
 		// The places as they stand NOW, before anything reads them: the list resolves its entries by
 		// index, so a list that moved under a resident panel is picked up by re-pointing these two
 		// fields and nothing else. The describe cache is keyed by index too, and goes with them.
@@ -471,6 +481,85 @@ export class RecentFilesBrowser {
 		});
 	}
 
+	// LINES THE NOTE HAS MOVED OUT FROM UNDER, put back before a single row exists.
+	//
+	// ONE PASS OVER THE WHOLE LIST, and before anything else asks a line of it: every row below is
+	// drawn from the line it will travel to (see trailFor), and a list whose rows were half built
+	// when one of them moved would have grouped itself by two different answers.
+	//
+	// NOTHING HERE READS A FILE. Only what the vault has already parsed is asked — which is the whole
+	// of what makes this affordable for fifty rows, and also the whole of what keeps it honest: where
+	// those say nothing, nothing is written, and the row is left to say so itself (see list.ts's
+	// landingNote).
+	//
+	// NEITHER A VISIT NOR A RE-READING. What moved is an ADDRESS; the place keeps the stamp the
+	// reader knows it by, and keeps the words it was recorded with.
+	private reclaim(): void {
+		this.nowLineBy.clear();
+		// What a row is described by, dropped before the asking: a write below changes the very
+		// line those rows print.
+		this.reads.clearDescribeCache();
+		const entries = this.opts.places.entries;
+		const moved: ReclaimedLine[] = [];
+		for (let i = 0; i < entries.length; i++) {
+			const entry = entries[i];
+			// Only a landing NAMED BY A KEY has an address to put back: anything else that carries
+			// one got it from the position database, which answers for itself every time.
+			if (entry.kind !== 'jump' || typeof entry.keyLine !== 'number')
+				continue;
+			// A place the reader is standing IN: its landing is about to be read whole again by the
+			// settle that follows leaving it, and an answer written here would be one given by a
+			// panel looking at a file nobody has left.
+			if (i === this.opts.places.index)
+				continue;
+			const d = this.reads.describe(i);
+			const line = this.nowLineAt(i, entry, d);
+			if (line === undefined || line === d.lineIndex)
+				continue;
+			moved.push({ key: placeKey(entry), line, mtime: this.reads.mtimeOf(entry.path) });
+		}
+		if (moved.length)
+			this.opts.places.reland(moved);
+	}
+
+	// Where one entry's line stands NOW, or undefined when this panel cannot say (see now-line.ts).
+	// Answered ONCE PER PLACE PER DRAW: the reclaim above and the chain below ask the same question
+	// of the same note, and two answers to it could disagree.
+	//
+	// `prime` is false, exactly as it was before this existed: a row is drawn without waiting for a
+	// file to be read, and the line arrives with the reading instead.
+	private nowLineAt(i: number, entry: NavEntry, d: NavEntryDescription): number | undefined {
+		if (this.nowLineBy.has(i))
+			return this.nowLineBy.get(i);
+		const line = nowLineFor(entry, d, this.nowLines, false);
+		this.nowLineBy.set(i, line);
+		return line;
+	}
+
+	// WHETHER A LANDING HAS LOST THE HEADING IT NAMES: the row stands for a heading, and after the
+	// note was written there is nothing left in it that this panel can find the row's spot by.
+	//
+	// THREE things hang on this answer and are not allowed to disagree, which is why it is asked
+	// here rather than in each of them: what the row PRINTS as its section (trailFor), what it
+	// WARNS about on hover (list.ts's landingNote), and which section its preview is pointed at
+	// (previewAsk). A row reading "Beta" while warning about a lost "Alpha" was the whole of the
+	// oddity here: three answers read off three places, and only one of them true.
+	//
+	// `line` is what nowLineFor answered for this row, however it was asked — once per draw for the
+	// rows, once per hover for the preview, whose own asking MAY read the file (see nowLineAt).
+	private landingLost(entry: NavEntry, line: number | undefined): entry is NavJump {
+		// Only a landing whose ADDRESS was the anchor behind its key can lose one; everything else
+		// carries a number the position database answers for, and a row walking in the note's own
+		// name never had a heading to lose.
+		if (entry.kind !== 'jump' || typeof entry.keyLine !== 'number')
+			return false;
+		if (line !== undefined)
+			return false;
+		// …and only where the vault has actually READ the note: one a sync has just put back carries
+		// no parsed headings for a while (on a phone, for good), and that silence is no verdict.
+		return this.reads.hasHeadings(entry.path);
+	}
+
 	// The section chain a place sits in, read at the line it is at NOW rather than the line it was
 	// recorded at — the two halves have to come from the same "now".
 	//
@@ -480,15 +569,28 @@ export class RecentFilesBrowser {
 	// recorded number still stands for the ROW'S OWN WORDS: a few lines of drift inside one section
 	// is not a different section.
 	//
-	// `prime` is false: a render of fifty rows must not read fifty files to label them. A chain that
-	// arrives a render late arrives with the reading (see redrawAfterLateRead).
-	private trailFor(entry: NavEntry, d: NavEntryDescription): string[] {
+	// NOT once the row's OWN HEADING is GONE (see landingLost). There is no drift to forgive then —
+	// the note was rewritten out from under the anchor, and a chain read at the recorded line names
+	// whichever section that number happens to fall in today, which is one this row never stood
+	// for. What it prints instead is the heading it was recorded with: those words are its own, they
+	// are what the reader knows the place by, and they are the very words its warning speaks about.
+	// A key carrying none — a linktext, a block id — is given no chain rather than the wrong one.
+	//
+	// `prime` where the answer is asked for is nowLineAt's business (including the rule that fifty
+	// rows may not read fifty files): a chain that arrives a draw late arrives with the reading
+	// (see redrawSoon).
+	private trailFor(entry: NavEntry, d: NavEntryDescription, i: number): string[] {
 		if (entry.kind === 'view')
 			return [];
-		const line = nowLineFor(entry, d, this.nowLines, false) ?? d.lineIndex;
-		if (line === undefined)
+		const line = this.nowLineAt(i, entry, d);
+		if (line === undefined && this.landingLost(entry, line)) {
+			const named = outlineHeading(entry.key);
+			return named ? [named] : [];
+		}
+		const at = line ?? d.lineIndex;
+		if (at === undefined)
 			return [];
-		return headingTrailAtLine(this.reads.headingsFor(entry.path), line);
+		return headingTrailAtLine(this.reads.headingsFor(entry.path), at);
 	}
 
 	private jump(i: number, target?: PaneTarget): void {
@@ -525,10 +627,13 @@ export class RecentFilesBrowser {
 		// NOT LOOKED FOR when the answer would be thrown away (see wantsLine): naming no line costs
 		// one whole read less, and with it the redraw the reading owes to rows already drawn — due
 		// sixty milliseconds after an asking the app may still be answering.
+		const d = this.reads.describe(rep);
 		const line = this.wantsLine(file)
-			? nowLineFor(entry, this.reads.describe(rep), this.nowLines)
+			? nowLineFor(entry, d, this.nowLines)
 			: undefined;
-		const ask = this.previewAsk(entry, entry.path, file, line);
+		// A LOST landing says so out loud (see landingLost), so nothing here may contradict it —
+		// and asking the app for a section would, exactly as printing one would.
+		const ask = this.previewAsk(entry, entry.path, file, line, this.landingLost(entry, line));
 		this.opts.app.workspace.trigger('hover-link', {
 			event: ev,
 			// Who is asking: the id the plugin registered, which is what lets the app apply the
@@ -573,11 +678,16 @@ export class RecentFilesBrowser {
 		return !file || this.opts.prefs.previewFocus() === 'line';
 	}
 
+	// A landing row whose own HEADING IS GONE is named by no section at all: the one its recorded
+	// line now falls in belongs to another row, and the app would open the note reading about a
+	// place the reader never went to. Its row prints the heading it was recorded with and warns
+	// that it is gone (see trailFor); what the preview can still carry is the LINE.
 	private previewAsk(
 		entry: NavEntry,
 		path: string,
 		file: boolean,
 		line: number | undefined,
+		lost: boolean,
 	): { linktext: string; state?: { scroll: number } } {
 		if (file) {
 			if (!this.wantsLine(file))
@@ -592,7 +702,9 @@ export class RecentFilesBrowser {
 				state: line === undefined ? undefined : { scroll: line },
 			};
 		}
-		const heading = line === undefined ? undefined : this.subpathHeading(entry, path, line);
+		const heading = line === undefined || lost
+			? undefined
+			: this.subpathHeading(entry, path, line);
 		if (heading !== undefined)
 			return { linktext: `${path}#${heading}` };
 		return {

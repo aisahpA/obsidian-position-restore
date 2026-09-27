@@ -99,14 +99,17 @@ export interface RecentFilesListOptions {
 	// Whether a note still exists on disk. It is how a place is FILTERED, not
 	// how a row is disabled: a name whose file is gone is not listed at all.
 	noteExists: (path: string) => boolean;
-	// The heading chain an entry's landing sits in.
-	trailFor: (entry: NavEntry, d: NavEntryDescription) => string[];
+	// The heading chain an entry's landing sits in, asked with the entry's INDEX so the browser
+	// can answer for the place rather than for whatever the entry looks like on its own.
+	trailFor: (entry: NavEntry, d: NavEntryDescription, i: number) => string[];
 	// The file's OTHER names: searchable, printed on the row's tooltip, and
 	// nowhere else (see tip.ts). A pathless view has none.
 	aliasesFor: (path: string) => string[];
-	// The file's mtime NOW, for landingNote's "written since" comparison.
-	// Never asked about a pathless view.
-	mtimeFor: (path: string) => number | undefined;
+	// Whether this row's landing has LOST the heading it names: the note was written since and
+	// nothing in it answers for this spot any more. Answered by the browser, which is the side that
+	// already knows where the line stands now — two answers to that would let a row's own words
+	// and what it warns about disagree. See the browser's landingLost.
+	lostLanding: (entry: NavEntry, d: NavEntryDescription, i: number) => boolean;
 	// The position moved: the browser points the filter box's
 	// aria-activedescendant at the row id (focus never leaves the box).
 	onActiveRow: (id: string | undefined) => void;
@@ -408,7 +411,7 @@ export class RecentFilesList {
 			// The NAME AS PRINTED goes in too: a note the reader calls by its
 			// frontmatter title is searched for by that title. (The file's own
 			// name is already in the haystack — see listing.ts's navSearchText.)
-			return `${d.name ?? ''} ${d.line ?? ''} ${this.opts.trailFor(entry, d).join(' ')} ${aka.join(' ')}`;
+			return `${d.name ?? ''} ${d.line ?? ''} ${this.opts.trailFor(entry, d, i).join(' ')} ${aka.join(' ')}`;
 		};
 		// WHAT may be listed at all: a place whose file is gone is dropped
 		// before grouping — no row, no landing, no "you are here" ever stands
@@ -647,12 +650,13 @@ export class RecentFilesList {
 		// or any note while the setting prints none): the click goes there
 		// (see activeRep), so the row has to be able to say what the spot was.
 		if (!this.printsLandings(index)) {
-			const spot = this.opts.entries[this.activeRep(ref)];
+			const at = this.activeRep(ref);
+			const spot = this.opts.entries[at];
 			if (spot?.kind === 'jump') {
 				const quotes = this.landingQuotes(spot, query);
 				if (quotes.length)
 					tip.quotes = quotes;
-				const note = this.landingNote(spot);
+				const note = this.landingNote(spot, this.opts.describe(at), at);
 				if (note)
 					tip.note = note;
 			}
@@ -689,7 +693,7 @@ export class RecentFilesList {
 		const entry = this.opts.entries[i];
 		if (!entry)
 			return undefined;
-		const chain = this.opts.trailFor(entry, this.opts.describe(i));
+		const chain = this.opts.trailFor(entry, this.opts.describe(i), i);
 		return chain.length ? chainText(chain) : undefined;
 	}
 
@@ -735,24 +739,21 @@ export class RecentFilesList {
 		return hit ? [`${t('recentFiles.matchedLine')}${hit}`] : [];
 	}
 
-	// Whether the note has been written since the landing's words were taken.
-	// The quote is a photograph — the coordinate and the section are the
-	// note's as it stands NOW, the words are its as it stood THEN, and
-	// nothing else on the row says which is which. Not a warning and nothing
-	// to do: what it buys is that an old quote reads as an old quote.
-	private landingNote(entry: NavEntry): string | undefined {
-		if (entry.kind === 'view')
-			return undefined;
-		const taken = entry.st?.mtime;
-		// No stamp on the record says nothing rather than guessing.
-		if (taken === undefined)
-			return undefined;
-		const now = this.opts.mtimeFor(entry.path);
-		// A clock that ran BACKWARDS (a sync putting an older copy back) says
-		// nothing rather than claiming a rewrite that did not happen.
-		if (now === undefined || now <= taken)
-			return undefined;
-		return t('recentFiles.editedSince');
+	// WHAT THE ROW CANNOT SAY, which is the one thing about it worth saying.
+	//
+	// Not "the note was written since the line was taken": every edit trips that, including one made
+	// three sections away, and a line that shows on half the list says nothing at all. The panel puts
+	// right what can be put right before a row exists (see the browser's reclaim), and what is LEFT
+	// is the one case nobody can fix: this landing named a HEADING, and after the note was written
+	// that heading is not in it — so the row stands for a spot it can no longer find, and says so
+	// instead of travelling somewhere else in silence.
+	//
+	// The row PRINTS that heading's words all the same (see the browser's trailFor): they are what
+	// the reader knows the spot by, and a row that stopped saying them would have nothing left to
+	// be about. So this line is the half that says the two are not the same claim — the words are
+	// the record's, the note's own headings no longer carry them.
+	private landingNote(entry: NavEntry, d: NavEntryDescription, i: number): string | undefined {
+		return this.opts.lostLanding(entry, d, i) ? t('recentFiles.lostLanding') : undefined;
 	}
 
 	// WHICH PLACES ONE LANDING ROW STANDS FOR, by identity (see placeKey). A
@@ -833,9 +834,15 @@ export class RecentFilesList {
 		// slack. The cell is created even when empty, so its track exists on
 		// every landing row. `chain` is the whole thing; the outer levels are
 		// one hover away (see the tooltip below).
-		const chain = this.opts.trailFor(entry, d);
+		const chain = this.opts.trailFor(entry, d, i);
 		const trail = rowTrail(chain);
 		const crumb = row.createSpan({ cls: 'nav-row-trail' });
+		// A heading GONE from the note, whose words the row keeps printing anyway (see landingNote):
+		// marked HERE rather than only in the tooltip, so a row says what it stands for without
+		// being asked. Muted AND struck rather than merely dimmed — dimming reads as unimportant,
+		// and what this says is that the words are the record's and no longer the note's.
+		if (this.opts.lostLanding(entry, d, i))
+			crumb.addClass('is-lost');
 		let outer: HTMLElement | undefined;
 		for (let k = 0; k < trail.length; k++) {
 			const level = crumb.createSpan({
@@ -859,7 +866,7 @@ export class RecentFilesList {
 		// either way: they are the half of this row the reader cannot see
 		// anywhere.
 		const quotes = this.landingQuotes(entry, query);
-		const note = this.landingNote(entry);
+		const note = this.landingNote(entry, d, i);
 		const tip = this.placeTip(chain, trail, quotes, note);
 		if (tip)
 			this.tip.attach(row, tip);

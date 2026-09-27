@@ -17,8 +17,8 @@ import { RecentFilesModal } from '@/recent-files/browser/modal';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
-import { navGroupKey, type NavEntry } from '@/nav/entry';
-import { placeKey } from '@/recent-files/places';
+import { navGroupKey, type NavEntry, type NavJump } from '@/nav/entry';
+import { placeKey, type ReclaimedLine } from '@/recent-files/places';
 import { ageLabel } from '@/recent-files/browser/model';
 import { NAV_CONTEXT_LINES } from '@/position/capture/ephemeral';
 import { DEFAULT_SETTINGS } from '@/types';
@@ -444,9 +444,22 @@ function harness(
 		pinned.splice(at, 1);
 		pinned.splice(to, 0, key);
 	});
+	// …and a LANDING PUT BACK where the heading it names stands now (see places.ts's
+	// reland). The store keeps no vault, so this is what it would have written — the
+	// line it was handed, and the clock the answer was taken at, both readable from
+	// `entries` afterwards, which is how a test sees the panel having done it.
+	const reland = vi.fn((lines: readonly ReclaimedLine[]) => {
+		for (const r of lines) {
+			const entry = entries.find(e => placeKey(e) === r.key);
+			if (entry?.kind !== 'jump')
+				continue;
+			entry.keyLine = r.line;
+			entry.st = r.mtime === undefined ? entry.st : { ...entry.st, mtime: r.mtime };
+		}
+	});
 	const places = {
 		entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding, pinned,
-		pin, unpin, movePinned, isPinned: (key: string) => pinned.includes(key),
+		pin, unpin, movePinned, isPinned: (key: string) => pinned.includes(key), reland,
 	};
 	let modal: RecentFilesModal;
 	try {
@@ -573,8 +586,8 @@ function harness(
 	const forgetButton = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
-		modal, jumpTo, forget, forgetLanding, cachedRead, el: modal.contentEl, entries, list, pinned,
-		pin, unpin, movePinned,
+		modal, jumpTo, forget, forgetLanding, reland, cachedRead, el: modal.contentEl, entries, list,
+		pinned, pin, unpin, movePinned,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile, fileEvent,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
@@ -1900,49 +1913,159 @@ it('names the line the query hit', () => {
 	expect(quotes()).toEqual([]);
 });
 
-it('says the note has been written since the line it quotes was taken', () => {
-	// The quoted line is a photograph of the note as it stood the moment the place was
-	// recorded, while the coordinate and the section the row prints are the note's as
-	// it stands NOW. Nothing else on the row says the two may have parted, and an old
-	// quote passing for a current one is the one thing this list can still get wrong
-	// in silence — so the mtime the record kept is compared with the file's own.
+// A JUMP WHOSE LANDING THE VAULT CAN STILL FIND — the two things a panel needs to put
+// a moved line back (see browser/now-line.ts), and neither of which `visit` above
+// carries: a KEY naming a heading (`marks` included, which is how an outline key says
+// its level), and the line that heading stood on when the record last looked.
+const landing = (
+	path: string, stamp: number, marks: string, line: number, mtime: number,
+): NavEntry => ({
+	kind: 'jump', path, leafId: 'leaf-1', t: stamp,
+	key: `outline:${marks}`, keyLine: line,
+	st: { ...captured(SPREAD_DOC, line), mtime },
+});
+
+// One entry as the JUMP it is: everything a test says about where a landing was put
+// back is said about fields only that shape carries.
+const jumpAt = (entries: NavEntry[], i: number) => entries[i] as NavJump;
+
+it('puts a landing back where its heading stands now, and says nothing about it', () => {
+	// An edit that moves a heading does not move the READER, and this panel can answer
+	// where the spot went — so nothing is owed its row, and the coordinate is corrected
+	// before the row exists, which is the whole of why no warning is.
 	const taken = 1_000;
+	const written = 5_000;
+	// 呈现方案 stands where it was recorded; 预览 has moved ten lines down the note.
+	const headings = {
+		'a.md': [
+			{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
+			{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
+			{ heading: '预览', level: 3, position: { start: { line: 14 } } },
+		],
+	};
 	const entries = [
-		visit('a.md', NOW - 2 * MINUTE, { ...captured(SPREAD_DOC, 8), mtime: taken }),
-		visit('a.md', NOW - MINUTE, { ...captured(SPREAD_DOC, 9), mtime: taken }),
+		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
+		landing('a.md', NOW - MINUTE, '### 预览', 4, taken),
 		visit('b.md', NOW),
 	];
 	const notes = () => Array.from(
 		document.querySelectorAll('.position-restore-nav-tip .nav-tip-note'),
 	).map(n => n.textContent);
+	const lines = (h: ReturnType<typeof harnessAll>) =>
+		h.rows().map(r => r.querySelector('.nav-row-line')?.textContent);
 
-	// Written since: the file's clock is ahead of the one the record kept.
-	const edited = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false,
-		{ 'a.md': taken + 5_000 });
-	edited.hover(edited.place('L9'));
-	expect(notes()).toEqual([t('recentFiles.editedSince')]);
+	const h = harnessAll(entries, 2, files, [], {}, headings, false, { 'a.md': written });
+	// …and the row prints that answer, which is the coordinate a click travels to.
+	expect(lines(h)).toEqual(['L3', 'L15']);
+	h.hover(h.place('L15'));
+	expect(notes()).toEqual([]);
+	h.unhover(h.place('L15'));
+	// One landing moved and one did not, and only the one that moved was written: the
+	// other was ASKED and answered with the line it already had.
+	expect(h.reland).toHaveBeenCalledTimes(1);
+	expect(jumpAt(h.entries, 1).keyLine).toBe(14);
+	expect(jumpAt(h.entries, 1).st?.mtime).toBe(written);
+	expect(jumpAt(h.entries, 0).keyLine).toBe(2);
+	expect(jumpAt(h.entries, 0).st?.mtime).toBe(taken);
+	// …and the row prints that answer, which is the coordinate a click travels to.
+	expect(lines(h)).toEqual(['L3', 'L15']);
+
+	// DRAWN AGAIN: nothing left to put back — the record now carries the note's own
+	// clock, which is the cheapest answer this panel has, so the pass writes nothing
+	// and finds nothing.
+	h.changed();
+	expect(h.reland).toHaveBeenCalledTimes(1);
+	expect(lines(h)).toEqual(['L3', 'L15']);
+});
+
+it('says so when the heading a landing named is not in the note any more', () => {
+	// What is LEFT after the pass above has put back what it can: the one case nobody
+	// can fix. Every other row whose note was written since is silent now — including
+	// one whose heading merely moved — so this line only ever stands for a landing the
+	// note has lost, and a warning that showed on half the list would say nothing.
+	const taken = 1_000;
+	const headings = {
+		'a.md': [
+			{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
+			{ heading: '呈现方案', level: 2, position: { start: { line: 2 } } },
+		],
+	};
+	const entries = [
+		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
+		landing('a.md', NOW - MINUTE, '### 预览', 4, taken),
+		visit('b.md', NOW),
+	];
+	const notes = () => Array.from(
+		document.querySelectorAll('.position-restore-nav-tip .nav-tip-note'),
+	).map(n => n.textContent);
+	const trail = (row?: HTMLElement) => row?.querySelector('.nav-row-trail')?.textContent;
+	const struck = (row?: HTMLElement) =>
+		!!row?.querySelector('.nav-row-trail')?.classList.contains('is-lost');
+
+	const h = harnessAll(entries, 2, files, [], {}, headings, false, { 'a.md': taken + 5_000 });
+
+	// THE ROW KEEPS THE WORDS IT WAS RECORDED WITH. With 预览 gone, its recorded line
+	// falls under 呈现方案, and printing THAT left the row standing for a section the
+	// reader never went to — while its own tooltip was saying the heading was gone, and
+	// while a click took the reader to a line under some other heading. The words it
+	// keeps are what the row is ABOUT, and the last thing that names the spot.
+	expect(trail(h.place('L5'))).toBe('预览');
+	expect(struck(h.place('L5'))).toBe(true);
+	// …and the row beside it, whose heading the note still carries, is read off the note
+	// and prints no mark: one row kept its section, the other kept only its record.
+	expect(trail(h.place('L3'))).toBe('面板设计›呈现方案');
+	expect(struck(h.place('L3'))).toBe(false);
+
+	h.hover(h.place('L5'));
+	expect(notes()).toEqual([t('recentFiles.lostLanding')]);
 	// …and it stands UNDER the words it is about, and not among them: a quoted line
-	// is the note's, this one is the panel's. (The row also says its whole section
-	// chain here, which is why the note is last of three and not last of two.)
+	// is the note's, this one is the panel's.
 	const kinds = Array.from(
 		document.querySelector('.position-restore-nav-tip')!.children,
 	).map(c => c.className);
 	expect(kinds.at(-1)).toBe('nav-tip-note');
 	expect(kinds.indexOf('nav-tip-note')).toBeGreaterThan(kinds.lastIndexOf('nav-tip-quote'));
-	edited.unhover(edited.place('L9'));
+	h.unhover(h.place('L5'));
 
-	// Untouched: the same clock, so the quote is the note as it stands.
-	const same = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false, { 'a.md': taken });
-	same.hover(same.place('L9'));
-	expect(notes()).toEqual([]);
-	same.unhover(same.place('L9'));
+	// NOR IS ITS PREVIEW POINTED AT A SECTION: the app opens `note#heading` by taking the
+	// first heading answering to that name, and the one this line now sits under belongs
+	// to another row. What this panel hands over for one is the note alone.
+	// The pointer has to have MOVED onto the row: an arrival whose coordinates nobody left is
+	// nobody left is a panel drawing itself around a hand that was already there (see
+	// RecentFilesList.hoverAt), which is why a hover of this row is two events.
+	const row = h.place('L5');
+	for (const clientX of [10, 30])
+		row.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, clientX, clientY: clientX }));
+	const asked = (
+		h.trigger.mock.calls.filter(c => c[0] === 'hover-link').at(-1)?.[1]
+	) as { linktext?: string } | undefined;
+	expect(asked?.linktext).toBe('a.md');
 
-	// A clock that ran BACKWARDS — a sync putting an older copy back — says nothing
-	// rather than claiming a rewrite that did not happen.
-	const older = harnessAll(entries, 2, files, [], {}, SPREAD_HEADINGS, false,
-		{ 'a.md': taken - 500 });
-	older.hover(older.place('L9'));
-	expect(notes()).toEqual([]);
+	// NOTHING WAS WRITTEN: a landing whose line cannot be found keeps the clock it had,
+	// so its row goes on saying so rather than being quietly marked as checked.
+	expect(h.reland).not.toHaveBeenCalled();
+	expect(jumpAt(h.entries, 1).keyLine).toBe(4);
+	expect(jumpAt(h.entries, 1).st?.mtime).toBe(taken);
+});
+
+it('says nothing about a note the vault has not parsed yet', () => {
+	// The answer "that heading is not in the note" belongs to something that has READ the
+	// note. A note a sync has just put back has no parsed headings for as long as the app
+	// takes to re-read it — and on a phone it may never be re-read at all — and a row that
+	// borrowed that silence as a verdict would be blaming the note for the vault's hurry.
+	const taken = 1_000;
+	const entries = [
+		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
+		landing('a.md', NOW - MINUTE, '### 预览', 4, taken),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, files, [], {}, {}, false, { 'a.md': taken + 5_000 });
+	h.hover(h.place('L5'));
+	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-note')).toHaveLength(0);
+	h.unhover(h.place('L5'));
+	// Nothing was put back either: without the parsed headings there is nothing to put
+	// anything back WITH.
+	expect(h.reland).not.toHaveBeenCalled();
 });
 
 it('says nothing about the note when the record kept no time of its own', () => {

@@ -1096,6 +1096,17 @@ body.is-mobile .position-restore-cue {
 	display: none;
 }
 
+/* A landing whose HEADING THE NOTE NO LONGER HAS, which keeps printing the words it
+   was recorded with (see RecentFilesList.placeRow and the browser's trailFor): struck
+   through, and down a tier. What is struck is not the words — they are the only thing
+   left naming the spot, and dropping them would leave the row about nothing — but the
+   claim that the note carries them, so they read as remembered rather than as a label
+   to look for. The row's tooltip is where that is said in so many words. */
+.position-restore-nav-row .nav-row-trail.is-lost {
+	color: var(--nav-faint);
+	text-decoration: line-through;
+}
+
 /* The separator hangs off the level it FOLLOWS rather than standing between the
    two levels as a cell of its own (see RecentFilesList.placeRow, which writes it
    inside that level's span). As a cell it kept its width — the glyph and its 10px

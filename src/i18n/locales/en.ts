@@ -250,9 +250,12 @@ export const en = {
 	'recentFiles.aka': 'aka:',
 	// The two QUOTED lines on a heading row's tooltip: both the note's own
 	// words, recorded when the place was taken and printed nowhere else. "As
-	// recorded" is the point — the note may have been edited since.
+	// recorded" is the point — the note may have been edited since. Below
+	// them sits the one line that is the panel's own words rather than the
+	// note's: a heading the panel COULD put back, it put back already (see the
+	// browser's reclaim), so what is left to say is the case nobody can fix.
 	'recentFiles.matchedLine': 'Matched:',
-	'recentFiles.editedSince': 'Edited since this was recorded',
+	'recentFiles.lostLanding': "Can't find this heading since the note was edited",
 	'recentFiles.openInNewTab': 'Open in new tab',
 	'recentFiles.openHereInNewTab': 'Open here in a new tab',
 	// The row's own removal, drawn as a ×. "Remove" and not "delete": what

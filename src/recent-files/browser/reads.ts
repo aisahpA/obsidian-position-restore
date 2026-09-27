@@ -155,6 +155,16 @@ export class RecentFilesReads {
 		return read;
 	}
 
+	// WHETHER THIS NOTE HAS BEEN PARSED YET — the difference between "that heading is gone" and
+	// "nobody has asked the app for it yet", which only the CACHE can tell apart: a note a sync has
+	// just put back has no headings here for as long as the app takes to re-read it (and on a phone
+	// it may not be re-read at all while the reader never opens it). Read off the cache alone,
+	// deliberately without the text fallback below: the question is whether there was ever an
+	// answer, not whether this list could build one.
+	hasHeadings(path: string): boolean {
+		return !!this.metaFor(path).headings?.length;
+	}
+
 	// TWO ways to know a chain: the metadata cache, already parsed, and the note's own
 	// text. The text is only for when the first says nothing — and "nothing" includes
 	// an EMPTY chain: a note a sync has just put back can have been parsed while it was

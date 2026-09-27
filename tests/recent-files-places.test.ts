@@ -1397,3 +1397,72 @@ describe('NavPlaces — change notification', () => {
 		expect(seen).toHaveBeenCalledTimes(4);
 	});
 });
+
+describe('NavPlaces.reland — a landing put back where it stands now', () => {
+	// The line arrives already answered: the store keeps no vault of its own, and what
+	// it writes is what the panel found in one.
+	const landing = (line: number, mtime: number): NavJump => ({
+		...jump('a.md', 'outline:## T'), keyLine: line,
+		st: { scroll: line, anchor: 'a line', context: ['below it'], mtime },
+	});
+	const there = (places: NavPlaces) => places.entries[0] as NavJump;
+
+	it('moves the address and nothing else about the place', () => {
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		const aged = there(places).t;
+		places.reland([{ key: placeKey(there(places)), line: 14, mtime: 500 }]);
+
+		expect(there(places).keyLine).toBe(14);
+		expect(there(places).st?.mtime).toBe(500);
+		// The WORDS stay: they were read once, and reading them again would not make
+		// them truer — it would lose the ones the reader left with.
+		expect(there(places).st?.anchor).toBe('a line');
+		expect(there(places).st?.context).toEqual(['below it']);
+		// Neither a visit nor a re-recording: a row ages by the stamp it already had.
+		expect(there(places).t).toBe(aged);
+	});
+
+	it('tells nobody, and writes itself down', () => {
+		// Nothing is broadcast because nothing ELSE needs to know: the rows these lines
+		// belong to are the rows about to be drawn, and by the panel that asked. A place
+		// lives for months, though, so the answer goes to storage at once.
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.reland([{ key: placeKey(there(places)), line: 14, mtime: 500 }]);
+		expect(seen).not.toHaveBeenCalled();
+		expect(window.localStorage.getItem(STORAGE_KEY)).toContain('"keyLine":14');
+	});
+
+	it('writes nothing when the line already stands there', () => {
+		// The very next draw, every time: a record carrying the note's own clock is the
+		// cheapest answer the panel has, so nothing asks again. Which is what stops the
+		// pass that writes these from being a loop.
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		places.reland([{ key: placeKey(there(places)), line: 4, mtime: 100 }]);
+		const wrote = places.persist = vi.fn();
+
+		places.reland([{ key: placeKey(there(places)), line: 4, mtime: 100 }]);
+		expect(wrote).not.toHaveBeenCalled();
+	});
+
+	it('leaves a place alone when no line could be answered for it', () => {
+		// An entry the pass never mentioned keeps EVERYTHING, its old clock included —
+		// which is exactly what lets its row go on saying it cannot find the spot.
+		const { places } = makePlaces();
+		places.remember(landing(4, 100));
+		const st = there(places).st;
+		places.reland([{ key: 'a.md#outline:## Gone', line: 9, mtime: 500 }]);
+		expect(there(places).keyLine).toBe(4);
+		expect(there(places).st).toBe(st);
+		// …and a clock nobody could read leaves the record saying nothing rather than
+		// claiming a check that was never made.
+		places.reland([{ key: placeKey(there(places)), line: 9 }]);
+		expect(there(places).keyLine).toBe(9);
+		expect(there(places).st?.mtime).toBe(100);
+	});
+});

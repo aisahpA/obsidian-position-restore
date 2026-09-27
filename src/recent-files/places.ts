@@ -103,8 +103,30 @@ export interface PlaceList {
 	movePinned(key: string, delta: number): void;
 	// Whether a row is pinned — asked by the panel, which draws the two blocks.
 	isPinned(key: string): boolean;
+	// A landing whose coordinates the note moved out from under, put back where the
+	// anchor it names stands NOW (see ReclaimedLine). The line always arrives answered:
+	// this store reads no vault, and a number guessed here would be one nobody could
+	// tell from the one already standing on the row. NOT a visit — the place keeps its
+	// own age, and nothing about it moves besides its address.
+	reland(lines: readonly ReclaimedLine[]): void;
 	// Something a browser would have to redraw for.
 	subscribe(fn: () => void): () => void;
+}
+
+// One landing's coordinates put back where they belong: the answer to "where does that
+// heading stand now", which the panel can give and this store cannot reach on its own (a
+// line lives in the vault, and nothing here has one).
+export interface ReclaimedLine {
+	// The place, by its own identity (see placeKey): an index would not survive a place
+	// being forgotten between the asking and the writing.
+	key: string;
+	// Where the landing's anchor stands in the note NOW, 0-based.
+	line: number;
+	// The note's clock the answer was taken against, stamped on the record for the one
+	// thing it buys: the panel does not go looking for the line again on every draw (see
+	// browser/now-line.ts's cheapest answer). Absent when the file's own clock is one
+	// nobody could read, and the record then says nothing rather than claiming a check.
+	mtime?: number;
 }
 
 // What the store needs to travel. Injected (and implemented by NavStack, which owns the
@@ -472,6 +494,36 @@ export class NavPlaces implements PlaceList {
 		if (this.entries.length === before)
 			return;
 		this.changed();
+	}
+
+	// A LANDING THE NOTE MOVED OUT FROM UNDER, put back where its anchor stands now
+	// (see ReclaimedLine). Not a re-reading: the WORDS stay. They were taken once, on
+	// purpose, and taking them again would not make them truer — it would lose the ones
+	// the reader left with. What moves is an address, nothing more.
+	//
+	// NOTHING IS BROADCAST: the rows these lines belong to are the rows about to be
+	// drawn, and by the one panel that asked. Another shell standing beside it draws the
+	// same answer the next time it draws anything at all, and a browser that is not
+	// drawing has nobody to tell. It IS written down at once, for the reason pin is: a
+	// place lives for months, and an answer it would otherwise lose on a quit is one it
+	// can never be asked for again at quite this price.
+	reland(lines: readonly ReclaimedLine[]): void {
+		let wrote = false;
+		for (const r of lines) {
+			const at = this.indexOf(r.key);
+			if (at < 0)
+				continue;
+			const place = this.entries[at];
+			if (place.kind !== 'jump')
+				continue;
+			if (place.keyLine === r.line && place.st?.mtime === r.mtime)
+				continue;
+			place.keyLine = r.line;
+			place.st = r.mtime === undefined ? place.st : { ...place.st, mtime: r.mtime };
+			wrote = true;
+		}
+		if (wrote)
+			this.persist();
 	}
 
 	// The whole list, taken off at once (see RecentFilesView.onPaneMenu). What survives
