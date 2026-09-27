@@ -172,7 +172,10 @@ describe('recent-files browser quiet tiers', () => {
 	// its .tree-item-self), so a row matches its neighbour without this file picking a
 	// number — and the strip and the setting menu keep the smaller tiers they name.
 	it('sets a row in the app\'s own nav-list tier', () => {
-		const row = browser.match(/\.position-restore-nav-row\s*\{[^}]*\}/)?.[0] ?? '';
+		// The row's OWN rule, and not the desktop dialog's override of its padding, which
+		// starts with the same class: anchored at the line's start so nothing prefixed
+		// can be read as it.
+		const row = browser.match(/(?:^|\n)\.position-restore-nav-row \{[^}]*\}/)?.[0] ?? '';
 		expect(row).not.toBe('');
 		expect(row).toMatch(/font-size: var\(--nav-item-size/);
 	});
@@ -505,6 +508,50 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).toMatch(/\.modal\.position-restore-nav-modal\s*\{[^}]*width: min\(23em/);
 		expect(browser).not.toContain('is-no-details');
 		expect(browser).not.toContain('position-restore-nav-body');
+	});
+
+	// THE DESKTOP DIALOG IS SIZED THE WAY THE APP SIZES ITS OWN answer to the same question
+	// (the quick switcher): the width its prompt takes, standing where that prompt stands, in
+	// the type its suggestions are set in. Every one of those is READ OUT OF THE APP rather
+	// than measured here, so a theme that retunes the prompt retunes this dialog with it — and
+	// so none of them can be allowed to fall back to a number of this file's own. A PHONE
+	// KEEPS ITS OWN SIZE (see the base rules these two override): a 700px dialog is a screen
+	// it cannot put away.
+	it('sizes the desktop dialog the way the app sizes its own prompt', () => {
+		const desktop =
+			browser.match(/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \{[^}]*\}/)?.[0] ?? '';
+		expect(desktop).not.toBe('');
+		// the app's own prompt width, and the closely-related `--nav-modal-top` the same
+		// rule names for the two places below to read
+		expect(desktop).toMatch(/width: var\(--prompt-width/);
+		expect(desktop).toMatch(/max-width: min\(var\(--prompt-max-width/);
+		expect(desktop).toMatch(/--nav-modal-top: 80px/);
+		// UP, AND NOT CENTRED: the container centres what it holds, so this is the dialog
+		// asking for the start of that line instead.
+		expect(desktop).toMatch(/align-self: flex-start/);
+		expect(desktop).toMatch(/margin-top: var\(--nav-modal-top\)/);
+		// A ROW IS SET IN A TIER OF THE APP'S OWN: `--nav-item-size` is the variable it sets
+		// its own nav lists in — 13px here, 15px on a phone — so the desktop asks for the
+		// phone's number rather than inventing a fourth one (see the row's own rule).
+		expect(desktop).toMatch(/--nav-item-size: var\(--font-ui-medium\)/);
+		// …and the base rule the phone answers is still its own narrow width, so nothing
+		// above can fall back onto a phone.
+		expect(browser).toMatch(/\.modal\.position-restore-nav-modal \{[^}]*width: min\(23em/);
+	});
+
+	// …and THE HEIGHT IS PINNED WHATEVER THE LIST HOLDS (see modal.ts: on a desktop `is-fixed`
+	// no longer waits for a long history). The whole reason the height is pinned is that a
+	// dialog sized by its content SHRINKS under every keystroke and drags itself back toward
+	// the middle of the window while the reader is still typing, so this is the assertion that
+	// keeps anyone from making the pin conditional on the list again. A phone keeps its own.
+	it('pins the desktop dialog\'s height so filtering cannot resize it', () => {
+		const pinned =
+			browser.match(
+				/\.modal\.position-restore-nav-modal\.is-fixed:not\(\.is-touch\) \{[^}]*\}/,
+			)?.[0] ?? '';
+		expect(pinned).not.toBe('');
+		expect(pinned).toMatch(/height: min\(var\(--prompt-max-height/);
+		expect(browser).toMatch(/\.modal\.position-restore-nav-modal\.is-fixed \{[^}]*height: min\(84vh/);
 	});
 
 	// WHERE THE PINNED ROWS STOP is a line and nothing else: a heading would spend a

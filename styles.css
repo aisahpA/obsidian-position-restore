@@ -134,6 +134,78 @@ body.is-mobile .position-restore-cue {
 	max-width: min(23em, 94vw);
 }
 
+/* THE DESKTOP DIALOG IS SIZED THE WAY THE APP SIZES ITS OWN ANSWER to the same question —
+   the quick switcher. Every number below is therefore READ OUT OF THE APP rather than
+   measured here: `--prompt-width` is what its prompt takes (700px, capped at 80vw),
+   `--nav-modal-top` where that prompt stands, `--prompt-max-height` how tall it may grow,
+   `--font-ui-medium` the type its suggestions are set in. A theme that retunes any of them
+   retunes this dialog with it, and a number of ours would have been a second answer to a
+   question the app already answered.
+   A PHONE IS LEFT ALONE (`is-touch`): the width above stays its own. */
+.modal.position-restore-nav-modal:not(.is-touch) {
+	--nav-modal-top: 80px;
+	width: var(--prompt-width, 700px);
+	max-width: min(var(--prompt-max-width, 80vw), 94vw);
+	/* UP, AND NOT CENTRED: the container centres its child vertically, so asking for the
+	   START of that line is what puts the dialog where the app's own prompt stands — a
+	   question asked of a note the reader is already looking at. */
+	align-self: flex-start;
+	margin-top: var(--nav-modal-top);
+	/* A ROW IS SET IN THE TIER THE APP SETS ITS OWN LISTS IN, asked for the tier it gives
+	   them on a PHONE rather than a fourth number of ours: `--nav-item-size` is 13px here
+	   and 15px there (see the fallback in the row's own rule). This dialog is twice the
+	   width of the sidebar panel it shares its rows with, and it is read from further off. */
+	--nav-item-size: var(--font-ui-medium);
+}
+
+/* …and THE HEIGHT THE READER TYPES AGAINST, pinned on a desktop whatever the list holds
+   (see modal.ts): the alternative is a dialog that shrinks under every keystroke and drags
+   itself back toward the middle as the filter narrows the results. `100vh` less the top
+   inset is what keeps the foot off the window in a SHORT window, where 70vh alone would
+   overhang it. */
+.modal.position-restore-nav-modal.is-fixed:not(.is-touch) {
+	height: min(var(--prompt-max-height, 70vh), calc(100vh - var(--nav-modal-top) - 24px));
+}
+
+/* THE ROW'S SHARE of that step up: its own RIB of padding — the app's two numbers for a
+   suggestion (`--size-2-3`, `--size-4-3`), which is what the row is being compared with —
+   and the fine print one tier behind its text rather than two, or a 15px name is read over
+   a 12px folder. */
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row {
+	padding: 6px 12px;
+}
+
+/* …and the row's own controls come off the edge WITH the row's own inset, rather than
+   standing 4px off it as they do in the narrow panel. */
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-actions {
+	inset-inline-end: 10px;
+}
+
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-path,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-time,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-pos,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-line,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-trail,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-here,
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-empty {
+	font-size: var(--font-ui-small);
+}
+
+/* A NAME MAY BE AS LONG AS IT IS: the 20em cap was written against a third of this
+   width, and every name past it was cut with two thirds of the line standing empty. */
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-name {
+	max-width: 34em;
+}
+
+/* THE BOX ANSWERS WITH ROOM AND NOT WITH A HEAVIER RULE — it stays one underline the
+   caret sits on (see the toolbar below). The pad above the caret is what a 15px line
+   wants; the pad BELOW is left alone, and deliberately so: it is what the × measures
+   its own place on the line from (see the clear button below). */
+.position-restore-nav-modal:not(.is-touch) input.position-restore-nav-filter[type='text'] {
+	font-size: var(--font-ui-medium);
+	padding-top: 8px;
+}
+
 /* This panel's two quiet tiers, defined on the shell both forms share and used by
    every rule below in place of --text-faint / --text-muted. Those two are ordinary
    theme variables: a theme may re-hue them to anything, and then the QUIETEST tier

@@ -44,7 +44,10 @@ export class RecentFilesModal extends Modal {
 		// reader may take one off from its own menu — and the list simply comes out a
 		// row shorter.
 		this.modalEl.toggleClass('is-touch', this.mobile);
-		this.modalEl.toggleClass('is-fixed', this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
+		// Pinned on anything with a keyboard, whatever the list holds: filtering must
+		// not resize and re-center the dialog. A phone keeps its short history sized to
+		// it — see FIXED_HEIGHT_MIN_ENTRIES.
+		this.modalEl.toggleClass('is-fixed', !this.mobile || this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
 		this.titleEl.setText(t('recentFiles.name'));
 		this.browser = new RecentFilesBrowser({
 			app: this.app,
