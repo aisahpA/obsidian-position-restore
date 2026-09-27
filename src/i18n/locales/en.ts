@@ -108,9 +108,15 @@ export const en = {
 		'Obsidian Sync takes only data.json, main.js, manifest.json and styles.css out of a community plugin folder, so the database never leaves the device it was written on while it sits in the default location. To make positions follow you between devices, point this setting at a path inside the vault — the buttons below pick or create the folder for you — and enable "Sync all other types" in Obsidian Sync on every device. Folders whose name starts with "." are never synced by Obsidian Sync, so choose an ordinary vault folder.',
 
 	'dataStorage.corruptDb.notice':
-		'The database file could not be parsed (a sync client may have been rewriting it). A copy was kept at {0}. Starting from empty — positions are re-recorded as you open notes.',
+		'Position Restore: The database file could not be parsed (a sync client may have been rewriting it). A copy was kept at {0}. Starting from empty — positions are re-recorded as you open notes.',
 	'dataStorage.corruptDb.noticeNoCopy':
-		'The database file could not be parsed (a sync client may have been rewriting it) and no copy could be written, so its positions are unrecoverable. Starting from empty — positions are re-recorded as you open notes (see the console for details).',
+		'Position Restore: The database file could not be parsed (a sync client may have been rewriting it) and no copy could be written, so its positions are unrecoverable. Starting from empty — positions are re-recorded as you open notes (see the console for details).',
+	// Sticky (click to dismiss): the notice area shows no sender, so the line
+	// has to name the plugin itself.
+	'dataStorage.legacyDb.notice':
+		'Position Restore: the data file is in an older format; every position in it was read and converted to the current format. If other devices still run an older version of the plugin, update them too — while versions differ, each side overwrites the file and positions can be lost.',
+	'dataStorage.legacyDb.noticeOverwritten':
+		'Position Restore: the data file was just overwritten by an older version of the plugin (another device has not been updated yet), and newer positions in it may already be lost. Please update the plugin on your other devices.',
 
 	'dataStorage.entries.name': 'Entry count',
 	'dataStorage.entries.desc':

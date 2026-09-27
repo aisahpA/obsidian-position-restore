@@ -12,48 +12,76 @@ export type CursorDatabase = { [file_path: string]: EphemeralState };
 const MAX_ENTRIES = 750;
 const TRIM_TARGET = Math.floor(MAX_ENTRIES * 3 / 4);
 
-// On-disk compact record, scroll first, length decides shape (no sentinels):
-//   [scroll]                           -> no cursor (incl. a collapsed cursor
-//                                          at (0,0), the editor default)
-//   [scroll, line, ch]                 -> single-point cursor (from === to)
-//   [scroll, line, ch, to.line, to.ch] -> selection
-// The first slot is dual-meaning: markdown saves the quantized top visible
-// line; the Bases view (the only other recordable FileView, opt-in via
-// recordBaseScroll — pdf/image/canvas are never recorded) saves the
-// scroller's raw scrollTop. A path is always exactly one kind, so the shape
-// stays unambiguous. A [0] record is a tombstone: nothing to restore, but its
-// presence marks the file visited for the session, so defaultPosition doesn't
-// kick in again — tombstones are never persisted, since on disk they'd be
-// indistinguishable from "never visited". Restore only scrolls when
-// scroll > 0, so scroll <= 0 means "don't scroll".
-function encodeValue(st: EphemeralState): number[] {
-	const scroll = st.scroll ?? 0;
-	if (!st.cursor)
-		return [scroll];
-	const { from, to } = st.cursor;
-	if (from.line === to.line && from.ch === to.ch)
-		return [scroll, from.line, from.ch];
-	return [scroll, from.line, from.ch, to.line, to.ch];
+// On-disk shape version; both are read, only schema 2 is written. Bump it only
+// when the SHAPE changes — adding an optional field is not a bump, since
+// unknown fields are ignored on read. The file is rewritten wholesale on every
+// flush, so the last writer owns all of it and a version number inside the
+// file cannot protect it: a stale writer overwrites that too.
+//   schema 1: {"a.md": [scroll, line, ch, toLine, toCh]} — the array's LENGTH
+//             was the type tag (1 no cursor, 3 a point, 5 a selection), which
+//             left no way to add a field an older reader would not misread.
+//   schema 2: {"schema": 2, "positions": {"a.md": {"s": 120, "c": [l,ch,tl,tc]}}}
+//             — a record with neither `s` nor `c` is a tombstone: the note was
+//               visited and left at the top, unlike never having a record.
+const SCHEMA_VERSION = 2;
+
+// `s` is dual-meaning exactly as EphemeralState.scroll is: markdown saves the
+// quantized top visible line, the Bases view (the only other recordable
+// FileView, opt-in via recordBaseScroll — pdf/image/canvas are never recorded)
+// saves the scroller's raw scrollTop. `c` is always the full cursor, from then
+// to — never length-tagged, never partial.
+interface PositionRecord {
+	s?: number;
+	c?: number[];
 }
 
-function decodeValue(arr: number[]): EphemeralState {
+// Restore only scrolls when scroll > 0, so a non-positive scroll is not stored;
+// what is left is then the tombstone described above — no `s` therefore means
+// "at the top", not "unknown".
+function encodeValue(st: EphemeralState): PositionRecord {
+	const rec: PositionRecord = {};
+	const scroll = st.scroll ?? 0;
+	if (scroll > 0)
+		rec.s = scroll;
+	if (st.cursor)
+		rec.c = [st.cursor.from.line, st.cursor.from.ch, st.cursor.to.line, st.cursor.to.ch];
+	return rec;
+}
+
+// Unknown fields are ignored rather than rejected: a file written by a newer
+// plugin version must still yield the positions it shares with us.
+function decodeValue(value: unknown): EphemeralState {
+	if (!value || typeof value !== 'object' || Array.isArray(value))
+		return {};
+	const rec = value as { s?: unknown; c?: unknown };
+	const st: EphemeralState = {};
+
 	// Corrupted disk data must not leak NaN/undefined into records: a
 	// non-finite scroll would silently disable restore.
+	if (typeof rec.s === 'number' && Number.isFinite(rec.s) && rec.s > 0)
+		st.scroll = rec.s;
+
+	const c = rec.c;
+	if (Array.isArray(c) && c.length >= 4 && c.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+		const [fromLine, fromCh, toLine, toCh] = c as number[];
+		st.cursor = { from: { line: fromLine, ch: fromCh }, to: { line: toLine, ch: toCh } };
+	}
+	return st;
+}
+
+// schema 1 only: files written by an older plugin — here before an update, or
+// on another device still running one — stay readable.
+function decodeLegacy(arr: number[]): EphemeralState {
 	if (!Array.isArray(arr) || arr.some((n) => !Number.isFinite(n)))
 		return {};
 	const st: EphemeralState = {};
-
 	if (arr[0] > 0)
 		st.scroll = arr[0];
-
 	if (arr.length === 3) {
 		const p = { line: arr[1], ch: arr[2] };
 		st.cursor = { from: p, to: p };
 	} else if (arr.length >= 5) {
-		st.cursor = {
-			from: { line: arr[1], ch: arr[2] },
-			to: { line: arr[3], ch: arr[4] },
-		};
+		st.cursor = { from: { line: arr[1], ch: arr[2] }, to: { line: arr[3], ch: arr[4] } };
 	}
 	return st;
 }
@@ -77,6 +105,14 @@ export class CursorPositionDatabase {
 	private lastDiskMtime = 0;
 	private lastFlushTime = 0;
 	private keyTouchedAt = new Map<string, number>();
+
+	// The schema of the file as last read. Paired with the notified flags it
+	// separates "this file was already old when we started" from "our own
+	// current file was just replaced by an older writer" — only the second is
+	// fresh news, since the first is said once at startup.
+	private lastSeenSchema = 0;
+	private legacyStartupNotified = false;
+	private legacyOverwriteNotified = false;
 
 	// Reentrancy serialization: the flush-tick merge and writeDb()'s pre-flush
 	// merge can overlap; two concurrent read-modify passes would interleave and
@@ -305,14 +341,22 @@ export class CursorPositionDatabase {
 
 	// Recency is the insertion order: setState() always moves a touched key to
 	// the end, so the tail holds the most-recently-modified files — no
-	// timestamp needed.
+	// timestamp needed. Tombstones are cheaper to lose than real positions,
+	// and without that preference a habit of scrolling back to the top would
+	// slowly fill the cap with empty records and crowd out the real ones.
 	private trimToLimit(): void {
-		if (Object.keys(this.db).length <= MAX_ENTRIES)
+		const keys = Object.keys(this.db);
+		if (keys.length <= MAX_ENTRIES)
 			return;
 
-		const entries = Object.entries(this.db);
-		const kept = entries.slice(entries.length - TRIM_TARGET);
-		this.db = Object.fromEntries(kept);
+		// Tombstones lead the eviction order, so they are what falls off the
+		// head; the rest keeps its (oldest-first) place in line.
+		const cheap: string[] = [];
+		const rest: string[] = [];
+		for (const key of keys)
+			(this.isTombstone(this.db[key]) ? cheap : rest).push(key);
+		const kept = [...cheap, ...rest].slice(-TRIM_TARGET);
+		this.db = Object.fromEntries(kept.map((key) => [key, this.db[key]]));
 
 		// Dropped entries leave orphans in the touch-stamp map; prune them so
 		// it can't grow without bound across long sessions.
@@ -341,8 +385,10 @@ export class CursorPositionDatabase {
 		}
 
 		try {
-			this.db = this.parseDb(data);
+			const { schema, db } = this.parseDb(data);
+			this.db = db;
 			await this.cacheDiskMtime();
+			this.noteSchema(schema, true);
 		} catch (e) {
 			// The file exists but holds something else: clearing the in-memory
 			// db is unavoidable (the records are unreachable), but the bytes
@@ -356,19 +402,59 @@ export class CursorPositionDatabase {
 
 	// Shared by the startup read and the external-change merge. Throws on
 	// anything that is not a JSON object (torn write, conflict markers, a
-	// foreign file): it never quietly becomes an empty db.
-	private parseDb(data: string): CursorDatabase {
+	// foreign file): it never quietly becomes an empty db. A schema newer than
+	// ours is read anyway — unknown fields are ignored — so a device that
+	// updated first cannot make the file unreadable here.
+	// @returns the records, plus the schema the file was written with.
+	private parseDb(data: string): { schema: number; db: CursorDatabase } {
 		const parsed: unknown = JSON.parse(data);
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
 			throw new Error('database content is not a JSON object');
 		const raw = parsed as Record<string, unknown>;
+
+		// No numbered schema means the pre-schema flat map, whose keys are the
+		// note paths themselves.
+		const schema = typeof raw.schema === 'number' ? raw.schema : 1;
+		const container = (schema >= 2 ? raw.positions : raw) as Record<string, unknown>;
+		if (!container || typeof container !== 'object' || Array.isArray(container))
+			throw new Error('database has no position map');
+
 		const db: CursorDatabase = {};
-		for (const key of Object.keys(raw)) {
-			const value = raw[key];
-			if (Array.isArray(value))
-				db[key] = decodeValue(value as number[]);
+		for (const key of Object.keys(container)) {
+			const value = container[key];
+			db[key] = Array.isArray(value) ? decodeLegacy(value as number[]) : decodeValue(value);
 		}
-		return db;
+		return { schema, db };
+	}
+
+	// A file written by another plugin version is still readable — unknown
+	// fields are ignored — but the mismatch is worth reporting: our next flush
+	// replaces the whole file, and an older writer does the same to ours, so
+	// the mismatch itself is what loses records, not the read.
+	private noteSchema(schema: number, atStartup: boolean): void {
+		const wasCurrent = this.lastSeenSchema >= SCHEMA_VERSION;
+		this.lastSeenSchema = schema;
+		if (schema >= SCHEMA_VERSION)
+			return;
+
+		if (atStartup) {
+			if (this.legacyStartupNotified)
+				return;
+			this.legacyStartupNotified = true;
+			stickyNotice(t('dataStorage.legacyDb.notice'));
+			return;
+		}
+		// Mid-session, only a CHANGE from a current file to an old one is news;
+		// a file that has been old all along was already reported at startup.
+		if (!wasCurrent || this.legacyOverwriteNotified)
+			return;
+		this.legacyOverwriteNotified = true;
+		stickyNotice(t('dataStorage.legacyDb.noticeOverwritten'));
+	}
+
+	// Nothing worth restoring, and the cheapest record to lose.
+	private isTombstone(st: EphemeralState): boolean {
+		return (st.scroll ?? 0) <= 0 && !st.cursor;
 	}
 
 	// A parse failure makes those records unreachable for this session, and the
@@ -403,30 +489,26 @@ export class CursorPositionDatabase {
 			: t('dataStorage.corruptDb.noticeNoCopy'));
 	}
 
-	// Strict shape check for adopting a target file: accepts only a JSON
-	// object whose every value is an array of finite numbers AND whose every
-	// key is a recordable note path (.md / .base) — exactly what writeDb emits
-	// (an empty `{}` included). The key check is what rejects a foreign JSON
-	// that happens to hold numeric arrays (chart series, vectors); the value
-	// check alone would let it through and delete the real file.
+	// Strict shape check for adopting a target file: accepts only a position db
+	// — schema 2, or the pre-schema flat map — whose every key is a recordable
+	// note path (.md / .base), exactly what writeDb emits (an empty `{}`
+	// included). The key check is what rejects a foreign JSON that happens to
+	// hold numeric arrays (chart series, vectors); without it such a file would
+	// be adopted and the real one deleted.
 	// @returns the parsed db, or null when the content is not a position db.
 	private parseDbStrict(data: string): CursorDatabase | null {
-		let parsed: unknown;
+		let parsed: { schema: number; db: CursorDatabase };
 		try {
-			parsed = JSON.parse(data);
+			parsed = this.parseDb(data);
 		} catch {
 			return null;
 		}
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-			return null;
-		for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+		for (const key of Object.keys(parsed.db)) {
 			const lower = key.toLowerCase();
 			if (!lower.endsWith('.md') && !lower.endsWith('.base'))
 				return null;
-			if (!Array.isArray(value) || value.some((n) => typeof n !== 'number' || !Number.isFinite(n)))
-				return null;
 		}
-		return this.parseDb(data);
+		return parsed.db;
 	}
 
 	private async cacheDiskMtime(): Promise<void> {
@@ -495,8 +577,10 @@ export class CursorPositionDatabase {
 		}
 
 		try {
-			this.mergeDiskDb(this.parseDb(data));
+			const { schema, db } = this.parseDb(data);
+			this.mergeDiskDb(db);
 			this.lastDiskMtime = mtime;
+			this.noteSchema(schema, false);
 		} catch (e) {
 			// Someone replaced the file with content we cannot parse (a torn
 			// download, conflict markers, a half-written push). Keep our
@@ -527,17 +611,15 @@ export class CursorPositionDatabase {
 		const flushedThrough = Date.now();
 		const rev = this.rev;
 
-		const encoded: { [path: string]: number[] } = {};
+		// Tombstones are written, not skipped: "left at the top" is a real state
+		// that has to reach the other device, and keeping the key is what stops
+		// defaultPosition from firing again on the next open.
+		const encoded: { [path: string]: PositionRecord } = {};
 		for (const key of Object.keys(this.db)) {
 			const st = this.db[key];
-			// Skip empty records (no cursor, no positive scroll): restoring
-			// them is a no-op. The only thing they'd preserve is "already
-			// visited" for defaultPosition — not worth dead entries on disk.
-			if (!st.cursor && (st.scroll ?? 0) <= 0)
-				continue;
 			encoded[key] = encodeValue(st);
 		}
-		const data = JSON.stringify(encoded);
+		const data = JSON.stringify({ schema: SCHEMA_VERSION, positions: encoded });
 		const dbPath = this.getDbPath();
 
 		try {
@@ -565,6 +647,7 @@ export class CursorPositionDatabase {
 		// wins any intervening external merge.
 		await this.cacheDiskMtime();
 		this.lastFlushTime = flushedThrough;
+		this.lastSeenSchema = SCHEMA_VERSION;
 		this.dbDirty = rev !== this.rev;
 	}
 
