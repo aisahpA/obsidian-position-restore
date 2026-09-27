@@ -178,14 +178,5 @@ export function landedLine(entry: NavEntry): number | undefined {
 	return st.scroll ?? st.cursor?.from.line;
 }
 
-// What a STEP is stored without: the words its landing was recorded among. They are the recent-files
-// list's quote — what its search box matches — while a step is restored by POSITION and reads none of
-// it, so a step leaves them behind at the one place it is written (see nav-history/store.ts).
-export function withoutLandingWords(st: NavEntryState): NavEntryState {
-	const out = { ...st };
-	delete out.context;
-	return out;
-}
-
 // Both lists' STORAGE versions live with their stores, not here: this module is
 // the shared VOCABULARY, and a format version is a fact about one store's blob.

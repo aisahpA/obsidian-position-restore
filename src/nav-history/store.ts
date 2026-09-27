@@ -1,5 +1,5 @@
 import { App } from 'obsidian';
-import { NavEntry, pruneViewSnapshot, withoutLandingWords } from '@/nav/entry';
+import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 
 // Device-local, per-vault navigation-history persistence: the startup read,
 // the debounced write, and the per-entry shape check.
@@ -76,12 +76,16 @@ export function isNavEntry(e: unknown): e is NavEntry {
 }
 
 export function serializeNavHistory(entries: NavEntry[], index: number): string {
-	// The one place a step leaves its landing's words behind (see nav/entry.ts's
-	// withoutLandingWords): they are the recent-files list's quote, and a step is restored by
-	// position — and is the one thing here written on every flush, for every step the reader took.
-	const steps = entries.map(e => e.kind === 'view' || !e.st
-		? e
-		: { ...e, st: withoutLandingWords(e.st) });
+	// The one place a step leaves its landing's words behind: they are the recent-files
+	// list's quote, and a step is restored by POSITION and reads none of it. Destructured
+	// out rather than deleted — `delete` moves an object to dictionary mode, and the
+	// stringify below then costs more than the bytes it saves.
+	const steps = entries.map(e => {
+		if (e.kind === 'view' || !e.st)
+			return e;
+		const { context, ...st } = e.st;
+		return { ...e, st };
+	});
 	// entries is a plain array of plain objects — JSON-safe as is.
 	return JSON.stringify({ v: NAV_HISTORY_VERSION, entries: steps, index });
 }
