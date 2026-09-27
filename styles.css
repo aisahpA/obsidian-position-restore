@@ -1179,6 +1179,17 @@ body.is-mobile .position-restore-cue {
 	font-weight: 500;
 }
 
+/* The section a row stands for (see TipContent.section), where the row prints no chain
+   of its own: the answer to "why is this row on my list" for a row a query matched on a
+   heading. Same tier as the names below it — both are a second answer, not the thing the
+   reader hovered for — but it stands above them, being about the place and not the name. */
+.position-restore-nav-tip .nav-tip-section {
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
+}
+
 /* The line under the path: the file's other names, or the one fact a cell holds (see
    TipContent). A notch smaller than the path — it is a second answer, not the thing
    the reader hovered for — and allowed to wrap, since a note may go by many names. */

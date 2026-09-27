@@ -719,6 +719,35 @@ describe('RecentFilesModal — current position', () => {
 		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
 	});
 
+	it('says the section on a file row — the one thing it can be found by and never shows', () => {
+		// A query matches a row on its heading chain (see matchesNavFilter), and a FILE
+		// row prints no chain at all — the chain is a landing row's. So the hover says
+		// it: a row kept by a heading the reader cannot see anywhere would be a row that
+		// matched by magic. Not only while a query is up: the chain is where this row's
+		// own click lands, which is worth saying whenever the reader asks.
+		const h = harness(
+			[visit('a.md', NOW, { scroll: 6 }), visit('plain.md', NOW - MINUTE)], 0,
+			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS,
+		);
+		const tip = h.hover(h.note('a'))!;
+		expect(tip.querySelector('.nav-tip-section')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
+		// …and a note with no headings says no section: the line is the chain, not a
+		// heading this panel invented.
+		h.unhover(h.note('a'));
+		expect(h.hover(h.note('plain'))?.querySelector('.nav-tip-section')).toBeNull();
+
+		// WHILE THE QUERY MATCHES IT: the row is kept by that heading, prints nothing of
+		// it, and the hover is the one place the words appear.
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		h.unhover(h.note('a'));
+		expect(h.notes()).toHaveLength(1); // the chain carried the word
+		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
+		expect(h.hover(h.note('a'))?.querySelector('.nav-tip-section')?.textContent)
+			.toBe('面板设计 › 呈现方案 › 预览');
+	});
+
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE, { scroll: 3 }),

@@ -184,6 +184,13 @@ export function revealDelta(rowTop: number, rowHeight: number, boxTop: number, b
 	return Math.round(rowTop - (boxTop + (boxHeight - rowHeight) / 2));
 }
 
+// One section chain as a line of text, outermost first. The separator is the row's
+// own (see rowTrail), and TWO rows print a chain in words — a landing's tooltip and a
+// file row's — so the two cannot drift into saying the same thing differently.
+function chainText(chain: string[]): string {
+	return chain.join(' › ');
+}
+
 export class RecentFilesList {
 	// The rows on screen, top to bottom; the keyboard walks THIS (see refs).
 	private refs: RowRef[] = [];
@@ -626,6 +633,14 @@ export class RecentFilesList {
 		const tip: TipContent = {};
 		if (group.path && !printsPath)
 			tip.path = group.path;
+		// THE SECTION THIS ROW OPENS: the chain the place its click goes to sits in.
+		// A file row prints no chain of its own — a landing's row prints two levels of
+		// it — while the chain is one of the things a query matches (see
+		// matchesNavFilter), so a row kept by a heading is a row kept by words the
+		// reader cannot see anywhere unless the hover says them.
+		const section = this.fileSection(ref);
+		if (section)
+			tip.section = section;
 		if (aka.length)
 			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
 		// Where this row IS one of the note's places (a note with one place,
@@ -642,7 +657,7 @@ export class RecentFilesList {
 					tip.note = note;
 			}
 		}
-		if (tip.path || tip.text || tip.quotes || tip.note)
+		if (tip.path || tip.section || tip.text || tip.quotes || tip.note)
 			this.tip.attach(row, tip);
 		// THE ROW'S OWN REMOVAL. It is HERE rather than in the row's menu
 		// because that menu is the APP's file menu and only a file has one —
@@ -664,6 +679,18 @@ export class RecentFilesList {
 		// that holds the current entry, whose note has other rows beside it
 		// (see placeRow).
 		return 1;
+	}
+
+	// The section a FILE ROW stands for: the chain the place its own click goes to sits
+	// in (see activeRep). A landing's row prints two levels of that chain; this row
+	// prints none, so the chain is what it can be found by that it never shows.
+	private fileSection(ref: RowRef): string | undefined {
+		const i = this.activeRep(ref);
+		const entry = this.opts.entries[i];
+		if (!entry)
+			return undefined;
+		const chain = this.opts.trailFor(entry, this.opts.describe(i));
+		return chain.length ? chainText(chain) : undefined;
 	}
 
 	// THE × AT A ROW'S FAR END. Built the same way on both kinds of row — the
@@ -758,7 +785,7 @@ export class RecentFilesList {
 	): TipContent | undefined {
 		const tip: TipContent = {};
 		if (chain.length > trail.length)
-			tip.text = chain.join(' › ');
+			tip.text = chainText(chain);
 		if (quotes.length)
 			tip.quotes = quotes;
 		if (note)

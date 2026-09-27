@@ -19,6 +19,11 @@ export interface TipContent {
 	// A plain line under the path: the file's other names, or the one fact a cell
 	// holds instead (the exact moment an age label stands for).
 	text?: string;
+	// The section a row stands for, outermost first, where the row prints no chain of
+	// its own (see RecentFilesList.fileRow). A FILE row is found by its section — the
+	// heading chain is searchable — and prints nothing of it, so without this line a
+	// query could keep a row the reader has no way to recognise.
+	section?: string;
 	// Lines QUOTED OUT OF THE NOTE: the words the landing sat among when it was taken,
 	// and, while a query is up, the line the query hit (see landingQuotes). They are
 	// the only words a search can match that appear NOWHERE on screen — the row prints
@@ -236,6 +241,10 @@ export class NavRowTip {
 		});
 		if (content.path)
 			this.pathLine(el, content.path);
+		// The SECTION before the other names: both are answers a row cannot print, and
+		// which note this is is the question the path above has already answered.
+		if (content.section)
+			el.createDiv({ cls: 'nav-tip-section', text: content.section });
 		if (content.text)
 			el.createDiv({ cls: 'nav-tip-text', text: content.text });
 		// In the order the caller gave them — the match a query hit first, then the line
