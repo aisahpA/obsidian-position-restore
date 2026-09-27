@@ -656,9 +656,10 @@ export class RecentFilesBrowser {
 			.setTitle(t(entry.kind === 'jump'
 				? 'recentFiles.openHereInNewTab'
 				: 'recentFiles.openInNewTab'))
-			// The arrow leaving its box, not the glyph for a new file: nothing is created here, and
-			// what opens is the row's own place one tab over.
-			.setIcon('external-link')
+			// The app's own glyph for this promise (`lucide-file-plus`, on every file menu
+			// of its own): the item stands where the app's would, and a second glyph for
+			// the same promise would read as a different one.
+			.setIcon('file-plus')
 			.onClick(() => this.jump(rep, 'tab')));
 		// …and the pin, which is about THE ROW and not about the file: only a note's
 		// own row has one to give (see pinItems).

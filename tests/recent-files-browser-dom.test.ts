@@ -2516,7 +2516,9 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
-		expect(menu.items[0].icon).toBe('external-link');
+		// …and it carries the app's own glyph for a new tab, so the item reads as the
+		// app's own promise one row up rather than as a second kind of opening.
+		expect(menu.items[0].icon).toBe('file-plus');
 		// The context asked for is a LINK's, not the file explorer's: the app decides
 		// what belongs there, and the file-managing actions do not (see contextRow).
 		expect(h.trigger).toHaveBeenCalledWith(
