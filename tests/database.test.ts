@@ -75,16 +75,23 @@ function makeHarness(files: Record<string, string> = {}, settings: Partial<Plugi
 	// exist / not parsed yet". Tests mutate the map to simulate frontmatter
 	// edits and lazy parsing.
 	const frontmatters: Record<string, unknown> = {};
+	// The frontmatter block's span per path, as metadataCache reports it in
+	// frontmatterPosition — set without a `frontmatter` entry, so the cursor's
+	// open-default line can be tested on its own.
+	const fmPositions: Record<string, unknown> = {};
+	const known = (p: string) => p in frontmatters || p in fmPositions;
 	const app = {
 		vault: {
 			adapter,
 			getAbstractFileByPath: vi.fn((p: string) =>
-				p in frontmatters ? Object.assign(Object.create(TFile.prototype), { path: p }) : null
+				known(p) ? Object.assign(Object.create(TFile.prototype), { path: p }) : null
 			),
 		},
 		metadataCache: {
 			getFileCache: vi.fn((f: { path: string }) =>
-				f.path in frontmatters ? { frontmatter: frontmatters[f.path] } : null
+				known(f.path)
+					? { frontmatter: frontmatters[f.path], frontmatterPosition: fmPositions[f.path] }
+					: null
 			),
 		},
 	};
@@ -95,7 +102,7 @@ function makeHarness(files: Record<string, string> = {}, settings: Partial<Plugi
 	};
 	const merged = { ...DEFAULT_SETTINGS, ...settings };
 	const db = new CursorPositionDatabase(plugin as never, merged);
-	return { db, frontmatters, adapter, files, externalWrite, settings: merged };
+	return { db, frontmatters, fmPositions, adapter, files, externalWrite, settings: merged };
 }
 
 afterEach(() => {
@@ -125,6 +132,49 @@ describe('record codec (write → read round trip)', () => {
 		db.db = {};
 		await db.readDb();
 		expect(db.db['a.md']).toEqual({ cursor: POINT(3, 7) });
+	});
+
+	it('a collapsed cursor at (0,0) is the editor default, so it is written as a tombstone', async () => {
+		const { db, files } = makeHarness();
+		db.setState('a.md', { cursor: POINT(0, 0) });
+		await db.writeDb();
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{}}}');
+
+		// One already on disk (written before the rule, or by another device)
+		// reads back as the tombstone it really is, not as a position.
+		files[DB_PATH] = '{"schema":2,"positions":{"b.md":{"c":[0,0,0,0]}}}';
+		db.db = {};
+		await db.readDb();
+		expect(db.db['b.md']).toEqual({});
+	});
+
+	it('writes an untouched-open record as {} — its cursor is the frontmatter default', async () => {
+		const { db, files, fmPositions } = makeHarness();
+		// frontmatter occupies lines 0..4, so Obsidian opens with the cursor on
+		// line 5 — what "nothing happened" looks like in a vault with YAML.
+		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
+		db.setState('a.md', { cursor: POINT(5, 0) });
+		await db.writeDb();
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{}}}');
+	});
+
+	it('keeps a cursor the reader actually placed below the frontmatter', async () => {
+		const { db, files, fmPositions } = makeHarness();
+		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
+		db.setState('a.md', { cursor: POINT(13, 0) });
+		await db.writeDb();
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[13,0,13,0]}}}');
+	});
+
+	it('persists a selection as {"s":n,"c":[fl,fc,tl,tc]}', async () => {
+		const { db, files } = makeHarness();
+		db.setState('a.md', { scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } } });
+		await db.writeDb();
+		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":42,"c":[1,2,3,4]}}}');
+
+		db.db = {};
+		await db.readDb();
+		expect(db.db['a.md']).toEqual({ scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } } });
 	});
 
 	it('writes empty records as tombstones and stops rewriting when clean', async () => {
@@ -789,5 +839,41 @@ describe('tombstone eviction', () => {
 		const tombs = keys.filter((k) => db.db[k].scroll === undefined);
 		expect(live).toHaveLength(400);
 		expect(tombs).toHaveLength(162);
+	});
+
+	it('evicts untouched-open records before real positions', () => {
+		const { db, fmPositions } = makeHarness();
+		// 800 records, half of them merely opened: the cursor sits on the line
+		// after the frontmatter, so they carry no position at all.
+		for (let i = 1; i <= 800; i++) {
+			const path = `f${i}.md`;
+			fmPositions[path] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
+			db.setState(path, i % 2 === 0 ? { cursor: POINT(5, 0) } : { scroll: i });
+		}
+
+		db.pruneDb();
+		const keys = Object.keys(db.db);
+		expect(keys).toHaveLength(562);
+		// every real position survived; the 238 dropped all came from the
+		// untouched opens (400 - 238 = 162 of them remain)
+		expect(keys.filter((k) => db.db[k].scroll !== undefined)).toHaveLength(400);
+		expect(keys.filter((k) => db.db[k].scroll === undefined)).toHaveLength(162);
+	});
+
+	it('keeps a just-topped note ahead of an older real position', () => {
+		const { db } = makeHarness();
+		// 800 records: the oldest 250 hold real positions, everything newer is
+		// a tombstone — the newest of all is the note just scrolled to the top.
+		for (let i = 1; i <= 800; i++)
+			db.setState(`f${i}`, i <= 250 ? { scroll: i } : {});
+
+		db.pruneDb();
+		expect(Object.keys(db.db)).toHaveLength(562);
+		// Cheapness reaches only outside the recency window, so the 238 dropped
+		// all come from the oldest tombstones: no real position is lost, and
+		// the note topped last is still there.
+		expect(db.db['f1']).toEqual({ scroll: 1 });
+		expect(db.db['f250']).toEqual({ scroll: 250 });
+		expect(db.db['f800']).toEqual({});
 	});
 });

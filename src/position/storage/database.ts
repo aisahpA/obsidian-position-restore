@@ -12,6 +12,10 @@ export type CursorDatabase = { [file_path: string]: EphemeralState };
 const MAX_ENTRIES = 750;
 const TRIM_TARGET = Math.floor(MAX_ENTRIES * 3 / 4);
 
+// How many of the newest entries recency protects from the tombstone-first
+// eviction below. Sized as a fraction of the cap so the two move together.
+const TOMB_RECENT_WINDOW = Math.floor(MAX_ENTRIES / 4);
+
 // On-disk shape version; both are read, only schema 2 is written. Bump it only
 // when the SHAPE changes — adding an optional field is not a bump, since
 // unknown fields are ignored on read. The file is rewritten wholesale on every
@@ -35,16 +39,36 @@ interface PositionRecord {
 	c?: number[];
 }
 
+// The cursor says nothing when it sits where Obsidian opens the note: line 0
+// for a file without frontmatter, otherwise the line right AFTER the frontmatter
+// block — ON that line even when it is blank, which is the common case (85% of
+// the notes in a measured vault have a blank line there, and 10 of 10 untouched
+// opens sat on it, none on the first non-blank line). `defaultLine` undefined =
+// unknown (file gone, metadata not parsed yet) — then only (0,0) counts.
+function cursorIsDefault(cursor: EphemeralState['cursor'], defaultLine: number | undefined): boolean {
+	if (!cursor)
+		return true;
+	if (cursor.from.ch !== 0 || cursor.to.ch !== 0 || cursor.from.line !== cursor.to.line)
+		return false;
+	return cursor.from.line === (defaultLine ?? 0);
+}
+
 // Restore only scrolls when scroll > 0, so a non-positive scroll is not stored;
 // what is left is then the tombstone described above — no `s` therefore means
-// "at the top", not "unknown".
-function encodeValue(st: EphemeralState): PositionRecord {
+// "at the top", not "unknown". A `c`-only record is normally a genuine position
+// (a short note fits the viewport with the cursor well below its top) — except
+// when the cursor is the open-default above, which is what a note that was
+// merely opened leaves behind; that one is written as `{}`.
+function encodeValue(st: EphemeralState, defaultLine: number | undefined): PositionRecord {
 	const rec: PositionRecord = {};
 	const scroll = st.scroll ?? 0;
 	if (scroll > 0)
 		rec.s = scroll;
-	if (st.cursor)
-		rec.c = [st.cursor.from.line, st.cursor.from.ch, st.cursor.to.line, st.cursor.to.ch];
+	const c = st.cursor;
+	// Only an at-the-top record is judged: with a scroll, the cursor is stored
+	// as it is.
+	if (c && (scroll > 0 || !cursorIsDefault(c, defaultLine)))
+		rec.c = [c.from.line, c.from.ch, c.to.line, c.to.ch];
 	return rec;
 }
 
@@ -64,7 +88,10 @@ function decodeValue(value: unknown): EphemeralState {
 	const c = rec.c;
 	if (Array.isArray(c) && c.length >= 4 && c.every((n) => typeof n === 'number' && Number.isFinite(n))) {
 		const [fromLine, fromCh, toLine, toCh] = c as number[];
-		st.cursor = { from: { line: fromLine, ch: fromCh }, to: { line: toLine, ch: toCh } };
+		const from = { line: fromLine, ch: fromCh };
+		const to = { line: toLine, ch: toCh };
+		if (!cursorIsDefault({ from, to }, undefined))
+			st.cursor = { from, to };
 	}
 	return st;
 }
@@ -349,14 +376,27 @@ export class CursorPositionDatabase {
 		if (keys.length <= MAX_ENTRIES)
 			return;
 
-		// Tombstones lead the eviction order, so they are what falls off the
-		// head; the rest keeps its (oldest-first) place in line.
+		// Cheapness only applies OUTSIDE the recency window: a note just
+		// scrolled back to the top is the newest thing that happened to it,
+		// and evicting it in favour of a months-old real position is what
+		// would make that note jump to defaultPosition on the next open.
+		const windowStart = Math.max(0, keys.length - TOMB_RECENT_WINDOW);
 		const cheap: string[] = [];
 		const rest: string[] = [];
-		for (const key of keys)
-			(this.isTombstone(this.db[key]) ? cheap : rest).push(key);
-		const kept = [...cheap, ...rest].slice(-TRIM_TARGET);
-		this.db = Object.fromEntries(kept.map((key) => [key, this.db[key]]));
+		for (let i = 0; i < keys.length; i++) {
+			const key = keys[i];
+			if (i < windowStart && this.isEmptyRecord(key, this.db[key]))
+				cheap.push(key);
+			else
+				rest.push(key);
+		}
+
+		// Tombstones lead the eviction order, so they are what falls off the
+		// head; the rest keeps its (oldest-first) place in line.
+		const doomed = new Set([...cheap, ...rest].slice(0, keys.length - TRIM_TARGET));
+		this.db = Object.fromEntries(
+			keys.filter((key) => !doomed.has(key)).map((key) => [key, this.db[key]])
+		);
 
 		// Dropped entries leave orphans in the touch-stamp map; prune them so
 		// it can't grow without bound across long sessions.
@@ -452,9 +492,31 @@ export class CursorPositionDatabase {
 		stickyNotice(t('dataStorage.legacyDb.noticeOverwritten'));
 	}
 
-	// Nothing worth restoring, and the cheapest record to lose.
-	private isTombstone(st: EphemeralState): boolean {
-		return (st.scroll ?? 0) <= 0 && !st.cursor;
+	// Nothing worth restoring: no scroll, and a cursor sitting only where
+	// Obsidian puts it on open. That is what a note that was merely opened
+	// leaves behind, and it is the cheapest record to lose. The frontmatter
+	// moves the open-default off (0,0), so the cursor alone cannot be the test.
+	private isEmptyRecord(path: string, st: EphemeralState): boolean {
+		if ((st.scroll ?? 0) > 0)
+			return false;
+		if (!st.cursor)
+			return true;
+		return cursorIsDefault(st.cursor, this.defaultCursorLine(path));
+	}
+
+	// The line Obsidian leaves the cursor on when `path` is opened: the one
+	// right after the frontmatter block, or 0 when it has none. Two in-memory
+	// Map lookups (path -> file -> metadata cache), never a read of the file.
+	// Undefined = unknown (file gone, or metadata not parsed yet) — callers keep
+	// the cursor rather than act on a guess.
+	private defaultCursorLine(path: string): number | undefined {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile))
+			return undefined;
+		const cache = this.app.metadataCache.getFileCache(file);
+		if (!cache)
+			return undefined;
+		return cache.frontmatterPosition ? cache.frontmatterPosition.end.line + 1 : 0;
 	}
 
 	// A parse failure makes those records unreachable for this session, and the
@@ -617,7 +679,9 @@ export class CursorPositionDatabase {
 		const encoded: { [path: string]: PositionRecord } = {};
 		for (const key of Object.keys(this.db)) {
 			const st = this.db[key];
-			encoded[key] = encodeValue(st);
+			// Only an at-the-top record needs the file's open-default line.
+			const defaultLine = (st.scroll ?? 0) > 0 ? undefined : this.defaultCursorLine(key);
+			encoded[key] = encodeValue(st, defaultLine);
 		}
 		const data = JSON.stringify({ schema: SCHEMA_VERSION, positions: encoded });
 		const dbPath = this.getDbPath();
