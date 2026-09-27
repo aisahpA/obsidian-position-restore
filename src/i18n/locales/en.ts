@@ -303,8 +303,11 @@ export const en = {
 	'recentFiles.viewBadge': 'View',
 	'recentFiles.searchPlaceholder': 'Filter by note name or text…',
 	// The × at the end of the filter box: the button's accessible name and
-	// tooltip, so written as the action rather than as the glyph.
+	// tooltip, so written as the action rather than as the glyph. Two names, for
+	// the two acts the one glyph carries: it empties a box with something typed
+	// in it, and closes the dialog with nothing typed.
 	'recentFiles.clearFilter': 'Clear filter',
+	'recentFiles.close': 'Close',
 	'recentFiles.noMatch': 'No matching entry.',
 	'recentFiles.empty': 'Nowhere to go.',
 

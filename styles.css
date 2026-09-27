@@ -206,6 +206,27 @@ body.is-mobile .position-restore-cue {
 	padding-top: 8px;
 }
 
+/* WHAT THE DESKTOP DIALOG OPENS ON IS THE BOX ITSELF: its own name goes, the way the app's
+   answer to this same question carries no heading — a quick switcher is a filter box and a
+   list, nothing standing over them. `display: none` and not an empty title, because the
+   header keeps its own row either way (see its margin-bottom). The dialog is still NAMED
+   for assistive tech: the list below carries the same string (see body.ts). Nothing below
+   needs lifting with it — the dialog's own padding and the box's pad come to the 24px the
+   app gives its own prompt box. */
+.modal.position-restore-nav-modal:not(.is-touch) .modal-header {
+	display: none;
+}
+
+/* …and THAT HEADER WAS WHAT STOOD BETWEEN THE APP'S × AND EVERYTHING ELSE — so rather than give
+   the dialog's corner up to a second glyph, THAT × GOES and the box's own takes both jobs: it
+   empties a box with a query in it, and closes the dialog with none (see RecentFilesBrowser
+   .toolbar), which is the one-stop trade the app's own prompt makes. A phone keeps both its name
+   and the × beside it, having no such corner to share. */
+.modal.position-restore-nav-modal.is-dismissive:not(.is-touch) .modal-header-button,
+.modal.position-restore-nav-modal.is-dismissive:not(.is-touch) .modal-close-button {
+	display: none;
+}
+
 /* This panel's two quiet tiers, defined on the shell both forms share and used by
    every rule below in place of --text-faint / --text-muted. Those two are ordinary
    theme variables: a theme may re-hue them to anything, and then the QUIETEST tier
@@ -373,8 +394,10 @@ body.is-mobile .position-restore-cue {
 
 /* Room for the × at the end of the line, and ONLY while there is a × there: the
    reserved strip appears with what has to be cleared, so a reader typing into an
-   empty box keeps the full width and the text never runs under the glyph. */
-.position-restore-nav-panel input.position-restore-nav-filter[type='text']:not(:placeholder-shown) {
+   empty box keeps the full width and the text never runs under the glyph. Where that
+   × never leaves (a shell it dismisses — see above), the room is kept for good. */
+.position-restore-nav-panel input.position-restore-nav-filter[type='text']:not(:placeholder-shown),
+.position-restore-nav-modal.is-dismissive:not(.is-touch) input.position-restore-nav-filter[type='text'] {
 	padding-inline-end: 1.6em;
 }
 
@@ -420,8 +443,10 @@ body.is-mobile .position-restore-cue {
 
 /* There is nothing to clear, and the control says so by not being there: an empty box
    shows its placeholder, which is the state the reader can SEE (see the note above the
-   button in body.ts). No class, no listener, and nothing to keep in step. */
-.position-restore-nav-panel .position-restore-nav-search input:placeholder-shown ~ .position-restore-nav-clear {
+   button in body.ts). No class, no listener, and nothing to keep in step.
+   `is-dismissive` is what takes it out of that rule: in a shell the × closes, an empty box
+   still has work for it, and the glyph is what stands between the reader and the way out. */
+.position-restore-nav-panel:not(.is-dismissive) .position-restore-nav-search input:placeholder-shown ~ .position-restore-nav-clear {
 	display: none;
 }
 

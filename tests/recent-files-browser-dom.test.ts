@@ -1097,11 +1097,11 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		// .toolbar): the press is REFUSED so the caret never leaves the box, and the click
 		// clears the box and re-reads the list from it. It is in the DOM whether or not
 		// the box has anything in it; the STYLESHEET is what hides it while the box is
-		// empty (asserted in the styles suite — jsdom loads no stylesheet).
+		// empty (asserted in the styles suite — jsdom loads no stylesheet) — except in a
+		// dialog, where an empty box is exactly when the glyph has its OTHER job (below).
 		const h = harness(entries(), 3, files);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
-		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
 		expect(h.clearButton().querySelector('svg')?.getAttribute('data-icon')).toBe('x');
 		// A press on it is refused, so the focus stays where the reader's typing is.
 		const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
@@ -1111,6 +1111,10 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		box.value = 'b';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(h.notes()).toHaveLength(1);
+		// …and with something to clear, CLEARING is what the glyph says it does — the name
+		// is read off the box rather than kept, so the two acts cannot drift apart.
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
+		expect(h.clearButton().getAttribute('title')).toBe(t('recentFiles.clearFilter'));
 
 		h.clearFilter();
 
@@ -1119,6 +1123,36 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		expect(box.value).toBe('');
 		expect(h.notes()).toHaveLength(3);
 		expect(document.activeElement).toBe(box);
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.close'));
+	});
+
+	it('closes the dialog from that same × when there is nothing typed', () => {
+		// ONE GLYPH, TWO ACTS, at the spot the app's own prompt puts them at: anything typed
+		// is emptied (above), and nothing typed is the way OUT. A dialog whose top is its box
+		// has no other closing the pointer can reach — the header's × went the way of the
+		// name it stood beside — and keeping both would have been two glyphs for one thought.
+		const h = harness(entries(), 3, files);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		const close = vi.spyOn(h.modal, 'close');
+
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.close'));
+		h.clearFilter();
+
+		expect(close).toHaveBeenCalledTimes(1);
+		// …and only that: nothing was filtered away, nothing travelled.
+		expect(box.value).toBe('');
+		expect(h.notes()).toHaveLength(3);
+
+		// Typing hands the glyph its first job back — with no state to keep in step beyond
+		// the box's own text, exactly as the clearing takes the way out off it again.
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
+		h.clearFilter();
+		expect(close).toHaveBeenCalledTimes(1);
+		expect(box.value).toBe('');
+		h.clearFilter();
+		expect(close).toHaveBeenCalledTimes(2);
 	});
 
 	it('narrows to a note by its own name, which is what the scope was for', () => {		const h = harness(entries(), 3, files);

@@ -48,6 +48,11 @@ export class RecentFilesModal extends Modal {
 		// not resize and re-center the dialog. A phone keeps its short history sized to
 		// it — see FIXED_HEIGHT_MIN_ENTRIES.
 		this.modalEl.toggleClass('is-fixed', !this.mobile || this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
+		// With a keyboard comes a box standing where the app's own prompt puts it, nothing over
+		// it — so the box's own × is the way out as well as the one home: a query is cleared,
+		// an empty box closes (see RecentFilesBrowser.toolbar, and styles.css for the corner
+		// the app's own × gives up rather than sharing).
+		this.modalEl.toggleClass('is-dismissive', !this.mobile);
 		this.titleEl.setText(t('recentFiles.name'));
 		this.browser = new RecentFilesBrowser({
 			app: this.app,
@@ -62,6 +67,9 @@ export class RecentFilesModal extends Modal {
 			// so it gets out of the way first and the open runs on its own. (The
 			// sidebar shell passes nothing here: staying up is the point of it.)
 			onJump: () => this.close(),
+			// The box's × closing with nothing typed to clear is the dialog's own promise, and
+			// nothing about travel: the panel never moved.
+			onDismiss: () => this.close(),
 			prefs: this.prefs,
 		});
 		this.browser.mount();

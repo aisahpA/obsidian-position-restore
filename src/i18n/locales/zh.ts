@@ -267,7 +267,9 @@ export const zh: En = {
 	'recentFiles.viewBadge': '视图',
 	'recentFiles.searchPlaceholder': '按笔记名或文本过滤…',
 	// 过滤框末尾那个 ×：app 自己的手势，按「清掉什么」命名；它同时是按钮的无障碍名字。
+	// 两个名字，对应同一个符号的两件事：有输入时清空，没输入时关闭对话框。
 	'recentFiles.clearFilter': '清空筛选',
+	'recentFiles.close': '关闭',
 	'recentFiles.noMatch': '没有匹配的历史。',
 	'recentFiles.empty': '暂无可跳转的位置。',
 

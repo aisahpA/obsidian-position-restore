@@ -79,6 +79,10 @@ export interface RecentFilesBrowserOptions {
 	focusFilter: boolean;
 	// The shell's own reaction to a travel, run BEFORE the history is asked to move.
 	onJump?: () => void;
+	// The shell's way OUT, offered only by a shell that has one: pressed with nothing typed,
+	// the box's × dismisses rather than clears (see toolbar, and the quick switcher's own).
+	// A panel that stays up offers none, and its × keeps to clearing.
+	onDismiss?: () => void;
 	prefs: RecentFilesBrowserPrefs;
 }
 
@@ -407,8 +411,8 @@ export class RecentFilesBrowser {
 
 	private toolbar(): void {
 		const bar = this.opts.host.createDiv({ cls: 'position-restore-nav-toolbar' });
-		// The box and its × are one control: the clear button is positioned against the box's own
-		// line and hidden while there is nothing to clear.
+		// The box and its × are one control: the × hangs on the box's own line, and stays out of
+		// the way while there is nothing for it to do.
 		const strip = bar.createDiv({ cls: 'position-restore-nav-search' });
 		const input = strip.createEl('input', {
 			type: 'text',
@@ -425,30 +429,41 @@ export class RecentFilesBrowser {
 				'aria-autocomplete': 'list',
 			},
 		});
+		const clear = strip.createDiv({ cls: 'clickable-icon position-restore-nav-clear' });
+		setIcon(clear, 'x');
+		// One glyph, two acts (see the click below), so its NAME says which one it is about to
+		// do: a control reached by anything but sight has to say "Close" while close is what
+		// it does.
+		const nameClear = (): void => {
+			const name = input.value !== '' || !this.opts.onDismiss
+				? t('recentFiles.clearFilter')
+				: t('recentFiles.close');
+			clear.setAttr('aria-label', name);
+			clear.setAttr('title', name);
+		};
 		// What the reader typed IS the list's query, so the list is redrawn from it.
 		const apply = (): void => {
 			this.filter = input.value;
+			nameClear();
 			this.render();
 		};
 		input.addEventListener('input', apply);
 		this.filterInput = input;
+		nameClear();
 		// THE ×: the press is REFUSED so the caret never leaves the box — a control that takes the
 		// focus turns the next keystroke into nothing. A plain div and not a button, as the app's
 		// own is: it is not a stop on the keyboard's way through the panel.
-		const clear = strip.createDiv({
-			cls: 'clickable-icon position-restore-nav-clear',
-			attr: {
-				'aria-label': t('recentFiles.clearFilter'),
-				title: t('recentFiles.clearFilter'),
-			},
-		});
-		setIcon(clear, 'x');
 		clear.addEventListener('mousedown', (ev) => ev.preventDefault());
 		clear.addEventListener('click', () => {
-			if (input.value !== '') {
-				input.value = '';
-				apply();
+			// THE TWO ACTS, AT THE ONE SPOT the app's own prompt puts them at: what is typed
+			// goes, and with nothing typed the press is the shell's way OUT instead — the shell
+			// offering none keeps the glyph to the one job (see onDismiss).
+			if (input.value === '') {
+				this.opts.onDismiss?.();
+				return;
 			}
+			input.value = '';
+			apply();
 			// On TOUCH the focus is left as it was: summoning the on-screen keyboard over half the
 			// panel is the opposite of what the tap asked for.
 			if (!this.opts.touch)

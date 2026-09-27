@@ -554,6 +554,37 @@ describe('recent-files browser quiet tiers', () => {
 		expect(browser).toMatch(/\.modal\.position-restore-nav-modal\.is-fixed \{[^}]*height: min\(84vh/);
 	});
 
+	// THE DESKTOP DIALOG OPENS ON THE BOX and not on its own name standing over it: a heading
+	// spends the dialog's first row saying what the reader already asked for, and it is the
+	// one thing left between this dialog and the app's answer to the same question (a prompt
+	// is a filter box and a list, nothing above them). The name is not unset but DISPLAYED
+	// AWAY — the title going empty leaves the header its row, margin-bottom and all — and the
+	// list below still carries the string for assistive tech (see body.ts).
+	it('puts the filter box at the top of the desktop dialog', () => {
+		const header = browser.match(
+			/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \.modal-header\s*\{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(header).not.toBe('');
+		expect(header).toMatch(/display: none/);
+		// A phone KEEPS ITS NAME: the short-window rules set it aside by their own class.
+		expect(browser).not.toMatch(/\.position-restore-nav-modal \.modal-header\s*\{[^}]*display: none/);
+	});
+
+	// …and with the name goes THE × THAT STOOD BESIDE IT, rather than the dialog showing two
+	// glyphs for one act. The way out is not lost with it: in a shell that can be put away, the
+	// box's own × closes it when there is nothing typed to clear (see RecentFilesBrowser.toolbar)
+	// — one glyph doing both jobs where the app's own prompt puts it. A phone keeps the app's ×,
+	// since it keeps the name that × belongs to.
+	it('leaves one × where the app leaves one', () => {
+		const x = browser.match(
+			/\.modal\.position-restore-nav-modal\.is-dismissive:not\(\.is-touch\) \.modal-header-button,\n[^}]*\}/,
+		)?.[0] ?? '';
+		expect(x).not.toBe('');
+		expect(x).toMatch(/display: none/);
+		// Nothing else has to make room for it, then: the toolbar's own inset is left alone.
+		expect(browser).not.toMatch(/\.position-restore-nav-toolbar\s*\{[^}]*padding-inline-end: var\(--size-4-6/);
+	});
+
 	// WHERE THE PINNED ROWS STOP is a line and nothing else: a heading would spend a
 	// row's height saying what the line already says, and an icon on each pinned row
 	// has nowhere to stand — the row's far end belongs to its own controls.
@@ -669,15 +700,18 @@ describe('recent-files browser quiet tiers', () => {
 	// The × at the end of the box, and the one rule that makes it a control rather than
 	// a mark: it is there exactly while there is something to clear, asked of the BOX's
 	// own state (`:placeholder-shown` is what an empty, unfocused or focused, filter
-	// looks like) instead of a class a listener has to keep in step.
+	// looks like) instead of a class a listener has to keep in step. A box whose × also
+	// DISMISSES the shell it stands in never has nothing for it to do, and so never
+	// hid it — see RecentFilesBrowser.toolbar.
 	it('shows the clear button only while the box has something in it', () => {
 		expect(browser).toMatch(
-			/\.position-restore-nav-search input:placeholder-shown ~ \.position-restore-nav-clear\s*\{\s*display: none/,
+			/\.position-restore-nav-panel:not\(\.is-dismissive\) \.position-restore-nav-search input:placeholder-shown ~ \.position-restore-nav-clear\s*\{\s*display: none/,
 		);
 		// …and the room it takes on the line is reserved only while it is there, so a
-		// reader typing into an empty box is not typing into a narrower one.
+		// reader typing into an empty box is not typing into a narrower one — except
+		// where the glyph stays for good, and says so with its own selector.
 		expect(browser).toMatch(
-			/input\.position-restore-nav-filter\[type='text'\]:not\(:placeholder-shown\)\s*\{[^}]*padding-inline-end: 1\.6em/,
+			/\.position-restore-nav-modal\.is-dismissive:not\(\.is-touch\) input\.position-restore-nav-filter\[type='text'\]\s*\{[^}]*padding-inline-end: 1\.6em/,
 		);
 	});
 
