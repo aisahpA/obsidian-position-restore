@@ -7,6 +7,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
+// …and the app's menu, reached by its own path rather than through 'obsidian' for the
+// same reason the browser's suite does (see recent-files-browser-dom.test.ts): what a
+// test reads off it — the items a view added — is the stub's registry, not the app's
+// typings.
+import { Menu } from './support/obsidian-stub';
 
 import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
 import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
@@ -159,6 +164,19 @@ class FakeNav {
 			return;
 		this.pinned.splice(at, 1);
 		this.pinned.splice(to, 0, key);
+		for (const fn of this.listeners)
+			fn();
+	}
+
+	isPinned(key: string): boolean {
+		return this.pinned.includes(key);
+	}
+
+	// The whole list, taken off at once (see NavPlaces.clear): what the real store
+	// spares is the pinned block, and the listeners hear it exactly as they hear a
+	// removal.
+	clear(): void {
+		this.entries = this.entries.filter(e => this.pinned.includes(navGroupKey(e)));
 		for (const fn of this.listeners)
 			fn();
 	}
@@ -781,6 +799,69 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		// that nothing is left POINTED at (see RecentFilesList.collapse).
 		expect(places()).toBe(2);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
+	});
+});
+
+// The TAB's own menu: the app raises it for a right-click on the tab and hands it to
+// the view to fill in (see RecentFilesView.onPaneMenu), so what the panel owes is an
+// ITEM rather than a surface of its own — and the one item it adds is about the LIST,
+// where everything the app puts there is about the PANE.
+//
+// The menu the app hands over is the app's own class; the one a test can read items
+// off is the stub's, and the two meet in one cast, as they do everywhere else in this
+// file (see `nav as never` in mount).
+const menuFor = (view: RecentFilesView) => {
+	const menu = new Menu();
+	view.onPaneMenu(menu as never);
+	return menu;
+};
+
+describe('RecentFilesView — the tab’s own menu', () => {
+	it('offers the whole list to be cleared, and leaves the pinned block standing', async () => {
+		// The list as the store holds it — OLDEST FIRST, the order a real history is
+		// built in (see NavPlaces.remember) — and as the panel draws it, newest first
+		// under the pinned block.
+		const { view, el, nav, names } = await mount([
+			visit('c.md', NOW - 2 * MINUTE),
+			visit('b.md', NOW - MINUTE),
+			visit('a.md', NOW),
+		], 2);
+		nav.pin('a.md');
+		expect(names()).toEqual(['a', 'b', 'c']);
+
+		const menu = menuFor(view);
+
+		expect(menu.items).toHaveLength(1);
+		expect(menu.items[0].title).toBe(t('recentFiles.clearList'));
+		// 'action' is where the app sorts a view's own items ahead of its own (see
+		// body.ts's contextRow).
+		expect(menu.items[0].section).toBe('action');
+
+		// Chosen: everything the list remembered BY ITSELF goes — b and c — and the pin
+		// stands. The panel heard it through its subscription rather than being asked:
+		// a resident panel is drawn from the list as it stands (see hearPlaces).
+		menu.items[0].click?.();
+
+		expect(names()).toEqual(['a']);
+		expect(el.querySelectorAll('.position-restore-nav-row')).toHaveLength(1);
+	});
+
+	it('offers nothing to clear where a clear would take nothing off', async () => {
+		// An item that would empty nothing is worse than an item that is not there
+		// (see body.ts's pinItems), and a list of pins alone is already what a clear
+		// leaves behind.
+		const { view, nav } = await mount([visit('a.md', NOW)], 0);
+		nav.pin('a.md');
+
+		expect(menuFor(view).items).toEqual([]);
+	});
+
+	it('offers nothing to clear on a list that holds nothing at all', async () => {
+		// A panel opened before the reader has been anywhere: the menu is the app's,
+		// and this panel puts nothing on it.
+		const { view } = await mount([], -1);
+
+		expect(menuFor(view).items).toEqual([]);
 	});
 });
 

@@ -16,7 +16,8 @@
 // to the other sidebar or into the main area, it obeys the pane's own "Close", and
 // `revealLeaf` brings it back.
 
-import { App, ItemView, Platform, WorkspaceLeaf } from 'obsidian';
+import { App, ItemView, Menu, Platform, WorkspaceLeaf } from 'obsidian';
+import { navGroupKey } from '@/nav/entry';
 import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
@@ -117,6 +118,35 @@ export class RecentFilesView extends ItemView {
 	// business (see PositionManager.refreshNavPanels).
 	refresh(): void {
 		this.browser?.render();
+	}
+
+	// THE TAB'S OWN MENU — the app raises it for a right-click on the tab and for the
+	// pane's "more options", and hands it to the view to add to (the door the app's
+	// own views use for "Close" and "Toggle reading view"). What the app puts there is
+	// about the PANE; what this panel adds is about the LIST.
+	//
+	// ONE item, and only when there is something for it to take off: an item that
+	// would empty nothing is worse than an item that is not there (see body.ts's
+	// pinItems). It clears the WHOLE list and leaves the pinned block standing — a
+	// shelf the reader built by hand (see NavPlaces.clear). Nothing is confirmed:
+	// what goes is where they have been, not a file, and a note opened again takes
+	// its row back.
+	onPaneMenu(menu: Menu): void {
+		if (!this.clearable())
+			return;
+		menu.addItem(item => item
+			.setSection('action')
+			.setTitle(t('recentFiles.clearList'))
+			// The app's own glyph for emptying a history — the web viewer's
+			// "Clear history" stands in this very menu. One promise, one mark.
+			.setIcon('eraser')
+			.onClick(() => this.places.clear()));
+	}
+
+	// Whether a clear would take anything off: what survives one is the pinned block,
+	// so a list of nothing but pins has nothing left to empty.
+	private clearable(): boolean {
+		return this.places.entries.some(e => !this.places.isPinned(navGroupKey(e)));
 	}
 
 	// A panel the reader can still see is drawn again on the spot; one on its way out

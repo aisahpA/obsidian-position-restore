@@ -80,6 +80,15 @@ export interface PlaceList {
 	//
 	// What stays is the note's own record and its other places.
 	forgetLanding(keys: readonly string[]): void;
+	// Take the WHOLE LIST off at once: what a vault the reader has never worked in
+	// would hold. What it spares is the rows they pinned — a pin is an answer written
+	// down by hand, and every rule the list keeps BY ITSELF already spares one (see
+	// pruneExcluded), a clear being one more of those.
+	//
+	// What it does not touch is what forget does not touch: no file, and no position
+	// record. A note visited again takes its place back — with its position, which
+	// was never this list's to keep.
+	clear(): void;
 	// The rows the reader pinned, in the order they are shown — top first. A ROW
 	// identity (see navGroupKey), never a landing: a pin is a bookmark for a note,
 	// not for one spot inside it.
@@ -462,6 +471,25 @@ export class NavPlaces implements PlaceList {
 		this.keep(this.entries.filter(e => !doomed.has(placeKey(e))));
 		if (this.entries.length === before)
 			return;
+		this.changed();
+	}
+
+	// The whole list, taken off at once (see RecentFilesView.onPaneMenu). What survives
+	// is the PINNED BLOCK and nothing else.
+	//
+	// A pinned row keeps every record it is drawn from, its landings included: the block
+	// draws the note and never a spot inside it, but the row still opens the newest one
+	// it holds, and that promise is what the pin was for.
+	clear(): void {
+		const pinned = new Set(this.pinned);
+		const kept = this.entries.filter(e => pinned.has(navGroupKey(e)));
+		if (kept.length === this.entries.length)
+			return;
+		this.keep(kept);
+		// Written down AT ONCE, for the reason a pin is: this is a rare, deliberate
+		// act, and a quit a few seconds later would otherwise put the whole list back
+		// — which reads as a feature that forgot on purpose.
+		this.persist();
 		this.changed();
 	}
 

@@ -1202,6 +1202,88 @@ describe('NavPlaces — pinning a row', () => {
 	});
 });
 
+describe('NavPlaces — clearing the list', () => {
+	it('drops every place the list remembered by itself, and keeps the pinned block', () => {
+		// What a clear leaves is what the reader wrote down by hand: the ceiling and
+		// the rules already spare a pin (see pruneExcluded), and emptying the list is
+		// one more thing the list does BY ITSELF.
+		const { places } = makePlaces();
+		for (const p of ['a.md', 'b.md', 'c.md'])
+			places.remember(visit(p));
+		places.remember(view('graph'));
+		places.pin('b.md');
+
+		places.clear();
+
+		expect(paths(places)).toEqual(['b.md']);
+	});
+
+	it('keeps a pinned row’s own landings, which are that row’s to keep', () => {
+		// The pinned block draws the note and never a spot inside it (see list.ts's
+		// printsLandings) — but the row still OPENS the newest one, and a clear is no
+		// reason to break the promise the reader pinned.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(jump('a.md', 'outline:## One'));
+		places.pin('a.md');
+
+		places.clear();
+
+		expect(paths(places)).toEqual(['a.md', placeKey(jump('a.md', 'outline:## One'))]);
+	});
+
+	it('stands nowhere when the place being read was the one cleared', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.remember(visit('b.md'));
+		places.markCurrent(visit('b.md'));
+		expect(places.index).toBe(1);
+
+		places.clear();
+
+		expect(places.entries).toEqual([]);
+		expect(places.index).toBe(-1);
+	});
+
+	it('writes the cleared list down at once, rather than leaving it to the next flush', () => {
+		// For the reason a pin is written down at once: a clear is a rare, deliberate
+		// act, and a quit a few seconds later would otherwise put the whole list back.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.persist();
+
+		places.clear();
+
+		expect(new NavPlaces(makeApp(), makeSettings()).entries).toEqual([]);
+	});
+
+	it('tells the panel, so the rows go while the reader is looking at them', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.clear();
+
+		expect(seen).toHaveBeenCalledTimes(1);
+	});
+
+	it('says nothing at all when the list held nothing but pins', () => {
+		// A clear of a list that is already what a clear leaves behind changes
+		// nothing, and a change that did not happen owes no redraw and no write.
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.pin('a.md');
+		const seen = vi.fn();
+		places.subscribe(seen);
+
+		places.clear();
+
+		expect(paths(places)).toEqual(['a.md']);
+		expect(seen).not.toHaveBeenCalled();
+	});
+});
+
 describe('NavPlaces — persistence', () => {
 	it('round-trips the list per vault', () => {
 		const { places } = makePlaces();

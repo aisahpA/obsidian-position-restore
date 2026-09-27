@@ -254,6 +254,10 @@ export const en = {
 	// and the note keeps its own row. "Heading" and not "line": the row is the
 // heading AND its section, and a heading that moved in an edit is still it.
 	'recentFiles.forgetLanding': 'Remove this heading',
+	// The item on the TAB's own menu: the whole list goes, and what survives is
+	// the pinned block — a pin is the reader's, not the list's recollection. A
+	// note opened again takes its row back, with its position.
+	'recentFiles.clearList': 'Clear the whole list',
 	// What this control raises is the APP'S own menu for the file. "More
 	// actions" and not "menu" — and not "open in a new tab", which is one item
 	// ON that menu.
