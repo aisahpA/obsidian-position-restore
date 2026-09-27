@@ -112,11 +112,14 @@ export const en = {
 	'dataStorage.corruptDb.noticeNoCopy':
 		'Position Restore: The database file could not be parsed (a sync client may have been rewriting it) and no copy could be written, so its positions are unrecoverable. Starting from empty — positions are re-recorded as you open notes (see the console for details).',
 	// Sticky (click to dismiss): the notice area shows no sender, so the line
-	// has to name the plugin itself.
+	// has to name the plugin itself. Two different moments: `notice` fires at
+	// startup on an old file, which we have just read in full;
+	// `noticeOverwritten` fires once a file we had already written in the
+	// current format comes back old — another device overwrote it.
 	'dataStorage.legacyDb.notice':
-		'Position Restore: the data file is in an older format; every position in it was read and converted to the current format. If other devices still run an older version of the plugin, update them too — while versions differ, each side overwrites the file and positions can be lost.',
+		'Position Restore: the data file is in the format an older version of the plugin wrote. Every position in it was read, and the next save writes the whole file in the current format. If another device still runs an older version, update it too: the older version cannot read the new file, treats it as empty and rewrites it whole, so only the notes opened on that device survive — while versions differ, every sync can drop a batch of positions.',
 	'dataStorage.legacyDb.noticeOverwritten':
-		'Position Restore: the data file was just overwritten by an older version of the plugin (another device has not been updated yet), and newer positions in it may already be lost. Please update the plugin on your other devices.',
+		'Position Restore: the data file was just rewritten in the older format by a device that has not been updated yet. The older version cannot read the new file, so it wrote back only its own positions; everything another device had recorded in the new format is gone from the file. What this device recorded is untouched and goes back on the next save. Update the plugin on your other devices, or this repeats on every sync.',
 
 	'dataStorage.entries.name': 'Entry count',
 	'dataStorage.entries.desc':
