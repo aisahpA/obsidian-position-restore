@@ -21,11 +21,14 @@ const TOP_MARGIN_KEY = 'position-restore.topMargin';
 const SELECTOR = '.workspace-leaf-content .view-content > .markdown-reading-view,'
 	+ ' .workspace-leaf-content .view-content > .markdown-source-view > .cm-editor';
 
-// The system bar's own height is added to whatever the reader asked for, so the number is only
-// "how much more" — and where the app already gets the top right, the inset is 0 and the number
-// is the whole margin.
+// What is added is the system bar's height MINUS the room the app has already given back: with a
+// floating bar, or one that hides itself while the reader scrolls, Obsidian pads the top of a note
+// by `--view-top-spacing-markdown` on its own, and a second allowance on top of that is the blank
+// band above the first heading. So the number the reader picks is how much MORE room they want
+// over both — and where the app gets the top right unaided, it is the whole margin.
 function cssFor(px: number): string {
-	return `${SELECTOR} {\n\tpadding-top: calc(var(--safe-area-inset-top, 0px) + ${px}px);\n}`;
+	return `${SELECTOR} {\n\tpadding-top: calc(max(0px, var(--safe-area-inset-top, 0px)`
+		+ ` - var(--view-top-spacing-markdown, 0px)) + ${px}px);\n}`;
 }
 
 export function applyTopMargin(px: number): void {

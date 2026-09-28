@@ -44,8 +44,18 @@ describe('the room above a note', () => {
 		applyTopMargin(28);
 
 		expect(document.querySelectorAll('style#' + TOP_MARGIN_STYLE_ID)).toHaveLength(1);
-		expect(styleEl()?.textContent)
-			.toContain('padding-top: calc(var(--safe-area-inset-top, 0px) + 28px)');
+		expect(styleEl()?.textContent).toContain('+ 28px)');
+	});
+
+	// The reader's number is the room MISSING, not the room there: where the app pads the top of a
+	// note itself — a floating bar, or one that hides while they scroll — adding ours on top is the
+	// blank band they see above the first heading instead.
+	it('asks only for the room the app has not already given back', () => {
+		applyTopMargin(28);
+
+		expect(styleEl()?.textContent).toContain(
+			'calc(max(0px, var(--safe-area-inset-top, 0px) - var(--view-top-spacing-markdown, 0px)) + 28px)'
+		);
 	});
 
 	// The whole point of the row: padding the scroller lifts the file's first line and then
