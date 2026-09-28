@@ -519,6 +519,7 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 		editor: {
 			lineCount: () => 200,
 			getCursor: () => ({ ...cursor }),
+			somethingSelected: () => false,
 		},
 		getViewType: () => 'markdown',
 	});
@@ -532,7 +533,10 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 		},
 		metadataCache: { getFileCache: () => null },
 	};
-	const fullSettings = { ...DEFAULT_SETTINGS, ...settings } as PluginSettings;
+	// The threshold is pinned: DEFAULT_SETTINGS ships 0 (inferred steps off), and
+	// these tests are about the detector, not about the default.
+	const fullSettings = { ...DEFAULT_SETTINGS, navHistoryTeleportMinLines: 10,
+		...settings } as PluginSettings;
 	const state = new PositionState(fullSettings);
 	const leave = vi.fn();
 	const recordTeleport = vi.fn();

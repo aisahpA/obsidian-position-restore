@@ -396,6 +396,15 @@ export class Sampler {
 		const prevPath = reanchored ? undefined : this.teleportFromPath;
 		this.teleportFrom = from;
 		this.teleportFromPath = filePath;
+		// A selection is not a cursor: anchor and head span how much was chosen, not
+		// how far the reader travelled — Cmd+A puts them at both ends of the file. No
+		// threshold filters that, so drop the baseline too: the next event must not
+		// measure from a point the reader never stood on. A search session pays one
+		// move for it — its hops are keyed, they need no inferred step.
+		if (editor.somethingSelected()) {
+			this.teleportFrom = undefined;
+			return;
+		}
 		// A different file is a switch, not an in-file jump: reset silently.
 		if (!prev || prevPath !== filePath)
 			return;

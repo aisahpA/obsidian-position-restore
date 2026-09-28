@@ -137,7 +137,8 @@ interface PluginSettings {
 	// go-to-line, a far click, a vim page motion. 0 records none. A number and not a
 	// switch because the question is how big a move the reader means. Desktop only:
 	// on a touch screen every deliberate far jump already arrives as its own keyed
-	// entry.
+	// entry. Ships at 0: a step inferred from a cursor move is one the reader did
+	// not ask for, so whoever wants them names the distance.
 	navHistoryTeleportMinLines: number;
 
 	// Files the list must NOT record — its OWN rule, not shared with
@@ -208,7 +209,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
 	navHistoryCap: 50,
 	navHistoryRecordActivation: true,
-	navHistoryTeleportMinLines: 10,
+	navHistoryTeleportMinLines: 0,
 
 	recentFilesExcludeFolders: [],
 	recentFilesExcludeProperties: [],

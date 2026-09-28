@@ -73,9 +73,10 @@ const NAV_CUE_SUPPRESS_MS = 3000;
 // counts as somewhere else: under it they are still reading what the step names, and back
 // returning them to its target is returning them where they were. Over it, the spot they leave
 // behind is one nothing else records — the step keeps the landing it was pushed with, and the
-// file's saved record is not a step — so it becomes a step of its own. The same 10 lines the
-// inferred-jump setting starts at: two kinds of step the reader never asked for should read
-// off one ruler, and a step made here still moves the view when back is pressed.
+// file's saved record is not a step — so it becomes a step of its own, and a step made here
+// still moves the view when back is pressed. Ten lines is under a third of a screen: drifting
+// inside a heading is still reading it. (It reads SCROLL; the inferred-jump setting reads the
+// cursor — same number, different ruler, and only ever a coincidence.)
 const DEPARTURE_MIN_LINES = 10;
 
 export class NavStack implements NavFunnelSink {

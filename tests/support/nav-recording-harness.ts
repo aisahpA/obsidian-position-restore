@@ -78,7 +78,11 @@ export function makeNav(
 	// what a jump BECAME, and the bottom stop would refuse the jump before there
 	// was anything to look at. The default is a setting, not a behaviour of
 	// navigation, so nothing here is bent by it.
-	const resolved = { ...DEFAULT_SETTINGS, recentFilesLandings: 'last', ...settings } as PluginSettings;
+	// The threshold is pinned for the same reason the landings mode is: this measures
+	// the stack's own gates, and the shipped 0 would refuse every teleport before it
+	// reached one.
+	const resolved = { ...DEFAULT_SETTINGS, recentFilesLandings: 'last',
+		navHistoryTeleportMinLines: 10, ...settings } as PluginSettings;
 	const state = new PositionState(resolved);
 	const funnel = new NavFunnel(app, state);
 	const stack = new NavStack(app, resolved, state, funnel, savedPosition);
