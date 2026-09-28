@@ -2,6 +2,7 @@ import { SettingDefinitionItem } from 'obsidian';
 import { SettingsPageContext, intro } from '@/settings/page';
 import { FolderSuggestModal, PropertySuggestModal, PropertyValueModal } from '@/settings/pickers';
 import { ESCAPE_HATCH_PROPERTY } from './policy/frontmatter';
+import { readTopMargin, writeTopMargin } from '@/shared/top-margin';
 import { dbSyncState, DbPathModal } from './ui/db-path-modal';
 import { t } from '@/i18n';
 
@@ -298,22 +299,23 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 				},
 			],
 		},
-		// A BOX THE READER TYPES CSS INTO — this page's only row that is not about a position. It is
-		// here because layout the app gets wrong on a device is something this plugin gets asked
-		// about, and the honest answer is one the reader can see and undo, not a guess baked into
-		// the restore code. Last, because everything above it is a setting with a right answer.
+		// ROOM ABOVE A NOTE — this page's only row that is not about a position, and the only one that
+		// keeps its value OUT of `settings`: how much room a note needs at the top is a fact about the
+		// machine, not about the vault, so it is read and written where it lives (see shared/top-margin).
+		// A slider, because the right number is the one that LOOKS right on the screen it is for.
 		{
 			type: 'group',
 			heading: t('appearance.heading'),
 			items: [
 				{
-					name: t('appearance.customCss.name'),
-					desc: t('appearance.customCss.desc'),
-					control: {
-						type: 'textarea',
-						key: 'customCss',
-						rows: 6,
-						placeholder: t('appearance.customCss.placeholder'),
+					name: t('appearance.topMargin.name'),
+					desc: t('appearance.topMargin.desc'),
+					render: (setting) => {
+						setting.addSlider((slider) => {
+							slider.setLimits(0, 64, 4)
+								.setValue(readTopMargin(ctx.app))
+								.onChange((value) => writeTopMargin(ctx.app, value));
+						});
 					},
 				},
 			],

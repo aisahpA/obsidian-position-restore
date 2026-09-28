@@ -139,20 +139,17 @@ export const en = {
 	// Fallback when the button never lands on that tab.
 	'hotkeys.openFailed': 'Could not open the hotkey settings. Go to Settings → Hotkeys and find this plugin\'s commands there.',
 
-	// ── The reader's own CSS ────────────────────────────────────────────
+	// ── Room above a note ───────────────────────────────────────────────
 	'appearance.heading': 'Appearance',
-	// The example in the placeholder is the case that prompted the row: in Android's full-screen
-	// mode the top of a note can sit under the system status bar. Padding the EDITOR, not the
-	// scrolling element inside it, is what moves every landing clear of it — padding the scroller
-	// lifts the first line and nothing else, because that padding scrolls away with the content.
-	'appearance.customCss.name': 'Custom CSS',
-	'appearance.customCss.desc':
-		'CSS of your own, applied to Obsidian while this plugin is on — for layout the app gets ' +
-		'wrong on your device. Padding the editor pushes the whole viewport down, so every landing ' +
-		'clears the obstruction; padding the scrolling element inside it only lifts the first line. ' +
-		'Applied as typed, on top of your theme, and taken away when the plugin is off.',
-	'appearance.customCss.placeholder':
-		'.cm-editor,\n.markdown-preview-view {\n    padding-top: 28px;\n}',
+	// Why the row exists, said the way the reader would say it: the layout is the app's business
+	// and all that is being offered is room, so the sentence names the SYMPTOM — a hidden first
+	// line — and never the machinery behind it.
+	'appearance.topMargin.name': 'Top margin',
+	'appearance.topMargin.desc':
+		'Extra room above a note, in pixels — for a phone whose status bar or notch covers the first ' +
+		'line. The height of the system bar itself is added to it, so this number is only how much ' +
+		'MORE you want; 0 leaves the layout alone. Applies on this device only — sync does not carry ' +
+		'it to your other ones.',
 
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',

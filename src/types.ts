@@ -127,10 +127,6 @@ interface PluginSettings {
 	// the local one with a meaningless pixel offset. Other non-markdown FileViews are
 	// never recorded.
 	recordBaseScroll: boolean;
-	// The reader's own CSS, applied to the app as a whole while the plugin is on. An escape hatch
-	// for layout the app gets wrong on a device — the one that prompted it being Android's
-	// full-screen mode, where the top of a note can sit under the system status bar.
-	customCss: string;
 
 	// Navigation history (VSCode-style back/forward) tuning.
 	// max entries kept in the nav history stack; oldest drop on overflow
@@ -210,7 +206,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	readingRestoreMethod: 'instant',
 	restoreIndicator: 'off',
 	recordBaseScroll: false,
-	customCss: '',
 
 	navHistoryCap: 50,
 	navHistoryRecordActivation: true,

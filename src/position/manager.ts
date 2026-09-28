@@ -22,7 +22,6 @@ import {
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
 import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { applyCustomCss } from '@/shared/custom-css';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
 // Each method dispatches to the piece that owns the concern — nothing here holds state of its own.
@@ -341,11 +340,6 @@ export class PositionManager {
 		if (!sameList(this.settings.excludedFolders, before.excludedFolders)
 			|| !sameList(this.settings.frontmatterExcludeProperties, before.frontmatterExcludeProperties))
 			this.prunePositions();
-		// The reader's CSS is not a preference anything reads — it is the app's own layout, so the
-		// only consequence it owes is being applied again, and only on a change: a stylesheet
-		// rewritten on every write would invalidate the app's style matching for no reason.
-		if (this.settings.customCss !== before.customCss)
-			applyCustomCss(this.settings.customCss);
 	}
 
 	// Prune the records the current settings exclude (and, incidentally, the ones over the entry

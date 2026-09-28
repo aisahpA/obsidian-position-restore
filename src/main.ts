@@ -6,7 +6,7 @@ import { PositionManager } from './position/manager';
 import { RECENT_FILES_VIEW_TYPE } from './recent-files/browser/view';
 import { NAV_SOURCE_ID } from './recent-files/browser/constants';
 import { t } from './i18n';
-import { applyCustomCss, removeCustomCss } from './shared/custom-css';
+import { applyTopMargin, readTopMargin, removeTopMargin } from './shared/top-margin';
 
 
 export default class PositionRestorePlugin extends Plugin {
@@ -17,10 +17,10 @@ export default class PositionRestorePlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		// The reader's CSS goes on before the first restore: a rule that moves the viewport has to
-		// be in force while the first landing is being placed, not after it.
-		applyCustomCss(this.settings.customCss);
-		this.register(() => removeCustomCss());
+		// The margin goes on before the first restore: a rule that moves the viewport has to be in
+		// force while the first landing is being placed, not after it.
+		applyTopMargin(readTopMargin(this.app));
+		this.register(() => removeTopMargin());
 		this.database = new CursorPositionDatabase(this, this.settings);
 		this.manager = new PositionManager(this.app, this.database, this.settings);
 
