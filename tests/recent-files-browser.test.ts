@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	describeNavEntry, headingTrailAtLine, headingsFromText, rowTrail, dropsOuterLevel, baseName,
 	badgeOf, displayName,
-	duplicateNames, folderOf, ageLabel, ageOf, newestStamp,
+	duplicateNames, folderOf, pathLabel, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
 import { groupByFile, matchesNavFilter, matchedContextLine } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
@@ -634,6 +634,29 @@ describe('baseName', () => {
 	it('is the last path segment, and the path itself when there is none', () => {
 		expect(baseName('notes/deep/a.md')).toBe('a.md');
 		expect(baseName('a.md')).toBe('a.md');
+	});
+});
+
+// The line that says WHERE a note sits, which is also the line that says WHICH FILE it is —
+// the two are answered together or not at all (see PathDisplayMode).
+describe('pathLabel', () => {
+	it('prints nothing for a pathless group', () => {
+		// A view has no file and prints no folder; the list never asks (see fileRow's own
+		// guard), and this is what "no path" means rather than an error.
+		expect(pathLabel('', 'Graph view')).toBe('');
+	});
+
+	it('prints the FOLDER while the row\'s own name is the file\'s', () => {
+		expect(pathLabel('notes/deep/a.md', 'a')).toBe('notes/deep/');
+		// Root included: "/" rather than nothing, which would read as "not printed".
+		expect(pathLabel('a.md', 'a')).toBe('/');
+	});
+
+	it('prints the whole path where the name was borrowed', () => {
+		// The row's name cell is then singing the note's frontmatter, so the folder alone
+		// would leave a row that says nothing about which note it stands for.
+		expect(pathLabel('notes/deep/a.md', '每周回顾')).toBe('notes/deep/a.md');
+		expect(pathLabel('a.md', '每周回顾')).toBe('a.md');
 	});
 });
 

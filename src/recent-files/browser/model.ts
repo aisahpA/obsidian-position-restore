@@ -54,6 +54,21 @@ export function folderOf(path: string): string | undefined {
 	return cut === -1 ? '' : path.slice(0, cut);
 }
 
+// What a row prints where its note sits, once it has decided to print anything at all (see
+// PathDisplayMode): the FOLDER — its own name cell already names the file — or the file's WHOLE
+// path where the name cell names something else, since a row that took its name from a frontmatter
+// property says nowhere else which file it is. The root prints "/" either way: an empty span looks
+// exactly like a note whose folder was not printed, a different fact. Asked only for a note that
+// HAS a path — a view's group has none.
+export function pathLabel(path: string, name: string): string {
+	const folder = folderOf(path);
+	if (folder === undefined)
+		return '';
+	if (name !== displayName(path))
+		return path;
+	return folder === '' ? '/' : `${folder}/`;
+}
+
 // Which of these names are PRINTED twice, so the list can put the folder on exactly those rows.
 // Built from the rows ON THE LIST rather than from the whole history: a colliding name the filter
 // dropped is not on screen to be confused with anything.

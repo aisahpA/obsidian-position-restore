@@ -7,7 +7,7 @@ import { groupByFile, LandingsMode, matchesNavFilter, matchedContextLine } from 
 import { PathDisplayMode } from '@/types';
 import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
-	newestStamp, rowTrail,
+	newestStamp, pathLabel, rowTrail,
 } from './model';
 import { NavRowTip, TipContent } from './tip';
 import { LongPress } from './long-press';
@@ -623,10 +623,13 @@ export class RecentFilesList {
 		// Which folder this note is in: 'smart' prints it only where the name
 		// collides. The root prints "/" — an empty span would look exactly
 		// like a note whose folder simply was not printed, a different fact.
+		// A row whose NAME WAS BORROWED prints the file's whole path instead
+		// (see pathLabel): the name cell then sings someone else's words, and
+		// nothing else on the row would say which note it stands for.
 		const folder = group.path ? folderOf(group.path) : undefined;
 		const printsPath = folder !== undefined && (mode !== 'smart' || doubles.has(name));
 		if (printsPath)
-			file.createSpan({ text: folder === '' ? '/' : `${folder}/`, cls: 'nav-row-path' });
+			file.createSpan({ text: pathLabel(group.path, name), cls: 'nav-row-path' });
 		// HOW LONG AGO this note was last visited, where the reader asked for
 		// it: the newest stamp the group holds (see newestStamp). It stands in
 		// the row's own track at the far end — inside the name it only worked

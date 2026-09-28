@@ -4617,11 +4617,13 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 			'other/b.md': cacheWith({ title: '周会' }),
 		}, false, {}, named('title'));
 
-		// Two rows reading 周会 are two rows a reader cannot choose between, so
-		// the folder is printed — exactly as it is for two files of one name.
+		// Two rows reading 周会 are two rows a reader cannot choose between, so a path
+		// is printed — exactly as it is for two files of one name. It is the FILE'S OWN
+		// path rather than the folder alone: these names were borrowed, so the folder
+		// is not the wrong answer so much as a half of one.
 		expect(names(h)).toEqual(['周会', '周会']);
 		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
-			.toEqual(['other/', 'notes/']);
+			.toEqual(['other/b.md', 'notes/a.md']);
 
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '周会';
@@ -4632,6 +4634,33 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		box.value = 'a.md';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(names(h)).toEqual(['周会']);
+	});
+
+	it('still says which file it is, once its name is borrowed', () => {
+		// A row printing every path says no MORE than a row printing none: the folder
+		// alone names no file, and under a borrowed name neither does the name cell —
+		// so both "always" modes owe the file its own name, on the same row, or the
+		// note this row stands for is the one thing it never says.
+		const h = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+		}, false, {}, prefs({ title: 'title', path: 'before' }).browser);
+
+		expect(names(h)).toEqual(['每周回顾', 'b']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
+			.toEqual(['a.md', '/']);
+		// …and nothing about the path on hover: the row has just said it, and a hover
+		// is for what a row leaves out (see fileRow).
+		expect(h.hover(h.notes()[0])).toBeNull();
+
+		// WHERE NO PATH IS PRINTED, the file's own name is one hover away instead —
+		// a reader who did not ask for paths is not a reader who cannot ask which
+		// note this is.
+		const quiet = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+		}, false, {}, named('title'));
+		expect(quiet.notes()[0].querySelector('.nav-row-path')).toBeNull();
+		expect(quiet.hover(quiet.notes()[0])?.querySelector('.nav-tip-path')?.textContent)
+			.toBe('a.md');
 	});
 
 	it('redraws when the name it prints changes, and not for any other edit', () => {
