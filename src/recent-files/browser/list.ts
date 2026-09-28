@@ -394,13 +394,20 @@ export class RecentFilesList {
 		this.hovered = undefined;
 
 		const query = this.opts.filter().trim();
-		// The query narrows on text: what the row prints (name, path, section
-		// chain, "L412") plus what the entry recorded (context, how a link got
+		// The query narrows on text: what the row prints (its name, and a landing's
+		// section chain) plus what the entry recorded (context, how a link got
 		// here). The row's printed text is derived from the vault's heading
 		// cache, so the pure predicate takes it as an argument (see
 		// matchesNavFilter). An UNFILTERED list still reads the metadata cache
 		// once per listed path: a file's other names are searchable and printed
 		// on the row's tooltip, prepared with the row rather than on hover.
+		//
+		// TWO THINGS A ROW KNOWS ARE NOT ASKED ABOUT, and for one reason: neither
+		// is a fact about the RECORD but about where the reader happens to be.
+		// The coordinate ("L412") is the position database's, rewritten while the
+		// note is being read; the chain a VISIT sits in is read off that
+		// coordinate, so it follows it. A row that answers a heading one minute
+		// and not the next is one the search box cannot be trusted with.
 		const printed = (i: number): string => {
 			const entry = this.opts.entries[i];
 			const d = this.opts.describe(i);
@@ -408,10 +415,18 @@ export class RecentFilesList {
 			// matchesNavFilter); read per PATH, so every landing of one note
 			// carries the same names.
 			const aka = entry.kind === 'view' ? [] : this.opts.aliasesFor(entry.path);
+			// A JUMP'S CHAIN IS THE RECORD'S OWN: it names the heading the reader
+			// picked, which is the row's reason for existing and is what the
+			// landing's row prints. A visit picked nothing — the line it carries
+			// is the note's as it was last seen, and a chain read off it belongs
+			// to the minute and not to the place.
+			const chain = entry.kind === 'jump'
+				? this.opts.trailFor(entry, d, i).join(' ')
+				: '';
 			// The NAME AS PRINTED goes in too: a note the reader calls by its
 			// frontmatter title is searched for by that title. (The file's own
 			// name is already in the haystack — see listing.ts's navSearchText.)
-			return `${d.name ?? ''} ${d.line ?? ''} ${this.opts.trailFor(entry, d, i).join(' ')} ${aka.join(' ')}`;
+			return `${d.name ?? ''} ${chain} ${aka.join(' ')}`;
 		};
 		// WHAT may be listed at all: a place whose file is gone is dropped
 		// before grouping — no row, no landing, no "you are here" ever stands
@@ -636,14 +651,12 @@ export class RecentFilesList {
 		const tip: TipContent = {};
 		if (group.path && !printsPath)
 			tip.path = group.path;
-		// THE SECTION THIS ROW OPENS: the chain the place its click goes to sits in.
-		// A file row prints no chain of its own — a landing's row prints two levels of
-		// it — while the chain is one of the things a query matches (see
-		// matchesNavFilter), so a row kept by a heading is a row kept by words the
-		// reader cannot see anywhere unless the hover says them.
-		const section = this.fileSection(ref);
-		if (section)
-			tip.section = section;
+		// NOTHING ABOUT A SECTION, not even on the hover. A file row stands for the
+		// NOTE: its click opens the file the plain way and the position database
+		// decides where the reader lands, so there is no one section this row is
+		// about, and a chain printed here would be a promise the click does not
+		// keep. What the row stood for, when it stood for one place at all, is
+		// what the words below are for.
 		if (aka.length)
 			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
 		// Where this row IS one of the note's places (a note with one place,
@@ -661,7 +674,7 @@ export class RecentFilesList {
 					tip.note = note;
 			}
 		}
-		if (tip.path || tip.section || tip.text || tip.quotes || tip.note)
+		if (tip.path || tip.text || tip.quotes || tip.note)
 			this.tip.attach(row, tip);
 		// THE ROW'S OWN REMOVAL. It is HERE rather than in the row's menu
 		// because that menu is the APP's file menu and only a file has one —
@@ -683,18 +696,6 @@ export class RecentFilesList {
 		// that holds the current entry, whose note has other rows beside it
 		// (see placeRow).
 		return 1;
-	}
-
-	// The section a FILE ROW stands for: the chain the place its own click goes to sits
-	// in (see activeRep). A landing's row prints two levels of that chain; this row
-	// prints none, so the chain is what it can be found by that it never shows.
-	private fileSection(ref: RowRef): string | undefined {
-		const i = this.activeRep(ref);
-		const entry = this.opts.entries[i];
-		if (!entry)
-			return undefined;
-		const chain = this.opts.trailFor(entry, this.opts.describe(i), i);
-		return chain.length ? chainText(chain) : undefined;
 	}
 
 	// THE × AT A ROW'S FAR END. Built the same way on both kinds of row — the
