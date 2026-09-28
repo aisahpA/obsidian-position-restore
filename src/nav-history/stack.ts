@@ -2,11 +2,11 @@ import { App, FileView, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, NavEntryState, PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from '@/position/restore/modes';
-import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture/ephemeral';
+import { readNavEntryState, normAnchor, shiftNavState, caretAtLine } from '@/position/capture/ephemeral';
 import { anchorLineShift, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
-	blockAnchor, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
+	blockAnchor, landedLine, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
 } from '@/nav/entry';
 import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
 import { PaneTarget } from '@/nav/pane';
@@ -628,6 +628,9 @@ export class NavStack implements NavFunnelSink {
 	}
 
 	private async execute(target: NavEntry, dir: -1 | 1, tryBoth = false, modTarget?: PaneTarget) {
+		// Armed for the WHOLE execution rather than for one of its branches: every branch
+		// lands this entry's spot, whichever of them answers.
+		this.armLandingMark(target);
 		// A modifier was held: the place opens in a leaf the APP picks for that target
 		// rather than in the leaf the entry came from — a different question from
 		// everything below, which exists to go BACK to a place. The LANDING is not part of
@@ -783,6 +786,21 @@ export class NavStack implements NavFunnelSink {
 		await this.modes.historyJumpApply(view, st, isCurrent, this.resolveAnchorShift(target));
 	}
 
+	// Tell the note to MARK the line this landing is about: an entry that names a line is the
+	// app's own outline act, and its own outline marks the heading it takes the reader to.
+	// Re-anchored with the landing itself (see resolveAnchorShift), so a heading since moved
+	// is marked where it stands now rather than where the record says. Expires: a line asked
+	// for by an open that never landed must not light up in some later restore.
+	private armLandingMark(target: NavEntry) {
+		if (target.kind !== 'jump' || !target.st)
+			return;
+		const line = landedLine(target);
+		const shift = this.resolveAnchorShift(target);
+		this.state.pendingLineFlash = line === undefined
+			? undefined
+			: { path: target.path, line: Math.max(0, line + (shift ?? 0)), at: Date.now() };
+	}
+
 	// The landing a SAME-FILE jump applies. What the entry itself recorded comes first (see
 	// landingOf); a step that recorded none falls back to the file's saved record — the
 	// very source the browser borrowed that row's line from — so the line on the row is
@@ -802,8 +820,16 @@ export class NavStack implements NavFunnelSink {
 		// The step's OWN spot, not where the reader had drifted to: a drift is recorded as a
 		// step of its own at the navigation that carried them off, so the heading they named
 		// stays reachable — forward onto this step has to land on it.
-		if (target.st)
-			return target.st;
+		if (target.st) {
+			// A JUMP names a LINE, and lands on it the way the app's own outline lands on a
+			// heading that was clicked: the caret at that line's head. The record's own
+			// caret is not that promise — it is the one the jump left behind (see
+			// readLandingState) — so every jump's caret is recomputed here, never replayed.
+			// A visit keeps the caret it recorded: what it records is a reading position,
+			// not a heading.
+			const line = target.kind === 'jump' ? landedLine(target) : undefined;
+			return line === undefined ? target.st : caretAtLine(target.st, line);
+		}
 		if (target.kind === 'teleport' && Number.isFinite(target.line))
 			return { scroll: Math.max(0, target.line) };
 		return undefined;

@@ -195,6 +195,12 @@ export function landingContext(
 	return below ? { context: below } : undefined;
 }
 
+// A caret at the head of `line` — where the app leaves it when its own outline takes the
+// reader to a heading, and all a line number can promise about a place.
+export function caretAtLine(st: EphemeralState, line: number): EphemeralState {
+	return { ...st, cursor: { from: { line, ch: 0 }, to: { line, ch: 0 } } };
+}
+
 // Obsidian's own per-tab scroll cache — runtime-only, absent from the public typings. A plain field
 // on the view, null until something fills it: syncScroll writes it on every scroll,
 // setEphemeralState on every apply, clear/setViewData on a reload or a mode switch.
@@ -250,6 +256,11 @@ export function readNavEntryState(view: MarkdownView): NavEntryState | undefined
 // The words belong to this moment and to no other — a step is restored by POSITION and stores none
 // (see nav-history/store.ts) — so this is the only read that pays the doc reads and the one layout
 // the cursor-visibility check forces.
+//
+// The caret it carries is NOT the caret restoring this spot puts down: a jump lands on the heading
+// it names, caret at its head (see caretAtLine), and a visit keeps what it recorded. What rides
+// along here is the caret the JUMP left behind — a record of where the reader came from, which
+// nothing downstream reads.
 export function readLandingState(view: MarkdownView): NavEntryState | undefined {
 	const st = readEphemeralState(view);
 	if (!st)

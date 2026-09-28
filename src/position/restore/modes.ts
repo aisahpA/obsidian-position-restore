@@ -5,6 +5,10 @@ import { ANCHOR_SETTLE_DELAY, animateScrollTop, delay, getScroller, hasPreviewSc
 import { PositionState } from '@/position/state';
 import { SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SourcePixelCorrector } from './pixels';
 
+// How long a travelled line's mark waits for its landing: well past any open plus settle,
+// and far short of anything the reader could mistake for an answer to what they just did.
+const LINE_FLASH_ASK_MS = 5000;
+
 // The restore strategies: how a saved position is applied to a markdown view
 // once the dispatch pipeline decided a restore is needed — masked (under a
 // contentEl cover), glide (visible, from the top), restoreInjectedSource
@@ -320,11 +324,30 @@ export class RestoreModes {
 		if (isCurrent()) {
 			this.state.lastEphemeralState = readEphemeralState(view) ?? st;
 			this.state.lastAnchorAt = Date.now();
+			this.markLandingLine(view);
 			// Every real restore path ends here, so the cue only fires after an
 			// actual restore landed. NavStack traversals arm cueSuppressUntil —
 			// the user chose the destination, no chip.
 			if (Date.now() >= this.state.cueSuppressUntil)
 				this.state.cue.show(view);
 		}
+	}
+
+	// The note's side of a travelling entry that names a line: mark it, the way the app marks
+	// the heading its own outline takes the reader to (see NavStack.armLandingMark). Answered
+	// here because every real restore ends here — the mark then sits on the landing as it
+	// settled, not on the line as it was asked for.
+	private markLandingLine(view: MarkdownView) {
+		const ask = this.state.pendingLineFlash;
+		if (!ask)
+			return;
+		if (Date.now() - ask.at >= LINE_FLASH_ASK_MS) {
+			this.state.pendingLineFlash = undefined;
+			return;
+		}
+		if (view.file?.path !== ask.path)
+			return;
+		this.state.pendingLineFlash = undefined;
+		this.state.cue.flashLine(view, ask.line);
 	}
 }

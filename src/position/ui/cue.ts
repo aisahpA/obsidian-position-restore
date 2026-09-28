@@ -76,6 +76,21 @@ export class RestoreCue {
 		this.hideTimer = window.setTimeout(() => this.hide(), CUE_AUTO_HIDE_MS);
 	}
 
+	// Mark ONE line, the way an outline click marks the heading it takes the reader to. Source
+	// view animates the line element it already knows how to find; reading view has no line
+	// element to speak of, so it asks the view for its own marked reveal instead — the app's
+	// answer to a `{line}`, which lands that line and highlights it.
+	flashLine(view: MarkdownView, line: number) {
+		if (view.getMode() === 'preview') {
+			view.setEphemeralState({ line });
+			return;
+		}
+		const cm = (view.editor as unknown as { cm?: Cm6EditorView }).cm;
+		const el = cm ? this.sourceLineElement(cm, line) : null;
+		if (el)
+			this.flash(el);
+	}
+
 	// Called by the recording loop when the user moves away from the restored
 	// spot. Suppressed for a short grace after the cue appears, because mobile's
 	// post-restore layout/scroll jitter makes readEphemeralState differ from the
