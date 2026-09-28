@@ -159,6 +159,12 @@ export const en = {
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 
+	// ── The two ends of a note ────────────────────────────────────────
+	// Named for the DESTINATION, not for the moving: the reader is picking a
+	// place in the note. Neither is bound by default, like the rest.
+	'noteEdge.commands.top': 'Go to top of note',
+	'noteEdge.commands.bottom': 'Go to bottom of note',
+
 	// ── Feature 3 · Recent files: the list of places, and its panel ─────
 	// The modal's own title, and the PANEL's name: a list of places — recent
 	// notes plus the headings jumped to inside them — and NOT the

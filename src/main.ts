@@ -117,6 +117,30 @@ export default class PositionRestorePlugin extends Plugin {
 				return true;
 			}
 		});
+		// A note's two ends. The app has no command for either one — Ctrl+Home / Ctrl+End are
+		// editor keys, and only on the desktop — and its keys leave no step behind, so the spot
+		// the reader stood in is lost the moment they ask for the other end. These two record it,
+		// which is the part of "go to the end" that belongs to a plugin about positions.
+		this.addCommand({
+			id: 'go-to-top',
+			name: t('noteEdge.commands.top'),
+			icon: 'arrow-up',
+			checkCallback: (checking) => {
+				if (!this.manager.canGoToEdge()) return false;
+				if (!checking) this.manager.goToEdge('top');
+				return true;
+			},
+		});
+		this.addCommand({
+			id: 'go-to-bottom',
+			name: t('noteEdge.commands.bottom'),
+			icon: 'arrow-down',
+			checkCallback: (checking) => {
+				if (!this.manager.canGoToEdge()) return false;
+				if (!checking) this.manager.goToEdge('bottom');
+				return true;
+			},
+		});
 		// Recent files: the PLACES list, most recent last (see places.ts) — one row per
 		// note, and the row OPENS the file at the spot it stands for. It is NOT the
 		// back/forward stack: that store is the pair of commands above. No availability

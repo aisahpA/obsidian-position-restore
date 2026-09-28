@@ -155,6 +155,11 @@ export const zh: En = {
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
 
+	// ── 笔记的两端 ────────────────────────────────────────────────────
+	// 按「目的地」命名，不按「移动」命名：读者是在挑笔记里的一个地方。
+	'noteEdge.commands.top': '跳到笔记开头',
+	'noteEdge.commands.bottom': '跳到笔记末尾',
+
 	// ── 功能三 · 最近文件：地点列表，以及它的面板 ──────────────────────
 	'recentFiles.name': '最近文件',
 
