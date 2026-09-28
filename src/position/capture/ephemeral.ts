@@ -188,6 +188,25 @@ export function landingContext(
 	return below ? { context: below } : undefined;
 }
 
+// Obsidian's own per-tab scroll cache — runtime-only, absent from the public typings. syncScroll
+// writes it on every scroll, setEphemeralState on every apply, and it is what app's
+// getEphemeralState() restores from: the app does not trust a live read either.
+interface ScrollCaching { scroll?: number | null }
+
+// A hidden tab's scroller is out of layout (a stacked tab group keeps only its active tab
+// visible), so its scrollTop reads 0 and the live read answers "top of file" however far the
+// reader had scrolled — the leave-refresh then stores the top as their position. The cache
+// survives that. Live wins everywhere else: an applied restore writes the REQUESTED value into
+// the cache (pixels.ts), so trusting it on a visible view would echo the request back.
+function trustedScroll(view: MarkdownView, live: number | undefined): number | undefined {
+	const dom = (view.editor as unknown as { cm?: { scrollDOM?: HTMLElement } })?.cm?.scrollDOM;
+	if (!dom || dom.offsetParent !== null)
+		return live;
+	const cached = (view as unknown as ScrollCaching).scroll;
+	// Quantized like the hot read: the cache carries the unrounded value.
+	return cached != null && Number.isFinite(cached) ? Math.round(cached) : live;
+}
+
 // Nav read — LOW frequency only (the leave-refresh on a file switch, the outline pre-click read, the
 // leave-refresh before back/forward, the landing settle-capture, the teleport landing): the hot read
 // plus the display fields a nav entry carries. Never a drop-in for readEphemeralState on hot paths:
@@ -196,7 +215,9 @@ export function readNavEntryState(view: MarkdownView): NavEntryState | undefined
 	const st = readEphemeralState(view);
 	if (!st)
 		return undefined;
-	return { ...st, ...navDisplayFields(view, st.scroll ?? -1) };
+	// One scroll for both the position and the anchor: they are one place.
+	const scroll = trustedScroll(view, st.scroll);
+	return { ...st, scroll, ...navDisplayFields(view, scroll ?? -1) };
 }
 
 // The ONE read that records a landing: what a step carries, plus the words the landing sits in.

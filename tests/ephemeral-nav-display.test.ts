@@ -23,12 +23,14 @@ import { EphemeralState, NavEntryState } from '@/types';
 // rendered offset range. coordsAtPos maps an offset to a client top (x2);
 // the scroller box is [100, 700), so a rendered line top inside 100..700
 // reads as on-screen, anything else off-screen.
-function makeCm(opts: { viewport: { from: number; to: number }; coordsTop?: number }) {
+function makeCm(opts: { viewport: { from: number; to: number }; coordsTop?: number; hidden?: boolean }) {
 	return {
 		state: { doc: { lines: 1000, line: (n: number) => ({ from: (n - 1) * 10 }) } },
 		viewport: opts.viewport,
 		scrollDOM: {
 			getBoundingClientRect: () => ({ top: 100, bottom: 700, left: 0, right: 800 }),
+			// null = out of layout (a hidden tab) — the one case the live read cannot answer.
+			offsetParent: opts.hidden ? null : ({} as unknown as HTMLElement),
 		},
 		coordsAtPos: () => (opts.coordsTop === undefined ? null : { top: opts.coordsTop }),
 		defaultLineHeight: 20,
@@ -137,6 +139,35 @@ describe('readNavEntryState — what a step carries', () => {
 	it('undefined when the hot read is undefined (renderer not caught up)', () => {
 		const view = makeView({ scroll: null as unknown as number, cursorLine: 3 });
 		expect(readNavEntryState(view)).toBeUndefined();
+	});
+
+	// A stacked tab group keeps only its active tab in layout: the hidden scroller's scrollTop
+	// reads 0, so the live read says "top of file" for a reader 680 lines down, and the
+	// leave-refresh stores that top as their position. Obsidian's own per-tab cache is what still
+	// knows — and the anchor must come off that same line, not off the bogus one.
+	it('takes the cached scroll when the tab is out of layout', () => {
+		const lines: string[] = Array.from({ length: 700 }, (_, i) => (i === 681 ? 'deep line' : 'x'));
+		lines[10] = 'top line';
+		const view = Object.assign(makeView({
+			scroll: 10, cursorLine: 686, mode: 'source', lines,
+			cm: makeCm({ viewport: { from: 0, to: 100 }, hidden: true }),
+		}), { scroll: 680.59 });
+
+		const st = readNavEntryState(view);
+
+		expect(st?.scroll).toBe(681);
+		expect(st?.anchor).toBe('deep line');
+	});
+
+	// Visible views keep reading the DOM: an applied restore writes the REQUESTED value into that
+	// cache, so trusting it here would echo the request back as the reader's position.
+	it('keeps the live read when the view is in layout, cache and all', () => {
+		const view = Object.assign(makeView({
+			scroll: 10, cursorLine: 686, mode: 'source', lines: Array.from({ length: 700 }, () => 'x'),
+			cm: makeCm({ viewport: { from: 0, to: 100 } }),
+		}), { scroll: 680.59 });
+
+		expect(readNavEntryState(view)?.scroll).toBe(10);
 	});
 });
 
