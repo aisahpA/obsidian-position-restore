@@ -134,6 +134,17 @@ export function isCallerKey(key: string | undefined): boolean {
 	return !!key && key.startsWith(CALLER_KEY_PREFIX);
 }
 
+// A wikilink arrives WHOLE, display alias and all (`note#^id|shown as`): core
+// has resolved the link by the time we see it, so everything from the `|` on is
+// a label, not part of the target. Left on, it makes both anchor kinds
+// unmatchable — a block id becomes `id|shown as` (no such block), and a heading
+// slug never equals its heading. Taken off once, where the linktext becomes a
+// key (see restore/patcher.ts), so no reader has to know about it.
+export function stripLinkAlias(text: string): string {
+	const bar = text.indexOf('|');
+	return bar < 0 ? text : text.slice(0, bar);
+}
+
 // What a keyed jump's target NAMES, when the target is a BLOCK: the block id, without the `^`.
 // Two decisions hang on it and have to agree — restore/anchor.ts looks the id up in the metadata
 // cache to re-anchor a step, and the recent-files list keeps no place for a block (see
