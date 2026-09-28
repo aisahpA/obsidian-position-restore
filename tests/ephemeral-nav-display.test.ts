@@ -109,6 +109,31 @@ describe('readNavEntryState — what a step carries', () => {
 		expect(st).not.toHaveProperty('context');
 	});
 
+	// A horizontal rule is a legal anchor by its text and a useless one by its nature: the remap
+	// scan looks outward from the recorded line, and in a note with several rules it finds a
+	// different one. Recorded like a blank line — no anchor, so the number stands or falls alone.
+	it('records no anchor when the viewport top is a horizontal rule', () => {
+		for (const rule of ['---', '***', '___']) {
+			const view = makeView({
+				scroll: 1.2, cursorLine: 3, mode: 'source',
+				lines: ['top', rule, 'x', 'cursor line'],
+				cm: makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 }),
+				mtime: 1_730_000_000_000,
+			});
+			expect(readNavEntryState(view)?.anchor).toBeUndefined();
+		}
+	});
+
+	it('still anchors a list item — only a bare rule is dropped', () => {
+		const view = makeView({
+			scroll: 1.2, cursorLine: 3, mode: 'source',
+			lines: ['top', '- a list item', 'x', 'cursor line'],
+			cm: makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 }),
+			mtime: 1_730_000_000_000,
+		});
+		expect(readNavEntryState(view)?.anchor).toBe('- a list item');
+	});
+
 	it('undefined when the hot read is undefined (renderer not caught up)', () => {
 		const view = makeView({ scroll: null as unknown as number, cursorLine: 3 });
 		expect(readNavEntryState(view)).toBeUndefined();

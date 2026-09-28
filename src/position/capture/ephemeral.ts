@@ -125,6 +125,12 @@ function contextBelow(
 	return out.length ? out : undefined;
 }
 
+// A thematic break ("---", "***", "___") names a place no better than a blank line does: the remap
+// scan searches outward from the recorded line for the recorded text, and one rule is
+// indistinguishable from the next, so a record anchored on a rule can re-find itself on a rule the
+// reader was never on. No anchor beats that.
+const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})$/;
+
 // The nav-display fields around a position: the viewport-top anchor (functional —
 // remapAnchoredState re-finds the line after later edits) and the file's mtime. Nothing here forces
 // layout: the landing's WORDS are the one part of a nav state the stepping side never reads, and
@@ -140,10 +146,10 @@ function navDisplayFields(
 	// Anchor: the primary line's trimmed text at capture time. A recorded position goes stale when
 	// the file is edited afterwards (inserts and deletes above shift every line below) —
 	// remapAnchoredState uses this text to re-find the line before the position is applied. Blank
-	// lines carry no anchor (an empty match would match every blank line).
+	// lines carry no anchor (an empty match would match every blank line); nor does a rule.
 	if (topLine >= 0 && topLine <= (editor.lastLine?.() ?? -1)) {
 		const text = editor.getLine(topLine).trim().slice(0, 80);
-		if (text)
+		if (text && !THEMATIC_BREAK.test(text))
 			display.anchor = text;
 	}
 	// The file's mtime at capture time — the record's own stamp, what the file WAS when the step was
