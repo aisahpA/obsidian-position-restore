@@ -234,7 +234,9 @@ describe('NavStack stack logic', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
-		nav.funnel.leave('a.md', 'leaf-1', { scroll: 512 });
+		// Inside the departure threshold (10 lines): they are still reading what the step
+		// names, so the spot is not somewhere else and no step is made of it.
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 508 });
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
 		expect(nav.stack.entries.length).toBe(2);
 	});
