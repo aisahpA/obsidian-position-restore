@@ -204,6 +204,59 @@ describe('NavStack stack logic', () => {
 		expect(stOf(legacy.stack.entries[1])).toBe(landing);
 	});
 
+	it('a reader who moved off a jump leaves the spot they are standing in as its own step', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		// They read on, then jump to another heading. The leave alone must change nothing —
+		// the step keeps the landing it names — and the drift only becomes a step once the
+		// jump carries them off it.
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		expect(nav.stack.entries.length).toBe(1);
+		expect(stOf(nav.stack.entries[0])).toEqual({ scroll: 500 });
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
+		expect(keyOf(nav.stack.entries[2])).toBe('outline:Bar');
+		// A step, not a place: the list beside the stack keeps the jumps it was told about
+		// and must not grow a row for the spot the reader was reading.
+		expect(nav.places.entries.every((p) => p.kind === 'jump')).toBe(true);
+	});
+
+	it('a drift that never left the landing leaves no step behind', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 512 });
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
+		expect(nav.stack.entries.length).toBe(2);
+	});
+
+	it('a heading clicked a second time is a step again once the reader has moved off it', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// Same key as the top step, which is what dedup reads — but the reader is 200 lines
+		// below it, so the click is a real jump only because the departure is on the stack
+		// first. Deduped, it would move them with nowhere to come back to.
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		expect(nav.stack.entries.length).toBe(3);
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
+	});
+
+	it('a held departure is dropped once the reader is no longer on that step', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		(nav.stack as unknown as { index: number }).index = 0; // a traversal moved off it
+		nav.funnel.recordOpen('c.md', 'leaf-1');
+		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
+	});
+
 	it('upgrades an outline key from the cache with its record-time line', () => {
 		const nav = makeNav(makeApp([
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },

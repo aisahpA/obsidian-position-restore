@@ -6,7 +6,7 @@ import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture
 import { anchorLineShift, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
-	blockAnchor, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
+	blockAnchor, landedLine, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
 } from '@/nav/entry';
 import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
 import { PaneTarget } from '@/nav/pane';
@@ -23,8 +23,9 @@ import { loadNavHistory, persistNavHistory } from './store';
 // fresh jump truncates the forward part — that IS back/forward semantics, and why the
 // panel next door does not draw this list. Two position regimes: keyed entries
 // (outline:<heading>, anchor linktext) and teleports carry the jump's precise landing
-// and are never overwritten afterwards (back/forward must return to the jump target
-// itself); keyless open/activation entries carry none — their st slot is refreshed on
+// and keep it — a reader who moved on leaves the spot they were standing in as a step of its
+// own (see pendingFrom) rather than as a rewrite of the landing, because back/forward must
+// return to the jump target itself; keyless open/activation entries carry none — their st slot is refreshed on
 // every leave ("where the user actually was"). Only an entry with no recorded position
 // of its own falls back to the per-file records.
 //
@@ -68,6 +69,14 @@ const HISTORY_NAV_TIMEOUT_MS = 1000;
 // reader's next unrelated open shows its own cue again.
 const NAV_CUE_SUPPRESS_MS = 3000;
 
+// How far the reader must have moved off a step's own landing before the spot they stand in
+// counts as somewhere else: under it they are still reading what the step names, and back
+// returning them to its target is returning them where they were. Over it, the spot they leave
+// behind is one nothing else records — the step keeps the landing it was pushed with, and the
+// file's saved record is not a step — so it becomes a step of its own. Half a screenful of
+// prose, i.e. far enough that a step created here always moves the view when back is pressed.
+const DEPARTURE_MIN_LINES = 20;
+
 export class NavStack implements NavFunnelSink {
 	private app: App;
 	private state: PositionState;
@@ -82,6 +91,11 @@ export class NavStack implements NavFunnelSink {
 	entries: NavEntry[] = [];
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
+	// A spot the reader has left behind and nothing else has recorded: the step they are leaving
+	// keeps the landing it names, so a later leave has nowhere to put where they actually were.
+	// Held rather than pushed — a leave also precedes THIS stack's own traversal, and a step
+	// pushed there would truncate the forward stack before back even moved (see flushDeparture).
+	private pendingFrom?: { step: NavJump | NavTeleport; st: NavEntryState };
 
 	constructor(
 		app: App,
@@ -222,6 +236,10 @@ export class NavStack implements NavFunnelSink {
 	// top step change?" — while the reader having been somewhere is a question about the
 	// place list, which the funnel already asked before this ran.
 	private pushIfNew(entry: NewNavEntry, force?: boolean) {
+		// Before the dedup: a heading clicked a second time looks like "already the top step"
+		// while the reader is in fact 200 lines below it, so the departure has to be on the stack
+		// first for that click to be a step at all.
+		this.flushDeparture();
 		const top = this.entries[this.index];
 		// Same location = same file in the SAME tab (+ same jump key). Two tabs of one
 		// file hold independent positions, so a leaf switch between them is a real entry
@@ -266,36 +284,61 @@ export class NavStack implements NavFunnelSink {
 	}
 
 	// "Update on leave": refreshes the top entry's position from the view the jump is
-	// leaving. Keyed entries keep the precise landing of the jump they were pushed for —
-	// a leave must not overwrite it with where the reader had drifted; only an entry that
-	// never received a landing gets a backfill. Keyless entries are overwritten on every
-	// leave. Guarded by path+leaf.
+	// leaving. A step that NAMES a spot keeps the landing it was pushed for — a leave must
+	// not overwrite it with where the reader had drifted; one that recorded no landing gets
+	// a backfill, and one that did hands the drift to flushDeparture instead. Keyless entries
+	// are overwritten on every leave. Guarded by path+leaf.
 	private refreshTop(path: string, leafId: string, st: NavEntryState, opts: { landing?: boolean } = {}) {
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
-		if (top.kind === 'jump') {
+		if (top.kind === 'jump' || top.kind === 'teleport') {
 			if (!top.st) {
 				top.st = st;
-				this.upgradeKeyLine(top, st);
-				// A PLACE is only told about a real LANDING (`opts.landing`), never about
-				// the leave-read that backfills the stack: the stack wants *some* position
-				// to return to, while the place's row PROMISES the jump's own spot — and a
-				// reader who clicked a heading, read on and then switched files must not
-				// find that heading's recorded place moved to wherever they were when they
-				// left.
-				if (opts.landing)
-					this.funnel.landing(top);
+				if (top.kind === 'jump') {
+					this.upgradeKeyLine(top, st);
+					// A PLACE is only told about a real LANDING (`opts.landing`), never about
+					// the leave-read that backfills the stack: the stack wants *some* position
+					// to return to, while the place's row PROMISES the jump's own spot — and a
+					// reader who clicked a heading, read on and then switched files must not
+					// find that heading's recorded place moved to wherever they were when they
+					// left.
+					if (opts.landing)
+						this.funnel.landing(top);
+				}
+				return;
 			}
-			return;
-		}
-		if (top.kind === 'teleport') {
-			if (!top.st) {
-				top.st = st;
-			}
+			// It already carries its landing, so this read is the reader standing somewhere the
+			// step does not name. Overwriting would make back return to the wrong spot; dropping
+			// it loses where they were. Held for the navigation that carries them off it.
+			if (!opts.landing)
+				this.pendingFrom = this.leftBehind(top, st) ? { step: top, st } : undefined;
 			return;
 		}
 		top.st = st;
+	}
+
+	// Whether a read is the reader standing somewhere other than the landing this step names.
+	private leftBehind(step: NavJump | NavTeleport, st: NavEntryState): boolean {
+		const at = st.scroll ?? st.cursor?.from.line;
+		const promised = landedLine(step);
+		return at !== undefined && promised !== undefined
+			&& Math.abs(at - promised) > DEPARTURE_MIN_LINES;
+	}
+
+	// The held departure, as a step of its own — only while the step it was read off is still the
+	// top one (a traversal or a prune since then means it no longer describes where the reader is),
+	// and only from a push: that is the moment a navigation carries them off the spot.
+	private flushDeparture() {
+		const pending = this.pendingFrom;
+		if (!pending)
+			return;
+		this.pendingFrom = undefined;
+		if (this.entries[this.index] !== pending.step)
+			return;
+		this.push({
+			kind: 'visit', path: pending.step.path, leafId: pending.step.leafId, st: pending.st,
+		});
 	}
 
 	// Capture the position of the file being switched away from onto the top entry (the
