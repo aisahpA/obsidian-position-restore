@@ -4,6 +4,7 @@ import { PositionStore } from '@/position/storage/position-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
 import { readNavEntryState } from '@/position/capture/ephemeral';
 import type { NavFunnel } from '@/nav/funnel';
+import { stripLinkAlias } from '@/nav/entry';
 import { isMainAreaLeaf, isPopoverLeaf } from '@/shared/leaf';
 import type { Sampler } from '@/position/capture/sampler';
 
@@ -102,11 +103,13 @@ export class OpenPatcher {
 		const hasTarget = typeof linktext === 'string'
 			&& (linktext.includes('#') || linktext.includes('^'));
 		if (hasTarget) {
-				state.pendingLinkKind = 'anchorLink';
-				state.pendingLinkText = linktext;
-			} else if (settings.linkOpenPosition === 'start') {
-				state.pendingLinkKind = 'startPlainLink';
-			}
+			state.pendingLinkKind = 'anchorLink';
+			// The alias comes off HERE, not where the key is read: what arrives is
+			// the whole wikilink, and its label is no part of the target.
+			state.pendingLinkText = stripLinkAlias(linktext);
+		} else if (settings.linkOpenPosition === 'start') {
+			state.pendingLinkKind = 'startPlainLink';
+		}
 			try {
 				return await originalOpenLinkText.apply(this, args);
 			} finally {

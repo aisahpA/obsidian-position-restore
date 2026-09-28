@@ -23,8 +23,9 @@ import { loadNavHistory, persistNavHistory } from './store';
 // fresh jump truncates the forward part — that IS back/forward semantics, and why the
 // panel next door does not draw this list. Two position regimes: keyed entries
 // (outline:<heading>, anchor linktext) and teleports carry the jump's precise landing
-// and are never overwritten afterwards (back/forward must return to the jump target
-// itself); keyless open/activation entries carry none — their st slot is refreshed on
+// and keep it — a reader who moved on leaves the spot they were standing in as a step of its
+// own (see pendingFrom) rather than as a rewrite of the landing, because back/forward must
+// return to the jump target itself; keyless open/activation entries carry none — their st slot is refreshed on
 // every leave ("where the user actually was"). Only an entry with no recorded position
 // of its own falls back to the per-file records.
 //
@@ -67,6 +68,15 @@ const HISTORY_NAV_TIMEOUT_MS = 1000;
 // plus the anchor delay. 3s clears that with margin while staying tight enough that a
 // reader's next unrelated open shows its own cue again.
 const NAV_CUE_SUPPRESS_MS = 3000;
+
+// How far the reader must have moved off a step's own landing before the spot they stand in
+// counts as somewhere else: under it they are still reading what the step names, and back
+// returning them to its target is returning them where they were. Over it, the spot they leave
+// behind is one nothing else records — the step keeps the landing it was pushed with, and the
+// file's saved record is not a step — so it becomes a step of its own. The same 10 lines the
+// inferred-jump setting starts at: two kinds of step the reader never asked for should read
+// off one ruler, and a step made here still moves the view when back is pressed.
+const DEPARTURE_MIN_LINES = 10;
 
 export class NavStack implements NavFunnelSink {
 	private app: App;
@@ -222,6 +232,10 @@ export class NavStack implements NavFunnelSink {
 	// top step change?" — while the reader having been somewhere is a question about the
 	// place list, which the funnel already asked before this ran.
 	private pushIfNew(entry: NewNavEntry, force?: boolean) {
+		// Before the dedup: a heading clicked a second time looks like "already the top step"
+		// while the reader is in fact 200 lines below it, so the departure has to be on the stack
+		// first for that click to be a step at all.
+		this.flushDeparture();
 		const top = this.entries[this.index];
 		// Same location = same file in the SAME tab (+ same jump key). Two tabs of one
 		// file hold independent positions, so a leaf switch between them is a real entry
@@ -266,36 +280,88 @@ export class NavStack implements NavFunnelSink {
 	}
 
 	// "Update on leave": refreshes the top entry's position from the view the jump is
-	// leaving. Keyed entries keep the precise landing of the jump they were pushed for —
-	// a leave must not overwrite it with where the reader had drifted; only an entry that
-	// never received a landing gets a backfill. Keyless entries are overwritten on every
-	// leave. Guarded by path+leaf.
-	private refreshTop(path: string, leafId: string, st: NavEntryState, opts: { landing?: boolean } = {}) {
+	// leaving. A step that NAMES a spot keeps that spot as its `st` — a leave must not
+	// overwrite it with where the reader had drifted — and the drift goes to `leftAt`, which
+	// becomes a step of its own when a navigation carries the reader off it. Keyless entries
+	// are overwritten on every leave. Guarded by path+leaf.
+	private refreshTop(
+		path: string,
+		leafId: string,
+		st: NavEntryState,
+		opts: { landing?: boolean; traversal?: boolean } = {},
+	) {
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
-		if (top.kind === 'jump') {
-			if (!top.st) {
+		if (top.kind === 'jump' || top.kind === 'teleport') {
+			if (opts.landing) {
+				// What the step promises, and it wins whenever it arrives — including after a
+				// leave has already backfilled the step (a jump the reader left before it
+				// settled).
 				top.st = st;
-				this.upgradeKeyLine(top, st);
-				// A PLACE is only told about a real LANDING (`opts.landing`), never about
-				// the leave-read that backfills the stack: the stack wants *some* position
-				// to return to, while the place's row PROMISES the jump's own spot — and a
-				// reader who clicked a heading, read on and then switched files must not
-				// find that heading's recorded place moved to wherever they were when they
-				// left.
-				if (opts.landing)
+				if (top.kind === 'jump') {
+					this.upgradeKeyLine(top, st);
+					// A PLACE is only told about a real LANDING, never about the leave-read
+					// that backfills the stack: the stack wants *some* position to return to,
+					// while the place's row PROMISES the jump's own spot — and a reader who
+					// clicked a heading, read on and then switched files must not find that
+					// heading's recorded place moved to wherever they were when they left.
 					this.funnel.landing(top);
+				}
+				return;
 			}
-			return;
-		}
-		if (top.kind === 'teleport') {
 			if (!top.st) {
 				top.st = st;
+				if (top.kind === 'jump')
+					this.upgradeKeyLine(top, st);
+				return;
 			}
+			// Back/forward is not leaving: it is this stack walking its own steps, and the
+			// reader walks back onto this one by pressing forward again. Recording the drift
+			// would turn the return into a step of its own and bury the landing under it —
+			// forward has to land on the heading, which is the one spot nothing else holds.
+			if (opts.traversal) {
+				delete top.leftAt;
+				return;
+			}
+			// It already carries its landing, so this read is the reader standing somewhere the
+			// step does not name: overwriting would lose the landing, and dropping it loses
+			// where they were. A navigation off this step turns it into a step of its own.
+			top.leftAt = st;
 			return;
 		}
 		top.st = st;
+	}
+
+	// Whether a read is the reader standing somewhere other than the landing this step names.
+	// Both sides are the VIEWPORT's top line, because a step is restored as a scroll: it is the
+	// scroll that has to have moved. The heading's own line is not the baseline — the viewport
+	// cannot always reach it (a heading near the end of the note), and read as one it made a
+	// screenful of drift look like no movement at all. A cursor is not read either: moving it
+	// within one screen leaves the view standing still, so a step made of it would answer back
+	// with nothing to show.
+	private leftBehind(step: NavJump | NavTeleport, st: NavEntryState): boolean {
+		const at = st.scroll;
+		const promised = step.st?.scroll;
+		return at !== undefined && promised !== undefined
+			&& Math.abs(at - promised) > DEPARTURE_MIN_LINES;
+	}
+
+	// The drift off the current step, as a step of its own — pushed at the moment a navigation
+	// carries the reader off the spot they were standing in, and never from a leave: a leave also
+	// precedes THIS stack's own traversal, where a step would truncate the forward stack before
+	// back even moved. The step it came off keeps its landing — the drift is a step beside it,
+	// not a rewrite of it — and the drift is consumed: a reader who comes back to that step and
+	// leaves it again is standing somewhere new, and the old spot must not be offered twice.
+	private flushDeparture() {
+		const top = this.entries[this.index];
+		if (!top || (top.kind !== 'jump' && top.kind !== 'teleport') || !top.leftAt)
+			return;
+		const st = top.leftAt;
+		if (!this.leftBehind(top, st))
+			return;
+		delete top.leftAt;
+		this.push({ kind: 'visit', path: top.path, leafId: top.leafId, st });
 	}
 
 	// Capture the position of the file being switched away from onto the top entry (the
@@ -536,7 +602,7 @@ export class NavStack implements NavFunnelSink {
 			}
 		}
 
-		this.refreshTopFromActiveView();
+		this.refreshTopFromActiveView({ traversal: true });
 
 		this.index += dir;
 		await this.execute(this.entries[this.index], dir);
@@ -547,7 +613,7 @@ export class NavStack implements NavFunnelSink {
 	// OWN leaf when the workspace's active view is not it: a sidebar holding the focus —
 	// the resident panel included — leaves no active FileView at all, while the entry
 	// still describes the file tab behind it.
-	private refreshTopFromActiveView() {
+	private refreshTopFromActiveView(opts: { traversal?: boolean } = {}) {
 		const cur = this.entries[this.index];
 		if (!cur || cur.kind === 'view')
 			return;
@@ -557,7 +623,7 @@ export class NavStack implements NavFunnelSink {
 			: this.findLeafById(cur.leafId)?.view;
 		if (view instanceof MarkdownView && view.file?.path === cur.path) {
 			const st = readNavEntryState(view);
-			if (st) this.refreshTop(cur.path, cur.leafId, st);
+			if (st) this.refreshTop(cur.path, cur.leafId, st, opts);
 		}
 	}
 
@@ -733,6 +799,9 @@ export class NavStack implements NavFunnelSink {
 	// no position of its own: a same-file jump falls back to the file's saved record, and
 	// a cross-file open falls back to it by itself.
 	private landingOf(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		// The step's OWN spot, not where the reader had drifted to: a drift is recorded as a
+		// step of its own at the navigation that carried them off, so the heading they named
+		// stays reachable — forward onto this step has to land on it.
 		if (target.st)
 			return target.st;
 		if (target.kind === 'teleport' && Number.isFinite(target.line))

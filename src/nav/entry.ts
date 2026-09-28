@@ -32,6 +32,12 @@ export interface NavJump extends NavEntryBase {
 	// renamed heading, a deleted block — which rides the text-snippet remap.
 	keyLine?: number;
 	st?: NavEntryState;
+	// Where the reader stood when a NAVIGATION carried them off this step. Its `st` is the
+	// landing — what the row promises and what the place list keeps — so the drift has to
+	// live beside it, and it becomes a step of its own (see NavStack's flushDeparture)
+	// rather than a rewrite of the landing: back/forward must still be able to return the
+	// reader to the heading they named.
+	leftAt?: NavEntryState;
 }
 
 // A keyless visit: a file open or a tab/pane activation. Carries no position of
@@ -70,6 +76,8 @@ export interface NavTeleport extends NavEntryBase {
 	path: string;
 	line: number;
 	st?: NavEntryState;
+	// See NavJump.leftAt: the same drift, on a step whose position is frozen too.
+	leftAt?: NavEntryState;
 }
 
 // What is NOT a place. One entry: 'empty', the placeholder a main-area leaf
@@ -134,6 +142,17 @@ export function isCallerKey(key: string | undefined): boolean {
 	return !!key && key.startsWith(CALLER_KEY_PREFIX);
 }
 
+// A wikilink arrives WHOLE, display alias and all (`note#^id|shown as`): core
+// has resolved the link by the time we see it, so everything from the `|` on is
+// a label, not part of the target. Left on, it makes both anchor kinds
+// unmatchable — a block id becomes `id|shown as` (no such block), and a heading
+// slug never equals its heading. Taken off once, where the linktext becomes a
+// key (see restore/patcher.ts), so no reader has to know about it.
+export function stripLinkAlias(text: string): string {
+	const bar = text.indexOf('|');
+	return bar < 0 ? text : text.slice(0, bar);
+}
+
 // What a keyed jump's target NAMES, when the target is a BLOCK: the block id, without the `^`.
 // Two decisions hang on it and have to agree — restore/anchor.ts looks the id up in the metadata
 // cache to re-anchor a step, and the recent-files list keeps no place for a block (see
@@ -151,7 +170,11 @@ export function blockAnchor(key: string): string | undefined {
 	const rest = key.slice(at + 1);
 	if (key[at] !== '^' && !rest.startsWith('^'))
 		return undefined;
-	return rest.startsWith('^') ? rest.slice(1) : rest;
+	// Lowercased because that is the form the metadata cache keeps block ids in — it
+	// keys `blocks` by `id.toLowerCase()` and core matches a link's id the same way, so
+	// a hand-written `^MyBlock` names a block the cache only knows as `myblock`.
+	const id = rest.startsWith('^') ? rest.slice(1) : rest;
+	return id.toLowerCase();
 }
 
 export function isBlockKey(key: string | undefined): boolean {
