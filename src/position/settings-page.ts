@@ -298,5 +298,25 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 				},
 			],
 		},
+		// A BOX THE READER TYPES CSS INTO — this page's only row that is not about a position. It is
+		// here because layout the app gets wrong on a device is something this plugin gets asked
+		// about, and the honest answer is one the reader can see and undo, not a guess baked into
+		// the restore code. Last, because everything above it is a setting with a right answer.
+		{
+			type: 'group',
+			heading: t('appearance.heading'),
+			items: [
+				{
+					name: t('appearance.customCss.name'),
+					desc: t('appearance.customCss.desc'),
+					control: {
+						type: 'textarea',
+						key: 'customCss',
+						rows: 6,
+						placeholder: t('appearance.customCss.placeholder'),
+					},
+				},
+			],
+		},
 	];
 }

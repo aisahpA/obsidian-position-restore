@@ -139,6 +139,21 @@ export const en = {
 	// Fallback when the button never lands on that tab.
 	'hotkeys.openFailed': 'Could not open the hotkey settings. Go to Settings → Hotkeys and find this plugin\'s commands there.',
 
+	// ── The reader's own CSS ────────────────────────────────────────────
+	'appearance.heading': 'Appearance',
+	// The example in the placeholder is the case that prompted the row: in Android's full-screen
+	// mode the top of a note can sit under the system status bar. Padding the EDITOR, not the
+	// scrolling element inside it, is what moves every landing clear of it — padding the scroller
+	// lifts the first line and nothing else, because that padding scrolls away with the content.
+	'appearance.customCss.name': 'Custom CSS',
+	'appearance.customCss.desc':
+		'CSS of your own, applied to Obsidian while this plugin is on — for layout the app gets ' +
+		'wrong on your device. Padding the editor pushes the whole viewport down, so every landing ' +
+		'clears the obstruction; padding the scrolling element inside it only lifts the first line. ' +
+		'Applied as typed, on top of your theme, and taken away when the plugin is off.',
+	'appearance.customCss.placeholder':
+		'.cm-editor,\n.markdown-preview-view {\n    padding-top: 28px;\n}',
+
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',
 	// WHAT THE PAGE IS ABOUT: what a step is, and where the stack lives — the

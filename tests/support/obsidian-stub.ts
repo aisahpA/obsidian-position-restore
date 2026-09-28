@@ -464,3 +464,12 @@ for (const name of fragmentHelpers)
 		installDomHelpers();
 		return document.createDocumentFragment();
 	};
+
+// createEl is the same helper as a global — the one a node is built with when there
+// is no parent to hang it on yet, which is how a stylesheet the plugin owns is made.
+(globalThis as unknown as { createEl: (tag: string, info?: ElInfo) => HTMLElement }).createEl =
+	function createEl(tag: string, info?: ElInfo): HTMLElement {
+		const el = document.createElement(tag);
+		applyElInfo(el, info);
+		return el;
+	};
