@@ -32,10 +32,11 @@ export interface NavJump extends NavEntryBase {
 	// renamed heading, a deleted block — which rides the text-snippet remap.
 	keyLine?: number;
 	st?: NavEntryState;
-	// Where the reader stood when they LEFT this step. Its `st` is the landing — what the
-	// row promises and what the place list keeps — so the drift has to live beside it:
-	// back/forward returns the reader to the spot they left, not to one they merely
-	// passed through on the way in.
+	// Where the reader stood when a NAVIGATION carried them off this step. Its `st` is the
+	// landing — what the row promises and what the place list keeps — so the drift has to
+	// live beside it, and it becomes a step of its own (see NavStack's flushDeparture)
+	// rather than a rewrite of the landing: back/forward must still be able to return the
+	// reader to the heading they named.
 	leftAt?: NavEntryState;
 }
 

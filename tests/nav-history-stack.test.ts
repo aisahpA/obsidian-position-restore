@@ -801,10 +801,10 @@ describe('NavStack.navigate', () => {
 		expect(stOf(nav.stack.entries[1])).toMatchObject({ scroll: 42 });
 	});
 
-	it('a back off a jump and the forward back onto it land where the reader stood', async () => {
-		// They jumped to a heading and read on, so pressing back leaves a step whose own
-		// spot is the heading and whose reader was somewhere else. Forward has to return
-		// them to the drift, not rewind them to the heading they passed through.
+	it('a back off a jump and the forward back onto it land on the jump, not on the drift', async () => {
+		// They jumped to a heading and read on. Back/forward is this stack walking its own
+		// steps, not the reader leaving: forward has to land on the heading the step names.
+		// The drift becomes a step of its own only when a NAVIGATION carries them off it.
 		const h = fileLeafHarness(700.4, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -816,12 +816,16 @@ describe('NavStack.navigate', () => {
 
 		await nav.stack.navigate(-1);
 		expect(nav.stack.index).toBe(0);
+		expect(h.applied.at(-1)).toMatchObject({ scroll: 100 });
+		// The heading, which is the one spot nothing else in the stack holds.
 		await nav.stack.navigate(1);
 		expect(nav.stack.index).toBe(1);
-		// the step still names the heading …
-		expect(stOf(nav.stack.entries[1])).toMatchObject({ scroll: 500 });
-		// … and the return lands on the drift: where they were standing when back left.
-		expect(h.applied.at(-1)).toMatchObject({ scroll: 700 });
+		expect(h.applied.at(-1)).toMatchObject({ scroll: 500 });
+		// …and the drift the traversal read is gone: a step made of it would sit between
+		// the reader and the heading forever.
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
+		expect(nav.stack.entries.map((e) => e.kind)).toEqual(['visit', 'jump', 'jump']);
+		expect(keyOf(nav.stack.entries[1])).toBe('outline:Foo');
 	});
 
 	// The two travel paths of the recent-files list (see places.ts): a JUMP place
