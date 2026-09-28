@@ -181,12 +181,14 @@ describe('NavStack stack logic', () => {
 		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
 		// Outline/anchor entries follow the same keyed rule: backfill when
-		// empty (the settle-capture or the first leave), never overwrite.
+		// empty (the settle-capture or the first leave), never overwrite. Found by key:
+		// the drift off the teleport above is a step of its own by the time this pushes.
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo', force: true });
+		const jump = nav.stack.entries.findIndex(e => keyOf(e) === 'outline:Foo');
 		nav.funnel.leave('a.md', 'leaf-1', drifted);
-		expect(stOf(nav.stack.entries[1])).toBe(drifted);
+		expect(stOf(nav.stack.entries[jump])).toBe(drifted);
 		nav.funnel.leave('a.md', 'leaf-1', landing);
-		expect(stOf(nav.stack.entries[1])).toBe(drifted);
+		expect(stOf(nav.stack.entries[jump])).toBe(drifted);
 
 		// Legacy persisted entry without a landing: backfilled once.
 		const legacy = makeNav();
@@ -198,10 +200,11 @@ describe('NavStack stack logic', () => {
 		// Keyless open entries still take every leave read.
 		legacy.funnel.recordOpen('a.md', 'leaf-1', { force: true });
 		const leave: NavEntryState = { scroll: 3, cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } } };
+		const plain = legacy.stack.entries.length - 1;
 		legacy.funnel.leave('a.md', 'leaf-1', leave);
-		expect(stOf(legacy.stack.entries[1])).toBe(leave);
+		expect(stOf(legacy.stack.entries[plain])).toBe(leave);
 		legacy.funnel.leave('a.md', 'leaf-1', landing);
-		expect(stOf(legacy.stack.entries[1])).toBe(landing);
+		expect(stOf(legacy.stack.entries[plain])).toBe(landing);
 	});
 
 	it('a reader who moved off a jump leaves the spot they are standing in as its own step', () => {
@@ -219,6 +222,9 @@ describe('NavStack stack logic', () => {
 		expect(nav.stack.entries[1].kind).toBe('visit');
 		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
 		expect(keyOf(nav.stack.entries[2])).toBe('outline:Bar');
+		// Consumed, not copied: the step keeps its landing, so a later back reaches 700
+		// (the step above) and then 500 (this one) instead of landing on 700 twice.
+		expect((nav.stack.entries[0] as NavJump).leftAt).toBeUndefined();
 		// A step, not a place: the list beside the stack keeps the jumps it was told about
 		// and must not grow a row for the spot the reader was reading.
 		expect(nav.places.entries.every((p) => p.kind === 'jump')).toBe(true);
@@ -774,6 +780,29 @@ describe('NavStack.navigate', () => {
 		expect(stOf(nav.stack.entries[1])).toMatchObject({ scroll: 42 });
 	});
 
+	it('a back off a jump and the forward back onto it land where the reader stood', async () => {
+		// They jumped to a heading and read on, so pressing back leaves a step whose own
+		// spot is the heading and whose reader was somewhere else. Forward has to return
+		// them to the drift, not rewind them to the heading they passed through.
+		const h = fileLeafHarness(700.4, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 100 });
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+
+		await nav.stack.navigate(-1);
+		expect(nav.stack.index).toBe(0);
+		await nav.stack.navigate(1);
+		expect(nav.stack.index).toBe(1);
+		// the step still names the heading …
+		expect(stOf(nav.stack.entries[1])).toMatchObject({ scroll: 500 });
+		// … and the return lands on the drift: where they were standing when back left.
+		expect(h.applied.at(-1)).toMatchObject({ scroll: 700 });
+	});
+
 	// The two travel paths of the recent-files list (see places.ts): a JUMP place
 	// opens the file and lands on its recorded spot, and it branches from where the
 	// reader is — so back returns to the origin. The place index a test travels to is
@@ -968,6 +997,16 @@ describe('NavStack.navigate', () => {
 		// …and the place kept none: its row falls back to the file's own record
 		// rather than freezing the drift as the heading's spot.
 		expect(stOf(left.places.entries[b])).toBeUndefined();
+
+		// A landing that arrives AFTER that backfill still wins, and the place hears of it
+		// then: a jump the reader left before it settled is not a jump with no landing.
+		const late = makeNav();
+		late.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
+		const c = late.places.entries.findIndex(e => e.kind === 'jump');
+		late.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
+		late.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
+		expect(stOf(late.stack.entries[late.stack.index])).toEqual({ scroll: 152 });
+		expect(stOf(late.places.entries[c])).toEqual({ scroll: 152 });
 	});
 
 	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {

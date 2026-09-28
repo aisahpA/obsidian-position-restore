@@ -91,11 +91,6 @@ export class NavStack implements NavFunnelSink {
 	entries: NavEntry[] = [];
 	// Index of the entry describing the CURRENT location; -1 = empty stack.
 	index = -1;
-	// A spot the reader has left behind and nothing else has recorded: the step they are leaving
-	// keeps the landing it names, so a later leave has nowhere to put where they actually were.
-	// Held rather than pushed — a leave also precedes THIS stack's own traversal, and a step
-	// pushed there would truncate the forward stack before back even moved (see flushDeparture).
-	private pendingFrom?: { step: NavJump | NavTeleport; st: NavEntryState };
 
 	constructor(
 		app: App,
@@ -284,35 +279,41 @@ export class NavStack implements NavFunnelSink {
 	}
 
 	// "Update on leave": refreshes the top entry's position from the view the jump is
-	// leaving. A step that NAMES a spot keeps the landing it was pushed for — a leave must
-	// not overwrite it with where the reader had drifted; one that recorded no landing gets
-	// a backfill, and one that did hands the drift to flushDeparture instead. Keyless entries
-	// are overwritten on every leave. Guarded by path+leaf.
+	// leaving. A step that NAMES a spot keeps that spot as its `st` — a leave must not
+	// overwrite it with where the reader had drifted — and the drift goes to `leftAt`,
+	// which is what a traversal returns to. Keyless entries are overwritten on every
+	// leave. Guarded by path+leaf.
 	private refreshTop(path: string, leafId: string, st: NavEntryState, opts: { landing?: boolean } = {}) {
 		const top = this.entries[this.index];
 		if (!top || top.kind === 'view' || top.path !== path || top.leafId !== leafId)
 			return;
 		if (top.kind === 'jump' || top.kind === 'teleport') {
-			if (!top.st) {
+			if (opts.landing) {
+				// What the step promises, and it wins whenever it arrives — including after a
+				// leave has already backfilled the step (a jump the reader left before it
+				// settled).
 				top.st = st;
 				if (top.kind === 'jump') {
 					this.upgradeKeyLine(top, st);
-					// A PLACE is only told about a real LANDING (`opts.landing`), never about
-					// the leave-read that backfills the stack: the stack wants *some* position
-					// to return to, while the place's row PROMISES the jump's own spot — and a
-					// reader who clicked a heading, read on and then switched files must not
-					// find that heading's recorded place moved to wherever they were when they
-					// left.
-					if (opts.landing)
-						this.funnel.landing(top);
+					// A PLACE is only told about a real LANDING, never about the leave-read
+					// that backfills the stack: the stack wants *some* position to return to,
+					// while the place's row PROMISES the jump's own spot — and a reader who
+					// clicked a heading, read on and then switched files must not find that
+					// heading's recorded place moved to wherever they were when they left.
+					this.funnel.landing(top);
 				}
 				return;
 			}
+			if (!top.st) {
+				top.st = st;
+				if (top.kind === 'jump')
+					this.upgradeKeyLine(top, st);
+				return;
+			}
 			// It already carries its landing, so this read is the reader standing somewhere the
-			// step does not name. Overwriting would make back return to the wrong spot; dropping
-			// it loses where they were. Held for the navigation that carries them off it.
-			if (!opts.landing)
-				this.pendingFrom = this.leftBehind(top, st) ? { step: top, st } : undefined;
+			// step does not name: overwriting would make back return to the wrong spot, and
+			// dropping it loses where they were.
+			top.leftAt = st;
 			return;
 		}
 		top.st = st;
@@ -326,19 +327,20 @@ export class NavStack implements NavFunnelSink {
 			&& Math.abs(at - promised) > DEPARTURE_MIN_LINES;
 	}
 
-	// The held departure, as a step of its own — only while the step it was read off is still the
-	// top one (a traversal or a prune since then means it no longer describes where the reader is),
-	// and only from a push: that is the moment a navigation carries them off the spot.
+	// The drift off the current step, as a step of its own — pushed at the moment a navigation
+	// carries the reader off the spot they were standing in, and never from a leave: a leave also
+	// precedes THIS stack's own traversal, where a step would truncate the forward stack before
+	// back even moved. The step it came off keeps its landing, so the drift is dropped here —
+	// left on, returning to that step would land the reader on the same spot twice.
 	private flushDeparture() {
-		const pending = this.pendingFrom;
-		if (!pending)
+		const top = this.entries[this.index];
+		if (!top || (top.kind !== 'jump' && top.kind !== 'teleport') || !top.leftAt)
 			return;
-		this.pendingFrom = undefined;
-		if (this.entries[this.index] !== pending.step)
+		const st = top.leftAt;
+		if (!this.leftBehind(top, st))
 			return;
-		this.push({
-			kind: 'visit', path: pending.step.path, leafId: pending.step.leafId, st: pending.st,
-		});
+		delete top.leftAt;
+		this.push({ kind: 'visit', path: top.path, leafId: top.leafId, st });
 	}
 
 	// Capture the position of the file being switched away from onto the top entry (the
@@ -776,6 +778,10 @@ export class NavStack implements NavFunnelSink {
 	// no position of its own: a same-file jump falls back to the file's saved record, and
 	// a cross-file open falls back to it by itself.
 	private landingOf(target: NavJump | NavVisit | NavTeleport): NavEntryState | undefined {
+		// Where the reader stood when they LEFT, when that is not the landing: back and forward
+		// return them to the spot they left, while the landing stays what the step names.
+		if (target.kind !== 'visit' && target.leftAt)
+			return target.leftAt;
 		if (target.st)
 			return target.st;
 		if (target.kind === 'teleport' && Number.isFinite(target.line))

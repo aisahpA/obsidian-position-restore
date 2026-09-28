@@ -32,6 +32,11 @@ export interface NavJump extends NavEntryBase {
 	// renamed heading, a deleted block — which rides the text-snippet remap.
 	keyLine?: number;
 	st?: NavEntryState;
+	// Where the reader stood when they LEFT this step. Its `st` is the landing — what the
+	// row promises and what the place list keeps — so the drift has to live beside it:
+	// back/forward returns the reader to the spot they left, not to one they merely
+	// passed through on the way in.
+	leftAt?: NavEntryState;
 }
 
 // A keyless visit: a file open or a tab/pane activation. Carries no position of
@@ -70,6 +75,8 @@ export interface NavTeleport extends NavEntryBase {
 	path: string;
 	line: number;
 	st?: NavEntryState;
+	// See NavJump.leftAt: the same drift, on a step whose position is frozen too.
+	leftAt?: NavEntryState;
 }
 
 // What is NOT a place. One entry: 'empty', the placeholder a main-area leaf
