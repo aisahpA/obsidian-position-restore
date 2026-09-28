@@ -148,7 +148,9 @@ export const zh: En = {
 	'navHistory.stackCap.desc': '导航历史最多保留的条目数，超出后优先丢弃最旧的记录。',
 	'navHistory.recordActivation.name': '记录标签页切换',
 	'navHistory.recordActivation.desc': '点击其他标签页会往「前进/后退」里推入一条。关闭后，切标签页不再留下步骤，历史只记文件打开与文件内跳转；关系图谱这类没有文件的视图是例外，仍各占一步——否则在图谱里按后退会退过头，落到更早的那一篇。它只管「前进/后退」：最近文件列表照常记录这些视图。',
-	'navHistory.teleportMinLines.name': '多少行算一次跳变',
+	// 名字里说清三件事：看的是光标（不是滚动）、一次移动的跨度（不是累计）、
+	// 结果是「一步」（本页用的词）。「跳变」是内部叫法，读者不知道它指什么。
+	'navHistory.teleportMinLines.name': '光标一次跨越多少行才算一步',
 	'navHistory.teleportMinLines.desc': '光标一次性跨过这么多行以上，就当作一次文件内跳转、往「前进/后退」里推入一条：在笔记里点一个很远的位置、用命令跳到某一行、或一次跨过很多行的键盘移动。设 0 表示完全不记录这类移动 —— 默认就是 0：这类步是推断出来的，想要的人自己定距离。仅在电脑端生效：手机和平板不做这项检测。',
 	'navHistory.commands.navigateBack': '后退',
 	'navHistory.commands.navigateForward': '前进',
