@@ -6,6 +6,17 @@ import { EphemeralState, NavEntryState } from '@/types';
 // display fields live in readNavEntryState / withNavDisplay, which run only when a nav entry is
 // actually saved.
 export function readEphemeralState(view: MarkdownView): EphemeralState | undefined {
+	const scroll = liveScroll(view);
+	if (scroll === undefined)
+		return undefined;
+	const state: EphemeralState = { scroll };
+	const cursor = hotCursor(view);
+	if (cursor)
+		state.cursor = cursor;
+	return state;
+}
+
+function liveScroll(view: MarkdownView): number | undefined {
 	const scroll = view.currentMode?.getScroll();
 	// getScroll() reports null (not undefined) while the preview renderer has not caught up —
 	// isNaN(null) is false, so it would pass the old guard and Math.round(null) would read as "top
@@ -26,24 +37,20 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	// 3. Must be Math.round, not Math.floor: floor's dead zone is asymmetric ([n-1, n)), so any
 	//    landing slightly below the saved value re-introduces one-way downward drift. Only a
 	//    symmetric dead zone absorbs noise in both directions.
-	const topLine = Math.round(scroll);
-	const state: EphemeralState = { scroll: topLine };
+	return Math.round(scroll);
+}
 
+// The cursor half, shared by every read. A collapsed cursor at (0,0) is where the editor opens
+// anyway — omitted so such records stay minimal ([0] tombstones / scroll-only records).
+function hotCursor(view: MarkdownView): EphemeralState['cursor'] | undefined {
 	const editor = view.editor;
-	if (editor) {
-		const from = editor.getCursor("anchor");
-		const to = editor.getCursor("head");
-		// A collapsed cursor at (0,0) is where the editor opens anyway — omit it so such records
-		// stay minimal ([0] tombstones / scroll-only records).
-		if (from && to && (from.line !== 0 || from.ch !== 0 || to.line !== 0 || to.ch !== 0)) {
-			state.cursor = {
-				from: { ch: from.ch, line: from.line },
-				to: { ch: to.ch, line: to.line }
-			}
-		}
-	}
-
-	return state;
+	if (!editor)
+		return undefined;
+	const from = editor.getCursor("anchor");
+	const to = editor.getCursor("head");
+	if (!from || !to || (from.line === 0 && from.ch === 0 && to.line === 0 && to.ch === 0))
+		return undefined;
+	return { from: { ch: from.ch, line: from.line }, to: { ch: to.ch, line: to.line } };
 }
 
 // Minimal CM6 surface for the cursor-visibility check. Same cast family as CmLike
@@ -188,10 +195,31 @@ export function landingContext(
 	return below ? { context: below } : undefined;
 }
 
-// Obsidian's own per-tab scroll cache — runtime-only, absent from the public typings. syncScroll
-// writes it on every scroll, setEphemeralState on every apply, and it is what app's
-// getEphemeralState() restores from: the app does not trust a live read either.
+// Obsidian's own per-tab scroll cache — runtime-only, absent from the public typings. A plain field
+// on the view, null until something fills it: syncScroll writes it on every scroll,
+// setEphemeralState on every apply, clear/setViewData on a reload or a mode switch.
 interface ScrollCaching { scroll?: number | null }
+
+// Quantized like the live read: the cache carries the unrounded value.
+function cachedScroll(view: MarkdownView): number | undefined {
+	const cached = (view as unknown as ScrollCaching).scroll;
+	return cached != null && Number.isFinite(cached) ? Math.round(cached) : undefined;
+}
+
+// The LAST-POSITION read behind the scroll capture: the cache instead of a live measure. The scroll
+// that fills it (app's syncScroll) has already run by the time the listener fires, so on desktop it
+// is current — and it is the only source left when the pane is out of layout. Live read on a tab
+// with no cache yet (never scrolled, mode switch, just cleared): a number beats nothing.
+export function readSampledState(view: MarkdownView): EphemeralState | undefined {
+	const scroll = cachedScroll(view) ?? liveScroll(view);
+	if (scroll === undefined)
+		return undefined;
+	const state: EphemeralState = { scroll };
+	const cursor = hotCursor(view);
+	if (cursor)
+		state.cursor = cursor;
+	return state;
+}
 
 // A hidden tab's scroller is out of layout (a stacked tab group keeps only its active tab
 // visible), so its scrollTop reads 0 and the live read answers "top of file" however far the
@@ -202,9 +230,7 @@ function trustedScroll(view: MarkdownView, live: number | undefined): number | u
 	const dom = (view.editor as unknown as { cm?: { scrollDOM?: HTMLElement } })?.cm?.scrollDOM;
 	if (!dom || dom.offsetParent !== null)
 		return live;
-	const cached = (view as unknown as ScrollCaching).scroll;
-	// Quantized like the hot read: the cache carries the unrounded value.
-	return cached != null && Number.isFinite(cached) ? Math.round(cached) : live;
+	return cachedScroll(view) ?? live;
 }
 
 // Nav read — LOW frequency only (the leave-refresh on a file switch, the outline pre-click read, the

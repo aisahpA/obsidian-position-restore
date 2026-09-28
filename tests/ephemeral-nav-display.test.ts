@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
 import {
-	landingContext, readEphemeralState, readLandingState, readNavEntryState, withNavDisplay,
+	landingContext, readEphemeralState, readLandingState, readNavEntryState, readSampledState, withNavDisplay,
 } from '@/position/capture/ephemeral';
 import { EphemeralState, NavEntryState } from '@/types';
 
@@ -83,6 +83,28 @@ describe('readEphemeralState — the hot read is position only', () => {
 			scroll: 42,
 			cursor: cursor(3),
 		});
+	});
+});
+
+// The scroll capture's read is the ONE that may take the app's own per-tab cache: the scroll that
+// fills it has already run by the time the listener fires, and a pane out of layout has no
+// scrollTop left to measure. Every other read measures the DOM.
+describe('readSampledState — the last-position read', () => {
+	it('takes the cached scroll over the live measure', () => {
+		const view = Object.assign(
+			makeView({ scroll: 10, cursorLine: 686, mode: 'source', lines: ['x'] }),
+			{ scroll: 680.59 },
+		);
+
+		expect(readSampledState(view)).toEqual({ scroll: 681, cursor: cursor(686) });
+	});
+
+	// A tab that never scrolled, a mode switch, a reload: the cache is null, and a live measure
+	// beats no position at all.
+	it('falls back to the live read when the tab has no cache yet', () => {
+		const view = makeView({ scroll: 42.3, cursorLine: 3, mode: 'source', lines: ['x'] });
+
+		expect(readSampledState(view)).toEqual({ scroll: 42, cursor: cursor(3) });
 	});
 });
 
