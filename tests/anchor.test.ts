@@ -51,6 +51,15 @@ describe('resolveAnchorLine', () => {
 		expect(resolveAnchorLine(c, '#^b1')).toBe(7);
 	});
 
+	it('resolves a block id whose case differs from the cache key', () => {
+		// The cache keys `blocks` by the id LOWERCASED, and core matches a link's id the
+		// same way, so a hand-written `^Quote-Of-The-Day` still names the block. Read
+		// verbatim it missed, and the step rode the text-snippet remap instead.
+		const c = cache([], { 'quote-of-the-day': 7 });
+		expect(resolveAnchorLine(c, 'note.md#^Quote-Of-The-Day')).toBe(7);
+		expect(resolveAnchorLine(c, '#^QUOTE-OF-THE-DAY')).toBe(7);
+	});
+
 	it('returns undefined when the heading is renamed or removed', () => {
 		const c = cache([['Alpha', 0]]);
 		expect(resolveAnchorLine(c, 'outline:Vanished')).toBeUndefined();

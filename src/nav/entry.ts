@@ -162,7 +162,11 @@ export function blockAnchor(key: string): string | undefined {
 	const rest = key.slice(at + 1);
 	if (key[at] !== '^' && !rest.startsWith('^'))
 		return undefined;
-	return rest.startsWith('^') ? rest.slice(1) : rest;
+	// Lowercased because that is the form the metadata cache keeps block ids in — it
+	// keys `blocks` by `id.toLowerCase()` and core matches a link's id the same way, so
+	// a hand-written `^MyBlock` names a block the cache only knows as `myblock`.
+	const id = rest.startsWith('^') ? rest.slice(1) : rest;
+	return id.toLowerCase();
 }
 
 export function isBlockKey(key: string | undefined): boolean {
