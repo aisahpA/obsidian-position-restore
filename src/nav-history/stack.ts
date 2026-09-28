@@ -6,7 +6,7 @@ import { readNavEntryState, normAnchor, shiftNavState } from '@/position/capture
 import { anchorLineShift, findHeading, decodeAnchor } from '@/position/restore/anchor';
 import { delay } from '@/shared/wait';
 import {
-	blockAnchor, landedLine, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
+	blockAnchor, NavEntry, NavJump, NavView, NavVisit, NavTeleport, NewNavEntry,
 } from '@/nav/entry';
 import { NavFunnel, NavFunnelSink, NavLeave, NavRecording } from '@/nav/funnel';
 import { PaneTarget } from '@/nav/pane';
@@ -321,9 +321,15 @@ export class NavStack implements NavFunnelSink {
 	}
 
 	// Whether a read is the reader standing somewhere other than the landing this step names.
+	// Both sides are the VIEWPORT's top line, because a step is restored as a scroll: it is the
+	// scroll that has to have moved. The heading's own line is not the baseline — the viewport
+	// cannot always reach it (a heading near the end of the note), and read as one it made a
+	// screenful of drift look like no movement at all. A cursor is not read either: moving it
+	// within one screen leaves the view standing still, so a step made of it would answer back
+	// with nothing to show.
 	private leftBehind(step: NavJump | NavTeleport, st: NavEntryState): boolean {
-		const at = st.scroll ?? st.cursor?.from.line;
-		const promised = landedLine(step);
+		const at = st.scroll;
+		const promised = step.st?.scroll;
 		return at !== undefined && promised !== undefined
 			&& Math.abs(at - promised) > DEPARTURE_MIN_LINES;
 	}

@@ -230,6 +230,25 @@ describe('NavStack stack logic', () => {
 		expect(nav.places.entries.every((p) => p.kind === 'jump')).toBe(true);
 	});
 
+	it('measures the drift from the viewport, not from a heading the viewport cannot reach', () => {
+		const nav = makeNav(makeApp([
+			{ heading: 'Last Heading', level: 2, position: { start: { line: 505 } } },
+		]));
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Last Heading' });
+		// A heading near the end of the note: the viewport stops short of it, so the step
+		// NAMES line 505 while leaving the reader standing at 490.
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 490 });
+		// The step does name that line — it is the mismatch the bug hung on.
+		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(505);
+		// …and they read to the end. Measured against the heading's line this is no movement
+		// at all; measured against where they were left standing, it is a screenful.
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 505 });
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 505 });
+	});
+
 	it('a drift that never left the landing leaves no step behind', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
