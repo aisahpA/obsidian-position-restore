@@ -4688,4 +4688,28 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		expect(names(h)).toEqual(['Two']);
 		expect(h.notes()[0]).toBe(same);
 	});
+
+	it('redraws the name it prints when the reader picks a different property', () => {
+		// The property is a READER and not a value, and the settings tab asks a
+		// standing panel to draw again the moment it changes (see BROWSER_PREF_KEYS).
+		// What has to go with it is the memory of the names: those are kept PER PATH
+		// and outlive a redraw (see reads.ts), so a cache that kept them would print
+		// the name it read under the property the reader has since left behind.
+		const cache = {
+			'a.md': cacheWith({ title: '每周回顾', name: '另一个名字' }),
+		};
+		const chosen = prefs({ title: 'title' });
+		const h = harness(spots(), 1, files, [], {}, cache, false, {}, chosen.browser);
+		expect(names(h)).toEqual(['每周回顾', 'b']);
+
+		chosen.state.title = 'name';
+		h.changed();
+		expect(names(h)).toEqual(['另一个名字', 'b']);
+
+		// …and emptied is OFF again: a note is then called by its own name, however
+		// it is written.
+		chosen.state.title = '';
+		h.changed();
+		expect(names(h)).toEqual(['a', 'b']);
+	});
 });
