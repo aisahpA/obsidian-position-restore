@@ -139,18 +139,6 @@ export const en = {
 	// Fallback when the button never lands on that tab.
 	'hotkeys.openFailed': 'Could not open the hotkey settings. Go to Settings → Hotkeys and find this plugin\'s commands there.',
 
-	// ── Room above a note ───────────────────────────────────────────────
-	'appearance.heading': 'Appearance',
-	// Why the row exists, said the way the reader would say it: the layout is the app's business
-	// and all that is being offered is room, so the sentence names the SYMPTOM — a hidden first
-	// line — and never the machinery behind it.
-	'appearance.topMargin.name': 'Top margin',
-	'appearance.topMargin.desc':
-		'How much room to keep above a note, in pixels — for a bar that floats over the text or hides ' +
-		'itself while you scroll, or a status bar that covers the first line. It is kept at the top ' +
-		'of the note the whole time, not just at the first line. 0 leaves the layout alone. Applies ' +
-		'on this device only — sync does not carry it to your other ones.',
-
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',
 	// WHAT THE PAGE IS ABOUT: what a step is, and where the stack lives — the
