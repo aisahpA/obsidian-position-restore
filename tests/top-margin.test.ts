@@ -44,18 +44,19 @@ describe('the room above a note', () => {
 		applyTopMargin(28);
 
 		expect(document.querySelectorAll('style#' + TOP_MARGIN_STYLE_ID)).toHaveLength(1);
-		expect(styleEl()?.textContent).toContain('+ 28px)');
+		expect(styleEl()?.textContent).toContain('padding-top: 28px;');
 	});
 
-	// The reader's number is the room MISSING, not the room there: where the app pads the top of a
-	// note itself — a floating bar, or one that hides while they scroll — adding ours on top is the
-	// blank band they see above the first heading instead.
-	it('asks only for the room the app has not already given back', () => {
+	// The app's own allowance and ours are two different things: it pads the SCROLLING element, so
+	// it scrolls away with the content and a landing in the middle of a file stays covered, while
+	// ours pads the container and holds all the way down. Left side by side they show up together
+	// at the top of a freshly opened note — so ours takes the app's over instead of adding to it.
+	it('takes over the room the app gives only at the top of a file', () => {
 		applyTopMargin(28);
 
-		expect(styleEl()?.textContent).toContain(
-			'calc(max(0px, var(--safe-area-inset-top, 0px) - var(--view-top-spacing-markdown, 0px)) + 28px)'
-		);
+		const css = styleEl()?.textContent ?? '';
+		expect(css).toContain('> .cm-editor > .cm-scroller');
+		expect(css).toContain('--view-top-spacing-markdown: var(--file-margins-y, 0px)');
 	});
 
 	// The whole point of the row: padding the scroller lifts the file's first line and then
@@ -64,10 +65,15 @@ describe('the room above a note', () => {
 	it('pads the container around the scroller, not the scroller', () => {
 		applyTopMargin(28);
 
+		// Padded is the container, and only the container: the scroller is named by the OTHER rule,
+		// which takes the app's allowance away rather than adding to it.
 		const css = styleEl()?.textContent ?? '';
-		expect(css).toContain('> .markdown-source-view > .cm-editor');
-		expect(css).toContain('> .markdown-reading-view');
-		expect(css).not.toContain('.cm-scroller');
+		const blocks = css.match(/[^{}]+\{[^{}]*\}/g) ?? [];
+		const padded = blocks.filter((block: string) => block.includes('padding-top'));
+		expect(padded).toHaveLength(1);
+		expect(padded[0]).toContain('> .markdown-source-view > .cm-editor');
+		expect(padded[0]).toContain('> .markdown-reading-view');
+		expect(padded[0]).not.toContain('.cm-scroller');
 	});
 
 	it('replaces the rule instead of adding a second stylesheet', () => {
@@ -75,8 +81,8 @@ describe('the room above a note', () => {
 		applyTopMargin(40);
 
 		expect(document.querySelectorAll('style#' + TOP_MARGIN_STYLE_ID)).toHaveLength(1);
-		expect(styleEl()?.textContent).toContain('+ 40px');
-		expect(styleEl()?.textContent).not.toContain('+ 8px');
+		expect(styleEl()?.textContent).toContain('padding-top: 40px;');
+		expect(styleEl()?.textContent).not.toContain('padding-top: 8px;');
 	});
 
 	// 0 is the stop at the end of the slider, and it has to mean what the row says it means.

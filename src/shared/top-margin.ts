@@ -16,19 +16,23 @@ export const TOP_MARGIN_STYLE_ID = 'position-restore-top-margin';
 // follows the machine and nothing else.
 const TOP_MARGIN_KEY = 'position-restore.topMargin';
 
-// A tab's own content only: a note drawn inside an embed or a canvas card is not a note being
+// Only a tab's own content: a note drawn inside an embed or a canvas card is not a note being
 // read at the top of a screen.
-const SELECTOR = '.workspace-leaf-content .view-content > .markdown-reading-view,'
+const CONTAINER = '.workspace-leaf-content .view-content > .markdown-reading-view,'
 	+ ' .workspace-leaf-content .view-content > .markdown-source-view > .cm-editor';
+// The app's own allowance for a bar that floats or hides itself, and the element it lands on.
+const SCROLLER = '.workspace-leaf-content .view-content > .markdown-reading-view > .markdown-preview-view,'
+	+ ' .workspace-leaf-content .view-content > .markdown-source-view > .cm-editor > .cm-scroller';
 
-// What is added is the system bar's height MINUS the room the app has already given back: with a
-// floating bar, or one that hides itself while the reader scrolls, Obsidian pads the top of a note
-// by `--view-top-spacing-markdown` on its own, and a second allowance on top of that is the blank
-// band above the first heading. So the number the reader picks is how much MORE room they want
-// over both — and where the app gets the top right unaided, it is the whole margin.
+// TWO RULES, because the app's allowance and ours are not the same thing: it pads the SCROLLING
+// element, so it scrolls away with the content and a landing in the middle of a file is still
+// covered, while ours pads the container around it and so holds for every landing. Left side by
+// side, a note opened for the first time — the one still sitting at its top — shows both at once,
+// and that is the wide blank band above the first heading. So ours takes the app's over: the
+// scroller falls back to an ordinary top margin, and one number is the whole allowance.
 function cssFor(px: number): string {
-	return `${SELECTOR} {\n\tpadding-top: calc(max(0px, var(--safe-area-inset-top, 0px)`
-		+ ` - var(--view-top-spacing-markdown, 0px)) + ${px}px);\n}`;
+	return `${CONTAINER} {\n\tpadding-top: ${px}px;\n}\n`
+		+ `${SCROLLER} {\n\t--view-top-spacing-markdown: var(--file-margins-y, 0px);\n}`;
 }
 
 export function applyTopMargin(px: number): void {

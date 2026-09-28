@@ -146,10 +146,10 @@ export const en = {
 	// line — and never the machinery behind it.
 	'appearance.topMargin.name': 'Top margin',
 	'appearance.topMargin.desc':
-		'Extra room above a note, in pixels — for a phone whose status bar or notch covers the first ' +
-		'line. The height of the system bar itself is added to it, so this number is only how much ' +
-		'MORE you want; 0 leaves the layout alone. Applies on this device only — sync does not carry ' +
-		'it to your other ones.',
+		'How much room to keep above a note, in pixels — for a bar that floats over the text or hides ' +
+		'itself while you scroll, or a status bar that covers the first line. It is kept at the top ' +
+		'of the note the whole time, not just at the first line. 0 leaves the layout alone. Applies ' +
+		'on this device only — sync does not carry it to your other ones.',
 
 	// ── Feature 2 · Back and forward: the navigation stack ──────────────
 	'navHistory.heading': 'Back and forward',
