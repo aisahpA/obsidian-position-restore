@@ -6,13 +6,15 @@
 //    not) and reading mode having none to move;
 //  - a command pressed at the end it asks for recording nothing — otherwise
 //    back needs as many presses to get back to where the reader was;
+//  - the caret being the half that still moves when the view already stands
+//    at that end: a note can show its top with the cursor 200 lines down;
 //  - the step: where the reader stood stays on the stack, and the arrival is
 //    a step of its own rather than a rewrite of it.
 
 import { describe, it, expect, vi } from 'vitest';
 import { App, MarkdownView } from 'obsidian';
 
-import { atEdge, holdEdge, moveToEdge } from '@/position/edges';
+import { atEdge, caretAtEdge, holdEdge, moveToEdge } from '@/position/edges';
 import { PositionManager } from '@/position/manager';
 import type { NavFunnel } from '@/nav/funnel';
 import type { NavStack } from '@/nav-history/stack';
@@ -37,13 +39,19 @@ function makeScroller(content: number, viewport: number, top = 0): HTMLElement {
 	return el;
 }
 
-function makeView(opts: { mode: 'source' | 'preview'; scroller: HTMLElement; topLine?: number }) {
+function makeView(opts: {
+	mode: 'source' | 'preview';
+	scroller: HTMLElement;
+	topLine?: number;
+	cursor?: { line: number; ch: number };
+}) {
 	const lines = ['one', 'two', 'three'];
+	const cursor = opts.cursor ?? { line: 0, ch: 0 };
 	const editor = {
 		lineCount: () => lines.length,
 		getLine: (n: number) => lines[n] ?? '',
 		lastLine: () => lines.length - 1,
-		getCursor: () => ({ line: 0, ch: 0 }),
+		getCursor: () => cursor,
 		setCursor: vi.fn(),
 	};
 	opts.scroller.className = opts.mode === 'source' ? 'cm-scroller' : 'markdown-preview-view';
@@ -240,17 +248,59 @@ describe('already standing at that end', () => {
 		expect(atEdge(view, 'top')).toBe(true);
 		expect(atEdge(view, 'bottom')).toBe(true);
 	});
+
+	// The scroll is only half of "already there" — see the caret below.
+	it('is still true of the scroll when the caret is somewhere else', () => {
+		const { view } = makeView({
+			mode: 'source',
+			scroller: makeScroller(1000, 200, 0),
+			cursor: { line: 2, ch: 3 },
+		});
+
+		expect(atEdge(view, 'top')).toBe(true);
+		expect(caretAtEdge(view, 'top')).toBe(false);
+	});
+});
+
+// The caret is what a reader still wants moved when the view already shows the end they asked
+// for: a note can be sitting at its top with the cursor 200 lines down, and "go to the top" that
+// answers "you are already there" leaves the reader to find it by hand.
+describe('the caret standing at that end', () => {
+	const atTop = (cursor: { line: number; ch: number }) =>
+		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 0), cursor }).view;
+	const atBottom = (cursor: { line: number; ch: number }) =>
+		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 800), cursor }).view;
+
+	it('is true only where the move would leave it', () => {
+		expect(caretAtEdge(atTop({ line: 0, ch: 0 }), 'top')).toBe(true);
+		expect(caretAtEdge(atTop({ line: 0, ch: 2 }), 'top')).toBe(false);
+		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // end of "three"
+		expect(caretAtEdge(atBottom({ line: 2, ch: 3 }), 'bottom')).toBe(false);
+	});
+
+	// A reading view gets no caret move at all, so for it the scroll is the whole answer —
+	// otherwise every press in reading mode would take a step it cannot act on.
+	it('is true of a reading view, which has no caret to stand anywhere', () => {
+		const { view } = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 0) });
+
+		expect(caretAtEdge(view, 'top')).toBe(true);
+		expect(caretAtEdge(view, 'bottom')).toBe(true);
+	});
 });
 
 describe('the step an end takes', () => {
 	// Stand in a.md at line 300, then ask for the bottom.
-	function standingAt(topLine: number) {
+	function standingAt(
+		topLine: number,
+		mode: 'source' | 'preview' = 'preview',
+		cursor = { line: 0, ch: 0 },
+	) {
 		const scroller = makeScroller(1000, 200, topLine);
-		const { view } = makeView({ mode: 'preview', scroller, topLine });
+		const { view, editor } = makeView({ mode, scroller, topLine, cursor });
 		const rig = makeManager(view);
 		rig.funnel.recordOpen('a.md', 'leaf-1');
 		rig.funnel.leave('a.md', 'leaf-1', { scroll: topLine });
-		return { ...rig, scroller };
+		return { ...rig, scroller, view, editor };
 	}
 
 	it('keeps where the reader stood and gives the arrival a step of its own', async () => {
@@ -282,6 +332,28 @@ describe('the step an end takes', () => {
 		manager.goToEdge('bottom');
 		await Promise.resolve();
 
+		expect(stack.entries).toHaveLength(1);
+	});
+
+	// The view showing the top is not the same as the reader being there: the caret is half of
+	// what the command moves, and a press that moves it is a press that took the reader somewhere.
+	it('still moves a caret the view had left behind, and steps for it', async () => {
+		const { manager, stack, editor } = standingAt(0, 'source', { line: 2, ch: 3 });
+
+		manager.goToEdge('top');
+		await Promise.resolve();
+
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
+		expect(stack.entries).toHaveLength(2);
+	});
+
+	it('does nothing when the caret already stands at that end too', async () => {
+		const { manager, stack, editor } = standingAt(0, 'source', { line: 0, ch: 0 });
+
+		manager.goToEdge('top');
+		await Promise.resolve();
+
+		expect(editor.setCursor).not.toHaveBeenCalled();
 		expect(stack.entries).toHaveLength(1);
 	});
 

@@ -22,11 +22,29 @@ const HOLD_CORRECTIONS = 2;
 // Input that means the reader is moving on their own, at which point the hold is fighting THEM.
 const YIELD_EVENTS = ['pointerdown', 'touchstart', 'wheel', 'keydown'] as const;
 
-// Already standing at that end. A command pressed twice would otherwise record the same arrival
-// twice, and back would need as many presses to return to where the reader was.
+// Already standing at that end — the SCROLL half of the answer only. A command pressed twice would
+// otherwise record the same arrival twice, and back would need as many presses to return to where
+// the reader was.
 export function atEdge(view: MarkdownView, edge: NoteEdge): boolean {
 	const el = getScroller(view);
 	return !!el && isAtEdge(el, edge);
+}
+
+// The CARET half: whether `caretToEdge` would change anything. A view can show the top of a note
+// with the caret 200 lines down, and a reader asking for the top wants it moved — so "nothing to
+// do" is the scroll and the caret agreeing, not the scroll alone (see manager.goToEdge). A reading
+// view gets no caret move at all, so for it the scroll is the whole answer.
+export function caretAtEdge(view: MarkdownView, edge: NoteEdge): boolean {
+	if (view.getMode() !== 'source')
+		return true;
+	const editor = view.editor;
+	if (!editor)
+		return true;
+	const at = editor.getCursor();
+	if (edge === 'top')
+		return at.line === 0 && at.ch === 0;
+	const last = editor.lastLine();
+	return at.line === last && at.ch >= (editor.getLine(last) ?? '').length;
 }
 
 export function moveToEdge(view: MarkdownView, edge: NoteEdge): void {

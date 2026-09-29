@@ -22,7 +22,7 @@ import {
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
 import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { atEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
+import { atEdge, caretAtEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
@@ -214,7 +214,11 @@ export class PositionManager {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view?.file)
 			return;
-		if (atEdge(view, edge))
+		// Already there is two answers, not one: the view can stand at the top while the caret is
+		// 200 lines down, and a reader who asks for the top wants it moved. Only when NEITHER the
+		// scroll nor the caret would change is the press a no-op — that is what keeps a double
+		// press from costing back two presses.
+		if (atEdge(view, edge) && caretAtEdge(view, edge))
 			return;
 		const path = view.file.path;
 		const leafId = this.state.leafId(view.leaf);
