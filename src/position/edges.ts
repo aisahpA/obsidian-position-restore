@@ -22,16 +22,47 @@ const HOLD_CORRECTIONS = 2;
 // Input that means the reader is moving on their own, at which point the hold is fighting THEM.
 const YIELD_EVENTS = ['pointerdown', 'touchstart', 'wheel', 'keydown'] as const;
 
-// Already standing at that end. A command pressed twice would otherwise record the same arrival
-// twice, and back would need as many presses to return to where the reader was.
+// How many frames to wait for the reading renderer to be able to say where it is (see below).
+const SYNC_TRIES = 3;
+
+// The app's backlinks pane is appended INSIDE the same scroller — reading: the renderer's footer
+// section; source: the sizer — so the furthest a view can scroll is the end of that pane, and a
+// pane taller than a window leaves the note's last line above the viewport entirely. It is a pane
+// of the TAB, not of the note, so it is not part of either end.
+const BACKLINKS_SELECTOR = '.embedded-backlinks';
+
+// The app's own bars float OVER the foot of a note rather than sit above or below it, so on a phone
+// the bottom of the window is not the bottom of what the reader can see. Both are mobile-only,
+// which is what leaves this measuring nothing at all on a desktop.
+const OVERLAY_SELECTORS = ['.mobile-navbar', '.mobile-toolbar'];
+
+// Sub-pixel offsets and zoom mean a landing is rarely exactly the number asked for.
+const EDGE_EPSILON = 1;
+
+// Already standing at that end — the SCROLL half of the answer only. A command pressed twice would
+// otherwise record the same arrival twice, and back would need as many presses to return to where
+// the reader was.
 export function atEdge(view: MarkdownView, edge: NoteEdge): boolean {
 	const el = getScroller(view);
 	return !!el && isAtEdge(el, edge);
 }
 
+// The CARET half: whether `caretToEdge` would change anything. A view can show the top of a note
+// with the caret 200 lines down, and a reader asking for the top wants it moved — so "nothing to
+// do" is the scroll and the caret agreeing, not the scroll alone (see manager.goToEdge).
+export function caretAtEdge(view: MarkdownView, edge: NoteEdge): boolean {
+	const editor = view.editor;
+	if (!editor)
+		return true;
+	const at = editor.getCursor();
+	if (edge === 'top')
+		return at.line === 0 && at.ch === 0;
+	const last = editor.lastLine();
+	return at.line === last && at.ch >= (editor.getLine(last) ?? '').length;
+}
+
 export function moveToEdge(view: MarkdownView, edge: NoteEdge): void {
-	if (view.getMode() === 'source')
-		caretToEdge(view, edge);
+	caretToEdge(view, edge);
 	const el = getScroller(view);
 	if (el)
 		applyEdge(el, edge);
@@ -67,21 +98,93 @@ export async function holdEdge(view: MarkdownView, edge: NoteEdge): Promise<void
 	}
 }
 
-function isAtEdge(el: HTMLElement, edge: NoteEdge): boolean {
+// A MODE SWITCH does not resume from the DOM: setMode() carries `view.scroll`, which only
+// view.syncScroll() fills in — and a reading view calls that from its own scroll handler only when
+// the last render is at least 100ms old, which scrolling a virtualized preview never is. So a move
+// made here is invisible to the switch, and editing again puts the note back where the reader stood
+// BEFORE the command. The same field is what a reading view re-applies on resize.
+export async function syncViewScroll(view: MarkdownView): Promise<void> {
+	for (let tries = 0; tries < SYNC_TRIES; tries++) {
+		const at = view.currentMode?.getScroll();
+		// null while the reading renderer has not caught up: wait a frame rather than hand the
+		// switch a number that is not where the note is.
+		if (at != null && Number.isFinite(at)) {
+			// The door setMode() itself uses: it sets the field AND moves the current mode, which
+			// for us is a re-application of the position already held.
+			view.setEphemeralState({ scroll: at });
+			return;
+		}
+		await nextPaint();
+	}
+}
+
+// Where the note stops BEING the note, in content coordinates.
+function noteEnd(el: HTMLElement): number {
+	const aside = el.querySelector<HTMLElement>(BACKLINKS_SELECTOR);
+	if (!aside)
+		return el.scrollHeight;
+	const box = aside.getBoundingClientRect();
+	// No box of its own: the pane is created hidden and emptied while the setting is off, and its
+	// rect collapses — a collapsed one would otherwise read as "the note ends at the top".
+	if (box.width <= 0 || box.height <= 0)
+		return el.scrollHeight;
+	const top = box.top - el.getBoundingClientRect().top + el.scrollTop;
+	return top > 0 ? top : el.scrollHeight;
+}
+
+// How much of the window's foot the reader cannot see. Measured rather than read off a variable:
+// which bar is there depends on the mode, and a soft keyboard moves the one that is.
+function hiddenAtBottom(el: HTMLElement): number {
+	const box = el.getBoundingClientRect();
+	// No box at all (a view not in the layout yet): nothing can be covering it.
+	if (box.height <= 0)
+		return 0;
+	let hidden = 0;
+	for (const selector of OVERLAY_SELECTORS) {
+		for (const bar of Array.from(el.ownerDocument.querySelectorAll<HTMLElement>(selector))) {
+			const over = bar.getBoundingClientRect();
+			// Not reaching the window's foot: a bar floating over the MIDDLE of a note takes
+			// nothing away from either end.
+			if (over.height <= 0 || over.bottom < box.bottom)
+				continue;
+			if (over.right <= box.left || over.left >= box.right)
+				continue;
+			hidden = Math.max(hidden, Math.min(box.bottom, over.bottom) - Math.max(box.top, over.top));
+		}
+	}
+	return Math.max(0, Math.min(hidden, box.height));
+}
+
+// Where the bottom of the note belongs: its last line at the bottom of the part of the window the
+// reader can SEE. Asking for more than the range has is clamped, which is what puts the last
+// screenful there however tall it happens to be.
+function bottomTarget(el: HTMLElement): number {
 	const furthest = Math.max(0, el.scrollHeight - el.clientHeight);
-	return edge === 'top' ? el.scrollTop <= 0 : el.scrollTop >= furthest - 1;
+	const shown = el.clientHeight - hiddenAtBottom(el);
+	return Math.max(0, Math.min(furthest, Math.round(noteEnd(el) - shown)));
+}
+
+function edgeTarget(el: HTMLElement, edge: NoteEdge): number {
+	return edge === 'top' ? 0 : bottomTarget(el);
+}
+
+function isAtEdge(el: HTMLElement, edge: NoteEdge): boolean {
+	// The landing itself, not "at or past it": a reader who scrolled on into the backlinks pane
+	// is past the note's end, and asking for it again has to bring them back to it.
+	return Math.abs(el.scrollTop - edgeTarget(el, edge)) <= EDGE_EPSILON;
 }
 
 function applyEdge(el: HTMLElement, edge: NoteEdge): void {
-	// scrollHeight, not the last line's offset: it clamps to the furthest the view can go, which
-	// is the end of the note however tall the last screenful happens to be.
-	el.scrollTop = edge === 'top' ? 0 : el.scrollHeight;
+	el.scrollTop = edgeTarget(el, edge);
 }
 
 // The caret an editor key would leave: at the head of the first line, or at the end of the last.
-// Reading mode has no caret to put, and the caret is what makes the difference between "the note
-// scrolled" and "the reader's own cursor moved".
-function caretToEdge(view: MarkdownView, edge: NoteEdge): void {
+// BOTH modes get one: a reading view shows no caret, but `view.editor` is its edit mode, built
+// with the leaf and kept behind the preview — and switching modes carries the scroll and the folds
+// across, never the selection. Placing it here is what puts the caret on the first line for a
+// reader who arrived in reading mode and switched afterwards. It is also what makes asking for an
+// end different from asking for a scroll.
+export function caretToEdge(view: MarkdownView, edge: NoteEdge): void {
 	const editor = view.editor;
 	if (!editor)
 		return;

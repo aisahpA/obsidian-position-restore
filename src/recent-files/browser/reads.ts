@@ -38,12 +38,27 @@ export interface FileMeta {
 	// Undefined while Obsidian has not parsed the file — which is not the same answer
 	// as a file whose chain is empty (see readMeta).
 	headings?: HeadingRef[];
-	// `title` first, then `aliases`, in frontmatter order.
+	// Obsidian's OWN property and only it: "alias" is the app's word, and every
+	// other place the reader meets it — the quick switcher, `[[`, the backlinks —
+	// means these names.
 	aliases: string[];
+	// The `title` property, a community convention and not a native one. KEPT APART
+	// from the aliases because it is not one of them: it is the name the note gives
+	// itself, and a row may be printing it (see `title`).
+	frontTitle?: string;
 	// What the row prints as the note's name, from the property the reader named —
 	// undefined when there is no such property or its value is not a name, which
 	// is the file's own name's turn.
 	title?: string;
+}
+
+// The names a note goes by BESIDES the one its row prints, asked as one question and
+// answered as TWO: only one of the two is what the app calls an alias, and a `title`
+// filed under "aliases" was an answer to a question the reader did not ask.
+export interface FileNames {
+	// What the note calls itself; absent when the row is already printing it.
+	frontTitle?: string;
+	aliases: string[];
 }
 
 export class RecentFilesReads {
@@ -253,14 +268,22 @@ export class RecentFilesReads {
 	// word for a file NOW, not part of a visit that happened last week — and a frozen
 	// list would be wrong exactly when the reader looks for a name they just changed.
 	// Empty for a pathless view, which is not a file.
-	aliasesFor(path: string): string[] {
+	//
+	// `printed` is the name the row is showing, which is not one of the note's OTHER
+	// names. Only the caller knows it: the property the reader chose, or the file's own
+	// name where there is none (see describeNavEntry).
+	otherNamesFor(path: string, printed?: string): FileNames {
 		if (!path)
-			return [];
+			return { aliases: [] };
 		const meta = this.metaFor(path);
 		// …minus the name the row PRINTS, which is not one of the note's other
 		// names: a tooltip reading "aka 读书笔记" under a row that says 读书笔记
 		// is saying the same thing twice.
-		return meta.title ? meta.aliases.filter(a => a !== meta.title) : meta.aliases;
+		const aliases = printed ? meta.aliases.filter(a => a !== printed) : meta.aliases;
+		return {
+			frontTitle: meta.frontTitle === printed ? undefined : meta.frontTitle,
+			aliases,
+		};
 	}
 }
 
@@ -313,7 +336,7 @@ function readMeta(app: App, path: string, titleProperty: string): FileMeta | nul
 	const fm: Record<string, unknown> | undefined = cache.frontmatter;
 	const aliases: string[] = [];
 	const seen = new Set<string>();
-	// One level of nesting, which is all either property shape needs: a list may hold
+	// One level of nesting, which is all this property's shapes need: a list may hold
 	// strings, and a hand-edited one may hold a list of lists.
 	const push = (value: unknown): void => {
 		if (typeof value === 'string') {
@@ -331,10 +354,16 @@ function readMeta(app: App, path: string, titleProperty: string): FileMeta | nul
 	// hand-written `aliases: weekly` is as valid as the block list. It is the same
 	// vocabulary the quick switcher and `[[` suggestions match on: this search agrees
 	// with the app rather than inventing a second rule.
-	// `title` is not native but a community convention (Front Matter Title).
-	push(fm?.title);
+	// `title` is not native but a community convention (Front Matter Title), and it is
+	// read APART from the aliases because it is not one: it is the name the note gives
+	// itself, which the tooltip says on a line of its own (see otherNamesFor).
 	push(fm?.aliases);
-	return { headings, aliases, title: frontmatterName(fm, titleProperty) };
+	return {
+		headings,
+		aliases,
+		frontTitle: frontmatterName(fm, 'title'),
+		title: frontmatterName(fm, titleProperty),
+	};
 }
 
 // The reading for a file Obsidian has not parsed yet. Fresh each time, and

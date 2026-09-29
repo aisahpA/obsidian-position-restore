@@ -9,6 +9,7 @@ import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
 	newestStamp, pathLabel, rowTrail,
 } from './model';
+import type { FileNames } from './reads';
 import { NavRowTip, TipContent } from './tip';
 import { LongPress } from './long-press';
 import {
@@ -103,8 +104,10 @@ export interface RecentFilesListOptions {
 	// can answer for the place rather than for whatever the entry looks like on its own.
 	trailFor: (entry: NavEntry, d: NavEntryDescription, i: number) => string[];
 	// The file's OTHER names: searchable, printed on the row's tooltip, and
-	// nowhere else (see tip.ts). A pathless view has none.
-	aliasesFor: (path: string) => string[];
+	// nowhere else (see tip.ts). A pathless view has none. `printed` is the name
+	// the row shows, which is not one of them; the two kinds come back apart
+	// because only one of them is what the app calls an alias (see FileNames).
+	otherNames: (path: string, printed?: string) => FileNames;
 	// Whether this row's landing has LOST the heading it names: the note was written since and
 	// nothing in it answers for this spot any more. Answered by the browser, which is the side that
 	// already knows where the line stands now — two answers to that would let a row's own words
@@ -413,8 +416,12 @@ export class RecentFilesList {
 			const d = this.opts.describe(i);
 			// The file's other names ride the `extra` channel (see
 			// matchesNavFilter); read per PATH, so every landing of one note
-			// carries the same names.
-			const aka = entry.kind === 'view' ? [] : this.opts.aliasesFor(entry.path);
+			// carries the same names — both kinds, since what the note calls
+			// itself is as good a thing to type as a name it answers to.
+			const other = entry.kind === 'view'
+				? undefined
+				: this.opts.otherNames(entry.path, d.name);
+			const aka = other ? [other.frontTitle ?? '', ...other.aliases] : [];
 			// A JUMP'S CHAIN IS THE RECORD'S OWN: it names the heading the reader
 			// picked, which is the row's reason for existing and is what the
 			// landing's row prints. A visit picked nothing — the line it carries
@@ -650,7 +657,7 @@ export class RecentFilesList {
 		// path where the row prints NO folder (a row carrying a folder has
 		// already answered "which one is this"), and the file's other names,
 		// which take up no cell and are said nowhere else.
-		const aka = group.path ? this.opts.aliasesFor(group.path) : [];
+		const other = group.path ? this.opts.otherNames(group.path, name) : undefined;
 		const tip: TipContent = {};
 		if (group.path && !printsPath)
 			tip.path = group.path;
@@ -660,8 +667,13 @@ export class RecentFilesList {
 		// about, and a chain printed here would be a promise the click does not
 		// keep. What the row stood for, when it stood for one place at all, is
 		// what the words below are for.
-		if (aka.length)
-			tip.text = `${t('recentFiles.aka')} ${aka.join(' · ')}`;
+		// The names, then: what the note calls ITSELF on a line of its own, and what
+		// it answers to under its own heading — an alias is the app's word, and a
+		// `title` filed under it was answering a question the reader did not ask.
+		if (other?.frontTitle)
+			tip.frontTitle = `${t('recentFiles.title')} ${other.frontTitle}`;
+		if (other?.aliases.length)
+			tip.text = `${t('recentFiles.aliases')} ${other.aliases.join(' · ')}`;
 		// Where this row IS one of the note's places (a note with one place,
 		// or any note while the setting prints none): the click goes there
 		// (see activeRep), so the row has to be able to say what the spot was.

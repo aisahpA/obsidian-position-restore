@@ -14,7 +14,10 @@ import { Menu } from './support/obsidian-stub';
 import type { HoverParent } from 'obsidian';
 
 import { RecentFilesModal } from '@/recent-files/browser/modal';
-import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type {
+	RecentFilesBrowserArrows,
+	RecentFilesBrowserPrefs,
+} from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { navGroupKey, type NavEntry, type NavJump } from '@/nav/entry';
@@ -132,6 +135,36 @@ function prefs(start: {
 // details column on (see prefs).
 function defaultPrefs(): RecentFilesBrowserPrefs {
 	return prefs().browser;
+}
+
+// THE FOUR ARROWS, as the plugin hands them to a shell (see RecentFilesBrowserArrows):
+// the acts are the plugin's commands, so what a test wants of them is WHICH ONE was
+// pressed — and the answers the body greys them by are inputs a test sets, exactly as
+// the preferences above are. (An act may be async — a step opens a note and waits for
+// it — and the panel asks its four again once it lands; that timing is the SIDEBAR
+// suite's to cover, since a dialog closes on the press.)
+function defaultArrows(): RecentFilesBrowserArrows & {
+	pressed: string[];
+	set(on: Partial<{ back: boolean; forward: boolean; edge: boolean }>): void;
+} {
+	const state = { back: true, forward: true, edge: true };
+	const pressed: string[] = [];
+	const press = (act: string) => () => {
+		pressed.push(act);
+	};
+	return {
+		back: press('back'),
+		forward: press('forward'),
+		top: press('top'),
+		bottom: press('bottom'),
+		canBack: () => state.back,
+		canForward: () => state.forward,
+		canEdge: () => state.edge,
+		pressed,
+		set(on) {
+			Object.assign(state, on);
+		},
+	};
 }
 
 // …and the set a test asks for when it is about the ROWS: 'all' prints each note's
@@ -274,6 +307,10 @@ function harness(
 	// handed back to the test, so a test can pin a row the way the menu does
 	// and then ask the panel to redraw (see `changed`).
 	pinned: string[] = [],
+	// The four arrows, and whether this shell draws them: LAST of the arguments, so the
+	// suite above keeps saying what it has always said. A fresh set per harness, for the
+	// same reason the preferences are.
+	arrows: ReturnType<typeof defaultArrows> = defaultArrows(),
 ) {
 	// The place list's travel: the panel hands it a place index and the list
 	// decides how to go there (a file opens the plain way, a jump lands — see
@@ -463,7 +500,7 @@ function harness(
 	};
 	let modal: RecentFilesModal;
 	try {
-		modal = new RecentFilesModal(app as never, places as never, saved, browserPrefs);
+		modal = new RecentFilesModal(app as never, places as never, saved, browserPrefs, arrows);
 	} finally {
 		Platform.isMobile = previous;
 	}
@@ -587,7 +624,7 @@ function harness(
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
 		modal, jumpTo, forget, forgetLanding, reland, cachedRead, el: modal.contentEl, entries, list,
-		pinned, pin, unpin, movePinned,
+		pinned, pin, unpin, movePinned, arrows,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile, fileEvent,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
 		key, hover, unhover, clearButton, clearFilter, forgetButton,
@@ -1263,7 +1300,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 	});
 });
 
-// The OTHER NAMES a file goes by (see RecentFilesReads.aliasesFor): searchable, and
+// The OTHER NAMES a file goes by (see RecentFilesReads.otherNamesFor): searchable, and
 // printed nowhere on the row but its own tooltip. They are the fourth thing a query
 // can hit that is not literally on the row, and the first one that is deliberately
 // about the reader's memory rather than about the visit.
@@ -1290,6 +1327,10 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 	};
 	const names = (h: ReturnType<typeof harness>) =>
 		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+	// The tooltip's name lines, in the order they are drawn: what the note calls
+	// itself, then what it answers to (see TipContent).
+	const namesOn = (tip: HTMLElement) =>
+		Array.from(tip.querySelectorAll('.nav-tip-text')).map(l => l.textContent);
 
 	it('finds a note by an alias, by its title, and not by an unrelated word', () => {
 		const h = harness(entries(), 2, files, [], {}, cache);
@@ -1358,22 +1399,41 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		const h = harness([visit('a.md', NOW - MINUTE), visit('plain.md', NOW)], 1,
 			{ 'a.md': '', 'plain.md': '' }, [], {}, cache);
 
-		// The path first, then the names — title before aliases, in the order the
-		// frontmatter lists them (see readMeta). The row prints neither the extension
-		// nor the folder, so this is where a reader can still see them; and the path is
-		// drawn SEGMENT BY SEGMENT, so the separators are elements of their own (see
-		// tip.ts) — the string a reader copies is the same one either way.
+		// The path first, then the name the note gives ITSELF on a line of its own, then
+		// the aliases (see readMeta): the row prints neither the extension nor the folder,
+		// so this is where a reader can still see them; and the path is drawn SEGMENT BY
+		// SEGMENT, so the separators are elements of their own (see tip.ts) — the string
+		// a reader copies is the same one either way.
 		const withNames = h.hover(h.note('a'))!;
 		expect(withNames.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
 		expect(Array.from(withNames.querySelectorAll('.nav-tip-sep')).map(s => s.textContent)).toEqual([]);
-		expect(withNames.querySelector('.nav-tip-text')?.textContent)
-			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
+		expect(namesOn(withNames)).toEqual([
+			`${t('recentFiles.title')} Weekly sync`,
+			`${t('recentFiles.aliases')} 周会 · standup`,
+		]);
 
 		// …and a note with no other names says the path and nothing else.
 		h.unhover(h.note('a'));
 		const plain = h.hover(h.note('plain'))!;
 		expect(plain.querySelector('.nav-tip-path')?.textContent).toBe('plain.md');
 		expect(plain.querySelector('.nav-tip-text')).toBeNull();
+	});
+
+	it('says nothing about a name the row is already printing', () => {
+		// The reader made `title` the property a row prints, so the note's own name is
+		// on the row: the tooltip owes it nothing, and what is left to say is the
+		// aliases. A `title` that IS the file's own name is the same case with the
+		// setting off — the row prints it either way, so it goes unsaid there too.
+		const h = harness([visit('a.md', NOW - MINUTE), visit('same.md', NOW)], 1,
+			{ 'a.md': '', 'same.md': '' }, [], {}, {
+				...cache,
+				'same.md': { headings: [], frontmatter: { title: 'same', aliases: ['同样'] } },
+			}, false, {}, prefs({ title: 'title' }).browser);
+
+		const named = h.note('Weekly sync');
+		expect(namesOn(h.hover(named)!)).toEqual([`${t('recentFiles.aliases')} 周会 · standup`]);
+		h.unhover(named);
+		expect(namesOn(h.hover(h.note('same'))!)).toEqual([`${t('recentFiles.aliases')} 同样`]);
 	});
 
 	it('draws a folder path as its segments, with the separators between them', () => {
@@ -2391,8 +2451,11 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 
 		const tip = h.hover(rowFor(h, 'a/index.md'))!;
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
-		expect(tip.querySelector('.nav-tip-text')?.textContent)
-			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
+		expect(Array.from(tip.querySelectorAll('.nav-tip-text')).map(l => l.textContent))
+			.toEqual([
+				`${t('recentFiles.title')} Weekly sync`,
+				`${t('recentFiles.aliases')} 周会 · standup`,
+			]);
 	});
 
 	it('marks a pathless view, and says nothing else about it', () => {
@@ -4708,8 +4771,98 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 
 		// …and emptied is OFF again: a note is then called by its own name, however
 		// it is written.
-		chosen.state.title = '';
-		h.changed();
-		expect(names(h)).toEqual(['a', 'b']);
+	chosen.state.title = '';
+	h.changed();
+	expect(names(h)).toEqual(['a', 'b']);
+});
+
+// THE FOUR ARROWS — the panel's answer for a device with no keyboard, and the one
+// control in it that acts on the NOTE rather than on the list. What is tested here is
+// the body's half of it: that a press runs the act the plugin named, that a press the
+// body cannot answer is greyed rather than answered with nothing, and that the strip is
+// drawn in every shell — there is no switch for it, four buttons at the foot of a list
+// cost that list nothing and a reader with no keyboard has no other way to ask.
+describe('RecentFilesModal — the four arrows', () => {
+	const files = { 'a.md': '', 'b.md': '' };
+	const two = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
+
+	// The strip and its four buttons, found by their own class rather than by where they
+	// stand: where a strip stands is the stylesheet's (a phone puts it under the list,
+	// asserted in the styles suite), and jsdom lays nothing out.
+	const strip = (h: ReturnType<typeof harness>) =>
+		h.el.querySelector<HTMLElement>('.position-restore-nav-arrows')!;
+	const buttons = (h: ReturnType<typeof harness>) =>
+		Array.from(h.el.querySelectorAll<HTMLButtonElement>('.position-restore-nav-arrow'));
+	const press = (button: HTMLButtonElement) =>
+		button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+	it('runs the act the plugin named, and closes the dialog to do it', () => {
+		// One press each, and the dialog goes FIRST: it stands over the note these act
+		// on, so a move the reader cannot see is a move that did not happen.
+		for (const [at, act] of [[0, 'back'], [1, 'forward'], [2, 'top'], [3, 'bottom']] as const) {
+			const h = harness(two(), 1, files);
+			const close = vi.spyOn(h.modal, 'close');
+			press(buttons(h)[at]);
+			expect(h.arrows.pressed).toEqual([act]);
+			expect(close).toHaveBeenCalled();
+		}
 	});
+
+	it('names each button by the command it runs', () => {
+		// The same words as in the palette, and the only place on the panel that says
+		// WHOSE ends the last two go to: "top of note", not "top of this list".
+		const h = harness(two(), 1, files);
+		expect(buttons(h).map(b => b.getAttribute('aria-label'))).toEqual([
+			t('navHistory.commands.navigateBack'),
+			t('navHistory.commands.navigateForward'),
+			t('noteEdge.commands.top'),
+			t('noteEdge.commands.bottom'),
+		]);
+	});
+
+	it('is not a row of the list it stands beside', () => {
+		// The whole difficulty of four arrows over a list: the strip belongs to the
+		// panel, and it is the listbox that is the list.
+		const h = harness(two(), 1, files);
+		expect(h.list().contains(strip(h))).toBe(false);
+		expect(strip(h).parentElement).toBe(h.el);
+		// …and it comes AFTER the list, because that is where it stands on screen (see
+		// the styles suite): nothing reorders it, so Tab reaches it in the order the eye
+		// does rather than jumping to the foot of the panel first.
+		const bands = Array.from(h.el.children);
+		expect(bands.indexOf(strip(h))).toBeGreaterThan(bands.indexOf(h.list()));
+	});
+
+	it('greys an arrow that would do nothing, and asks again on every draw', () => {
+		const h = harness(two(), 1, files);
+		const [back, forward, top, bottom] = buttons(h);
+		expect([back.disabled, forward.disabled, top.disabled, bottom.disabled])
+			.toEqual([false, false, false, false]);
+
+		// The two ends follow the NOTE and not this list, which is what greying them
+		// keeps saying out loud: with no note open there is nothing for them to go to.
+		h.arrows.set({ back: false, edge: false });
+		h.changed();
+		expect([back.disabled, forward.disabled]).toEqual([true, false]);
+		expect([top.disabled, bottom.disabled]).toEqual([true, true]);
+		expect(bottom.classList.contains('is-disabled')).toBe(true);
+	});
+
+	it('leaves an arrow key to the control that holds the focus', () => {
+		// The list's walking is the filter box's: a button with the focus answers an
+		// arrow key itself, and Enter is its own press.
+		const h = harness(two(), 1, files);
+		const onPanel = new KeyboardEvent('keydown', {
+			key: 'ArrowDown', bubbles: true, cancelable: true,
+		});
+		h.el.dispatchEvent(onPanel);
+		expect(onPanel.defaultPrevented).toBe(true);
+
+		const onButton = new KeyboardEvent('keydown', {
+			key: 'ArrowDown', bubbles: true, cancelable: true,
+		});
+		buttons(h)[2].dispatchEvent(onButton);
+		expect(onButton.defaultPrevented).toBe(false);
+	});
+});
 });

@@ -156,6 +156,12 @@ export const en = {
 	'navHistory.recordActivation.desc': 'Clicking another tab pushes a back/forward step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps — except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note. It governs the back/forward history only: the recent-files list records those views either way.',
 	'navHistory.teleportMinLines.name': 'Minimum lines in one cursor move',
 	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action — clicking a spot far away in the note, a go-to-line command, a keyboard motion that crosses many lines at once — counts as an in-file jump and pushes a back/forward step. Set 0 to never record one — the default, since a step inferred from a cursor move is one the reader never asked for. Desktop only: the phone and tablet apps run no such detection.',
+	// No switch for THE FOUR ARROWS — the two acts above and the two ends of a note, as
+	// buttons drawn at the foot of the recent-files list: they cost that list nothing
+	// (they are not rows of it) and a reader with no keyboard has no other way to ask for
+	// any of the four, so a switch could only take them away from the reader who needs
+	// them. What they act on is the note the reader has open and NOT that list, which is
+	// what each button's own name says out loud.
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 
@@ -250,10 +256,19 @@ export const en = {
 	// row promises a heading, so "open in a new tab" has to mean opening it
 	// THERE. The menu it sits in is the app's; this is the one item the app
 	// cannot know.
-	// A file's OTHER names, on the row's own tooltip: searchable, occupying no
-	// cell, so the hover is the only place a reader sees them. The colon is
-	// part of the value — whether to draw one is the language's call.
-	'recentFiles.aka': 'aka:',
+	// The two name lines on a row's tooltip, each led by the PROPERTY it came from
+	// (`title` / `aliases`) — the same in every language: a property name is a key in
+	// the reader's own note, which the app does not translate either, so a translated
+	// label would not match the line they wrote. Lower case because that is how it is
+	// written there, and how it is read (`fm?.aliases`).
+	//
+	// TWO LINES AND NOT ONE because a `title` is not an alias: it is the name the note
+	// gives itself, while an alias is the app's word for `aliases`. The title's line is
+	// absent when the row is already printing it. The colon is part of the value.
+	'recentFiles.title': 'title:',
+	// …and the names the note ANSWERS TO: searchable, occupying no cell, so the hover
+	// is the only place a reader sees them.
+	'recentFiles.aliases': 'aliases:',
 	// The two QUOTED lines on a heading row's tooltip: both the note's own
 	// words, recorded when the place was taken and printed nowhere else. "As
 	// recorded" is the point — the note may have been edited since. Below

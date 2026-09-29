@@ -474,15 +474,32 @@ export class NavStack implements NavFunnelSink {
 		return dir < 0 ? this.index > 0 : this.index >= 0 && this.index < this.entries.length - 1;
 	}
 
+	// Where a traversal would START: the active file view, or — while a sidebar holds the
+	// focus — the last file tab the reader was in.
+	private whereToStart(): boolean {
+		return !!this.app.workspace.getActiveViewOfType(FileView)?.file || !!this.startLeaf();
+	}
+
+	// WHETHER A STEP IN THIS DIRECTION IS THERE TO TAKE — the question a BUTTON's greyed
+	// state asks, and the panel's arrows ask it (see PositionManager.recentFilesArrows).
+	// It is NOT the question a command's availability asks: a traversal of ours in flight
+	// makes the command unavailable for that moment, and makes no step of the stack
+	// disappear — and two arrows greyed for the length of a traversal are two arrows the
+	// reader takes for broken ones. Rather a greyed button that answers "not yet" than
+	// two that answer "never".
+	hasStep(dir: -1 | 1): boolean {
+		return this.canStep(dir) && this.whereToStart();
+	}
+
 	// Command availability (checkCallback). An active file view is the normal start; when
 	// a sidebar holds focus, traversal can still start from the last file tab (see
-	// startLeaf).
+	// startLeaf). A traversal already in flight answers NO: a second one started inside
+	// the first is refused by the funnel (see its runBracketed), so a command that
+	// offered itself would be a command that does nothing.
 	canNavigate(dir: -1 | 1): boolean {
 		if (this.funnel.isMoving())
 			return false;
-		if (!this.canStep(dir))
-			return false;
-		return !!this.app.workspace.getActiveViewOfType(FileView)?.file || !!this.startLeaf();
+		return this.hasStep(dir);
 	}
 
 	// With no active file view (a sidebar holds focus), traversal starts from the stack's

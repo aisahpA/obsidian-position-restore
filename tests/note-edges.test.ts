@@ -1,18 +1,26 @@
 // A note's two ends, as commands of ours (see position/edges.ts and
 // manager.goToEdge). What is worth pinning is the part that is NOT the
 // scrolling:
-//  - which element is moved, and to which end of its range;
-//  - the caret a source view leaves (an editor key moves one, a scroll does
-//    not) and reading mode having none to move;
-//  - a command pressed at the end it asks for recording nothing — otherwise
-//    back needs as many presses to get back to where the reader was;
+//  - which element is moved, and to which end of its range — the bottom being the end of
+//    the NOTE at the end of what the reader can SEE: not the furthest the view can
+//    scroll once the app's backlinks pane is inside the same scroller, and not the
+//    bottom of the window once the app floats one of its bars over it;
+//  - the caret an editor key leaves, in BOTH modes: a reading view shows none, but
+//    the editor behind it is real and outlives the switch to editing;
+//  - a command pressed at the end it asks for moving nothing and recording
+//    nothing — otherwise back needs as many presses to get back to where the
+//    reader was;
+//  - the arrival being told to the VIEW as well, which is what a mode switch
+//    carries across — a move made on the DOM never reaches it in reading mode;
+//  - the caret being the half that still moves when the view already stands
+//    at that end: a note can show its top with the cursor 200 lines down;
 //  - the step: where the reader stood stays on the stack, and the arrival is
 //    a step of its own rather than a rewrite of it.
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { App, MarkdownView } from 'obsidian';
 
-import { atEdge, holdEdge, moveToEdge } from '@/position/edges';
+import { atEdge, caretAtEdge, holdEdge, moveToEdge, syncViewScroll } from '@/position/edges';
 import { PositionManager } from '@/position/manager';
 import type { NavFunnel } from '@/nav/funnel';
 import type { NavStack } from '@/nav-history/stack';
@@ -37,13 +45,74 @@ function makeScroller(content: number, viewport: number, top = 0): HTMLElement {
 	return el;
 }
 
-function makeView(opts: { mode: 'source' | 'preview'; scroller: HTMLElement; topLine?: number }) {
+// jsdom has no layout, so a box is stated here — a scroller's own top reads as 0.
+function rectAt(top: number, height: number): DOMRect {
+	const width = height > 0 ? 150 : 0;
+	return {
+		top,
+		bottom: top + height,
+		left: 0,
+		right: width,
+		width,
+		height,
+		x: 0,
+		y: top,
+		toJSON: () => ({}),
+	} as DOMRect;
+}
+
+// The app's backlinks pane, appended inside the scroller it shares with the note (reading: the
+// renderer's footer section; source: the sizer). A height of 0 stands for the pane while the
+// setting is off: created, hidden, and collapsed to no box at all.
+function withBacklinks(scroller: HTMLElement, topInContent: number, height = 300): HTMLElement {
+	const el = document.createElement('div');
+	el.className = 'embedded-backlinks';
+	Object.defineProperty(el, 'getBoundingClientRect', {
+		configurable: true,
+		value: () => rectAt(height > 0 ? topInContent - scroller.scrollTop : 0, height),
+	});
+	scroller.appendChild(el);
+	return el;
+}
+
+// Gives an element the box jsdom will not compute for it.
+function stubRect(el: HTMLElement, top: number, height: number): void {
+	Object.defineProperty(el, 'getBoundingClientRect', {
+		configurable: true,
+		value: () => rectAt(top, height),
+	});
+}
+
+// One of the app's own bars, floating over the foot of a note instead of above or below it. Both
+// are mobile-only, so a desktop has none and measures nothing.
+function withFloatingBar(top: number, height: number, className = 'mobile-navbar'): HTMLElement {
+	const el = document.createElement('div');
+	el.className = className;
+	stubRect(el, top, height);
+	document.body.appendChild(el);
+	return el;
+}
+
+afterEach(() => {
+	for (const bar of document.querySelectorAll('.mobile-navbar, .mobile-toolbar'))
+		bar.remove();
+});
+
+function makeView(opts: {
+	mode: 'source' | 'preview';
+	scroller: HTMLElement;
+	topLine?: number;
+	cursor?: { line: number; ch: number };
+	// What the mode reports as its own position; null is a reading renderer that has not caught up.
+	modeScroll?: number | null;
+}) {
 	const lines = ['one', 'two', 'three'];
+	const cursor = opts.cursor ?? { line: 0, ch: 0 };
 	const editor = {
 		lineCount: () => lines.length,
 		getLine: (n: number) => lines[n] ?? '',
 		lastLine: () => lines.length - 1,
-		getCursor: () => ({ line: 0, ch: 0 }),
+		getCursor: () => cursor,
 		setCursor: vi.fn(),
 	};
 	opts.scroller.className = opts.mode === 'source' ? 'cm-scroller' : 'markdown-preview-view';
@@ -56,19 +125,29 @@ function makeView(opts: { mode: 'source' | 'preview'; scroller: HTMLElement; top
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path: 'a.md', stat: { mtime: 1 } },
 		getMode: () => opts.mode,
-		currentMode: { getScroll: () => opts.topLine ?? 300 },
-		editor: opts.mode === 'source' ? editor : undefined,
+		currentMode: {
+			getScroll: () => (opts.modeScroll !== undefined ? opts.modeScroll : opts.topLine ?? 300),
+		},
+		setEphemeralState: vi.fn(),
+		// Both modes: `view.editor` is the leaf's edit mode, present and live whatever is
+		// being displayed (see caretToEdge) — no caret is SHOWN in reading mode.
+		editor,
 		contentEl,
 		containerEl,
 		getViewType: () => 'markdown',
 	}) as MarkdownView & {
-		editor: typeof editor | undefined;
+		editor: typeof editor;
 	};
 	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1', view };
 	return { view, editor };
 }
 
-function makeManager(view: MarkdownView | null) {
+function makeManager(
+	view: MarkdownView | null,
+	// The leaves walked when the active leaf is NOT the note (see markdownViewInUse):
+	// a fixture whose active view is the note never reaches them.
+	leaves: { id?: string; view: unknown }[] = [],
+) {
 	const db: Record<string, { scroll: number }> = {};
 	const app = {
 		appId: 'test-vault',
@@ -82,6 +161,11 @@ function makeManager(view: MarkdownView | null) {
 			layoutReady: true,
 			rootSplit: { containerEl: { contains: () => false } },
 			getActiveViewOfType: () => view,
+			// …and the walk the plugin falls back on when the ACTIVE leaf is a panel
+			// rather than the note: a control standing in a panel is that leaf the moment
+			// it is tapped (see markdownViewInUse). A fixture with no note anywhere has to
+			// be able to answer "there is nothing to go to" without throwing.
+			getLeavesOfType: () => leaves,
 			iterateAllLeaves: () => undefined,
 			setActiveLeaf: vi.fn(),
 			getMostRecentLeaf: () => null,
@@ -139,12 +223,107 @@ describe('moving to an end of a note', () => {
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three"
 	});
 
-	it('moves a reading view, which has no caret to leave', () => {
+	it('moves a reading view too, whose caret is not for showing', () => {
 		const scroller = makeScroller(1000, 200, 400);
+		const { view, editor } = makeView({ mode: 'preview', scroller, cursor: { line: 2, ch: 3 } });
+
+		moveToEdge(view, 'top');
+
+		expect(scroller.scrollTop).toBe(0);
+		// Placed, not shown: switching to editing afterwards is when it becomes visible, and
+		// the mode switch carries the scroll and the folds, never the selection.
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
+	});
+});
+
+// The bottom of a note is the end of what the reader wrote. The backlinks pane is a pane of the
+// TAB, appended inside the same scroller, and one taller than a window puts the furthest
+// scrollable point past the note's last line altogether.
+describe('the end of the note, not the end of the tab', () => {
+	it('stops where the pane starts, keeping the last line in view', () => {
+		const scroller = makeScroller(1000, 200, 0);
+		withBacklinks(scroller, 700); // the pane fills 700..1000 of a 200-tall window
 		const { view } = makeView({ mode: 'preview', scroller });
 
-		expect(() => moveToEdge(view, 'top')).not.toThrow();
+		moveToEdge(view, 'bottom');
+
+		// 700 - 200, not 800: 800 is the end of the pane, not of the note.
+		expect(scroller.scrollTop).toBe(500);
+	});
+
+	it('goes to the furthest when the pane is switched off', () => {
+		const scroller = makeScroller(1000, 200, 0);
+		withBacklinks(scroller, 700, 0);
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(800);
+	});
+
+	it('reads the pane\'s edge as the end, so the far end is no longer "already there"', () => {
+		const scroller = makeScroller(1000, 200, 800);
+		withBacklinks(scroller, 700);
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		expect(atEdge(view, 'bottom')).toBe(false); // the far end is past the note
+		scroller.scrollTop = 500;
+		expect(atEdge(view, 'bottom')).toBe(true);
+	});
+
+	// Too short to scroll: the pane's edge is above the window, so there is nowhere to stop
+	// short of — and nowhere to go.
+	it('asks for nothing of a note that cannot be scrolled', () => {
+		const scroller = makeScroller(200, 200);
+		withBacklinks(scroller, 150);
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		moveToEdge(view, 'bottom');
+
 		expect(scroller.scrollTop).toBe(0);
+	});
+});
+
+// The bottom of the window is not the bottom of what the reader can SEE: on a phone the app floats
+// one of its own bars over the foot of a note. Which bar is there depends on the mode, and a soft
+// keyboard moves it, so the strip is measured rather than read off a variable.
+describe('the part of the window a reader cannot see', () => {
+	// A 200-tall window, the note ending at 700, and a bar over its foot.
+	function underBar(barTop: number, barHeight = 40, withPane = true) {
+		const scroller = makeScroller(1000, 200, 0);
+		stubRect(scroller, 0, 200);
+		if (withPane)
+			withBacklinks(scroller, 700);
+		withFloatingBar(barTop, barHeight);
+		return { scroller, view: makeView({ mode: 'preview', scroller }).view };
+	}
+
+	it('ends the note above the bar rather than behind it', () => {
+		const { scroller, view } = underBar(160);
+
+		moveToEdge(view, 'bottom');
+
+		// 700 - (200 - 40): the last line clears the bar, which the pane below it does not.
+		expect(scroller.scrollTop).toBe(540);
+	});
+
+	// A soft keyboard pushes the bar off the window instead of over it.
+	it('takes nothing off for a bar that is no longer in the way', () => {
+		const { scroller, view } = underBar(210);
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(500);
+	});
+
+	// No pane means the app has already padded the foot of the note by half a window, so the last
+	// line clears the bar on its own — and there is nowhere further to go anyway.
+	it('asks for the furthest when there is no pane to stop short of', () => {
+		const { scroller, view } = underBar(160, 40, false);
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(800);
 	});
 });
 
@@ -210,6 +389,20 @@ describe('holding the end', () => {
 		expect(writes.writes).toBe(1);
 	});
 
+	// The hold re-applies the end it moved to, which with a pane in the way is NOT the furthest:
+	// every correction would otherwise land at the end of the pane instead of the note.
+	it('holds the note\'s end rather than being pushed on to the far end', async () => {
+		const scroller = makeScroller(1000, 200, 0);
+		withBacklinks(scroller, 700);
+		const { view } = makeView({ mode: 'preview', scroller });
+		clobber(scroller, 800);
+
+		moveToEdge(view, 'bottom');
+		await holdEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(500);
+	});
+
 	it('leaves a scroller no longer in the document alone', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -240,17 +433,110 @@ describe('already standing at that end', () => {
 		expect(atEdge(view, 'top')).toBe(true);
 		expect(atEdge(view, 'bottom')).toBe(true);
 	});
+
+	// The scroll is only half of "already there" — see the caret below.
+	it('is still true of the scroll when the caret is somewhere else', () => {
+		const { view } = makeView({
+			mode: 'source',
+			scroller: makeScroller(1000, 200, 0),
+			cursor: { line: 2, ch: 3 },
+		});
+
+		expect(atEdge(view, 'top')).toBe(true);
+		expect(caretAtEdge(view, 'top')).toBe(false);
+	});
+});
+
+// The caret is what a reader still wants moved when the view already shows the end they asked
+// for: a note can be sitting at its top with the cursor 200 lines down, and "go to the top" that
+// answers "you are already there" leaves the reader to find it by hand.
+describe('the caret standing at that end', () => {
+	const atTop = (cursor: { line: number; ch: number }) =>
+		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 0), cursor }).view;
+	const atBottom = (cursor: { line: number; ch: number }) =>
+		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 800), cursor }).view;
+
+	it('is true only where the move would leave it', () => {
+		expect(caretAtEdge(atTop({ line: 0, ch: 0 }), 'top')).toBe(true);
+		expect(caretAtEdge(atTop({ line: 0, ch: 2 }), 'top')).toBe(false);
+		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // end of "three"
+		expect(caretAtEdge(atBottom({ line: 2, ch: 3 }), 'bottom')).toBe(false);
+	});
+
+	// Reading mode is no exception: its caret is invisible, not absent.
+	it('is read off a reading view the same way', () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 0),
+			cursor: { line: 2, ch: 3 },
+		});
+
+		expect(caretAtEdge(view, 'top')).toBe(false);
+		expect(caretAtEdge(view, 'bottom')).toBe(false);
+	});
+});
+
+// A mode switch does not resume from the DOM: setMode() carries `view.scroll`, and only
+// view.syncScroll() fills that in — which a reading view calls from its own scroll handler only
+// when the last render is at least 100ms old, something scrolling a virtualized preview never is.
+// Asking for an end in reading mode and switching to editing therefore resumed where the reader
+// stood BEFORE the command.
+describe('the arrival reaching the view, not just the scroller', () => {
+	it('is told to the view, which is what setMode() carries across', async () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 400),
+			modeScroll: 142,
+		});
+
+		await syncViewScroll(view);
+
+		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 142 });
+	});
+
+	it('waits for a renderer that has not caught up, rather than carrying a stale number', async () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 400),
+			modeScroll: null,
+		});
+		let caught = false;
+		(view.currentMode as unknown as { getScroll: () => number | null })
+			.getScroll = () => (caught ? 42 : null);
+
+		const syncing = syncViewScroll(view);
+		caught = true;
+		await syncing;
+
+		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 42 });
+	});
+
+	it('says nothing when the renderer never answers', async () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 400),
+			modeScroll: null,
+		});
+
+		await syncViewScroll(view);
+
+		expect(view.setEphemeralState).not.toHaveBeenCalled();
+	});
 });
 
 describe('the step an end takes', () => {
 	// Stand in a.md at line 300, then ask for the bottom.
-	function standingAt(topLine: number) {
+	function standingAt(
+		topLine: number,
+		mode: 'source' | 'preview' = 'preview',
+		cursor = { line: 0, ch: 0 },
+	) {
 		const scroller = makeScroller(1000, 200, topLine);
-		const { view } = makeView({ mode: 'preview', scroller, topLine });
+		const { view, editor } = makeView({ mode, scroller, topLine, cursor });
 		const rig = makeManager(view);
 		rig.funnel.recordOpen('a.md', 'leaf-1');
 		rig.funnel.leave('a.md', 'leaf-1', { scroll: topLine });
-		return { ...rig, scroller };
+		return { ...rig, scroller, view, editor };
 	}
 
 	it('keeps where the reader stood and gives the arrival a step of its own', async () => {
@@ -285,8 +571,67 @@ describe('the step an end takes', () => {
 		expect(stack.entries).toHaveLength(1);
 	});
 
+	// The view showing the top is not the same as the reader being there: the caret is half of
+	// what the command moves. No step for it — back from a press that stirred nothing the eye
+	// could see would answer with another such press.
+	it('still moves a caret the view had left behind, taking no step', async () => {
+		const { manager, stack, editor } = standingAt(0, 'source', { line: 2, ch: 3 });
+
+		manager.goToEdge('top');
+		await Promise.resolve();
+
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
+		expect(stack.entries).toHaveLength(1);
+	});
+
+	// …in reading mode too, where what gets placed is the caret the mode switch will uncover.
+	it('moves the same hidden caret in a reading view, taking no step', async () => {
+		const { manager, stack, editor } = standingAt(0, 'preview', { line: 2, ch: 3 });
+
+		manager.goToEdge('top');
+		await Promise.resolve();
+
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
+		expect(stack.entries).toHaveLength(1);
+	});
+
+	it('does nothing when the caret already stands at that end too', async () => {
+		const { manager, stack, editor } = standingAt(0, 'source', { line: 0, ch: 0 });
+
+		manager.goToEdge('top');
+		await Promise.resolve();
+
+		expect(editor.setCursor).not.toHaveBeenCalled();
+		expect(stack.entries).toHaveLength(1);
+	});
+
+	// …and the arrival has to reach the view too, or switching modes resumes the place the reader
+	// stood before the command (see the sync above).
+	it('tells the view where the arrival is, so a later mode switch resumes there', async () => {
+		const { manager, view } = standingAt(300, 'preview');
+
+		manager.goToEdge('top');
+		await new Promise((resolve) => window.setTimeout(resolve, 600));
+
+		expect(view.setEphemeralState).toHaveBeenCalled();
+	});
+
 	it('is available only while a note is the active view', () => {
 		expect(makeManager(null).manager.canGoToEdge()).toBe(false);
 		expect(standingAt(300).manager.canGoToEdge()).toBe(true);
+	});
+
+	// …and a note the reader was in when the active leaf is NOT it: a control standing in
+	// a panel — the arrows — IS the active leaf the moment it is tapped, and the app's own
+	// `getActiveViewOfType` answers off that leaf alone, so a panel asking for an end would
+	// be given nothing. This is the whole of what makes a button in a panel pressable.
+	it('acts on the tab the reader was in, not on the leaf holding the focus', () => {
+		const scroller = makeScroller(1000, 200, 300);
+		const { view } = makeView({ mode: 'preview', scroller, topLine: 300 });
+		const { manager } = makeManager(null, [{ id: 'leaf-1', view }]);
+
+		expect(manager.canGoToEdge()).toBe(true);
+		manager.goToEdge('top');
+		expect(scroller.scrollTop).toBe(0);
 	});
 });

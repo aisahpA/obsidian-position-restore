@@ -1,4 +1,4 @@
-import { App, FileView, MarkdownView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
+import { App, FileView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
 import { PositionStore } from './storage/position-store';
@@ -12,7 +12,10 @@ import { NavFunnel } from '@/nav/funnel';
 import { NavStack } from '@/nav-history/stack';
 import { NavPlaces } from '@/recent-files/places';
 import { RecentFilesModal } from '@/recent-files/browser/modal';
-import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type {
+	RecentFilesBrowserArrows,
+	RecentFilesBrowserPrefs,
+} from '@/recent-files/browser/body';
 import {
 	RECENT_FILES_VIEW_TYPE,
 	RecentFilesView,
@@ -21,8 +24,8 @@ import {
 } from '@/recent-files/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
-import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { atEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
+import { isMainAreaLeaf, markdownViewInUse, viewIcon, viewLabel, viewState } from '@/shared/leaf';
+import { atEdge, caretAtEdge, caretToEdge, holdEdge, moveToEdge, NoteEdge, syncViewScroll } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
@@ -190,14 +193,17 @@ export class PositionManager {
 		void this.database.writeDb();
 	}
 
-	// Navigate back/forward through the recorded jump history (VSCode-style).
-	navigateBack() {
-		void this.stack.navigate(-1)
+	// Navigate back/forward through the recorded jump history (VSCode-style). The promise IS
+	// the traversal — a step opens a note and waits for it — and the panel's arrows wait for
+	// it too (see RecentFilesBrowser.pressArrow). The commands do not, and say so at the
+	// call site.
+	navigateBack(): Promise<void> {
+		return this.stack.navigate(-1)
 			.catch(e => console.error('Position Restore: navigate back failed:', e));
 	}
 
-	navigateForward() {
-		void this.stack.navigate(1)
+	navigateForward(): Promise<void> {
+		return this.stack.navigate(1)
 			.catch(e => console.error('Position Restore: navigate forward failed:', e));
 	}
 
@@ -210,12 +216,27 @@ export class PositionManager {
 	// Neither end is a NAMED target, so both steps are keyless visits — a jump key would make the
 	// top of a note a place of its own in the recent-files list, which is what a heading is and an
 	// end of the note is not.
+	// The note is read off the tab the reader was in rather than off the ACTIVE leaf: a
+	// control standing in a panel — the arrows, on a phone — is itself the active leaf the
+	// moment it is tapped, and `getActiveViewOfType` would answer nothing at all.
 	goToEdge(edge: NoteEdge): void {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const view = markdownViewInUse(this.app);
 		if (!view?.file)
 			return;
-		if (atEdge(view, edge))
+		// Standing there is two answers, not one: the view can show the top with the caret 200
+		// lines down, and a reader who asks for the top wants it moved. When it is the only thing
+		// outstanding it goes WITHOUT the rest of the journey — no step, because nothing moved
+		// that could be seen, and back from one would answer with a view that does not stir; and
+		// no hold, because no scroll went anywhere to be undone. Bracketed all the same: a caret
+		// that jumps two hundred lines is the shape the desktop sampler infers a step from.
+		if (atEdge(view, edge)) {
+			if (!caretAtEdge(view, edge))
+				void this.funnel.runBracketed(async () => {
+					caretToEdge(view, edge);
+				})
+					.catch(e => console.error('Position Restore: move caret to edge failed:', e));
 			return;
+		}
 		const path = view.file.path;
 		const leafId = this.state.leafId(view.leaf);
 		const st = readNavEntryState(view);
@@ -232,12 +253,16 @@ export class PositionManager {
 		void this.funnel.runBracketed(async () => {
 			moveToEdge(view, edge);
 			await holdEdge(view, edge);
+			// Last, so what it reports is where the held move left the note.
+			await syncViewScroll(view);
 		})
 			.catch(e => console.error('Position Restore: go to edge failed:', e));
 	}
 
+	// Whether the two ends can be asked for at all — the same note the arrows act on, so
+	// that a greyed button and a press that does nothing cannot disagree (see goToEdge).
 	canGoToEdge(): boolean {
-		return !!this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+		return !!markdownViewInUse(this.app)?.file;
 	}
 
 	// Command availability for back/forward (checkCallback) — see NavStack.canNavigate.
@@ -247,7 +272,13 @@ export class PositionManager {
 
 	// The "Open recent files" modal (main.ts command) — see NavStack.travelTo.
 	openRecentFilesModal() {
-		new RecentFilesModal(this.app, this.places, (path) => this.database.db[path], this.browserPrefs()).open();
+		new RecentFilesModal(
+			this.app,
+			this.places,
+			(path) => this.database.db[path],
+			this.browserPrefs(),
+			this.recentFilesArrows(),
+		).open();
 	}
 
 	// The resident form of the same browser (main.ts command): same list, same rows, standing in a
@@ -259,7 +290,30 @@ export class PositionManager {
 	// The factory main.ts hands to Plugin.registerView: the view needs the place list, the saved
 	// positions and the browser's preferences, all of which this facade owns.
 	recentFilesViewCreator(): (leaf: WorkspaceLeaf) => RecentFilesView {
-		return createRecentFilesView(this.places, (path) => this.database.db[path], this.browserPrefs());
+		return createRecentFilesView(
+			this.places,
+			(path) => this.database.db[path],
+			this.browserPrefs(),
+			this.recentFilesArrows(),
+		);
+	}
+
+	// WHAT THE PANEL'S ARROWS DO. The four acts are the plugin's own (see main.ts's
+	// commands), handed down rather than run by the panel: a body holds no history and
+	// no note, so it can only ask — which is what greys a button that would do nothing.
+	private recentFilesArrows(): RecentFilesBrowserArrows {
+		return {
+			back: () => this.navigateBack(),
+			forward: () => this.navigateForward(),
+			top: () => this.goToEdge('top'),
+			bottom: () => this.goToEdge('bottom'),
+			// A STEP'S OWN QUESTION, and not a command's (see NavStack.hasStep): whether
+			// one is there to take, which a traversal in flight does not change. Asking
+			// the command's instead greys both arrows for as long as a step takes.
+			canBack: () => this.stack.hasStep(-1),
+			canForward: () => this.stack.hasStep(1),
+			canEdge: () => this.canGoToEdge(),
+		};
 	}
 
 	// The preferences the browser draws by: read LIVE off the shared settings object, so the dialog

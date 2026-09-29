@@ -103,7 +103,7 @@ export default class PositionRestorePlugin extends Plugin {
 			icon: 'arrow-left',
 			checkCallback: (checking) => {
 				if (!this.manager.canNavigate(-1)) return false;
-				if (!checking) this.manager.navigateBack();
+				if (!checking) void this.manager.navigateBack();
 				return true;
 			},
 		});
@@ -113,7 +113,7 @@ export default class PositionRestorePlugin extends Plugin {
 			icon: 'arrow-right',
 			checkCallback: (checking) => {
 				if (!this.manager.canNavigate(1)) return false;
-				if (!checking) this.manager.navigateForward();
+				if (!checking) void this.manager.navigateForward();
 				return true;
 			}
 		});

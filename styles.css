@@ -244,6 +244,22 @@ body.is-mobile .position-restore-cue {
 .position-restore-nav-panel {
 	--nav-muted: color-mix(in srgb, var(--text-normal) 88%, transparent);
 	--nav-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
+	/* THE PANEL OWNS THE INK ITS OWN ICONS ARE DRAWN IN. The app's icon skin reads
+	   `--icon-color`, which a theme is free to point anywhere — its faintest tier on a
+	   tinted ground being the common case — and a glyph drawn in a colour the panel did
+	   not choose is a glyph that can disappear under the reader's own theme. Naming it
+	   here puts every icon in the panel on ONE ink, the panel's own primary text, as
+	   above: what makes an icon quiet in this panel is its SIZE and WHEN it appears,
+	   never a colour the reader has to hunt for. */
+	--icon-color: var(--text-normal);
+	--icon-color-hover: var(--text-normal);
+	/* …and the app FADED them besides, which a knob of its own decides:
+	   `.clickable-icon svg` paints at `--icon-opacity`, and 0.85 is only the stock
+	   theme's answer — a theme that turns it down turns every icon in this panel down
+	   with it, however strong the ink underneath. An icon here is a control and not
+	   decoration, so none of them is painted at anything less than itself. */
+	--icon-opacity: 1;
+	--icon-opacity-hover: 1;
 	/* WHAT A FINGER HAS TO LAND IN: the width of ONE of the row's controls on a
 	   touch device, and — twice over — the room the armed row gives up for them
 	   (see the armed row below). ONE NUMBER, because the room and the target are
@@ -257,6 +273,10 @@ body.is-mobile .position-restore-cue {
 	   rather than a glyph it has to aim at — the row's whole height is behind it
 	   besides (see `align-self: stretch`). */
 	--nav-action-target: 36px;
+	/* …and the arrows' own: a box a finger lands in rather than a glyph it has to aim at,
+	   which on a phone is the app's touch size (see the arrows' own rule). Roomy enough
+	   for the glyph at `--icon-m` to keep its air inside it. */
+	--nav-arrow-target: 28px;
 	/* THE PANEL OWNS ITS TOOLTIPS, and this is how it says so. The app hangs a tooltip
 	   off every element that carries an `aria-label` (see its own tooltip listener),
 	   and an accessible name is not a hover hint: the listbox is named "Recent files"
@@ -338,6 +358,126 @@ body.is-mobile .position-restore-cue {
 	height: 0;
 	margin: 5px 8px 6px;
 	border-top: 1px solid var(--background-modifier-border);
+}
+
+/* THE ARROWS — four buttons for a device with no keyboard: a step back and forward, and
+   the two ends of the note standing open. TWO CAPSULES AND NOT ONE ROW OF FOUR (see
+   body.ts), because the pairs are two different things and a row of four arrows beside a
+   list reads as four ways to scroll that list. What keeps them from being read as part of
+   it is the capsule: a row of that list is a full-width line that tints under the
+   pointer, and nothing here is. */
+/* THEY STAND UNDER THE LIST, ON EVERY DEVICE — and that is one answer, not two. Under the
+   list is the foot of the panel, which is where a thing that ACTS belongs (above the line
+   is the list, and this is not it), while at the top they stood beside the filter box,
+   where a hand going for the box lands on an arrow instead. It is also where a thumb
+   reaches: the top of a phone screen is the last place it does. LAST IN THE DOM TOO (see
+   body.ts), so no `order` is needed and the keyboard reaches them where the eye does. */
+.position-restore-nav-arrows {
+	display: flex;
+	align-items: center;
+	/* CENTRED, and not laid against the list's left edge: buttons that line up with the
+	   rows above them read as one of those rows. The gap between the two capsules is
+	   WIDE — it is the whole of what says the pairs are two different things, and a gap
+	   the width of a button leaves them looking like one row of four. */
+	justify-content: center;
+	gap: 22px;
+	flex: 0 0 auto;
+	padding: 8px 2px 6px;
+	/* …and a line above them, so a strip standing under fifty rows is not read as one of
+	   them: this is a control that acts on the note behind the list. */
+	border-top: 1px solid var(--background-modifier-border);
+	margin-top: 4px;
+}
+
+/* A capsule: the app's own quiet tier as its ground, one hairline round it, and the two
+   buttons meeting almost edge to edge inside — a gap wide enough to separate them would
+   be a gap wide enough to read them as two controls that are not one group. */
+.position-restore-nav-arrow-group {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	background: var(--background-secondary);
+}
+
+/* The button: the app's own icon-button skin, and one number of this strip's own — a box
+   a finger lands in rather than a glyph it has to aim at. Nothing of a form field's.
+   FULL-STRENGTH INK, and not the panel's quiet tier: these four are the panel's only
+   buttons, and a glyph the reader cannot find is not a quiet control but no control at
+   all — what keeps them from shouting is the capsule's ground and their number, never a
+   colour washed out. Both the app's variable and `color` are named, because which of the
+   two the glyph ends up reading is the theme's to decide (see the row's controls below). */
+.position-restore-nav-arrow {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--nav-arrow-target);
+	height: var(--nav-arrow-target);
+	padding: 0;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	--icon-color: var(--text-normal);
+	--icon-color-hover: var(--text-normal);
+	color: var(--text-normal);
+	--icon-size: var(--icon-m);
+}
+
+/* …and one element further down, for the reason the row's own controls give (see
+   nav-row-actions): the app's icon rule NAMES a colour of its own, so an ink written on
+   the button alone is an ink the glyph may never see — and a shape carrying its stroke
+   width as an ATTRIBUTE does not take one from the element above it either. */
+.position-restore-nav-arrow svg,
+.position-restore-nav-arrow svg * {
+	color: var(--text-normal);
+	stroke: currentColor;
+	stroke-width: 2;
+}
+
+.position-restore-nav-arrow:hover:not(:disabled) {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+/* An arrow that would do nothing goes quiet rather than answering with nothing: an end of
+   the stack already reached, or the two ends with no note open at all. That last one is
+   also the panel's standing answer about WHOSE ends they are — it is the note they follow,
+   not this list. */
+.position-restore-nav-arrow.is-disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+/* THE BANDS THE PANEL IS MADE OF — the filter, the list, the arrows — are a flex column,
+   so the list is the one that GROWS and the strip the one that keeps its height: a strip
+   pinned under a scrolling list is the whole of what this buys. */
+.position-restore-nav-host {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+/* THE FOOT OF A PANE IS NOT THE FOOT OF THE WINDOW — THE APP'S STATUS BAR IS THAT, and it
+   is a FLOATING one: pinned to the bottom-right corner of the window and drawn OVER
+   whatever stands there (app.css: `position: fixed; bottom: 0; right: 0`), which in a
+   resident panel is these four. This is the room that lifts them clear of it. A DIALOG
+   needs none: it is centred, and its own foot is nowhere near the window's. (A phone's
+   room is the app's own toolbar's, below — one `is-touch` rule, and it wins on
+   specificity whatever the order here.)
+   */
+.position-restore-nav-view .position-restore-nav-arrows {
+	padding-bottom: 34px;
+}
+
+/* A PHONE GIVES THEM THE APP'S OWN TOUCH SIZE, and ROOM UNDER THEM: the app's own toolbar
+   stands at the foot of a phone screen, and a strip that touches it reads as part of it.
+   The gap is the phone's home inset — the strip of screen a gesture owns — plus a plain
+   12px of air, so the two never meet on a phone without one either. */
+.position-restore-nav-panel.is-touch .position-restore-nav-arrows {
+	padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+	--nav-arrow-target: var(--touch-size-m);
 }
 
 /* Toolbar above the list: the filter box and the keyboard hint — the strip holds

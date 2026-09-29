@@ -16,7 +16,11 @@ export interface TipContent {
 	// The file's full path, extension and all — the one thing a row cannot print
 	// without the reader's permission (see PathDisplayMode).
 	path?: string;
-	// A plain line under the path: the file's other names, or the one fact a cell
+	// What the note calls ITSELF, on a line of its own: the note's own answer to
+	// what it is called, which is not one of the names it merely answers to (see
+	// reads.ts's otherNamesFor).
+	frontTitle?: string;
+	// A plain line under that: the names the note ANSWERS TO, or the one fact a cell
 	// holds instead (the exact moment an age label stands for).
 	text?: string;
 	// Lines QUOTED OUT OF THE NOTE: the words the landing sat among when it was taken,
@@ -236,6 +240,8 @@ export class NavRowTip {
 		});
 		if (content.path)
 			this.pathLine(el, content.path);
+		if (content.frontTitle)
+			el.createDiv({ cls: 'nav-tip-text', text: content.frontTitle });
 		if (content.text)
 			el.createDiv({ cls: 'nav-tip-text', text: content.text });
 		// In the order the caller gave them — the match a query hit first, then the line

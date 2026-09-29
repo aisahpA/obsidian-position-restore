@@ -29,6 +29,38 @@ let browserSeq = 0;
 // as part of the section's name — `#` and `^` open a subpath, `|` an alias, `[` and `]` the link.
 const UNTRAVELABLE = /[#^|[\]]/;
 
+// ONE ARROW, and the four there are: two walk the reader's own steps, two go to the ends
+// of the note they are standing in.
+type ArrowAct = 'back' | 'forward' | 'top' | 'bottom';
+
+// TWO CAPSULES AND NOT ONE ROW OF FOUR: the pairs are different things, and four arrows
+// standing over a list read as four ways to scroll that list — which is the one thing
+// they cannot be mistaken for. The gap between the two is the whole of the telling apart.
+const ARROW_GROUPS: readonly (readonly [ArrowAct, ArrowAct])[] = [
+	['back', 'forward'],
+	['top', 'bottom'],
+];
+
+// Arrow-to-line, and not a bare arrow: the glyph the reader is shown is one whose shaft
+// ENDS ON A LINE, which is what an end of a note is. A chevron is the opposite claim —
+// one step, in the direction it points.
+const ARROW_ICON: Record<ArrowAct, string> = {
+	back: 'arrow-left',
+	forward: 'arrow-right',
+	top: 'arrow-up-to-line',
+	bottom: 'arrow-down-to-line',
+};
+
+// What a button is CALLED, borrowed from the commands these four run: the same words in
+// the palette and on the button, and the only place in the panel that says WHOSE ends the
+// two of them go to ("top of note" — the note, not this list).
+const ARROW_NAME: Record<ArrowAct, Parameters<typeof t>[0]> = {
+	back: 'navHistory.commands.navigateBack',
+	forward: 'navHistory.commands.navigateForward',
+	top: 'noteEdge.commands.top',
+	bottom: 'noteEdge.commands.bottom',
+};
+
 // Put on the card the app opens for this panel, and on nothing else: the popover is the core's
 // object, drawn by the core's own rules, and the one thing this panel says about how it looks is
 // WHERE IT STANDS.
@@ -56,6 +88,27 @@ export interface RecentFilesBrowserPrefs {
 	previewFocus: () => PreviewFocusMode;
 }
 
+// THE FOUR ACTS THE ARROWS CARRY, and whether each one can be done. The body holds no
+// history and no note of its own — the stack's ends and the note standing under them are
+// the plugin's — so a shell hands the acts down and the body only asks, which is what
+// greys a button that would do nothing (see refreshArrows).
+//
+// EVERY SHELL DRAWS THEM, and there is no switch to say otherwise: four buttons at the
+// foot of a list cost the list nothing (they are not rows, and they scroll with nothing),
+// while a reader with no keyboard has no other way to ask for any of the four. An act may
+// be ASYNC — a step opens a note and waits for it — and the promise is the body's cue to
+// ask again (see pressArrow).
+export interface RecentFilesBrowserArrows {
+	back: () => void | Promise<void>;
+	forward: () => void | Promise<void>;
+	top: () => void | Promise<void>;
+	bottom: () => void | Promise<void>;
+	canBack: () => boolean;
+	canForward: () => boolean;
+	// Whether a note is open for the two ends to act on at all.
+	canEdge: () => boolean;
+}
+
 export interface RecentFilesBrowserOptions {
 	app: App;
 	// The PLACES the rows are drawn from — the recent-files list, never the back/forward stack: a
@@ -79,6 +132,10 @@ export interface RecentFilesBrowserOptions {
 	focusFilter: boolean;
 	// The shell's own reaction to a travel, run BEFORE the history is asked to move.
 	onJump?: () => void;
+	// A reader with NO KEYBOARD, and the four things they would otherwise have no way to
+	// ask for: a step back and forward, and the two ends of the note they have open. The
+	// shell hands them down (see RecentFilesBrowserArrows).
+	arrows: RecentFilesBrowserArrows;
 	// The shell's way OUT, offered only by a shell that has one: pressed with nothing typed,
 	// the box's × dismisses rather than clears (see toolbar, and the quick switcher's own).
 	// A panel that stays up offers none, and its × keeps to clearing.
@@ -95,6 +152,9 @@ export class RecentFilesBrowser {
 	// The search box's text. The list's own query.
 	private filter = '';
 	private filterInput!: HTMLInputElement;
+	// The four buttons, kept because every draw asks whether each of them can still be
+	// pressed (see refreshArrows).
+	private arrowsByAct = new Map<ArrowAct, HTMLButtonElement>();
 	// Every vault lookup the panel makes, cached — all metadata-cache lookups: an entry's display
 	// pieces and a file's parsed headings.
 	private reads: RecentFilesReads;
@@ -170,6 +230,13 @@ export class RecentFilesBrowser {
 	// NOT rebuilt per render, so the filter input keeps its focus and its caret while typing
 	// redraws the list underneath it.
 	mount(): void {
+		// The bands the panel is made of — the filter, the list, the arrows — are a flex
+		// column (see styles.css), and the class is the shell's own element's to carry
+		// rather than a rule written against a shell. `is-touch` rides on it too: the dialog
+		// carries it on the dialog's root, the resident panel on this very element.
+		this.opts.host.addClass('position-restore-nav-host');
+		if (this.opts.touch)
+			this.opts.host.addClass('is-touch');
 		this.toolbar();
 		const listEl = this.opts.host.createDiv({ cls: 'position-restore-nav-list' });
 		// A listbox whose options are the rows, and whose current option the filter box names
@@ -210,7 +277,7 @@ export class RecentFilesBrowser {
 			// that a row's words, what it warns about and where it goes cannot disagree.
 			lostLanding: (entry, d, i) => this.landingLost(entry, this.nowLineAt(i, entry, d)),
 			// The file's other names: searchable, and printed nowhere but the tooltip.
-			aliasesFor: path => this.reads.aliasesFor(path),
+			otherNames: (path, printed) => this.reads.otherNamesFor(path, printed),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
 			// Which FILE the row names, and whether the row is the note's own rather than a spot in
@@ -259,6 +326,10 @@ export class RecentFilesBrowser {
 		// …and the click the ROWS did not answer: one whose row element was rebuilt away between
 		// the press and the release, which is exactly the click the list answers by identity.
 		listEl.addEventListener('click', (ev) => this.list.onUnansweredClick(ev));
+		// THE ARROWS COME LAST, because that is where they stand — under the list, on every
+		// device (see styles.css). Built before the first draw, so that draw greys the ones
+		// that cannot be pressed rather than leaving them live until the next one.
+		this.arrows();
 		// One keydown listener on the shell's element covers both the filter input and the list:
 		// while typing, arrows navigate and Enter jumps (the input would otherwise move its caret).
 		this.opts.host.addEventListener('keydown', (ev) => this.onKeyDown(ev));
@@ -290,6 +361,10 @@ export class RecentFilesBrowser {
 		this.listOpts.entries = this.opts.places.entries;
 		this.listOpts.currentIndex = this.opts.places.index;
 		this.list.render();
+		// …and the arrows, whose four answers are not this body's to keep: a step taken
+		// anywhere — even from these very buttons — changes whether each of them can be
+		// pressed, and the note under the two ends is a note this panel does not hold.
+		this.refreshArrows();
 	}
 
 	// The pointer is on the list, so the list is being READ: hold the order it is showing. The
@@ -381,6 +456,9 @@ export class RecentFilesBrowser {
 		for (const ref of this.existenceRefs)
 			this.opts.app.vault.offref(ref);
 		this.existenceRefs = [];
+		// …and the asking a press may still owe the arrows (see pressArrow): it is answered
+		// for buttons that are off the screen with the shell that held them.
+		this.arrowsByAct.clear();
 	}
 
 	private onVisibilityChange = (): void => {
@@ -389,6 +467,12 @@ export class RecentFilesBrowser {
 	};
 
 	private onKeyDown(ev: KeyboardEvent): void {
+		// A key pressed while one of the ARROWS holds the focus is that button's own to
+		// answer: Enter is its press, and an arrow key belongs to the control under the
+		// reader's hands rather than to the list below it.
+		const on = ev.target instanceof Element ? ev.target : null;
+		if (on?.closest('.position-restore-nav-arrows'))
+			return;
 		if (ev.key === 'ArrowDown') {
 			ev.preventDefault();
 			this.list.move(1);
@@ -417,6 +501,74 @@ export class RecentFilesBrowser {
 			this.filterInput.setAttr('aria-activedescendant', id);
 		else
 			this.filterInput.removeAttribute('aria-activedescendant');
+	}
+
+	// The four arrows, built ONCE per body like the toolbar: a strip rebuilt per render
+	// would drop the button the reader is reaching for out from under them.
+	private arrows(): void {
+		const bar = this.opts.host.createDiv({ cls: 'position-restore-nav-arrows' });
+		for (const group of ARROW_GROUPS) {
+			const capsule = bar.createDiv({ cls: 'position-restore-nav-arrow-group' });
+			for (const act of group)
+				this.arrowsByAct.set(act, this.arrowButton(capsule, act));
+		}
+	}
+
+	private arrowButton(capsule: HTMLElement, act: ArrowAct): HTMLButtonElement {
+		const name = t(ARROW_NAME[act]);
+		const button = capsule.createEl('button', {
+			cls: 'clickable-icon position-restore-nav-arrow',
+			attr: { type: 'button', 'aria-label': name, title: name },
+		});
+		setIcon(button, ARROW_ICON[act]);
+		// THE PRESS IS REFUSED THE FOCUS, as the box's × refuses it: a control that takes
+		// the caret turns the next keystroke into nothing, and what a reader is typing goes
+		// into the box beside this one. It stays a stop on the keyboard's way through the
+		// panel all the same — Tab reaches it and Enter presses it — which is the only way
+		// there is to press a button without a pointer.
+		button.addEventListener('mousedown', (ev) => ev.preventDefault());
+		button.addEventListener('click', () => this.pressArrow(act));
+		return button;
+	}
+
+	// One arrow pressed. THE SHELL STEPS OUT OF THE WAY FIRST, exactly as it does for a
+	// row: on a phone the panel covers the note these act on, so a move the reader cannot
+	// see is a move that did not happen.
+	private pressArrow(act: ArrowAct): void {
+		this.shellReacts();
+		const arrows = this.opts.arrows;
+		const ran = act === 'back' ? arrows.back()
+			: act === 'forward' ? arrows.forward()
+			: act === 'top' ? arrows.top()
+			: arrows.bottom();
+		// ASKED AGAIN WHEN THE ACT HAS LANDED, and not on the spot: a step opens a note and
+		// waits for it, and asking under it greys BOTH arrows for as long as it takes — which
+		// is how two live buttons come to look like two broken ones. A dialog closes on the
+		// press, so the asking it owes may find the four of them already off the screen.
+		void Promise.resolve(ran).then(() => this.refreshArrows());
+	}
+
+	// Whether each arrow can be pressed, asked of the plugin rather than worked out here:
+	// the steps are the stack's and the note is the workspace's. Asked again on EVERY draw
+	// — a step taken from anywhere changes both answers — and the two ends go quiet when no
+	// note is open, which is the one thing on the panel that says whose ends they are.
+	private refreshArrows(): void {
+		const arrows = this.opts.arrows;
+		this.arrowEnabled('back', arrows.canBack());
+		this.arrowEnabled('forward', arrows.canForward());
+		const edge = arrows.canEdge();
+		this.arrowEnabled('top', edge);
+		this.arrowEnabled('bottom', edge);
+	}
+
+	// A greyed button is not merely unpressable: it is the answer "there is nothing there",
+	// given where the reader is already looking.
+	private arrowEnabled(act: ArrowAct, on: boolean): void {
+		const button = this.arrowsByAct.get(act);
+		if (!button)
+			return;
+		button.disabled = !on;
+		button.toggleClass('is-disabled', !on);
 	}
 
 	private toolbar(): void {

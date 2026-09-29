@@ -21,7 +21,7 @@ import { navGroupKey } from '@/nav/entry';
 import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from './body';
 import { NAV_SOURCE_ID, PANEL_EXIT_GRACE_MS } from './constants';
 
 // Also the name the panel answers by in the app's hover-preview system (see
@@ -51,6 +51,11 @@ export class RecentFilesView extends ItemView {
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
 		// The plugin owns and persists these; this shell only hands them down.
 		private prefs: RecentFilesBrowserPrefs,
+		// The four arrows: a step back and forward, and the two ends of the note the
+		// reader has open. Every shell draws them, and hands them down rather than
+		// keeping them — the steps are the history's and the note is the workspace's
+		// (see RecentFilesBrowserArrows).
+		private arrows: RecentFilesBrowserArrows,
 	) {
 		super(leaf);
 	}
@@ -96,6 +101,7 @@ export class RecentFilesView extends ItemView {
 			// A resident panel is restored WITH the workspace, so taking the caret out
 			// of the editor is not something the reader asked for.
 			focusFilter: false,
+			arrows: this.arrows,
 			prefs: this.prefs,
 		});
 		this.browser.mount();
@@ -252,6 +258,7 @@ export function createRecentFilesView(
 	places: PlaceList,
 	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
 	prefs: RecentFilesBrowserPrefs,
+	arrows: RecentFilesBrowserArrows,
 ): (leaf: WorkspaceLeaf) => RecentFilesView {
-	return leaf => new RecentFilesView(leaf, places, savedPosition, prefs);
+	return leaf => new RecentFilesView(leaf, places, savedPosition, prefs, arrows);
 }

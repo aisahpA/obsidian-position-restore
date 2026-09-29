@@ -15,7 +15,7 @@ import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';
-import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from './body';
 
 export class RecentFilesModal extends Modal {
 	// The toolbar, the rows and the keyboard.
@@ -30,6 +30,10 @@ export class RecentFilesModal extends Modal {
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
 		// The plugin owns and persists these; this shell only hands them down.
 		private prefs: RecentFilesBrowserPrefs,
+		// The four arrows: a step back and forward, and the two ends of the note the
+		// reader has open. Every shell draws them (see RecentFilesBrowserArrows), and a
+		// dialog closes on every one — it covers the note they act on.
+		private arrows: RecentFilesBrowserArrows,
 	) {
 		super(app);
 	}
@@ -70,6 +74,7 @@ export class RecentFilesModal extends Modal {
 			// The box's × closing with nothing typed to clear is the dialog's own promise, and
 			// nothing about travel: the panel never moved.
 			onDismiss: () => this.close(),
+			arrows: this.arrows,
 			prefs: this.prefs,
 		});
 		this.browser.mount();

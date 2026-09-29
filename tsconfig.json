@@ -8,9 +8,11 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": true,
     "moduleResolution": "bundler",
-    "baseUrl": ".",
+    // No `baseUrl`: deprecated in TS 6 and gone in 7. These targets are now
+    // relative to THIS file, so `tests/tsconfig.json` (which extends it) keeps
+    // pointing at src/ and not at tests/src/.
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
     "importHelpers": true,
     "declaration": true,
