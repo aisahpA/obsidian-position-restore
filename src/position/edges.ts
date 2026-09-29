@@ -25,6 +25,15 @@ const YIELD_EVENTS = ['pointerdown', 'touchstart', 'wheel', 'keydown'] as const;
 // How many frames to wait for the reading renderer to be able to say where it is (see below).
 const SYNC_TRIES = 3;
 
+// The app's backlinks pane is appended INSIDE the same scroller — reading: the renderer's footer
+// section; source: the sizer — so the furthest a view can scroll is the end of that pane, and a
+// pane taller than a window leaves the note's last line above the viewport entirely. It is a pane
+// of the TAB, not of the note, so it is not part of either end.
+const BACKLINKS_SELECTOR = '.embedded-backlinks';
+
+// Sub-pixel offsets and zoom mean a landing is rarely exactly the number asked for.
+const EDGE_EPSILON = 1;
+
 // Already standing at that end — the SCROLL half of the answer only. A command pressed twice would
 // otherwise record the same arrival twice, and back would need as many presses to return to where
 // the reader was.
@@ -104,15 +113,37 @@ export async function syncViewScroll(view: MarkdownView): Promise<void> {
 	}
 }
 
-function isAtEdge(el: HTMLElement, edge: NoteEdge): boolean {
+// Where the bottom of the note is: the last line at the bottom of the window, the backlinks pane
+// below it. Asking for more than the range has is clamped, which is what puts the last screenful
+// at the bottom however tall it happens to be.
+function bottomTarget(el: HTMLElement): number {
 	const furthest = Math.max(0, el.scrollHeight - el.clientHeight);
-	return edge === 'top' ? el.scrollTop <= 0 : el.scrollTop >= furthest - 1;
+	const aside = el.querySelector<HTMLElement>(BACKLINKS_SELECTOR);
+	if (!aside)
+		return furthest;
+	const box = aside.getBoundingClientRect();
+	// No box of its own: the pane is created hidden and emptied while the setting is off, and its
+	// rect collapses — a collapsed one would otherwise read as "the note ends at the top".
+	if (box.width <= 0 || box.height <= 0)
+		return furthest;
+	const top = box.top - el.getBoundingClientRect().top + el.scrollTop;
+	if (top <= 0)
+		return furthest;
+	return Math.max(0, Math.min(furthest, Math.round(top - el.clientHeight)));
+}
+
+function edgeTarget(el: HTMLElement, edge: NoteEdge): number {
+	return edge === 'top' ? 0 : bottomTarget(el);
+}
+
+function isAtEdge(el: HTMLElement, edge: NoteEdge): boolean {
+	// The landing itself, not "at or past it": a reader who scrolled on into the backlinks pane
+	// is past the note's end, and asking for it again has to bring them back to it.
+	return Math.abs(el.scrollTop - edgeTarget(el, edge)) <= EDGE_EPSILON;
 }
 
 function applyEdge(el: HTMLElement, edge: NoteEdge): void {
-	// scrollHeight, not the last line's offset: it clamps to the furthest the view can go, which
-	// is the end of the note however tall the last screenful happens to be.
-	el.scrollTop = edge === 'top' ? 0 : el.scrollHeight;
+	el.scrollTop = edgeTarget(el, edge);
 }
 
 // The caret an editor key would leave: at the head of the first line, or at the end of the last.

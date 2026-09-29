@@ -1,7 +1,9 @@
 // A note's two ends, as commands of ours (see position/edges.ts and
 // manager.goToEdge). What is worth pinning is the part that is NOT the
 // scrolling:
-//  - which element is moved, and to which end of its range;
+//  - which element is moved, and to which end of its range — the bottom being the end of
+//    the NOTE, which is not the furthest the view can scroll once the app's backlinks
+//    pane is inside the same scroller;
 //  - the caret an editor key leaves, in BOTH modes: a reading view shows none, but
 //    the editor behind it is real and outlives the switch to editing;
 //  - a command pressed at the end it asks for moving nothing and recording
@@ -39,6 +41,36 @@ function makeScroller(content: number, viewport: number, top = 0): HTMLElement {
 			cur = Math.min(Math.max(0, v), Math.max(0, content - viewport));
 		},
 	});
+	return el;
+}
+
+// jsdom has no layout, so a box is stated here — a scroller's own top reads as 0.
+function rectAt(top: number, height: number): DOMRect {
+	const width = height > 0 ? 150 : 0;
+	return {
+		top,
+		bottom: top + height,
+		left: 0,
+		right: width,
+		width,
+		height,
+		x: 0,
+		y: top,
+		toJSON: () => ({}),
+	} as DOMRect;
+}
+
+// The app's backlinks pane, appended inside the scroller it shares with the note (reading: the
+// renderer's footer section; source: the sizer). A height of 0 stands for the pane while the
+// setting is off: created, hidden, and collapsed to no box at all.
+function withBacklinks(scroller: HTMLElement, topInContent: number, height = 300): HTMLElement {
+	const el = document.createElement('div');
+	el.className = 'embedded-backlinks';
+	Object.defineProperty(el, 'getBoundingClientRect', {
+		configurable: true,
+		value: () => rectAt(height > 0 ? topInContent - scroller.scrollTop : 0, height),
+	});
+	scroller.appendChild(el);
 	return el;
 }
 
@@ -180,6 +212,54 @@ describe('moving to an end of a note', () => {
 	});
 });
 
+// The bottom of a note is the end of what the reader wrote. The backlinks pane is a pane of the
+// TAB, appended inside the same scroller, and one taller than a window puts the furthest
+// scrollable point past the note's last line altogether.
+describe('the end of the note, not the end of the tab', () => {
+	it('stops where the pane starts, keeping the last line in view', () => {
+		const scroller = makeScroller(1000, 200, 0);
+		withBacklinks(scroller, 700); // the pane fills 700..1000 of a 200-tall window
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		moveToEdge(view, 'bottom');
+
+		// 700 - 200, not 800: 800 is the end of the pane, not of the note.
+		expect(scroller.scrollTop).toBe(500);
+	});
+
+	it('goes to the furthest when the pane is switched off', () => {
+		const scroller = makeScroller(1000, 200, 0);
+		withBacklinks(scroller, 700, 0);
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(800);
+	});
+
+	it('reads the pane\'s edge as the end, so the far end is no longer "already there"', () => {
+		const scroller = makeScroller(1000, 200, 800);
+		withBacklinks(scroller, 700);
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		expect(atEdge(view, 'bottom')).toBe(false); // the far end is past the note
+		scroller.scrollTop = 500;
+		expect(atEdge(view, 'bottom')).toBe(true);
+	});
+
+	// Too short to scroll: the pane's edge is above the window, so there is nowhere to stop
+	// short of — and nowhere to go.
+	it('asks for nothing of a note that cannot be scrolled', () => {
+		const scroller = makeScroller(200, 200);
+		withBacklinks(scroller, 150);
+		const { view } = makeView({ mode: 'preview', scroller });
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(0);
+	});
+});
+
 // The end is not always kept: the reading renderer re-applies a scroll it captured BEFORE the
 // move, one render pass later — a pass the reader's own scrolling queued, which finishes after
 // the command has run. That is the flash at the top followed by the slide back.
@@ -240,6 +320,20 @@ describe('holding the end', () => {
 
 		// The move alone: the moment the reader takes over, the hold is fighting THEM.
 		expect(writes.writes).toBe(1);
+	});
+
+	// The hold re-applies the end it moved to, which with a pane in the way is NOT the furthest:
+	// every correction would otherwise land at the end of the pane instead of the note.
+	it('holds the note\'s end rather than being pushed on to the far end', async () => {
+		const scroller = makeScroller(1000, 200, 0);
+		withBacklinks(scroller, 700);
+		const { view } = makeView({ mode: 'preview', scroller });
+		clobber(scroller, 800);
+
+		moveToEdge(view, 'bottom');
+		await holdEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(500);
 	});
 
 	it('leaves a scroller no longer in the document alone', async () => {
