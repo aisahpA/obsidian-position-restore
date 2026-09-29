@@ -7,6 +7,8 @@
 //  - a command pressed at the end it asks for moving nothing and recording
 //    nothing — otherwise back needs as many presses to get back to where the
 //    reader was;
+//  - the arrival being told to the VIEW as well, which is what a mode switch
+//    carries across — a move made on the DOM never reaches it in reading mode;
 //  - the caret being the half that still moves when the view already stands
 //    at that end: a note can show its top with the cursor 200 lines down;
 //  - the step: where the reader stood stays on the stack, and the arrival is
@@ -15,7 +17,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { App, MarkdownView } from 'obsidian';
 
-import { atEdge, caretAtEdge, holdEdge, moveToEdge } from '@/position/edges';
+import { atEdge, caretAtEdge, holdEdge, moveToEdge, syncViewScroll } from '@/position/edges';
 import { PositionManager } from '@/position/manager';
 import type { NavFunnel } from '@/nav/funnel';
 import type { NavStack } from '@/nav-history/stack';
@@ -45,6 +47,8 @@ function makeView(opts: {
 	scroller: HTMLElement;
 	topLine?: number;
 	cursor?: { line: number; ch: number };
+	// What the mode reports as its own position; null is a reading renderer that has not caught up.
+	modeScroll?: number | null;
 }) {
 	const lines = ['one', 'two', 'three'];
 	const cursor = opts.cursor ?? { line: 0, ch: 0 };
@@ -65,7 +69,10 @@ function makeView(opts: {
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path: 'a.md', stat: { mtime: 1 } },
 		getMode: () => opts.mode,
-		currentMode: { getScroll: () => opts.topLine ?? 300 },
+		currentMode: {
+			getScroll: () => (opts.modeScroll !== undefined ? opts.modeScroll : opts.topLine ?? 300),
+		},
+		setEphemeralState: vi.fn(),
 		// Both modes: `view.editor` is the leaf's edit mode, present and live whatever is
 		// being displayed (see caretToEdge) — no caret is SHOWN in reading mode.
 		editor,
@@ -308,6 +315,54 @@ describe('the caret standing at that end', () => {
 	});
 });
 
+// A mode switch does not resume from the DOM: setMode() carries `view.scroll`, and only
+// view.syncScroll() fills that in — which a reading view calls from its own scroll handler only
+// when the last render is at least 100ms old, something scrolling a virtualized preview never is.
+// Asking for an end in reading mode and switching to editing therefore resumed where the reader
+// stood BEFORE the command.
+describe('the arrival reaching the view, not just the scroller', () => {
+	it('is told to the view, which is what setMode() carries across', async () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 400),
+			modeScroll: 142,
+		});
+
+		await syncViewScroll(view);
+
+		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 142 });
+	});
+
+	it('waits for a renderer that has not caught up, rather than carrying a stale number', async () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 400),
+			modeScroll: null,
+		});
+		let caught = false;
+		(view.currentMode as unknown as { getScroll: () => number | null })
+			.getScroll = () => (caught ? 42 : null);
+
+		const syncing = syncViewScroll(view);
+		caught = true;
+		await syncing;
+
+		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 42 });
+	});
+
+	it('says nothing when the renderer never answers', async () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 400),
+			modeScroll: null,
+		});
+
+		await syncViewScroll(view);
+
+		expect(view.setEphemeralState).not.toHaveBeenCalled();
+	});
+});
+
 describe('the step an end takes', () => {
 	// Stand in a.md at line 300, then ask for the bottom.
 	function standingAt(
@@ -387,6 +442,17 @@ describe('the step an end takes', () => {
 
 		expect(editor.setCursor).not.toHaveBeenCalled();
 		expect(stack.entries).toHaveLength(1);
+	});
+
+	// …and the arrival has to reach the view too, or switching modes resumes the place the reader
+	// stood before the command (see the sync above).
+	it('tells the view where the arrival is, so a later mode switch resumes there', async () => {
+		const { manager, view } = standingAt(300, 'preview');
+
+		manager.goToEdge('top');
+		await new Promise((resolve) => window.setTimeout(resolve, 600));
+
+		expect(view.setEphemeralState).toHaveBeenCalled();
 	});
 
 	it('is available only while a note is the active view', () => {

@@ -22,6 +22,9 @@ const HOLD_CORRECTIONS = 2;
 // Input that means the reader is moving on their own, at which point the hold is fighting THEM.
 const YIELD_EVENTS = ['pointerdown', 'touchstart', 'wheel', 'keydown'] as const;
 
+// How many frames to wait for the reading renderer to be able to say where it is (see below).
+const SYNC_TRIES = 3;
+
 // Already standing at that end — the SCROLL half of the answer only. A command pressed twice would
 // otherwise record the same arrival twice, and back would need as many presses to return to where
 // the reader was.
@@ -78,6 +81,26 @@ export async function holdEdge(view: MarkdownView, edge: NoteEdge): Promise<void
 	} finally {
 		for (const type of YIELD_EVENTS)
 			el.removeEventListener(type, onInput, { capture: true });
+	}
+}
+
+// A MODE SWITCH does not resume from the DOM: setMode() carries `view.scroll`, which only
+// view.syncScroll() fills in — and a reading view calls that from its own scroll handler only when
+// the last render is at least 100ms old, which scrolling a virtualized preview never is. So a move
+// made here is invisible to the switch, and editing again puts the note back where the reader stood
+// BEFORE the command. The same field is what a reading view re-applies on resize.
+export async function syncViewScroll(view: MarkdownView): Promise<void> {
+	for (let tries = 0; tries < SYNC_TRIES; tries++) {
+		const at = view.currentMode?.getScroll();
+		// null while the reading renderer has not caught up: wait a frame rather than hand the
+		// switch a number that is not where the note is.
+		if (at != null && Number.isFinite(at)) {
+			// The door setMode() itself uses: it sets the field AND moves the current mode, which
+			// for us is a re-application of the position already held.
+			view.setEphemeralState({ scroll: at });
+			return;
+		}
+		await nextPaint();
 	}
 }
 

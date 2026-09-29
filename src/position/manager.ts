@@ -25,7 +25,7 @@ import {
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
 import { isMainAreaLeaf, markdownViewInUse, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { atEdge, caretAtEdge, caretToEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
+import { atEdge, caretAtEdge, caretToEdge, holdEdge, moveToEdge, NoteEdge, syncViewScroll } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
@@ -253,6 +253,8 @@ export class PositionManager {
 		void this.funnel.runBracketed(async () => {
 			moveToEdge(view, edge);
 			await holdEdge(view, edge);
+			// Last, so what it reports is where the held move left the note.
+			await syncViewScroll(view);
 		})
 			.catch(e => console.error('Position Restore: go to edge failed:', e));
 	}
