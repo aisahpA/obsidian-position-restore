@@ -14,7 +14,7 @@ import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
 import { Menu } from './support/obsidian-stub';
 
 import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
-import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
 import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
@@ -72,6 +72,56 @@ function browserPrefs(
 		previewFocus: () => 'head',
 		setLandings: (how) => {
 			held.landings = how;
+		},
+	};
+}
+
+// THE FOUR ARROWS, as the plugin hands them to a shell (see
+// RecentFilesBrowserArrows) — and every shell draws them, so there is no switch here to
+// say otherwise. What a test wants to know about them is WHICH ONE was pressed, and WHEN
+// the four were asked again: an act may be ASYNC (a step opens a note and waits for it),
+// and the asking has to wait for it too.
+function browserArrows(): RecentFilesBrowserArrows & {
+	pressed: string[];
+	// A test says "hold this act open" and settles it itself, so that "asked again once
+	// it landed" can be told apart from "asked on the spot".
+	hold(): void;
+	release(): void;
+	set(on: Partial<{ back: boolean; forward: boolean }>): void;
+} {
+	const pressed: string[] = [];
+	// What the four are ASKED (see refreshArrows): a test turns one off to see the
+	// button it greys, the way the history does when there is no step left to take.
+	const state = { back: true, forward: true };
+	let holding = false;
+	let settle: (() => void) | undefined;
+	const press = (act: string) => (): Promise<void> | undefined => {
+		pressed.push(act);
+		if (!holding)
+			return undefined;
+		return new Promise<void>((resolve) => { settle = resolve; });
+	};
+	return {
+		back: press('back'),
+		forward: press('forward'),
+		top: press('top'),
+		bottom: press('bottom'),
+		canBack: () => state.back,
+		canForward: () => state.forward,
+		canEdge: () => true,
+		pressed,
+		// …and the flip, so that "asked again" is visible: the answer changed under the
+		// press, and only the asking that waits for the act can show it.
+		set(on: Partial<{ back: boolean; forward: boolean }>) {
+			Object.assign(state, on);
+		},
+		hold() {
+			holding = true;
+		},
+		release() {
+			holding = false;
+			settle?.();
+			settle = undefined;
 		},
 	};
 }
@@ -246,6 +296,7 @@ async function mount(
 	// history while the panel is up needs the file behind it to exist, or the list
 	// filters the new place out (see RecentFilesList.render).
 	extraPaths: string[] = [],
+	arrows: ReturnType<typeof browserArrows> = browserArrows(),
 ) {
 	const nav = new FakeNav();
 	nav.entries = entries;
@@ -254,7 +305,7 @@ async function mount(
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
 	// jsdom lays nothing out, so the pane reports width 0 — which is the INLINE
 	// presentation, the one that needs no second column (see RecentFilesView.measure).
-	const view = new RecentFilesView(leaf, nav as never, () => undefined, prefs);
+	const view = new RecentFilesView(leaf, nav as never, () => undefined, prefs, arrows);
 	await view.onOpen();
 	mounted.push(view);
 	// The view's OWN container and content elements: what the pane hands the
@@ -265,7 +316,7 @@ async function mount(
 	// The listbox itself: what the pointer events that decide whether the list is
 	// being READ arrive on (see RecentFilesBrowser.freezeOrder).
 	const list = () => el.querySelector<HTMLElement>('.position-restore-nav-list')!;
-	return { view, el, nav, rows, names, list, trigger };
+	return { view, el, nav, rows, names, list, trigger, arrows };
 }
 
 describe('RecentFilesView — the resident panel', () => {
@@ -637,6 +688,31 @@ describe('RecentFilesView — the resident panel', () => {
 
 		// Drawn in the same breath as the travel: no timer, nothing held back.
 		expect(names()).toEqual(['b', 'a']);
+	});
+
+	// THE FOUR ARROWS, and the one thing about them only a panel that STAYS can show: a
+	// step is ASYNC — it opens a note and waits for it — so the four are asked again once
+	// it has LANDED, and not under it. Asked on the spot, a traversal in flight answers
+	// "no step either way" and both arrows sit greyed for as long as it takes, which is
+	// how two live buttons come to look like two broken ones.
+	it('asks the four again once an arrow\'s act has landed, and not under it', async () => {
+		const { el, arrows } = await mount([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
+		const [back, forward] = Array.from(
+			el.querySelectorAll<HTMLButtonElement>('.position-restore-nav-arrow'));
+		expect([back.disabled, forward.disabled]).toEqual([false, false]);
+
+		arrows.hold();
+		back.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		// The step is still open: the answer changed under it, and nothing has been asked
+		// again — so nothing has been drawn from it either.
+		arrows.set({ back: false });
+		await Promise.resolve();
+		expect(back.disabled).toBe(false);
+
+		arrows.release();
+		await new Promise(resolve => setTimeout(resolve, 0));
+		expect(back.disabled).toBe(true);
+		expect(forward.disabled).toBe(false);
 	});
 });
 

@@ -12,7 +12,10 @@ import { NavFunnel } from '@/nav/funnel';
 import { NavStack } from '@/nav-history/stack';
 import { NavPlaces } from '@/recent-files/places';
 import { RecentFilesModal } from '@/recent-files/browser/modal';
-import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type {
+	RecentFilesBrowserArrows,
+	RecentFilesBrowserPrefs,
+} from '@/recent-files/browser/body';
 import {
 	RECENT_FILES_VIEW_TYPE,
 	RecentFilesView,
@@ -190,14 +193,17 @@ export class PositionManager {
 		void this.database.writeDb();
 	}
 
-	// Navigate back/forward through the recorded jump history (VSCode-style).
-	navigateBack() {
-		void this.stack.navigate(-1)
+	// Navigate back/forward through the recorded jump history (VSCode-style). The promise IS
+	// the traversal — a step opens a note and waits for it — and the panel's arrows wait for
+	// it too (see RecentFilesBrowser.pressArrow). The commands do not, and say so at the
+	// call site.
+	navigateBack(): Promise<void> {
+		return this.stack.navigate(-1)
 			.catch(e => console.error('Position Restore: navigate back failed:', e));
 	}
 
-	navigateForward() {
-		void this.stack.navigate(1)
+	navigateForward(): Promise<void> {
+		return this.stack.navigate(1)
 			.catch(e => console.error('Position Restore: navigate forward failed:', e));
 	}
 
@@ -256,7 +262,13 @@ export class PositionManager {
 
 	// The "Open recent files" modal (main.ts command) — see NavStack.travelTo.
 	openRecentFilesModal() {
-		new RecentFilesModal(this.app, this.places, (path) => this.database.db[path], this.browserPrefs()).open();
+		new RecentFilesModal(
+			this.app,
+			this.places,
+			(path) => this.database.db[path],
+			this.browserPrefs(),
+			this.recentFilesArrows(),
+		).open();
 	}
 
 	// The resident form of the same browser (main.ts command): same list, same rows, standing in a
@@ -268,7 +280,30 @@ export class PositionManager {
 	// The factory main.ts hands to Plugin.registerView: the view needs the place list, the saved
 	// positions and the browser's preferences, all of which this facade owns.
 	recentFilesViewCreator(): (leaf: WorkspaceLeaf) => RecentFilesView {
-		return createRecentFilesView(this.places, (path) => this.database.db[path], this.browserPrefs());
+		return createRecentFilesView(
+			this.places,
+			(path) => this.database.db[path],
+			this.browserPrefs(),
+			this.recentFilesArrows(),
+		);
+	}
+
+	// WHAT THE PANEL'S ARROWS DO. The four acts are the plugin's own (see main.ts's
+	// commands), handed down rather than run by the panel: a body holds no history and
+	// no note, so it can only ask — which is what greys a button that would do nothing.
+	private recentFilesArrows(): RecentFilesBrowserArrows {
+		return {
+			back: () => this.navigateBack(),
+			forward: () => this.navigateForward(),
+			top: () => this.goToEdge('top'),
+			bottom: () => this.goToEdge('bottom'),
+			// A STEP'S OWN QUESTION, and not a command's (see NavStack.hasStep): whether
+			// one is there to take, which a traversal in flight does not change. Asking
+			// the command's instead greys both arrows for as long as a step takes.
+			canBack: () => this.stack.hasStep(-1),
+			canForward: () => this.stack.hasStep(1),
+			canEdge: () => this.canGoToEdge(),
+		};
 	}
 
 	// The preferences the browser draws by: read LIVE off the shared settings object, so the dialog

@@ -863,4 +863,114 @@ describe('recent-files browser quiet tiers', () => {
 		expect(list).toMatch(/touch-action: pan-y pinch-zoom/);
 		expect(list).toMatch(/overscroll-behavior: contain/);
 	});
+
+	// THE FOUR ARROWS (see body.ts) — the panel's answer for a device with no keyboard,
+	// and the one control in it that acts on the NOTE rather than on the list. What the
+	// stylesheet has to hold is the whole of the difficulty: four arrows standing over a
+	// list are read as four ways to scroll that list, and no rule here may let them be.
+	it('holds the arrows in two capsules, which no row of the list is drawn in', () => {
+		const strip = browser.match(/\.position-restore-nav-arrows \{[^}]*\}/)?.[0] ?? '';
+		expect(strip).not.toBe('');
+		expect(strip).toMatch(/display: flex/);
+		// The two pairs are two different things, and the gap between the two capsules is
+		// the whole of the telling apart: a gap the width of a button leaves them reading
+		// as one row of four.
+		expect(strip).toMatch(/gap: 22px/);
+		const capsule = browser.match(/\.position-restore-nav-arrow-group \{[^}]*\}/)?.[0] ?? '';
+		expect(capsule).not.toBe('');
+		// A capsule and not a row: a bordered, rounded box on the app's own quiet ground
+		// is not a shape anything in the list below is ever drawn in — that one is a
+		// full-width line which tints under the pointer.
+		expect(capsule).toMatch(/border: 1px solid var\(--background-modifier-border\)/);
+		expect(capsule).toMatch(/border-radius/);
+		expect(capsule).toMatch(/background: var\(--background-secondary\)/);
+		// …and the two buttons inside one meet almost edge to edge: a gap wide enough to
+		// separate them is a gap wide enough to read them as two controls, which is what
+		// a row of four would be.
+		expect(capsule).toMatch(/gap: 2px/);
+	});
+
+	// An arrow is a TARGET and a glyph: one number, named once and stepped up on a phone
+	// to the app's own touch size, so the box a finger has to land in cannot disagree
+	// with the room the strip takes. And one that would do nothing goes quiet rather
+	// than answering with nothing — which is also the panel's standing answer about whose
+	// ends the last two of them go to.
+	it('sizes an arrow as a target, and greys one that would do nothing', () => {
+		const arrow = browser.match(/\.position-restore-nav-arrow \{[^}]*\}/)?.[0] ?? '';
+		expect(arrow).not.toBe('');
+		expect(arrow).toMatch(/width: var\(--nav-arrow-target\)/);
+		expect(arrow).toMatch(/height: var\(--nav-arrow-target\)/);
+		expect(browser).toMatch(/\.position-restore-nav-panel \{[^}]*--nav-arrow-target: 28px/);
+		expect(browser).toMatch(
+			/is-touch \.position-restore-nav-arrows \{[^}]*--nav-arrow-target: var\(--touch-size-m\)/,
+		);
+		// INK OF THE PANEL'S OWN, and not the theme's: the app's icon skin reads
+		// `--icon-color`, which a theme is free to point at its faintest tier — under which
+		// a glyph drawn at full strength on the button is still a glyph nobody can see.
+		// Named on the panel, so every icon in it is drawn in the same ink — and at FULL
+		// opacity: the app fades a `clickable-icon`'s glyph by `--icon-opacity`, which a
+		// theme is free to turn down, and a faded glyph is one the ink cannot rescue.
+		expect(browser).toMatch(/\.position-restore-nav-panel \{[^}]*--icon-color: var\(--text-normal\)/);
+		expect(browser).toMatch(/\.position-restore-nav-panel \{[^}]*--icon-opacity: 1/);
+		// …and one element further down, because a shape carrying its own stroke width as an
+		// ATTRIBUTE does not take one from the element above it.
+		const glyph = browser.match(
+			/\.position-restore-nav-arrow svg,\n\.position-restore-nav-arrow svg \* \{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(glyph).not.toBe('');
+		expect(glyph).toMatch(/color: var\(--text-normal\)/);
+		expect(glyph).toMatch(/stroke: currentColor/);
+		expect(glyph).toMatch(/stroke-width: 2/);
+		const off = browser.match(/\.position-restore-nav-arrow\.is-disabled \{[^}]*\}/)?.[0] ?? '';
+		// INK, and not a colour of this file's: a theme re-hues its own variables freely,
+		// and a greyed button must not come out louder than a live one.
+		expect(off).toMatch(/opacity: 0\.35/);
+		expect(off).not.toMatch(/color:/);
+	});
+
+	// THEY STAND UNDER THE LIST — ON EVERY DEVICE, and not only on a phone: at the top they
+	// stood beside the filter box, where a hand going for the box lands on an arrow instead.
+	// So the base rule says it, once, and the DOM says it too (asserted in the DOM suite):
+	// no `order` is needed, and Tab reaches them where the eye does.
+	it('puts the arrows under the list, on every device and not only on a phone', () => {
+		const strip = browser.match(/\.position-restore-nav-arrows \{[^}]*\}/)?.[0] ?? '';
+		expect(strip).not.toBe('');
+		// CENTRED, and not laid against the list's left edge: buttons that line up with
+		// the rows above them read as one of those rows.
+		expect(strip).toMatch(/justify-content: center/);
+		// …and a LINE above them, so a strip standing under fifty rows cannot be read as
+		// one of them.
+		expect(strip).toMatch(/border-top: 1px solid var\(--background-modifier-border\)/);
+		// What puts them last is the DOM, not `order` — the only ordering the keyboard
+		// reads too. (`\b` keeps this off "border:".)
+		expect(browser).not.toMatch(/\border: 1/);
+		// The host is a flex column so the list is what grows and the strip what keeps its
+		// height — which is the whole of what standing under a scrolling list needs.
+		const host = browser.match(/(?:^|\n)\.position-restore-nav-host \{[^}]*\}/)?.[0] ?? '';
+		expect(host).toMatch(/display: flex/);
+		expect(host).toMatch(/flex-direction: column/);
+	});
+
+	// A PHONE GIVES THEM ROOM UNDER THEM as well: the app's own toolbar stands at the foot
+	// of a phone screen, and a strip that touches it reads as part of it.
+	it('keeps the arrows off the phone\'s own toolbar', () => {
+		const touch = browser.match(
+			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-arrows \{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(touch).not.toBe('');
+		expect(touch).toMatch(/padding-bottom: calc\(12px \+ env\(safe-area-inset-bottom, 0px\)\)/);
+	});
+
+	// …AND A DESKTOP GIVES THEM ROOM OF THEIR OWN, for the same reason one floor up: the
+	// app's status bar is a FLOATING one, pinned over the bottom of the window (app.css:
+	// `position: fixed; bottom: 0; right: 0`), so the foot of a resident pane is not the
+	// foot of anything — it is under the bar. A strip flush with that foot is a strip the
+	// bar covers. A DIALOG needs none of it: it is centred, nowhere near the window's foot.
+	it('lifts the arrows off the app\'s own status bar, in a pane that reaches it', () => {
+		const pane = browser.match(
+			/\.position-restore-nav-view \.position-restore-nav-arrows \{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(pane).not.toBe('');
+		expect(pane).toMatch(/padding-bottom: 34px/);
+	});
 });
