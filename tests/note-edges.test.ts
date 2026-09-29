@@ -12,7 +12,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { App, MarkdownView } from 'obsidian';
 
-import { atEdge, moveToEdge } from '@/position/edges';
+import { atEdge, holdEdge, moveToEdge } from '@/position/edges';
 import { PositionManager } from '@/position/manager';
 import type { NavFunnel } from '@/nav/funnel';
 import type { NavStack } from '@/nav-history/stack';
@@ -25,9 +25,10 @@ import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 function makeScroller(content: number, viewport: number, top = 0): HTMLElement {
 	const el = document.createElement('div');
 	let cur = top;
-	Object.defineProperty(el, 'scrollHeight', { get: () => content });
-	Object.defineProperty(el, 'clientHeight', { get: () => viewport });
+	Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => content });
+	Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => viewport });
 	Object.defineProperty(el, 'scrollTop', {
+		configurable: true,
 		get: () => cur,
 		set: (v: number) => {
 			cur = Math.min(Math.max(0, v), Math.max(0, content - viewport));
@@ -50,6 +51,8 @@ function makeView(opts: { mode: 'source' | 'preview'; scroller: HTMLElement; top
 	contentEl.appendChild(opts.scroller);
 	const containerEl = document.createElement('div');
 	containerEl.appendChild(contentEl);
+	// Attached: the hold after a move stops when the view is no longer in the document.
+	document.body.appendChild(containerEl);
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path: 'a.md', stat: { mtime: 1 } },
 		getMode: () => opts.mode,
@@ -145,6 +148,77 @@ describe('moving to an end of a note', () => {
 	});
 });
 
+// The end is not always kept: the reading renderer re-applies a scroll it captured BEFORE the
+// move, one render pass later — a pass the reader's own scrolling queued, which finishes after
+// the command has run. That is the flash at the top followed by the slide back.
+describe('holding the end', () => {
+	// Every write to the scroller is followed, a tick later, by the old position coming back.
+	function clobber(scroller: HTMLElement, backTo: number, times = 1) {
+		const inner = Object.getOwnPropertyDescriptor(scroller, 'scrollTop')!;
+		const counter = { writes: 0 };
+		let left = times;
+		Object.defineProperty(scroller, 'scrollTop', {
+			configurable: true,
+			get: inner.get,
+			set: (v: number) => {
+				inner.set?.call(scroller, v);
+				counter.writes++;
+				if (left-- > 0)
+					window.setTimeout(() => inner.set?.call(scroller, backTo), 0);
+			},
+		});
+		return counter;
+	}
+
+	it('puts the end back when a late render pass restores the old position', async () => {
+		const scroller = makeScroller(1000, 200, 400);
+		const { view } = makeView({ mode: 'preview', scroller });
+		clobber(scroller, 400);
+
+		moveToEdge(view, 'top');
+		await holdEdge(view, 'top');
+
+		expect(scroller.scrollTop).toBe(0);
+	});
+
+	// Two corrections and out: a view that keeps being clobbered is one the plugin cannot win,
+	// and a command must not spend the rest of the session fighting it.
+	it('stops correcting rather than fighting something that keeps winning', async () => {
+		const scroller = makeScroller(1000, 200, 400);
+		const { view } = makeView({ mode: 'preview', scroller });
+		const writes = clobber(scroller, 400, 99);
+
+		moveToEdge(view, 'top');
+		await holdEdge(view, 'top');
+
+		// The move and two corrections: a view that keeps being clobbered is one the plugin
+		// cannot win, and a command must not spend the rest of the session fighting it.
+		expect(writes.writes).toBeLessThanOrEqual(3);
+	});
+
+	it('yields the moment the reader moves on their own', async () => {
+		const scroller = makeScroller(1000, 200, 400);
+		const { view } = makeView({ mode: 'preview', scroller });
+		const writes = clobber(scroller, 400, 99);
+
+		moveToEdge(view, 'top');
+		const holding = holdEdge(view, 'top');
+		scroller.dispatchEvent(new Event('pointerdown'));
+		await holding;
+
+		// The move alone: the moment the reader takes over, the hold is fighting THEM.
+		expect(writes.writes).toBe(1);
+	});
+
+	it('leaves a scroller no longer in the document alone', async () => {
+		const scroller = makeScroller(1000, 200, 400);
+		const { view } = makeView({ mode: 'preview', scroller });
+		scroller.remove();
+
+		await expect(holdEdge(view, 'top')).resolves.toBeUndefined();
+	});
+});
+
 describe('already standing at that end', () => {
 	it('is true at the top for the top, and at the bottom for the bottom', () => {
 		const atTop = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 0) }).view;
@@ -192,12 +266,14 @@ describe('the step an end takes', () => {
 		expect(stack.entries[0].kind !== 'view' && stack.entries[0].st?.scroll).toBe(300);
 		expect(stack.entries[1].kind !== 'view' && stack.entries[1].st).toBeUndefined();
 
-		// Where they ended up lands on the arrival, leaving the standing place
-		// intact for back.
+		// Where they ended up lands on the arrival, leaving the standing place intact for
+		// back. The hold is still open — the plugin is still moving the view — so wait it
+		// out before asking whether back is available.
 		funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		expect(stack.entries[1].kind !== 'view' && stack.entries[1].st?.scroll).toBe(900);
-		expect(stack.canNavigate(-1)).toBe(true);
 		expect(stack.entries[0].kind !== 'view' && stack.entries[0].st?.scroll).toBe(300);
+		await new Promise((resolve) => window.setTimeout(resolve, 500));
+		expect(stack.canNavigate(-1)).toBe(true);
 	});
 
 	it('records nothing when the view already stands at that end', async () => {
