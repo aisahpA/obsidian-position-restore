@@ -973,4 +973,20 @@ describe('recent-files browser quiet tiers', () => {
 		expect(pane).not.toBe('');
 		expect(pane).toMatch(/padding-bottom: 34px/);
 	});
+
+	// …BUT NOT IN THE LEFT RAIL, WHICH THE BAR NEVER REACHES: it is pinned to the window's
+	// bottom-RIGHT corner and sized to its own content (app.css: `right: 0`, `width: auto`),
+	// so a pane standing on the left has a foot that is the screen's own, and 34px of air
+	// under these four is 34px of pane spent on a bar at the far side of the window.
+	it('lets the arrows down to the foot of a pane in the left rail', () => {
+		const left = browser.match(
+			/(?:^|\n)\.mod-left-split \.position-restore-nav-arrows \{[^}]*\}/,
+		)?.[0] ?? '';
+		expect(left).not.toBe('');
+		expect(left).toMatch(/padding-bottom: 8px/);
+		// …and on TWO classes, not three: a phone's rule carries three and must outrank it
+		// on specificity — the app puts a `mod-left-split` in a phone's workspace too, and
+		// there the room under the strip is the toolbar's, not nothing's.
+		expect(left).not.toMatch(/is-touch/);
+	});
 });

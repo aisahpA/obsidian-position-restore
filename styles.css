@@ -471,6 +471,18 @@ body.is-mobile .position-restore-cue {
 	padding-bottom: 34px;
 }
 
+/* …EXCEPT IN THE LEFT RAIL, WHICH THE BAR NEVER REACHES: it is pinned to the window's
+   bottom-RIGHT corner and sized to its own content (`right: 0`, `width: auto`), so a pane
+   standing on the left has a foot that is the screen's own — and 34px of nothing under
+   these four is 34px of pane given away for a bar on the far side of the window. So there
+   the strip takes the pane's own foot inset back (the 8px the list's rows keep at its
+   foot) and sits down where the pane ends. (The vault switcher the left rail keeps at ITS
+   foot is a SIBLING in the split's column: it takes room, it does not cover any.)
+   TWO CLASSES ONLY, so the phone's rule below outranks it on specificity. */
+.mod-left-split .position-restore-nav-arrows {
+	padding-bottom: 8px;
+}
+
 /* A PHONE GIVES THEM THE APP'S OWN TOUCH SIZE, and ROOM UNDER THEM: the app's own toolbar
    stands at the foot of a phone screen, and a strip that touches it reads as part of it.
    The gap is the phone's home inset — the strip of screen a gesture owns — plus a plain
