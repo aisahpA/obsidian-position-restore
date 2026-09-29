@@ -31,6 +31,11 @@ const SYNC_TRIES = 3;
 // of the TAB, not of the note, so it is not part of either end.
 const BACKLINKS_SELECTOR = '.embedded-backlinks';
 
+// The app's own bars float OVER the foot of a note rather than sit above or below it, so on a phone
+// the bottom of the window is not the bottom of what the reader can see. Both are mobile-only,
+// which is what leaves this measuring nothing at all on a desktop.
+const OVERLAY_SELECTORS = ['.mobile-navbar', '.mobile-toolbar'];
+
 // Sub-pixel offsets and zoom mean a landing is rarely exactly the number asked for.
 const EDGE_EPSILON = 1;
 
@@ -113,23 +118,50 @@ export async function syncViewScroll(view: MarkdownView): Promise<void> {
 	}
 }
 
-// Where the bottom of the note is: the last line at the bottom of the window, the backlinks pane
-// below it. Asking for more than the range has is clamped, which is what puts the last screenful
-// at the bottom however tall it happens to be.
-function bottomTarget(el: HTMLElement): number {
-	const furthest = Math.max(0, el.scrollHeight - el.clientHeight);
+// Where the note stops BEING the note, in content coordinates.
+function noteEnd(el: HTMLElement): number {
 	const aside = el.querySelector<HTMLElement>(BACKLINKS_SELECTOR);
 	if (!aside)
-		return furthest;
+		return el.scrollHeight;
 	const box = aside.getBoundingClientRect();
 	// No box of its own: the pane is created hidden and emptied while the setting is off, and its
 	// rect collapses — a collapsed one would otherwise read as "the note ends at the top".
 	if (box.width <= 0 || box.height <= 0)
-		return furthest;
+		return el.scrollHeight;
 	const top = box.top - el.getBoundingClientRect().top + el.scrollTop;
-	if (top <= 0)
-		return furthest;
-	return Math.max(0, Math.min(furthest, Math.round(top - el.clientHeight)));
+	return top > 0 ? top : el.scrollHeight;
+}
+
+// How much of the window's foot the reader cannot see. Measured rather than read off a variable:
+// which bar is there depends on the mode, and a soft keyboard moves the one that is.
+function hiddenAtBottom(el: HTMLElement): number {
+	const box = el.getBoundingClientRect();
+	// No box at all (a view not in the layout yet): nothing can be covering it.
+	if (box.height <= 0)
+		return 0;
+	let hidden = 0;
+	for (const selector of OVERLAY_SELECTORS) {
+		for (const bar of Array.from(el.ownerDocument.querySelectorAll<HTMLElement>(selector))) {
+			const over = bar.getBoundingClientRect();
+			// Not reaching the window's foot: a bar floating over the MIDDLE of a note takes
+			// nothing away from either end.
+			if (over.height <= 0 || over.bottom < box.bottom)
+				continue;
+			if (over.right <= box.left || over.left >= box.right)
+				continue;
+			hidden = Math.max(hidden, Math.min(box.bottom, over.bottom) - Math.max(box.top, over.top));
+		}
+	}
+	return Math.max(0, Math.min(hidden, box.height));
+}
+
+// Where the bottom of the note belongs: its last line at the bottom of the part of the window the
+// reader can SEE. Asking for more than the range has is clamped, which is what puts the last
+// screenful there however tall it happens to be.
+function bottomTarget(el: HTMLElement): number {
+	const furthest = Math.max(0, el.scrollHeight - el.clientHeight);
+	const shown = el.clientHeight - hiddenAtBottom(el);
+	return Math.max(0, Math.min(furthest, Math.round(noteEnd(el) - shown)));
 }
 
 function edgeTarget(el: HTMLElement, edge: NoteEdge): number {

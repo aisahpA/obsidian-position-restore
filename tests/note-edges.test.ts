@@ -2,8 +2,9 @@
 // manager.goToEdge). What is worth pinning is the part that is NOT the
 // scrolling:
 //  - which element is moved, and to which end of its range — the bottom being the end of
-//    the NOTE, which is not the furthest the view can scroll once the app's backlinks
-//    pane is inside the same scroller;
+//    the NOTE at the end of what the reader can SEE: not the furthest the view can
+//    scroll once the app's backlinks pane is inside the same scroller, and not the
+//    bottom of the window once the app floats one of its bars over it;
 //  - the caret an editor key leaves, in BOTH modes: a reading view shows none, but
 //    the editor behind it is real and outlives the switch to editing;
 //  - a command pressed at the end it asks for moving nothing and recording
@@ -16,7 +17,7 @@
 //  - the step: where the reader stood stays on the stack, and the arrival is
 //    a step of its own rather than a rewrite of it.
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { App, MarkdownView } from 'obsidian';
 
 import { atEdge, caretAtEdge, holdEdge, moveToEdge, syncViewScroll } from '@/position/edges';
@@ -73,6 +74,29 @@ function withBacklinks(scroller: HTMLElement, topInContent: number, height = 300
 	scroller.appendChild(el);
 	return el;
 }
+
+// Gives an element the box jsdom will not compute for it.
+function stubRect(el: HTMLElement, top: number, height: number): void {
+	Object.defineProperty(el, 'getBoundingClientRect', {
+		configurable: true,
+		value: () => rectAt(top, height),
+	});
+}
+
+// One of the app's own bars, floating over the foot of a note instead of above or below it. Both
+// are mobile-only, so a desktop has none and measures nothing.
+function withFloatingBar(top: number, height: number, className = 'mobile-navbar'): HTMLElement {
+	const el = document.createElement('div');
+	el.className = className;
+	stubRect(el, top, height);
+	document.body.appendChild(el);
+	return el;
+}
+
+afterEach(() => {
+	for (const bar of document.querySelectorAll('.mobile-navbar, .mobile-toolbar'))
+		bar.remove();
+});
 
 function makeView(opts: {
 	mode: 'source' | 'preview';
@@ -257,6 +281,49 @@ describe('the end of the note, not the end of the tab', () => {
 		moveToEdge(view, 'bottom');
 
 		expect(scroller.scrollTop).toBe(0);
+	});
+});
+
+// The bottom of the window is not the bottom of what the reader can SEE: on a phone the app floats
+// one of its own bars over the foot of a note. Which bar is there depends on the mode, and a soft
+// keyboard moves it, so the strip is measured rather than read off a variable.
+describe('the part of the window a reader cannot see', () => {
+	// A 200-tall window, the note ending at 700, and a bar over its foot.
+	function underBar(barTop: number, barHeight = 40, withPane = true) {
+		const scroller = makeScroller(1000, 200, 0);
+		stubRect(scroller, 0, 200);
+		if (withPane)
+			withBacklinks(scroller, 700);
+		withFloatingBar(barTop, barHeight);
+		return { scroller, view: makeView({ mode: 'preview', scroller }).view };
+	}
+
+	it('ends the note above the bar rather than behind it', () => {
+		const { scroller, view } = underBar(160);
+
+		moveToEdge(view, 'bottom');
+
+		// 700 - (200 - 40): the last line clears the bar, which the pane below it does not.
+		expect(scroller.scrollTop).toBe(540);
+	});
+
+	// A soft keyboard pushes the bar off the window instead of over it.
+	it('takes nothing off for a bar that is no longer in the way', () => {
+		const { scroller, view } = underBar(210);
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(500);
+	});
+
+	// No pane means the app has already padded the foot of the note by half a window, so the last
+	// line clears the bar on its own — and there is nowhere further to go anyway.
+	it('asks for the furthest when there is no pane to stop short of', () => {
+		const { scroller, view } = underBar(160, 40, false);
+
+		moveToEdge(view, 'bottom');
+
+		expect(scroller.scrollTop).toBe(800);
 	});
 });
 
