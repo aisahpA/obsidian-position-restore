@@ -22,7 +22,7 @@ import {
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
 import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { atEdge, moveToEdge, NoteEdge } from './edges';
+import { atEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
@@ -226,8 +226,13 @@ export class PositionManager {
 		// would then overwrite that one position with the new one.
 		this.funnel.visit({ record: { kind: 'visit', path, leafId }, cause: 'open', forced: true });
 		// Bracketed: the move is this plugin's, and the sampler must not read it as the reader
-		// scrolling, which is exactly what it looks like — a screenful moved in one tick.
-		void this.funnel.runBracketed(async () => moveToEdge(view, edge))
+		// scrolling, which is exactly what it looks like — a screenful moved in one tick. The hold
+		// rides inside the same bracket: the corrections it makes are the move finishing, not a
+		// second navigation.
+		void this.funnel.runBracketed(async () => {
+			moveToEdge(view, edge);
+			await holdEdge(view, edge);
+		})
 			.catch(e => console.error('Position Restore: go to edge failed:', e));
 	}
 
