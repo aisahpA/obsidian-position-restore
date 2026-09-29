@@ -25,7 +25,7 @@ import {
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
 import { isMainAreaLeaf, markdownViewInUse, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { atEdge, caretAtEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
+import { atEdge, caretAtEdge, caretToEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
@@ -223,12 +223,20 @@ export class PositionManager {
 		const view = markdownViewInUse(this.app);
 		if (!view?.file)
 			return;
-		// Already there is two answers, not one: the view can stand at the top while the caret is
-		// 200 lines down, and a reader who asks for the top wants it moved. Only when NEITHER the
-		// scroll nor the caret would change is the press a no-op — that is what keeps a double
-		// press from costing back two presses.
-		if (atEdge(view, edge) && caretAtEdge(view, edge))
+		// Standing there is two answers, not one: the view can show the top with the caret 200
+		// lines down, and a reader who asks for the top wants it moved. When it is the only thing
+		// outstanding it goes WITHOUT the rest of the journey — no step, because nothing moved
+		// that could be seen, and back from one would answer with a view that does not stir; and
+		// no hold, because no scroll went anywhere to be undone. Bracketed all the same: a caret
+		// that jumps two hundred lines is the shape the desktop sampler infers a step from.
+		if (atEdge(view, edge)) {
+			if (!caretAtEdge(view, edge))
+				void this.funnel.runBracketed(async () => {
+					caretToEdge(view, edge);
+				})
+					.catch(e => console.error('Position Restore: move caret to edge failed:', e));
 			return;
+		}
 		const path = view.file.path;
 		const leafId = this.state.leafId(view.leaf);
 		const st = readNavEntryState(view);

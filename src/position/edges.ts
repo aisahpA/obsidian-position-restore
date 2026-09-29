@@ -32,11 +32,8 @@ export function atEdge(view: MarkdownView, edge: NoteEdge): boolean {
 
 // The CARET half: whether `caretToEdge` would change anything. A view can show the top of a note
 // with the caret 200 lines down, and a reader asking for the top wants it moved — so "nothing to
-// do" is the scroll and the caret agreeing, not the scroll alone (see manager.goToEdge). A reading
-// view gets no caret move at all, so for it the scroll is the whole answer.
+// do" is the scroll and the caret agreeing, not the scroll alone (see manager.goToEdge).
 export function caretAtEdge(view: MarkdownView, edge: NoteEdge): boolean {
-	if (view.getMode() !== 'source')
-		return true;
 	const editor = view.editor;
 	if (!editor)
 		return true;
@@ -48,8 +45,7 @@ export function caretAtEdge(view: MarkdownView, edge: NoteEdge): boolean {
 }
 
 export function moveToEdge(view: MarkdownView, edge: NoteEdge): void {
-	if (view.getMode() === 'source')
-		caretToEdge(view, edge);
+	caretToEdge(view, edge);
 	const el = getScroller(view);
 	if (el)
 		applyEdge(el, edge);
@@ -97,9 +93,12 @@ function applyEdge(el: HTMLElement, edge: NoteEdge): void {
 }
 
 // The caret an editor key would leave: at the head of the first line, or at the end of the last.
-// Reading mode has no caret to put, and the caret is what makes the difference between "the note
-// scrolled" and "the reader's own cursor moved".
-function caretToEdge(view: MarkdownView, edge: NoteEdge): void {
+// BOTH modes get one: a reading view shows no caret, but `view.editor` is its edit mode, built
+// with the leaf and kept behind the preview — and switching modes carries the scroll and the folds
+// across, never the selection. Placing it here is what puts the caret on the first line for a
+// reader who arrived in reading mode and switched afterwards. It is also what makes asking for an
+// end different from asking for a scroll.
+export function caretToEdge(view: MarkdownView, edge: NoteEdge): void {
 	const editor = view.editor;
 	if (!editor)
 		return;

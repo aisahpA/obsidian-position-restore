@@ -2,10 +2,11 @@
 // manager.goToEdge). What is worth pinning is the part that is NOT the
 // scrolling:
 //  - which element is moved, and to which end of its range;
-//  - the caret a source view leaves (an editor key moves one, a scroll does
-//    not) and reading mode having none to move;
-//  - a command pressed at the end it asks for recording nothing — otherwise
-//    back needs as many presses to get back to where the reader was;
+//  - the caret an editor key leaves, in BOTH modes: a reading view shows none, but
+//    the editor behind it is real and outlives the switch to editing;
+//  - a command pressed at the end it asks for moving nothing and recording
+//    nothing — otherwise back needs as many presses to get back to where the
+//    reader was;
 //  - the caret being the half that still moves when the view already stands
 //    at that end: a note can show its top with the cursor 200 lines down;
 //  - the step: where the reader stood stays on the stack, and the arrival is
@@ -65,12 +66,14 @@ function makeView(opts: {
 		file: { path: 'a.md', stat: { mtime: 1 } },
 		getMode: () => opts.mode,
 		currentMode: { getScroll: () => opts.topLine ?? 300 },
-		editor: opts.mode === 'source' ? editor : undefined,
+		// Both modes: `view.editor` is the leaf's edit mode, present and live whatever is
+		// being displayed (see caretToEdge) — no caret is SHOWN in reading mode.
+		editor,
 		contentEl,
 		containerEl,
 		getViewType: () => 'markdown',
 	}) as MarkdownView & {
-		editor: typeof editor | undefined;
+		editor: typeof editor;
 	};
 	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1', view };
 	return { view, editor };
@@ -157,12 +160,16 @@ describe('moving to an end of a note', () => {
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three"
 	});
 
-	it('moves a reading view, which has no caret to leave', () => {
+	it('moves a reading view too, whose caret is not for showing', () => {
 		const scroller = makeScroller(1000, 200, 400);
-		const { view } = makeView({ mode: 'preview', scroller });
+		const { view, editor } = makeView({ mode: 'preview', scroller, cursor: { line: 2, ch: 3 } });
 
-		expect(() => moveToEdge(view, 'top')).not.toThrow();
+		moveToEdge(view, 'top');
+
 		expect(scroller.scrollTop).toBe(0);
+		// Placed, not shown: switching to editing afterwards is when it becomes visible, and
+		// the mode switch carries the scroll and the folds, never the selection.
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
 	});
 });
 
@@ -288,13 +295,16 @@ describe('the caret standing at that end', () => {
 		expect(caretAtEdge(atBottom({ line: 2, ch: 3 }), 'bottom')).toBe(false);
 	});
 
-	// A reading view gets no caret move at all, so for it the scroll is the whole answer —
-	// otherwise every press in reading mode would take a step it cannot act on.
-	it('is true of a reading view, which has no caret to stand anywhere', () => {
-		const { view } = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 0) });
+	// Reading mode is no exception: its caret is invisible, not absent.
+	it('is read off a reading view the same way', () => {
+		const { view } = makeView({
+			mode: 'preview',
+			scroller: makeScroller(1000, 200, 0),
+			cursor: { line: 2, ch: 3 },
+		});
 
-		expect(caretAtEdge(view, 'top')).toBe(true);
-		expect(caretAtEdge(view, 'bottom')).toBe(true);
+		expect(caretAtEdge(view, 'top')).toBe(false);
+		expect(caretAtEdge(view, 'bottom')).toBe(false);
 	});
 });
 
@@ -346,15 +356,27 @@ describe('the step an end takes', () => {
 	});
 
 	// The view showing the top is not the same as the reader being there: the caret is half of
-	// what the command moves, and a press that moves it is a press that took the reader somewhere.
-	it('still moves a caret the view had left behind, and steps for it', async () => {
+	// what the command moves. No step for it — back from a press that stirred nothing the eye
+	// could see would answer with another such press.
+	it('still moves a caret the view had left behind, taking no step', async () => {
 		const { manager, stack, editor } = standingAt(0, 'source', { line: 2, ch: 3 });
 
 		manager.goToEdge('top');
 		await Promise.resolve();
 
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
-		expect(stack.entries).toHaveLength(2);
+		expect(stack.entries).toHaveLength(1);
+	});
+
+	// …in reading mode too, where what gets placed is the caret the mode switch will uncover.
+	it('moves the same hidden caret in a reading view, taking no step', async () => {
+		const { manager, stack, editor } = standingAt(0, 'preview', { line: 2, ch: 3 });
+
+		manager.goToEdge('top');
+		await Promise.resolve();
+
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
+		expect(stack.entries).toHaveLength(1);
 	});
 
 	it('does nothing when the caret already stands at that end too', async () => {
