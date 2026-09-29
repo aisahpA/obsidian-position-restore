@@ -1,4 +1,4 @@
-import { Platform, Plugin } from 'obsidian';
+import { Platform, Plugin, type Tasks } from 'obsidian';
 import { SettingTab } from './settings/tab';
 import { PluginSettings, SAFE_DB_FLUSH_INTERVAL, VIEW_STATE_POLL_MS, DEFAULT_SETTINGS } from './types';
 import { CursorPositionDatabase } from './position/storage/database';
@@ -200,7 +200,12 @@ export default class PositionRestorePlugin extends Plugin {
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.manager.renameFile(file, oldPath)));
 		this.registerEvent(this.app.vault.on('delete', (file) => this.manager.deleteFile(file)));
 		this.registerEvent(this.app.vault.on('create', (file) => this.manager.fileCreated(file)));
-		this.registerEvent(this.app.workspace.on('quit', () => this.manager.storePositionData()));
+		// Obsidian waits on the promises handed to Tasks before it exits. Without this the db
+		// write is fire-and-forget and races the teardown, so everything recorded since the last
+		// periodic flush is lost. The in-memory stores persist synchronously; this is the file.
+		this.registerEvent(this.app.workspace.on('quit', (tasks: Tasks) => {
+			tasks.addPromise(this.manager.storePositionData());
+		}));
 	}
 
 	// A 100ms poll rather than event-driven: the task is "remember the position before
@@ -256,7 +261,10 @@ export default class PositionRestorePlugin extends Plugin {
 				this.manager.sampleActiveView();
 				this.manager.sampleActiveViewState();
 			}
-			this.manager.storePositionData();
+			// Not awaited, and there is nothing here to await it with: no Tasks to hand it to
+			// on a suspend, and JS may be frozen mid-write anyway. The three in-memory stores
+			// have already been written synchronously above; this is only the file.
+			void this.manager.storePositionData();
 		};
 		this.registerDomEvent(document, 'visibilitychange', () => {
 			if (document.hidden)

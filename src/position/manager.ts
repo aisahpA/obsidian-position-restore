@@ -175,7 +175,11 @@ export class PositionManager {
 		});
 	}
 
-	storePositionData() {
+	// Every persist point (quit, suspend flush, periodic flush) goes through here. The three
+	// stores below write synchronously to localStorage; only the db file is async, so this
+	// promise is the whole answer to "has everything reached disk" — which is what lets the
+	// quit handler hand Obsidian something to wait for (see main.ts's 'quit').
+	async storePositionData(): Promise<void> {
 		// Closing a leaf fires no dedicated event, so dead records survive until the next fresh
 		// open's prune. Prune at every persist point instead (quit, suspend flush, periodic flush).
 		this.restorer.pruneStaleLeafIds();
@@ -190,7 +194,7 @@ export class PositionManager {
 		this.stack.persist();
 		this.places.persist();
 
-		void this.database.writeDb();
+		await this.database.writeDb();
 	}
 
 	// Navigate back/forward through the recorded jump history (VSCode-style). The promise IS
