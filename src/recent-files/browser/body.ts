@@ -277,7 +277,7 @@ export class RecentFilesBrowser {
 			// that a row's words, what it warns about and where it goes cannot disagree.
 			lostLanding: (entry, d, i) => this.landingLost(entry, this.nowLineAt(i, entry, d)),
 			// The file's other names: searchable, and printed nowhere but the tooltip.
-			aliasesFor: path => this.reads.aliasesFor(path),
+			otherNames: (path, printed) => this.reads.otherNamesFor(path, printed),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
 			// Which FILE the row names, and whether the row is the note's own rather than a spot in

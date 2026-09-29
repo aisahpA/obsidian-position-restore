@@ -1300,7 +1300,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 	});
 });
 
-// The OTHER NAMES a file goes by (see RecentFilesReads.aliasesFor): searchable, and
+// The OTHER NAMES a file goes by (see RecentFilesReads.otherNamesFor): searchable, and
 // printed nowhere on the row but its own tooltip. They are the fourth thing a query
 // can hit that is not literally on the row, and the first one that is deliberately
 // about the reader's memory rather than about the visit.
@@ -1327,6 +1327,10 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 	};
 	const names = (h: ReturnType<typeof harness>) =>
 		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
+	// The tooltip's name lines, in the order they are drawn: what the note calls
+	// itself, then what it answers to (see TipContent).
+	const namesOn = (tip: HTMLElement) =>
+		Array.from(tip.querySelectorAll('.nav-tip-text')).map(l => l.textContent);
 
 	it('finds a note by an alias, by its title, and not by an unrelated word', () => {
 		const h = harness(entries(), 2, files, [], {}, cache);
@@ -1395,22 +1399,41 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		const h = harness([visit('a.md', NOW - MINUTE), visit('plain.md', NOW)], 1,
 			{ 'a.md': '', 'plain.md': '' }, [], {}, cache);
 
-		// The path first, then the names — title before aliases, in the order the
-		// frontmatter lists them (see readMeta). The row prints neither the extension
-		// nor the folder, so this is where a reader can still see them; and the path is
-		// drawn SEGMENT BY SEGMENT, so the separators are elements of their own (see
-		// tip.ts) — the string a reader copies is the same one either way.
+		// The path first, then the name the note gives ITSELF on a line of its own, then
+		// the aliases (see readMeta): the row prints neither the extension nor the folder,
+		// so this is where a reader can still see them; and the path is drawn SEGMENT BY
+		// SEGMENT, so the separators are elements of their own (see tip.ts) — the string
+		// a reader copies is the same one either way.
 		const withNames = h.hover(h.note('a'))!;
 		expect(withNames.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
 		expect(Array.from(withNames.querySelectorAll('.nav-tip-sep')).map(s => s.textContent)).toEqual([]);
-		expect(withNames.querySelector('.nav-tip-text')?.textContent)
-			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
+		expect(namesOn(withNames)).toEqual([
+			`${t('recentFiles.title')} Weekly sync`,
+			`${t('recentFiles.aliases')} 周会 · standup`,
+		]);
 
 		// …and a note with no other names says the path and nothing else.
 		h.unhover(h.note('a'));
 		const plain = h.hover(h.note('plain'))!;
 		expect(plain.querySelector('.nav-tip-path')?.textContent).toBe('plain.md');
 		expect(plain.querySelector('.nav-tip-text')).toBeNull();
+	});
+
+	it('says nothing about a name the row is already printing', () => {
+		// The reader made `title` the property a row prints, so the note's own name is
+		// on the row: the tooltip owes it nothing, and what is left to say is the
+		// aliases. A `title` that IS the file's own name is the same case with the
+		// setting off — the row prints it either way, so it goes unsaid there too.
+		const h = harness([visit('a.md', NOW - MINUTE), visit('same.md', NOW)], 1,
+			{ 'a.md': '', 'same.md': '' }, [], {}, {
+				...cache,
+				'same.md': { headings: [], frontmatter: { title: 'same', aliases: ['同样'] } },
+			}, false, {}, prefs({ title: 'title' }).browser);
+
+		const named = h.note('Weekly sync');
+		expect(namesOn(h.hover(named)!)).toEqual([`${t('recentFiles.aliases')} 周会 · standup`]);
+		h.unhover(named);
+		expect(namesOn(h.hover(h.note('same'))!)).toEqual([`${t('recentFiles.aliases')} 同样`]);
 	});
 
 	it('draws a folder path as its segments, with the separators between them', () => {
@@ -2428,8 +2451,11 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 
 		const tip = h.hover(rowFor(h, 'a/index.md'))!;
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
-		expect(tip.querySelector('.nav-tip-text')?.textContent)
-			.toBe(`${t('recentFiles.aka')} Weekly sync · 周会 · standup`);
+		expect(Array.from(tip.querySelectorAll('.nav-tip-text')).map(l => l.textContent))
+			.toEqual([
+				`${t('recentFiles.title')} Weekly sync`,
+				`${t('recentFiles.aliases')} 周会 · standup`,
+			]);
 	});
 
 	it('marks a pathless view, and says nothing else about it', () => {

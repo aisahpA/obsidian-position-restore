@@ -256,10 +256,19 @@ export const en = {
 	// row promises a heading, so "open in a new tab" has to mean opening it
 	// THERE. The menu it sits in is the app's; this is the one item the app
 	// cannot know.
-	// A file's OTHER names, on the row's own tooltip: searchable, occupying no
-	// cell, so the hover is the only place a reader sees them. The colon is
-	// part of the value — whether to draw one is the language's call.
-	'recentFiles.aka': 'aka:',
+	// The two name lines on a row's tooltip, each led by the PROPERTY it came from
+	// (`title` / `aliases`) — the same in every language: a property name is a key in
+	// the reader's own note, which the app does not translate either, so a translated
+	// label would not match the line they wrote. Lower case because that is how it is
+	// written there, and how it is read (`fm?.aliases`).
+	//
+	// TWO LINES AND NOT ONE because a `title` is not an alias: it is the name the note
+	// gives itself, while an alias is the app's word for `aliases`. The title's line is
+	// absent when the row is already printing it. The colon is part of the value.
+	'recentFiles.title': 'title:',
+	// …and the names the note ANSWERS TO: searchable, occupying no cell, so the hover
+	// is the only place a reader sees them.
+	'recentFiles.aliases': 'aliases:',
 	// The two QUOTED lines on a heading row's tooltip: both the note's own
 	// words, recorded when the place was taken and printed nowhere else. "As
 	// recorded" is the point — the note may have been edited since. Below
