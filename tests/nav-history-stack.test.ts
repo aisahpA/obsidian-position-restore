@@ -872,9 +872,10 @@ describe('NavStack.navigate', () => {
 			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## Two' });
 			const at = placeOf(nav, e => e.kind === 'jump' && e.key === 'outline:## One');
-			// The landing the jump settled on, as the store keeps it.
-			(nav.places.entries[at] as NavJump).st =
-				{ scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+			// The landing the jump settled on, as the store keeps it: no caret (see
+			// readLandingState) and the heading's own line, which need not be the recorded scroll.
+			(nav.places.entries[at] as NavJump).keyLine = 60;
+			(nav.places.entries[at] as NavJump).st = { scroll: 5 };
 			expect(nav.stack.index).toBe(2);
 
 			nowSpy.mockReturnValue(2000);
@@ -893,7 +894,8 @@ describe('NavStack.navigate', () => {
 		// ...and its own (fresh) timestamp
 		expect(nav.stack.entries[1].t).toBe(1000);
 		expect(nav.stack.entries[3].t).toBe(2000);
-		// applied the chosen place's recorded position
+		// the same landing a travel to step or place applies: the note at its recorded
+		// scroll, the caret at the head of the LINE the jump names (see landedLine).
 		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
 		// the origin is the entry right below — back one step returns to it
 		expect(nav.stack.canNavigate(-1)).toBe(true);
@@ -906,6 +908,52 @@ describe('NavStack.navigate', () => {
 		// again at the same-file apply)
 		const state = (nav.stack as unknown as { state: PositionState }).state;
 		expect(state.cueSuppressUntil).toBeGreaterThan(Date.now());
+	});
+
+	it('marks the line the jump names once the note has landed on it', async () => {
+		// A jump NAMES a line, so the landing has to read like the app's own answer to
+		// clicking that heading in the outline — and a recent-files heading row IS that
+		// outline. Asked for at the travel and answered after the landing settled, so
+		// what gets marked is the line as it stands now, not the one asked for.
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so this is a travel to somewhere else
+		const at = placeOf(nav, e => e.kind === 'jump');
+		(nav.places.entries[at] as NavJump).keyLine = 60;
+		(nav.places.entries[at] as NavJump).st = { scroll: 5 };
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.places.travel(at);
+
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+		// Asked once and spent: a line left asked for belongs to no travel at all.
+		expect(state.pendingLineFlash).toBeUndefined();
+	});
+
+	it('marks nothing for a step that names no line', async () => {
+		// A step records a READING POSITION, not a heading, so there is no line to mark
+		// and the caret it recorded rides along untouched.
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		(nav.stack.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.stack.navigate(-1);
+
+		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
+		expect(flashLine).not.toHaveBeenCalled();
 	});
 
 	it('re-lands the place the reader is already on instead of duplicating it', async () => {
@@ -1863,9 +1911,12 @@ describe('NavStack — a travel asked for elsewhere', () => {
 		expect(h.openFile.mock.contexts[0]).toBe(h.newLeaf);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.newLeaf, { focus: true });
 		// The landing is not part of the difference: this is the same injection a plain
-		// travel arms, so the same note opened one tab over lands in the same spot.
+		// travel arms, so the same note opened one tab over lands in the same spot —
+		// scroll and the caret that spot puts on the line (see landingOf).
 		expect(armed(h.nav).pendingHistoryNav).toBe(true);
-		expect(armed(h.nav).pendingHistoryNavState).toEqual({ scroll: 30 });
+		expect(armed(h.nav).pendingHistoryNavState).toEqual({
+			scroll: 30, cursor: { from: { line: 30, ch: 0 }, to: { line: 30, ch: 0 } },
+		});
 		expect(armed(h.nav).pendingHistoryNavPath).toBe('b.md');
 	});
 

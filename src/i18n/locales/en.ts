@@ -154,10 +154,16 @@ export const en = {
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
 	'navHistory.recordActivation.desc': 'Clicking another tab pushes a back/forward step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps — except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note. It governs the back/forward history only: the recent-files list records those views either way.',
-	'navHistory.teleportMinLines.name': 'Cursor jump distance',
-	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action — clicking a spot far away in the note, a go-to-line command, a keyboard motion that crosses many lines at once — counts as an in-file jump and pushes a back/forward step. Set 0 to never record one. Desktop only: the phone and tablet apps run no such detection.',
+	'navHistory.teleportMinLines.name': 'Minimum lines in one cursor move',
+	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action — clicking a spot far away in the note, a go-to-line command, a keyboard motion that crosses many lines at once — counts as an in-file jump and pushes a back/forward step. Set 0 to never record one — the default, since a step inferred from a cursor move is one the reader never asked for. Desktop only: the phone and tablet apps run no such detection.',
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
+
+	// ── The two ends of a note ────────────────────────────────────────
+	// Named for the DESTINATION, not for the moving: the reader is picking a
+	// place in the note. Neither is bound by default, like the rest.
+	'noteEdge.commands.top': 'Go to top of note',
+	'noteEdge.commands.bottom': 'Go to bottom of note',
 
 	// ── Feature 3 · Recent files: the list of places, and its panel ─────
 	// The modal's own title, and the PANEL's name: a list of places — recent

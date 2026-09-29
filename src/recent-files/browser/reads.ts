@@ -60,6 +60,11 @@ export class RecentFilesReads {
 	// a miss is asked again next render, which is one map lookup, while the work this
 	// map spares only happens once there is an answer to spare it on.
 	private meta = new Map<string, FileMeta>();
+	// The property the remembered names were read under. COMPARED ON EVERY ASKING
+	// rather than invalidated by an event: the property is a reader this cache cannot
+	// subscribe to, and the reader who changed it in the settings is looking at the
+	// panel that has to change under them (see RecentFilesBrowserPrefs.titleProperty).
+	private titledFor?: string;
 	// The file's own TEXT, for the two questions the cache cannot answer: the chain of
 	// a note it has not re-parsed (see headingsFor), and the line a stale number has
 	// moved to (see linesFor). One reading serves both — a note's lines are the lines
@@ -144,11 +149,22 @@ export class RecentFilesReads {
 	}
 
 	// Mapped once per path — and only once the cache has answered (see `meta`).
+	//
+	// A record whose NAME was read under the property the reader has since changed is an
+	// answer to a question nobody is asking, and it is kept PER PATH — so it would outlive
+	// the redraw that has to print the new one. The rest of the record goes with it: each
+	// of its parts is one cache lookup, and half a reading under two questions is a second
+	// rule to reason about.
 	metaFor(path: string): FileMeta {
+		const prop = this.opts.titleProperty?.() ?? '';
+		if (prop !== this.titledFor) {
+			this.titledFor = prop;
+			this.meta.clear();
+		}
 		const known = this.meta.get(path);
 		if (known)
 			return known;
-		const read = readMeta(this.app, path, this.opts.titleProperty?.() ?? '');
+		const read = readMeta(this.app, path, prop);
 		if (!read)
 			return noMeta();
 		this.meta.set(path, read);

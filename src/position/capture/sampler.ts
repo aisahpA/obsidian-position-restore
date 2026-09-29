@@ -1,7 +1,7 @@
 import { App, FileView, MarkdownView, Platform, TFile, WorkspaceLeaf, debounce, type Editor, type EditorPosition, type EventRef } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
 import { PositionStore } from '@/position/storage/position-store';
-import { readEphemeralState, readLandingState, readNavEntryState, withNavDisplay } from './ephemeral';
+import { readEphemeralState, readLandingState, readNavEntryState, readSampledState, withNavDisplay } from './ephemeral';
 import { isEphemeralStatesEquals, isCursorStatesEqual } from '@/shared/ephemeral-equals';
 import { ExclusionChecker } from '@/position/policy/exclusion';
 import { frontmatterDecisionFor } from '@/position/policy/frontmatter';
@@ -253,7 +253,11 @@ export class Sampler {
 
 		// Markdown leaves record line/cursor state.
 		if (view instanceof MarkdownView) {
-			const st = readEphemeralState(view);
+			// The captured scroll is the app's own cue to fill the view's cache, so it is already
+			// current here — and it is the only thing that still knows the position of a pane that
+			// is out of layout, which this listener records too (a background pane scrolled and
+			// closed before it was ever activated).
+			const st = readSampledState(view);
 			if (!st) return;
 
 			this.store.write(leafId, filePath, st);
@@ -392,6 +396,15 @@ export class Sampler {
 		const prevPath = reanchored ? undefined : this.teleportFromPath;
 		this.teleportFrom = from;
 		this.teleportFromPath = filePath;
+		// A selection is not a cursor: anchor and head span how much was chosen, not
+		// how far the reader travelled — Cmd+A puts them at both ends of the file. No
+		// threshold filters that, so drop the baseline too: the next event must not
+		// measure from a point the reader never stood on. A search session pays one
+		// move for it — its hops are keyed, they need no inferred step.
+		if (editor.somethingSelected()) {
+			this.teleportFrom = undefined;
+			return;
+		}
 		// A different file is a switch, not an in-file jump: reset silently.
 		if (!prev || prevPath !== filePath)
 			return;

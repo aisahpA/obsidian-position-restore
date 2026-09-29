@@ -732,33 +732,71 @@ describe('RecentFilesModal — current position', () => {
 		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
 	});
 
-	it('says the section on a file row — the one thing it can be found by and never shows', () => {
-		// A query matches a row on its heading chain (see matchesNavFilter), and a FILE
-		// row prints no chain at all — the chain is a landing row's. So the hover says
-		// it: a row kept by a heading the reader cannot see anywhere would be a row that
-		// matched by magic. Not only while a query is up: the chain is where this row's
-		// own click lands, which is worth saying whenever the reader asks.
+	it('is not found by the section a visit merely happens to sit in', () => {
+		// A VISIT IS NOT A PLACE. The line it carries is the note's as the position
+		// database last saw it, which moves while the note is being read — so the
+		// chain read off that line is a fact about the minute and not about the
+		// record. A query that answers "yes" now and "no" after the reader has
+		// scrolled is a search box that cannot be trusted, so the chain is neither
+		// searched nor said: what this row is about is the NOTE, whose click opens
+		// it the plain way and lets the position database decide where it lands.
+		// `saved` is that database's answer — the only reason a visit has a line.
 		const h = harness(
-			[visit('a.md', NOW, { scroll: 6 }), visit('plain.md', NOW - MINUTE)], 0,
-			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS,
+			[visit('a.md', NOW), visit('plain.md', NOW - MINUTE)], 0,
+			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS, false, {}, undefined,
+			path => (path === 'a.md' ? { scroll: 6 } : undefined),
 		);
+		// The row prints no chain, and its hover names no section: the note is what
+		// the row stands for, and a chain on it would promise a landing its click
+		// does not make.
+		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
 		const tip = h.hover(h.note('a'))!;
-		expect(tip.querySelector('.nav-tip-section')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
-		// …and a note with no headings says no section: the line is the chain, not a
-		// heading this panel invented.
+		expect(tip).not.toBeNull();
+		expect(tip.textContent).not.toContain('预览');
 		h.unhover(h.note('a'));
-		expect(h.hover(h.note('plain'))?.querySelector('.nav-tip-section')).toBeNull();
 
-		// WHILE THE QUERY MATCHES IT: the row is kept by that heading, prints nothing of
-		// it, and the hover is the one place the words appear.
+		// …and the heading this row does sit under is not a way in: the query finds
+		// nothing at all.
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '预览';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
-		h.unhover(h.note('a'));
-		expect(h.notes()).toHaveLength(1); // the chain carried the word
-		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
-		expect(h.hover(h.note('a'))?.querySelector('.nav-tip-section')?.textContent)
-			.toBe('面板设计 › 呈现方案 › 预览');
+		expect(h.notes()).toHaveLength(0);
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
+			.toBe(t('recentFiles.noMatch'));
+
+		// A JUMP IS FOUND BY ITS SECTION ALL THE SAME — the narrowing is about a
+		// visit and only about a visit. A jump named the heading it went to: that is
+		// a fact about the record, it is what the landing's row prints, and under
+		// 'last' it is the invisible index a note is found through (see LandingsMode).
+		const jump = harness([visit('a.md', NOW, { scroll: 6 })], 0, { 'a.md': A_DOC },
+			[], {}, A_HEADINGS);
+		const jbox = jump.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		jbox.value = '预览';
+		jbox.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(jump.notes()).toHaveLength(1); // the chain carried the word
+	});
+
+	it('is not found by the coordinate a row prints', () => {
+		// "L7" IS A READING, NOT A NAME: where the reader left the note, which the
+		// position database rewrites while it is being read. It is on the row to be
+		// looked at and not to be typed, and a number that answers a query one minute
+		// and not the next is worse than one that never answers at all.
+		const entries = [
+			visit('a.md', NOW - MINUTE, { scroll: 6 }),
+			visit('a.md', NOW, { scroll: 20 }),
+		];
+		const h = harnessAll(
+			entries, 1, { 'a.md': SPREAD_DOC.join('\n') }, [], {}, SPREAD_HEADINGS,
+		);
+		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
+			.toContain('L7'); // the row does print it
+
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = 'L7';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.notes()).toHaveLength(0);
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
+			.toBe(t('recentFiles.noMatch'));
 	});
 
 	it('prints both spots, the current one marked, when the setting asks for them', () => {
@@ -4579,11 +4617,13 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 			'other/b.md': cacheWith({ title: '周会' }),
 		}, false, {}, named('title'));
 
-		// Two rows reading 周会 are two rows a reader cannot choose between, so
-		// the folder is printed — exactly as it is for two files of one name.
+		// Two rows reading 周会 are two rows a reader cannot choose between, so a path
+		// is printed — exactly as it is for two files of one name. It is the FILE'S OWN
+		// path rather than the folder alone: these names were borrowed, so the folder
+		// is not the wrong answer so much as a half of one.
 		expect(names(h)).toEqual(['周会', '周会']);
 		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
-			.toEqual(['other/', 'notes/']);
+			.toEqual(['other/b.md', 'notes/a.md']);
 
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '周会';
@@ -4594,6 +4634,33 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		box.value = 'a.md';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(names(h)).toEqual(['周会']);
+	});
+
+	it('still says which file it is, once its name is borrowed', () => {
+		// A row printing every path says no MORE than a row printing none: the folder
+		// alone names no file, and under a borrowed name neither does the name cell —
+		// so both "always" modes owe the file its own name, on the same row, or the
+		// note this row stands for is the one thing it never says.
+		const h = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+		}, false, {}, prefs({ title: 'title', path: 'before' }).browser);
+
+		expect(names(h)).toEqual(['每周回顾', 'b']);
+		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
+			.toEqual(['a.md', '/']);
+		// …and nothing about the path on hover: the row has just said it, and a hover
+		// is for what a row leaves out (see fileRow).
+		expect(h.hover(h.notes()[0])).toBeNull();
+
+		// WHERE NO PATH IS PRINTED, the file's own name is one hover away instead —
+		// a reader who did not ask for paths is not a reader who cannot ask which
+		// note this is.
+		const quiet = harness(spots(), 1, files, [], {}, {
+			'a.md': cacheWith({ title: '每周回顾' }),
+		}, false, {}, named('title'));
+		expect(quiet.notes()[0].querySelector('.nav-row-path')).toBeNull();
+		expect(quiet.hover(quiet.notes()[0])?.querySelector('.nav-tip-path')?.textContent)
+			.toBe('a.md');
 	});
 
 	it('redraws when the name it prints changes, and not for any other edit', () => {
@@ -4620,5 +4687,29 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		h.changeFile('a.md');
 		expect(names(h)).toEqual(['Two']);
 		expect(h.notes()[0]).toBe(same);
+	});
+
+	it('redraws the name it prints when the reader picks a different property', () => {
+		// The property is a READER and not a value, and the settings tab asks a
+		// standing panel to draw again the moment it changes (see BROWSER_PREF_KEYS).
+		// What has to go with it is the memory of the names: those are kept PER PATH
+		// and outlive a redraw (see reads.ts), so a cache that kept them would print
+		// the name it read under the property the reader has since left behind.
+		const cache = {
+			'a.md': cacheWith({ title: '每周回顾', name: '另一个名字' }),
+		};
+		const chosen = prefs({ title: 'title' });
+		const h = harness(spots(), 1, files, [], {}, cache, false, {}, chosen.browser);
+		expect(names(h)).toEqual(['每周回顾', 'b']);
+
+		chosen.state.title = 'name';
+		h.changed();
+		expect(names(h)).toEqual(['另一个名字', 'b']);
+
+		// …and emptied is OFF again: a note is then called by its own name, however
+		// it is written.
+		chosen.state.title = '';
+		h.changed();
+		expect(names(h)).toEqual(['a', 'b']);
 	});
 });

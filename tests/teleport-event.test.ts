@@ -1,8 +1,9 @@
 // Unit tests for the desktop per-selection-event teleport detection
 // (Sampler.onEditorSelection): event granularity replaces the poll's
-// 100ms-tick rule on desktop, with the reader's own line threshold (VSCode's 10
-// is where it starts). Covers the
-// rolling baseline contract (refreshed even on gated-off movement), the
+// 100ms-tick rule on desktop, with the reader's own line threshold — the harness
+// pins 10 because these tests are about the detector, not the shipped default
+// (0, pinned by its own test below). Covers the rolling baseline contract
+// (refreshed even on gated-off movement), the selection exclusion, the
 // file-switch reset, the re-anchor epoch (restore landings reset silently),
 // the restore/search-anchor gates, and the landing-position contract: the
 // pushed entry carries the post-jump read and is never overwritten by a
@@ -48,7 +49,10 @@ function makeHarness(options?: { entries?: TestEntry[]; settings?: Partial<Plugi
 			getActiveViewOfType: () => view,
 		},
 	};
-	const settings = { ...DEFAULT_SETTINGS, ...options?.settings } as PluginSettings;
+	// The threshold is pinned here: DEFAULT_SETTINGS ships 0 (inferred steps off),
+	// and everything below is about the detector, not about the default.
+	const settings = { ...DEFAULT_SETTINGS, navHistoryTeleportMinLines: 10,
+		...options?.settings } as PluginSettings;
 	const state = new PositionState(settings);
 	state.lastLoadedFilePath = 'a.md';
 	const entries = options?.entries ?? [];
@@ -98,7 +102,7 @@ function makeHarness(options?: { entries?: TestEntry[]; settings?: Partial<Plugi
 	const onSelection = (sampler as unknown as { onEditorSelection: (editor: unknown) => void }).onEditorSelection;
 	// The handler runs against this editor; the cursor is mutated per step.
 	const cursor = { line: 3, ch: 0 };
-	const editor = { getCursor: () => ({ ...cursor }) };
+	const editor = { getCursor: () => ({ ...cursor }), somethingSelected: () => false };
 	view.editor = editor as never;
 	return {
 		sampler, state, funnel, view, onSelection, cursor, editor, entries,
@@ -151,6 +155,41 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		h.cursor.line = 90; // 65 lines from the rolled baseline, over it
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 90, expect.anything());
+	});
+
+	it('ships off: the default threshold records no inferred jump', () => {
+		expect(DEFAULT_SETTINGS.navHistoryTeleportMinLines).toBe(0);
+		const h = makeHarness({
+			settings: { navHistoryTeleportMinLines: DEFAULT_SETTINGS.navHistoryTeleportMinLines },
+		});
+
+		h.onSelection(h.editor); // baseline: line 3
+		h.cursor.line = 900;
+		h.onSelection(h.editor);
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
+	});
+
+	it('a selection is not a jump, and leaves no baseline behind', () => {
+		const h = makeHarness();
+		const editor = h.editor as unknown as { somethingSelected: () => boolean };
+
+		h.onSelection(h.editor); // baseline: line 3
+		editor.somethingSelected = () => true;
+		h.cursor.line = 900; // Cmd+A: the anchor sits at one end of the file
+		h.onSelection(h.editor);
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
+
+		// The selection collapsed elsewhere: measuring from its far anchor would read
+		// the collapse itself as a jump.
+		editor.somethingSelected = () => false;
+		h.cursor.line = 950;
+		h.onSelection(h.editor);
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
+
+		// Baseline re-armed at 950 — only a real move from there counts.
+		h.cursor.line = 1000;
+		h.onSelection(h.editor);
+		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 1000, expect.anything());
 	});
 
 	it('resets the baseline on a file switch, then records jumps in the new file', () => {

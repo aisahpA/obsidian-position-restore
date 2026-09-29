@@ -120,6 +120,12 @@ export class PositionState {
 	// the open it was armed for.
 	pendingHistoryNavPath: string | undefined;
 
+	// The line a travelling landing must mark once it has landed, the note it belongs to,
+	// and when it was asked for (see NavStack.armLandingMark). One-shot and path-bound for
+	// the reason the flag above is, and short-lived for one more: the note asked for here
+	// may reach this line by some other route, and that is nobody's heading to mark.
+	pendingLineFlash: { path: string; line: number; at: number } | undefined;
+
 	// leafId -> the landing the last injected open on that leaf was handed. The
 	// restorer's injected-source settle must verify the SAME line core was given — after
 	// a cross-file history jump the two deliberately differ.

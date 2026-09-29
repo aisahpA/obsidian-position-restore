@@ -1,4 +1,4 @@
-import { App, FileView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
+import { App, FileView, MarkdownView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
 import { PositionStore } from './storage/position-store';
@@ -22,6 +22,8 @@ import {
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
 import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
+import { atEdge, moveToEdge, NoteEdge } from './edges';
+import { readNavEntryState } from './capture/ephemeral';
 
 // Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
 // Each method dispatches to the piece that owns the concern — nothing here holds state of its own.
@@ -197,6 +199,40 @@ export class PositionManager {
 	navigateForward() {
 		void this.stack.navigate(1)
 			.catch(e => console.error('Position Restore: navigate forward failed:', e));
+	}
+
+	// A note's two ends, as navigation. The step is the point of it: the app's own keys move the
+	// view and leave nothing behind, so the spot the reader stood in is gone the moment they ask
+	// for the other end — on a phone, where those keys do not exist, that spot was never reachable
+	// again at all. So the standing place is written onto the step the reader is leaving, and the
+	// arrival takes a step of its own: back returns to where they stood, forward to the end.
+	//
+	// Neither end is a NAMED target, so both steps are keyless visits — a jump key would make the
+	// top of a note a place of its own in the recent-files list, which is what a heading is and an
+	// end of the note is not.
+	goToEdge(edge: NoteEdge): void {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view?.file)
+			return;
+		if (atEdge(view, edge))
+			return;
+		const path = view.file.path;
+		const leafId = this.state.leafId(view.leaf);
+		const st = readNavEntryState(view);
+		if (st)
+			this.funnel.leave(path, leafId, st);
+		// Forced past the same-location dedup: the arrival is in the same file as the step holding
+		// where they stood, and an unforced record would be folded into it — and the next leave
+		// would then overwrite that one position with the new one.
+		this.funnel.visit({ record: { kind: 'visit', path, leafId }, cause: 'open', forced: true });
+		// Bracketed: the move is this plugin's, and the sampler must not read it as the reader
+		// scrolling, which is exactly what it looks like — a screenful moved in one tick.
+		void this.funnel.runBracketed(async () => moveToEdge(view, edge))
+			.catch(e => console.error('Position Restore: go to edge failed:', e));
+	}
+
+	canGoToEdge(): boolean {
+		return !!this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
 	}
 
 	// Command availability for back/forward (checkCallback) — see NavStack.canNavigate.

@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
 import {
-	landingContext, readEphemeralState, readLandingState, readNavEntryState, withNavDisplay,
+	landingContext, readEphemeralState, readLandingState, readNavEntryState, readSampledState, withNavDisplay,
 } from '@/position/capture/ephemeral';
 import { EphemeralState, NavEntryState } from '@/types';
 
@@ -23,12 +23,14 @@ import { EphemeralState, NavEntryState } from '@/types';
 // rendered offset range. coordsAtPos maps an offset to a client top (x2);
 // the scroller box is [100, 700), so a rendered line top inside 100..700
 // reads as on-screen, anything else off-screen.
-function makeCm(opts: { viewport: { from: number; to: number }; coordsTop?: number }) {
+function makeCm(opts: { viewport: { from: number; to: number }; coordsTop?: number; hidden?: boolean }) {
 	return {
 		state: { doc: { lines: 1000, line: (n: number) => ({ from: (n - 1) * 10 }) } },
 		viewport: opts.viewport,
 		scrollDOM: {
 			getBoundingClientRect: () => ({ top: 100, bottom: 700, left: 0, right: 800 }),
+			// null = out of layout (a hidden tab) — the one case the live read cannot answer.
+			offsetParent: opts.hidden ? null : ({} as unknown as HTMLElement),
 		},
 		coordsAtPos: () => (opts.coordsTop === undefined ? null : { top: opts.coordsTop }),
 		defaultLineHeight: 20,
@@ -84,6 +86,28 @@ describe('readEphemeralState — the hot read is position only', () => {
 	});
 });
 
+// The scroll capture's read is the ONE that may take the app's own per-tab cache: the scroll that
+// fills it has already run by the time the listener fires, and a pane out of layout has no
+// scrollTop left to measure. Every other read measures the DOM.
+describe('readSampledState — the last-position read', () => {
+	it('takes the cached scroll over the live measure', () => {
+		const view = Object.assign(
+			makeView({ scroll: 10, cursorLine: 686, mode: 'source', lines: ['x'] }),
+			{ scroll: 680.59 },
+		);
+
+		expect(readSampledState(view)).toEqual({ scroll: 681, cursor: cursor(686) });
+	});
+
+	// A tab that never scrolled, a mode switch, a reload: the cache is null, and a live measure
+	// beats no position at all.
+	it('falls back to the live read when the tab has no cache yet', () => {
+		const view = makeView({ scroll: 42.3, cursorLine: 3, mode: 'source', lines: ['x'] });
+
+		expect(readSampledState(view)).toEqual({ scroll: 42, cursor: cursor(3) });
+	});
+});
+
 // A STEP carries the anchor it can be re-found by and the mtime its words were
 // taken at — and no words. The stack persists every step, so a block written
 // onto one is stored for a reader who never sees it.
@@ -109,9 +133,63 @@ describe('readNavEntryState — what a step carries', () => {
 		expect(st).not.toHaveProperty('context');
 	});
 
+	// A horizontal rule is a legal anchor by its text and a useless one by its nature: the remap
+	// scan looks outward from the recorded line, and in a note with several rules it finds a
+	// different one. Recorded like a blank line — no anchor, so the number stands or falls alone.
+	it('records no anchor when the viewport top is a horizontal rule', () => {
+		for (const rule of ['---', '***', '___']) {
+			const view = makeView({
+				scroll: 1.2, cursorLine: 3, mode: 'source',
+				lines: ['top', rule, 'x', 'cursor line'],
+				cm: makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 }),
+				mtime: 1_730_000_000_000,
+			});
+			expect(readNavEntryState(view)?.anchor).toBeUndefined();
+		}
+	});
+
+	it('still anchors a list item — only a bare rule is dropped', () => {
+		const view = makeView({
+			scroll: 1.2, cursorLine: 3, mode: 'source',
+			lines: ['top', '- a list item', 'x', 'cursor line'],
+			cm: makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 }),
+			mtime: 1_730_000_000_000,
+		});
+		expect(readNavEntryState(view)?.anchor).toBe('- a list item');
+	});
+
 	it('undefined when the hot read is undefined (renderer not caught up)', () => {
 		const view = makeView({ scroll: null as unknown as number, cursorLine: 3 });
 		expect(readNavEntryState(view)).toBeUndefined();
+	});
+
+	// A stacked tab group keeps only its active tab in layout: the hidden scroller's scrollTop
+	// reads 0, so the live read says "top of file" for a reader 680 lines down, and the
+	// leave-refresh stores that top as their position. Obsidian's own per-tab cache is what still
+	// knows — and the anchor must come off that same line, not off the bogus one.
+	it('takes the cached scroll when the tab is out of layout', () => {
+		const lines: string[] = Array.from({ length: 700 }, (_, i) => (i === 681 ? 'deep line' : 'x'));
+		lines[10] = 'top line';
+		const view = Object.assign(makeView({
+			scroll: 10, cursorLine: 686, mode: 'source', lines,
+			cm: makeCm({ viewport: { from: 0, to: 100 }, hidden: true }),
+		}), { scroll: 680.59 });
+
+		const st = readNavEntryState(view);
+
+		expect(st?.scroll).toBe(681);
+		expect(st?.anchor).toBe('deep line');
+	});
+
+	// Visible views keep reading the DOM: an applied restore writes the REQUESTED value into that
+	// cache, so trusting it here would echo the request back as the reader's position.
+	it('keeps the live read when the view is in layout, cache and all', () => {
+		const view = Object.assign(makeView({
+			scroll: 10, cursorLine: 686, mode: 'source', lines: Array.from({ length: 700 }, () => 'x'),
+			cm: makeCm({ viewport: { from: 0, to: 100 } }),
+		}), { scroll: 680.59 });
+
+		expect(readNavEntryState(view)?.scroll).toBe(10);
 	});
 });
 

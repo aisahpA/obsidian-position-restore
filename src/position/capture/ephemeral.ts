@@ -6,6 +6,17 @@ import { EphemeralState, NavEntryState } from '@/types';
 // display fields live in readNavEntryState / withNavDisplay, which run only when a nav entry is
 // actually saved.
 export function readEphemeralState(view: MarkdownView): EphemeralState | undefined {
+	const scroll = liveScroll(view);
+	if (scroll === undefined)
+		return undefined;
+	const state: EphemeralState = { scroll };
+	const cursor = hotCursor(view);
+	if (cursor)
+		state.cursor = cursor;
+	return state;
+}
+
+function liveScroll(view: MarkdownView): number | undefined {
 	const scroll = view.currentMode?.getScroll();
 	// getScroll() reports null (not undefined) while the preview renderer has not caught up —
 	// isNaN(null) is false, so it would pass the old guard and Math.round(null) would read as "top
@@ -26,24 +37,20 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 	// 3. Must be Math.round, not Math.floor: floor's dead zone is asymmetric ([n-1, n)), so any
 	//    landing slightly below the saved value re-introduces one-way downward drift. Only a
 	//    symmetric dead zone absorbs noise in both directions.
-	const topLine = Math.round(scroll);
-	const state: EphemeralState = { scroll: topLine };
+	return Math.round(scroll);
+}
 
+// The cursor half, shared by every read. A collapsed cursor at (0,0) is where the editor opens
+// anyway — omitted so such records stay minimal ([0] tombstones / scroll-only records).
+function hotCursor(view: MarkdownView): EphemeralState['cursor'] | undefined {
 	const editor = view.editor;
-	if (editor) {
-		const from = editor.getCursor("anchor");
-		const to = editor.getCursor("head");
-		// A collapsed cursor at (0,0) is where the editor opens anyway — omit it so such records
-		// stay minimal ([0] tombstones / scroll-only records).
-		if (from && to && (from.line !== 0 || from.ch !== 0 || to.line !== 0 || to.ch !== 0)) {
-			state.cursor = {
-				from: { ch: from.ch, line: from.line },
-				to: { ch: to.ch, line: to.line }
-			}
-		}
-	}
-
-	return state;
+	if (!editor)
+		return undefined;
+	const from = editor.getCursor("anchor");
+	const to = editor.getCursor("head");
+	if (!from || !to || (from.line === 0 && from.ch === 0 && to.line === 0 && to.ch === 0))
+		return undefined;
+	return { from: { ch: from.ch, line: from.line }, to: { ch: to.ch, line: to.line } };
 }
 
 // Minimal CM6 surface for the cursor-visibility check. Same cast family as CmLike
@@ -125,6 +132,12 @@ function contextBelow(
 	return out.length ? out : undefined;
 }
 
+// A thematic break ("---", "***", "___") names a place no better than a blank line does: the remap
+// scan searches outward from the recorded line for the recorded text, and one rule is
+// indistinguishable from the next, so a record anchored on a rule can re-find itself on a rule the
+// reader was never on. No anchor beats that.
+const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})$/;
+
 // The nav-display fields around a position: the viewport-top anchor (functional —
 // remapAnchoredState re-finds the line after later edits) and the file's mtime. Nothing here forces
 // layout: the landing's WORDS are the one part of a nav state the stepping side never reads, and
@@ -140,10 +153,10 @@ function navDisplayFields(
 	// Anchor: the primary line's trimmed text at capture time. A recorded position goes stale when
 	// the file is edited afterwards (inserts and deletes above shift every line below) —
 	// remapAnchoredState uses this text to re-find the line before the position is applied. Blank
-	// lines carry no anchor (an empty match would match every blank line).
+	// lines carry no anchor (an empty match would match every blank line); nor does a rule.
 	if (topLine >= 0 && topLine <= (editor.lastLine?.() ?? -1)) {
 		const text = editor.getLine(topLine).trim().slice(0, 80);
-		if (text)
+		if (text && !THEMATIC_BREAK.test(text))
 			display.anchor = text;
 	}
 	// The file's mtime at capture time — the record's own stamp, what the file WAS when the step was
@@ -182,6 +195,50 @@ export function landingContext(
 	return below ? { context: below } : undefined;
 }
 
+// A caret at the head of `line` — where the app leaves it when its own outline takes the
+// reader to a heading, and all a line number can promise about a place.
+export function caretAtLine(st: EphemeralState, line: number): EphemeralState {
+	return { ...st, cursor: { from: { line, ch: 0 }, to: { line, ch: 0 } } };
+}
+
+// Obsidian's own per-tab scroll cache — runtime-only, absent from the public typings. A plain field
+// on the view, null until something fills it: syncScroll writes it on every scroll,
+// setEphemeralState on every apply, clear/setViewData on a reload or a mode switch.
+interface ScrollCaching { scroll?: number | null }
+
+// Quantized like the live read: the cache carries the unrounded value.
+function cachedScroll(view: MarkdownView): number | undefined {
+	const cached = (view as unknown as ScrollCaching).scroll;
+	return cached != null && Number.isFinite(cached) ? Math.round(cached) : undefined;
+}
+
+// The LAST-POSITION read behind the scroll capture: the cache instead of a live measure. The scroll
+// that fills it (app's syncScroll) has already run by the time the listener fires, so on desktop it
+// is current — and it is the only source left when the pane is out of layout. Live read on a tab
+// with no cache yet (never scrolled, mode switch, just cleared): a number beats nothing.
+export function readSampledState(view: MarkdownView): EphemeralState | undefined {
+	const scroll = cachedScroll(view) ?? liveScroll(view);
+	if (scroll === undefined)
+		return undefined;
+	const state: EphemeralState = { scroll };
+	const cursor = hotCursor(view);
+	if (cursor)
+		state.cursor = cursor;
+	return state;
+}
+
+// A hidden tab's scroller is out of layout (a stacked tab group keeps only its active tab
+// visible), so its scrollTop reads 0 and the live read answers "top of file" however far the
+// reader had scrolled — the leave-refresh then stores the top as their position. The cache
+// survives that. Live wins everywhere else: an applied restore writes the REQUESTED value into
+// the cache (pixels.ts), so trusting it on a visible view would echo the request back.
+function trustedScroll(view: MarkdownView, live: number | undefined): number | undefined {
+	const dom = (view.editor as unknown as { cm?: { scrollDOM?: HTMLElement } })?.cm?.scrollDOM;
+	if (!dom || dom.offsetParent !== null)
+		return live;
+	return cachedScroll(view) ?? live;
+}
+
 // Nav read — LOW frequency only (the leave-refresh on a file switch, the outline pre-click read, the
 // leave-refresh before back/forward, the landing settle-capture, the teleport landing): the hot read
 // plus the display fields a nav entry carries. Never a drop-in for readEphemeralState on hot paths:
@@ -190,13 +247,20 @@ export function readNavEntryState(view: MarkdownView): NavEntryState | undefined
 	const st = readEphemeralState(view);
 	if (!st)
 		return undefined;
-	return { ...st, ...navDisplayFields(view, st.scroll ?? -1) };
+	// One scroll for both the position and the anchor: they are one place.
+	const scroll = trustedScroll(view, st.scroll);
+	return { ...st, scroll, ...navDisplayFields(view, scroll ?? -1) };
 }
 
 // The ONE read that records a landing: what a step carries, plus the words the landing sits in.
 // The words belong to this moment and to no other — a step is restored by POSITION and stores none
 // (see nav-history/store.ts) — so this is the only read that pays the doc reads and the one layout
 // the cursor-visibility check forces.
+//
+// The caret it carries is NOT the caret restoring this spot puts down: a jump lands on the heading
+// it names, caret at its head (see caretAtLine), and a visit keeps what it recorded. What rides
+// along here is the caret the JUMP left behind — a record of where the reader came from, which
+// nothing downstream reads.
 export function readLandingState(view: MarkdownView): NavEntryState | undefined {
 	const st = readEphemeralState(view);
 	if (!st)
