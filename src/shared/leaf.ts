@@ -34,6 +34,34 @@ export function markdownViewFor(app: App, path: string): MarkdownView | undefine
 	return undefined;
 }
 
+// The markdown view a control standing OUTSIDE the note acts on. `getActiveViewOfType`
+// answers off the active leaf alone, and a sidebar panel — or a phone's drawer — IS that
+// leaf the moment the reader taps it, so such a control would act on nothing at all.
+// What it needs is the file tab the reader was in, which is what the app itself calls
+// most recent: the one whose activeTime is the greatest.
+export function markdownViewInUse(app: App): MarkdownView | undefined {
+	const active = app.workspace.getActiveViewOfType(MarkdownView);
+	if (active?.file)
+		return active;
+	let best: MarkdownView | undefined;
+	let latest = -1;
+	for (const leaf of app.workspace.getLeavesOfType('markdown')) {
+		// A preview is a card, not a pane the reader opened; a deferred tab is a
+		// placeholder that answers a markdown view's questions off a saved state.
+		if (isPopoverLeaf(leaf) || isDeferredLeaf(leaf))
+			continue;
+		const view = leaf.view as MarkdownView | undefined;
+		if (!view?.file)
+			continue;
+		const at = (leaf as unknown as { activeTime?: number }).activeTime ?? 0;
+		if (at > latest) {
+			latest = at;
+			best = view;
+		}
+	}
+	return best;
+}
+
 // A leaf's id. Runtime API, absent from the public typings — and the same cast
 // family as the one above.
 export function leafIdOf(leaf: WorkspaceLeaf): string {

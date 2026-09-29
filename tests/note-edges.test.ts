@@ -76,7 +76,12 @@ function makeView(opts: {
 	return { view, editor };
 }
 
-function makeManager(view: MarkdownView | null) {
+function makeManager(
+	view: MarkdownView | null,
+	// The leaves walked when the active leaf is NOT the note (see markdownViewInUse):
+	// a fixture whose active view is the note never reaches them.
+	leaves: { id?: string; view: unknown }[] = [],
+) {
 	const db: Record<string, { scroll: number }> = {};
 	const app = {
 		appId: 'test-vault',
@@ -90,6 +95,11 @@ function makeManager(view: MarkdownView | null) {
 			layoutReady: true,
 			rootSplit: { containerEl: { contains: () => false } },
 			getActiveViewOfType: () => view,
+			// …and the walk the plugin falls back on when the ACTIVE leaf is a panel
+			// rather than the note: a control standing in a panel is that leaf the moment
+			// it is tapped (see markdownViewInUse). A fixture with no note anywhere has to
+			// be able to answer "there is nothing to go to" without throwing.
+			getLeavesOfType: () => leaves,
 			iterateAllLeaves: () => undefined,
 			setActiveLeaf: vi.fn(),
 			getMostRecentLeaf: () => null,
@@ -360,5 +370,19 @@ describe('the step an end takes', () => {
 	it('is available only while a note is the active view', () => {
 		expect(makeManager(null).manager.canGoToEdge()).toBe(false);
 		expect(standingAt(300).manager.canGoToEdge()).toBe(true);
+	});
+
+	// …and a note the reader was in when the active leaf is NOT it: a control standing in
+	// a panel — the arrows — IS the active leaf the moment it is tapped, and the app's own
+	// `getActiveViewOfType` answers off that leaf alone, so a panel asking for an end would
+	// be given nothing. This is the whole of what makes a button in a panel pressable.
+	it('acts on the tab the reader was in, not on the leaf holding the focus', () => {
+		const scroller = makeScroller(1000, 200, 300);
+		const { view } = makeView({ mode: 'preview', scroller, topLine: 300 });
+		const { manager } = makeManager(null, [{ id: 'leaf-1', view }]);
+
+		expect(manager.canGoToEdge()).toBe(true);
+		manager.goToEdge('top');
+		expect(scroller.scrollTop).toBe(0);
 	});
 });

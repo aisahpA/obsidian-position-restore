@@ -1,4 +1,4 @@
-import { App, FileView, MarkdownView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
+import { App, FileView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
 import { PositionStore } from './storage/position-store';
@@ -21,7 +21,7 @@ import {
 } from '@/recent-files/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
-import { isMainAreaLeaf, viewIcon, viewLabel, viewState } from '@/shared/leaf';
+import { isMainAreaLeaf, markdownViewInUse, viewIcon, viewLabel, viewState } from '@/shared/leaf';
 import { atEdge, caretAtEdge, holdEdge, moveToEdge, NoteEdge } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
@@ -210,8 +210,11 @@ export class PositionManager {
 	// Neither end is a NAMED target, so both steps are keyless visits — a jump key would make the
 	// top of a note a place of its own in the recent-files list, which is what a heading is and an
 	// end of the note is not.
+	// The note is read off the tab the reader was in rather than off the ACTIVE leaf: a
+	// control standing in a panel — the arrows, on a phone — is itself the active leaf the
+	// moment it is tapped, and `getActiveViewOfType` would answer nothing at all.
 	goToEdge(edge: NoteEdge): void {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const view = markdownViewInUse(this.app);
 		if (!view?.file)
 			return;
 		// Already there is two answers, not one: the view can stand at the top while the caret is
@@ -240,8 +243,10 @@ export class PositionManager {
 			.catch(e => console.error('Position Restore: go to edge failed:', e));
 	}
 
+	// Whether the two ends can be asked for at all — the same note the arrows act on, so
+	// that a greyed button and a press that does nothing cannot disagree (see goToEdge).
 	canGoToEdge(): boolean {
-		return !!this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+		return !!markdownViewInUse(this.app)?.file;
 	}
 
 	// Command availability for back/forward (checkCallback) — see NavStack.canNavigate.
