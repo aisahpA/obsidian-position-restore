@@ -24,6 +24,7 @@ interface FakeButton {
 // slot for the button. The plugin under it is reduced to the two fields the
 // row reads — the app it opens settings through, and its own manifest.
 function renderRow(setting: {
+	open(): void;
 	openTabById(id: string): { setQuery?(query: string): void } | null;
 } | undefined, commands: { id: string; name: string }[]): {
 	desc: string;
@@ -90,12 +91,15 @@ describe('hotkeys row', () => {
 		expect(desc).not.toContain('Not bound —');
 	});
 
-	it('opens the hotkeys tab already filtered to this plugin', () => {
-		const opened: string[] = [];
+	it('brings the window up before switching to the hotkeys tab, filtered to this plugin', () => {
+		const calls: string[] = [];
 		const queries: string[] = [];
 		const { click } = renderRow({
+			open() {
+				calls.push('open');
+			},
 			openTabById(id) {
-				opened.push(id);
+				calls.push(id);
 				return {
 					setQuery(query) {
 						queries.push(query);
@@ -104,7 +108,10 @@ describe('hotkeys row', () => {
 			},
 		}, commands);
 		click();
-		expect(opened).toEqual(['hotkeys']);
+		// The window first: switching tabs on one that is not showing changes
+		// nothing the reader can see. (open() is a no-op on a window already
+		// up, so this cannot stack a second modal.)
+		expect(calls).toEqual(['open', 'hotkeys']);
 		expect(queries).toEqual(['Position Restore']);
 		expect(Notice.instances).toHaveLength(0);
 	});
@@ -112,7 +119,7 @@ describe('hotkeys row', () => {
 	// Arriving on the tab is the job; the query is a convenience it cannot
 	// always do. A tab with no setQuery is still a tab the reader was sent to.
 	it('says nothing when the tab arrives without a way to prefill the query', () => {
-		const { click } = renderRow({ openTabById: () => ({}) }, commands);
+		const { click } = renderRow({ open() {}, openTabById: () => ({}) }, commands);
 		click();
 		expect(Notice.instances).toHaveLength(0);
 	});
@@ -122,7 +129,7 @@ describe('hotkeys row', () => {
 	// a reader who has since closed the settings window must not be told a
 	// second later about a failure that never happened.
 	it('says so the moment the click lands on no hotkeys tab', () => {
-		const { click } = renderRow({ openTabById: () => null }, commands);
+		const { click } = renderRow({ open() {}, openTabById: () => null }, commands);
 		click();
 		expect(Notice.instances).toHaveLength(1);
 		expect(Notice.instances[0].message).toContain('Settings → Hotkeys');

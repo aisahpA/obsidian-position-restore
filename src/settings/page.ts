@@ -116,25 +116,32 @@ function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): st
 	return hotkeys.map(formatHotkey).join(' / ');
 }
 
-// Opens Obsidian's hotkey settings on this plugin's commands. Only reachable
-// from a settings row, so the settings modal is already open — calling open()
-// again would stack a second modal (Obsidian does not guard re-entry) and the
-// tab swap would land on the invisible instance.
+// Opens Obsidian's hotkey settings on this plugin's commands.
 //
-// openTabById hands the tab back there and then, or null when there is no such
-// tab — so nothing here waits for it. A retry timer would outlive a settings
-// window the reader had already closed, and then tell them about a failure
-// that never happened. A tab that really never arrives is said out loud: a
-// button that does nothing is worse than no button.
+// open() first, then take the tab openTabById hands back — what the app's own
+// plugin rows do. open() is a no-op on a window already showing (it guards on
+// its container having a parent), so it cannot stack a second modal; it is the
+// difference between switching tabs on a window nobody can see and opening one.
+// openTabById answers at once with the tab, or null when there is no such tab.
+// Nothing waits for it: a retry timer would outlive a settings window the
+// reader had already closed, and then report a failure that never happened.
+// A tab that really never arrives is said out loud: a button that does nothing
+// is worse than no button.
 function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
+			open(): void;
 			openTabById(id: string): { setQuery?(query: string): void } | null;
 		};
 	}).setting;
-	const tab = setting?.openTabById('hotkeys');
 	// Same sentence either way: what was promised was a way to bind a key,
 	// and it is the outcome — not the reason — the reader is left looking at.
+	if (!setting) {
+		new Notice(t('hotkeys.openFailed'));
+		return;
+	}
+	setting.open();
+	const tab = setting.openTabById('hotkeys');
 	if (!tab) {
 		new Notice(t('hotkeys.openFailed'));
 		return;
