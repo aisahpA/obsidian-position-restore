@@ -73,11 +73,43 @@ export class PositionStore {
 		}
 	}
 
+	// The five below are how the leaf layer is maintained, and the only places in this
+	// class that touch the map. Not for encapsulation — the field is already private —
+	// but because three callers walk it and drop what matches, for different reasons
+	// (dropPath, pruneDeadLeaves, pruneDatabase): written out three times, that walk
+	// becomes three places to change when the rule changes.
+	private leafEntries(): IterableIterator<[string, TabStateRecord]> {
+		return this.leafStates.entries();
+	}
+
+	private leafRecord(leafId: string): TabStateRecord | undefined {
+		return this.leafStates.get(leafId);
+	}
+
+	private putLeaf(leafId: string, record: TabStateRecord): void {
+		this.leafStates.set(leafId, record);
+	}
+
+	private dropLeaf(leafId: string): void {
+		this.leafStates.delete(leafId);
+	}
+
+	// @returns whether any record was dropped.
+	private dropLeavesWhere(drop: (leafId: string, record: TabStateRecord) => boolean): boolean {
+		let dropped = false;
+		for (const [leafId, r] of this.leafEntries())
+			if (drop(leafId, r)) {
+				this.dropLeaf(leafId);
+				dropped = true;
+			}
+		return dropped;
+	}
+
 	// The record to restore for (leafId, filePath): the leaf's own spot when it has one for that
 	// exact file, else the file record. The path guard is what keeps a leaf that moved on to another
 	// file from repositioning it.
 	read(leafId: string, filePath: string): EphemeralState | undefined {
-		const r = this.leafStates.get(leafId);
+		const r = this.leafRecord(leafId);
 		return r && r.filePath === filePath ? r.st : this.database.db[filePath];
 	}
 
@@ -93,7 +125,7 @@ export class PositionStore {
 	// hence the two cases that touch it only lightly: a record that has not changed, and the first
 	// sighting of a value the file layer already holds.
 	write(leafId: string, filePath: string, st: EphemeralState): void {
-		const prev = this.leafStates.get(leafId);
+		const prev = this.leafRecord(leafId);
 		// Whether the leaf already owns a record for this file — as opposed to meeting the file for
 		// the first time (no record yet, or one naming a file the leaf has since left).
 		const leafOwnsFile = prev !== undefined && prev.filePath === filePath;
@@ -105,7 +137,7 @@ export class PositionStore {
 		// The leaf layer always takes the value: read() prefers it, which is what keeps two tabs of
 		// one file apart. The file layer follows, except when it already holds the value — possible
 		// only on a first sighting.
-		this.leafStates.set(leafId, { filePath, st });
+		this.putLeaf(leafId, { filePath, st });
 		if (leafOwnsFile || !this.fileLayerHolds(filePath, st))
 			this.database.setState(filePath, st);
 	}
@@ -113,7 +145,7 @@ export class PositionStore {
 	// Forget one leaf's record (its view stopped being recordable: excluded file, a non-markdown
 	// view, …). The file record is left alone — another leaf may still be showing that file.
 	forgetLeaf(leafId: string): void {
-		this.leafStates.delete(leafId);
+		this.dropLeaf(leafId);
 	}
 
 	// The one act behind the two reasons below: hold nothing for a path, in either layer.
@@ -122,9 +154,7 @@ export class PositionStore {
 	// spot.
 	private dropPath(filePath: string): void {
 		this.database.deleteFile(filePath);
-		for (const [leafId, r] of this.leafStates)
-			if (r.filePath === filePath)
-				this.leafStates.delete(leafId);
+		this.dropLeavesWhere((_leafId, r) => r.filePath === filePath);
 	}
 
 	// The file is GONE: a vault delete that outlived its grace window (see
@@ -146,9 +176,9 @@ export class PositionStore {
 	// the file record.
 	renameFile(newPath: string, oldPath: string): void {
 		this.database.renameFile(newPath, oldPath);
-		for (const r of this.leafStates.values())
+		for (const [leafId, r] of this.leafEntries())
 			if (r.filePath === oldPath)
-				r.filePath = newPath;
+				this.putLeaf(leafId, { ...r, filePath: newPath });
 	}
 
 	// Drop leaf records whose leaf is gone; a closed leaf cannot update its own record (there is no
@@ -156,13 +186,7 @@ export class PositionStore {
 	// Restorer already walks every leaf for its other per-leaf maps.
 	// @returns whether any record was dropped.
 	pruneDeadLeaves(liveIds: Set<string>): boolean {
-		let dropped = false;
-		for (const id of this.leafStates.keys())
-			if (!liveIds.has(id)) {
-				this.leafStates.delete(id);
-				dropped = true;
-			}
-		return dropped;
+		return this.dropLeavesWhere(leafId => !liveIds.has(leafId));
 	}
 
 	// Runs the file layer's own prune (excluded folders, frontmatter opt-outs, the entry cap) and
@@ -177,12 +201,9 @@ export class PositionStore {
 		if (removed === 0)
 			return 0;
 
-		let droppedLeaf = false;
-		for (const [leafId, r] of this.leafStates)
-			if (hadRecord.has(r.filePath) && this.database.db[r.filePath] === undefined) {
-				this.leafStates.delete(leafId);
-				droppedLeaf = true;
-			}
+		const droppedLeaf = this.dropLeavesWhere(
+			(_leafId, r) => hadRecord.has(r.filePath) && this.database.db[r.filePath] === undefined,
+		);
 		// Written out at once: this runs from the settings panel, which is not a persist point, and
 		// the point of the prune is that the records are gone.
 		if (droppedLeaf)
@@ -194,7 +215,7 @@ export class PositionStore {
 	// record with no file record at all is kept too — it is then the only copy there is.
 	private overlayRecords(): Record<string, TabStateRecord> {
 		const records: Record<string, TabStateRecord> = {};
-		for (const [leafId, r] of this.leafStates) {
+		for (const [leafId, r] of this.leafEntries()) {
 			if (!r.filePath)
 				continue;
 			if (this.fileLayerHolds(r.filePath, r.st))
