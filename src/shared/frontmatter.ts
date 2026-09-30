@@ -41,7 +41,10 @@ export function frontmatterRuleMatches(frontmatter: unknown, entries: readonly s
 		const sep = entry.indexOf(':');
 		const name = (sep === -1 ? entry : entry.slice(0, sep)).trim();
 		const expected = sep === -1 ? '' : entry.slice(sep + 1).trim();
-		if (!name || !(name in obj))
+		// Own properties only: `in` walks the prototype chain, and a name-only
+		// entry never looks at the value — so a `toString` or `constructor` that
+		// reached this list would match EVERY note carrying any frontmatter.
+		if (!name || !Object.prototype.hasOwnProperty.call(obj, name))
 			continue;
 		if (expected === '' || valueMatches(obj[name], expected))
 			return true;
