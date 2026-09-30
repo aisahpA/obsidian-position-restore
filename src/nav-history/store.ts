@@ -38,7 +38,10 @@ export function loadNavHistory(app: App): { entries: NavEntry[]; index: number }
 		// field costs a detail, never the place.
 		for (const entry of entries)
 			pruneViewSnapshot(entry);
-		const index = typeof parsed.index === 'number'
+		// A whole number in range: the stack truncates itself with
+		// `entries.length = index + 1`, and a fractional index that got in turns
+		// that into `RangeError: Invalid array length` on the next push.
+		const index = typeof parsed.index === 'number' && Number.isInteger(parsed.index)
 			&& parsed.index >= -1 && parsed.index < entries.length
 			? parsed.index
 			: entries.length - 1;

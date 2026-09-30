@@ -633,6 +633,23 @@ describe('NavStack persistence', () => {
 		expect(clamped.stack.index).toBe(1);
 	});
 
+	it('a fractional index clamps instead of reaching entries.length', () => {
+		// The stack truncates itself with `entries.length = index + 1`, and 2.5
+		// would make that 3.5 — RangeError: Invalid array length, on the very
+		// next push. Only a hand-edited or truncated blob can carry one.
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: NAV_HISTORY_VERSION,
+			entries: [entry('a.md'), entry('b.md')],
+			index: 1.5,
+		}));
+		const nav = makeNav();
+		expect(nav.stack.index).toBe(1);
+		// And this is where it would have thrown: the push truncates first.
+		nav.funnel.recordOpen('c.md', 'leaf-3');
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.index).toBe(2);
+	});
+
 	it('a foreign-format blob (missing or other version) is dropped whole', () => {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			entries: [entry('a.md')],
