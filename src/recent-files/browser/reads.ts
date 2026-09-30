@@ -1,7 +1,8 @@
 import { App, EventRef, TFile } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { EphemeralState } from '@/types';
-import { HeadingRef, NavEntryDescription, describeNavEntry, headingsFromLines } from './model';
+import { HeadingRef, headingsFromLines } from '@/shared/headings';
+import { NavEntryDescription, describeNavEntry } from './model';
 
 // Everything the browser reads out of the vault, cached: an entry's display pieces
 // (one render's worth) and, per path, what the file's metadata cache answers — its

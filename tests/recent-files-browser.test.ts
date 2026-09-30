@@ -5,12 +5,13 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-	describeNavEntry, headingTrailAtLine, headingsFromText, rowTrail, dropsOuterLevel, baseName,
+	describeNavEntry, rowTrail, dropsOuterLevel, baseName,
 	badgeOf, displayName,
 	duplicateNames, folderOf, pathLabel, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
 import { groupByFile, matchesNavFilter, matchedContextLine } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
+import { headingTrailAtLine, headingsFromText } from '@/shared/headings';
 import { t } from '@/i18n';
 import { NavEntry } from '@/nav/entry';
 import { NavEntryState } from '@/types';

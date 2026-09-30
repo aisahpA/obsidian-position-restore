@@ -2,9 +2,12 @@
 // structural anchor (outline heading, #heading link, ^block ref) to its
 // CURRENT line in the file, surviving arbitrary insert/delete shifts — vs.
 // the ±30-line text-snippet remap it replaces for keyed jumps.
+//
+// The section chain a line sits in is no longer answered here — it moved to
+// shared/headings.ts's outlinePathAtLine, and its cases went with it.
 
 import { describe, it, expect } from 'vitest';
-import { outlinePathAtLine, resolveAnchorLine } from '@/position/restore/anchor';
+import { resolveAnchorLine } from '@/position/restore/anchor';
 import { outlineHeading } from '@/nav/entry';
 
 function cache(headings: Array<[string, number] | [string, number, number]>, blocks?: Record<string, number>) {
@@ -123,38 +126,6 @@ describe('resolveAnchorLine', () => {
 		expect(resolveAnchorLine(c, 'outline:## Renamed')).toBeUndefined();
 	});
 });
-// The section chain a line sits under — shared by the post-restore breadcrumb
-// and the recent-files browser's detail strip, so both name a section identically.
-describe('outlinePathAtLine', () => {
-	const trail = (lines: string[], line: number) => outlinePathAtLine(lines, line);
-
-	it('nests by heading level, outermost first', () => {
-		const lines = ['# A', 'text', '## B', 'text', '### C', 'here'];
-		expect(trail(lines, 5)).toEqual(['A', 'B', 'C']);
-		// a shallower heading closes the deeper ones
-		expect(trail(lines, 1)).toEqual(['A']);
-	});
-
-	it('includes a heading sitting on the line itself as the deepest segment', () => {
-		const lines = ['# A', '## B'];
-		expect(trail(lines, 1)).toEqual(['A', 'B']);
-	});
-
-	it('is empty above the first heading', () => {
-		expect(trail(['text', '# A'], 0)).toEqual([]);
-	});
-
-	it('ignores heading-looking lines inside fences and comments', () => {
-		const lines = ['# Real', '```', '# not a heading', '```', '<!--', '# nor this', '-->', '%%', '# nor this', '%%', 'body'];
-		expect(trail(lines, 11)).toEqual(['Real']);
-	});
-
-	it('strips a closing hash run and inline comment from the heading text', () => {
-		expect(trail(['## Title ##'], 0)).toEqual(['Title']);
-		expect(trail(['## Title %%note%%'], 0)).toEqual(['Title']);
-	});
-});
-
 // WHAT AN OUTLINE KEY NAMES, which is asked exactly where the file cannot answer: a note
 // whose headings no longer include this one leaves these words as the only thing still
 // naming the landing (see recent-files/browser/body.ts's trailFor).

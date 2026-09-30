@@ -150,17 +150,6 @@ export function describeNavEntry(
 	};
 }
 
-// The section chain a landing sits in, built from the file's PARSED headings (metadataCache) rather
-// than from its text: a row needs its section without reading the file at all. Obsidian's own parser
-// is what excludes headings inside fenced code or comments, so this agrees with the outline pane.
-// (The cue keeps its own raw-text scan because it works from a live editor buffer, which can be
-// ahead of the cache.)
-export interface HeadingRef {
-	heading: string;
-	level: number;
-	line: number;
-}
-
 // ===== How old a row is =====
 
 // The units a row's age is printed in, coarsest-last.
@@ -239,74 +228,6 @@ export function newestStamp(
 	for (const i of indices)
 		look(i);
 	return newest;
-}
-
-// The chain of headings the line falls under, outermost first. A heading ON the line is included as
-// the deepest segment: the chain names the target line rather than skipping to its parent section.
-// `headings` is in document order, as the cache stores it.
-export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: number): string[] {
-	if (!headings || !headings.length)
-		return [];
-	const stack: HeadingRef[] = [];
-	for (const h of headings) {
-		if (h.line > line)
-			break;
-		while (stack.length && stack[stack.length - 1].level >= h.level)
-			stack.pop();
-		stack.push(h);
-	}
-	return stack.map(h => h.heading);
-}
-
-// The headings in a note's own text, in document order — the FALLBACK for a note the metadata cache
-// has nothing to say about: one a sync has just replaced, or one the app has not re-parsed, which on
-// a phone it may not do for a file the reader never edits — and OPENING the file does not make it
-// happen either (the editor reads the text, the cache does not). Without this a row printed its line
-// alone — `L412` — for as long as that state lasted.
-//
-// Deliberately only ATX headings (`#` … `######`), and only where a space or the end of the line
-// follows the marks: a line opening with `#tag` is one of the app's tags, and a `#` inside a fenced
-// block is a comment in somebody's shell. The frontmatter is skipped for the same reason —
-// `title: # 1` is a value.
-export function headingsFromLines(lines: readonly string[]): HeadingRef[] {
-	const out: HeadingRef[] = [];
-	// The marks that opened the fence that is still open, if one is: a block closes on a fence of
-	// its own kind, so ``` inside a ~~~ block is an ordinary line of it.
-	let fence: string | undefined;
-	// Whether the frontmatter block is still open. It is the file's FIRST line or nothing at all.
-	let frontmatter = lines[0]?.trim() === '---';
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		if (frontmatter) {
-			if (i > 0 && line.trim() === '---')
-				frontmatter = false;
-			continue;
-		}
-		const marks = line.match(/^ {0,3}(```+|~~~+)/);
-		if (marks) {
-			if (!fence)
-				fence = marks[1];
-			else if (marks[1][0] === fence[0])
-				fence = undefined;
-			continue;
-		}
-		if (fence)
-			continue;
-		const atx = line.match(/^ {0,3}(#{1,6})(?:[ \t]|$)(.*)$/);
-		if (!atx)
-			continue;
-		// Trailing marks are the closing half of the closed form (`## One ##`).
-		const heading = atx[2].replace(/[ \t]+#+[ \t]*$/, '').trim();
-		if (heading)
-			out.push({ heading, level: atx[1].length, line: i });
-	}
-	return out;
-}
-
-// The text-shaped entry point, for a caller holding the note whole. A caller that has already
-// split it hands the LINES over instead: a note is split once per reading, not twice (see reads.ts).
-export function headingsFromText(text: string): HeadingRef[] {
-	return headingsFromLines(text.split('\n'));
 }
 
 // The chain as a ROW prints it: the deepest `depth` levels only, outermost first (a row has one line
