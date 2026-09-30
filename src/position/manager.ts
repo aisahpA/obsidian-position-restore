@@ -179,22 +179,31 @@ export class PositionManager {
 	// stores below write synchronously to localStorage; only the db file is async, so this
 	// promise is the whole answer to "has everything reached disk" — which is what lets the
 	// quit handler hand Obsidian something to wait for (see main.ts's 'quit').
+	//
+	// IT SETTLES EVEN WHEN A WRITE FAILS, and that is the point of the catch: Obsidian awaits
+	// every promise handed to Tasks — with Promise.all — before it closes the window, so one
+	// rejection here would leave the app stuck on its "Saving..." dialog, holding the reader
+	// over positions it could not have saved anyway. A failure is still reported, in the log.
 	async storePositionData(): Promise<void> {
-		// Closing a leaf fires no dedicated event, so dead records survive until the next fresh
-		// open's prune. Prune at every persist point instead (quit, suspend flush, periodic flush).
-		this.restorer.pruneStaleLeafIds();
+		try {
+			// Closing a leaf fires no dedicated event, so dead records survive until the next
+			// fresh open's prune. Prune at every persist point instead.
+			this.restorer.pruneStaleLeafIds();
 
-		// The per-leaf overlay persists at the database's cadence rather than only at quit: it is
-		// the only place a same-file-in-two-tabs split survives a restart. Deduped against its own
-		// last blob, so an unchanged round is one stringify.
-		this.store.persist();
+			// The per-leaf overlay persists at the database's cadence rather than only at quit:
+			// it is the only place a same-file-in-two-tabs split survives a restart. Deduped
+			// against its own last blob, so an unchanged round is one stringify.
+			this.store.persist();
 
-		// Navigation stores ride the same persist points, each dirty-checked against its own last
-		// written snapshot. Two independent calls: neither writes on the other's behalf.
-		this.stack.persist();
-		this.places.persist();
+			// Navigation stores ride the same persist points, each dirty-checked against its own
+			// last written snapshot. Two independent calls: neither writes on the other's behalf.
+			this.stack.persist();
+			this.places.persist();
 
-		await this.database.writeDb();
+			await this.database.writeDb();
+		} catch (e) {
+			console.error('Position Restore: could not save positions:', e);
+		}
 	}
 
 	// Navigate back/forward through the recorded jump history (VSCode-style). The promise IS

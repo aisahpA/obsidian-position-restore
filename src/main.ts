@@ -208,6 +208,8 @@ export default class PositionRestorePlugin extends Plugin {
 		// Obsidian waits on the promises handed to Tasks before it exits. Without this the db
 		// write is fire-and-forget and races the teardown, so everything recorded since the last
 		// periodic flush is lost. The in-memory stores persist synchronously; this is the file.
+		// It settles even when the write fails (see storePositionData), which it has to: a
+		// promise that rejected here would leave the app stuck on its "Saving..." dialog.
 		this.registerEvent(this.app.workspace.on('quit', (tasks: Tasks) => {
 			tasks.addPromise(this.manager.storePositionData());
 		}));
@@ -245,8 +247,10 @@ export default class PositionRestorePlugin extends Plugin {
 	private registerDbFlush() {
 		this.registerInterval(
 			window.setInterval(() => {
+				// Nobody awaits this, and the app prints what nobody catches — so catch it.
 				void this.database.mergeExternalChanges()
-					.then(() => this.manager.storePositionData());
+					.then(() => this.manager.storePositionData())
+					.catch(e => console.error('Position Restore: periodic flush failed:', e));
 			}, SAFE_DB_FLUSH_INTERVAL)
 		);
 	}

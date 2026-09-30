@@ -1,8 +1,9 @@
 // The contract behind main.ts's 'quit' handler. Obsidian waits on the promises handed
 // to Tasks before it exits, so storePositionData() has to hand the db write back
-// instead of dropping it on the floor. Two things hold and are pinned here: the three
+// instead of dropping it on the floor. Three things hold and are pinned here: the three
 // localStorage stores are written synchronously, before the file write even starts,
-// and the returned promise does not settle until the file write has.
+// the returned promise does not settle until the file write has, and it settles even
+// when a write fails — a rejection would leave the app stuck on "Saving...".
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { App } from 'obsidian';
@@ -87,5 +88,17 @@ describe('PositionManager.storePositionData', () => {
 		h.release();
 		await write;
 		expect(settled).toBe(true);
+	});
+
+	it('settles even when the db write fails, and says so in the log', async () => {
+		const h = makeHarness();
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+		h.database.writeDb.mockRejectedValueOnce(new Error('disk full'));
+
+		// A quit hands this promise to Tasks, and Obsidian awaits every one of those
+		// with Promise.all before it closes the window.
+		await expect(h.manager.storePositionData()).resolves.toBeUndefined();
+		expect(logged).toHaveBeenCalled();
+		logged.mockRestore();
 	});
 });
