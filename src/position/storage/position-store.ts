@@ -32,11 +32,17 @@ export class PositionStore {
 	// leaf.id -> the leaf's last recorded position, path-guarded on read. The in-memory truth for
 	// layer 2: the sampler's change-detection baseline and the source of a tab's own spot on restore.
 	private leafStates: Map<string, TabStateRecord>;
+	// path -> the leaves showing it, derived from the map above. It exists so a path
+	// can be asked which leaves are on it instead of the layer being walked to find
+	// out: the poll asks that of the file it is on, every 100ms, and the answer is
+	// almost always no leaves at all.
+	private leavesByPath = new Map<string, Set<string>>();
 
 	constructor(app: App, database: CursorPositionDatabase) {
 		this.app = app;
 		this.database = database;
 		this.leafStates = PositionStore.loadLeafStates(app);
+		this.reindexLeaves();
 	}
 
 	// Desktop localStorage is shared across vaults (same app origin); appId is the per-vault
@@ -73,8 +79,8 @@ export class PositionStore {
 		}
 	}
 
-	// Reading the leaf layer. Neither can go stale: both answer out of the map, and no
-	// caller keeps what they hand back.
+	// Reading the leaf layer. Neither can go stale: both answer out of the map,
+	// and no caller keeps what they hand back.
 	private leafRecord(leafId: string): TabStateRecord | undefined {
 		return this.leafStates.get(leafId);
 	}
@@ -83,23 +89,64 @@ export class PositionStore {
 		return this.leafStates.entries();
 	}
 
-	// Writing it, and the two places a derived structure would hang off. Every change
-	// goes through putLeaf() and dropLeaf() and there is no third way — renameFile()
-	// re-keys by replacing a record rather than by moving its path by hand — so a
-	// path → leaf index, were the scan below ever worth replacing, is maintained here
-	// and in loadLeafStates(), nowhere else.
+	// Which leaves are on a path, without walking the layer for them. Copied out
+	// because both callers drop what they are handed, which edits the set the
+	// answer came from.
+	private leafIdsOnPath(filePath: string): string[] {
+		const ids = this.leavesByPath.get(filePath);
+		return ids ? [...ids] : [];
+	}
+
+	// Writing it. Every change goes through putLeaf() and dropLeaf() and there is
+	// no third way — renameFile() re-keys by replacing a record rather than by
+	// moving its path by hand — so the index is maintained here, and in
+	// reindexLeaves() when the whole layer is replaced underneath, nowhere else.
 	private putLeaf(leafId: string, record: TabStateRecord): void {
+		const prev = this.leafStates.get(leafId);
+		if (prev && prev.filePath !== record.filePath)
+			this.indexDrop(leafId, prev.filePath);
 		this.leafStates.set(leafId, record);
+		this.indexAdd(leafId, record.filePath);
 	}
 
 	private dropLeaf(leafId: string): void {
+		const prev = this.leafStates.get(leafId);
+		if (prev)
+			this.indexDrop(leafId, prev.filePath);
 		this.leafStates.delete(leafId);
 	}
 
-	// Three callers walk the layer and drop what matches, each for its own reason: a
-	// path being dropped, a leaf that closed, a file record the prune rejected. One
-	// walk instead of three, and it drops through dropLeaf() like any other caller, so
-	// a derived structure maintained there covers this too.
+	// The whole layer replaced underneath it: the startup read, and the test seam
+	// standing in for one. Bulk, so it skips putLeaf() and rebuilds the index out
+	// of the map instead.
+	private reindexLeaves(): void {
+		this.leavesByPath.clear();
+		for (const [leafId, r] of this.leafStates)
+			this.indexAdd(leafId, r.filePath);
+	}
+
+	private indexAdd(leafId: string, filePath: string): void {
+		const ids = this.leavesByPath.get(filePath);
+		if (ids) {
+			ids.add(leafId);
+			return;
+		}
+		this.leavesByPath.set(filePath, new Set([leafId]));
+	}
+
+	private indexDrop(leafId: string, filePath: string): void {
+		const ids = this.leavesByPath.get(filePath);
+		if (!ids)
+			return;
+		ids.delete(leafId);
+		if (ids.size === 0)
+			this.leavesByPath.delete(filePath);
+	}
+
+	// Two callers walk the layer and drop what matches, each for its own reason: a
+	// leaf that closed, a file record the prune rejected. One walk instead of two,
+	// and it drops through dropLeaf() like any other caller, so the index stays
+	// true for these as well.
 	// @returns whether any record was dropped.
 	private dropLeavesWhere(drop: (leafId: string, record: TabStateRecord) => boolean): boolean {
 		let dropped = false;
@@ -160,7 +207,10 @@ export class PositionStore {
 	// spot.
 	private dropPath(filePath: string): void {
 		this.database.deleteFile(filePath);
-		this.dropLeavesWhere((_leafId, r) => r.filePath === filePath);
+		// Asked of the index rather than walked for: the poll asks this about the
+		// file it is on, every 100ms, and the answer is almost always no leaves.
+		for (const leafId of this.leafIdsOnPath(filePath))
+			this.dropLeaf(leafId);
 	}
 
 	// The file is GONE: a vault delete that outlived its grace window (see
@@ -182,9 +232,11 @@ export class PositionStore {
 	// the file record.
 	renameFile(newPath: string, oldPath: string): void {
 		this.database.renameFile(newPath, oldPath);
-		for (const [leafId, r] of this.leafEntries())
-			if (r.filePath === oldPath)
+		for (const leafId of this.leafIdsOnPath(oldPath)) {
+			const r = this.leafRecord(leafId);
+			if (r)
 				this.putLeaf(leafId, { ...r, filePath: newPath });
+		}
 	}
 
 	// Drop leaf records whose leaf is gone; a closed leaf cannot update its own record (there is no

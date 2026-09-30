@@ -12,17 +12,32 @@ import type { App } from 'obsidian';
 import { PositionStore } from '@/position/storage/position-store';
 import type { TabStateRecord } from '@/types';
 
-type Overlay = { leafStates: Map<string, TabStateRecord> };
+type Overlay = {
+	leafStates: Map<string, TabStateRecord>;
+	putLeaf(leafId: string, record: TabStateRecord): void;
+	reindexLeaves(): void;
+};
 
-// The store's live leaf map (read and mutate through it).
-export function leafStatesOf(store: PositionStore): Map<string, TabStateRecord> {
+// The store's live leaf map, read-only. Read-only because the store derives a
+// path → leaf index from it: a test that seeded through this map would leave
+// the index behind, and the store would then not find the leaf it was handed.
+export function leafStatesOf(store: PositionStore): ReadonlyMap<string, TabStateRecord> {
 	return (store as unknown as Overlay).leafStates;
 }
 
 // Replace the map outright: a test's preset baseline, as if the constructor
-// had just seeded it from storage.
+// had just seeded it from storage. Reindexed for the same reason — the real
+// startup read is reindexed by the constructor.
 export function setLeafStates(store: PositionStore, records: Iterable<readonly [string, TabStateRecord]>): void {
-	(store as unknown as Overlay).leafStates = new Map(records);
+	const o = store as unknown as Overlay;
+	o.leafStates = new Map(records);
+	o.reindexLeaves();
+}
+
+// One leaf's preset record, put through the store's own write path — the way a
+// record reaches the map in production.
+export function seedLeaf(store: PositionStore, leafId: string, record: TabStateRecord): void {
+	(store as unknown as Overlay).putLeaf(leafId, record);
 }
 
 // The startup read, reachable without a store instance.

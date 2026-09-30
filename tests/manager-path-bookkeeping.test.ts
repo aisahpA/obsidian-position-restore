@@ -16,7 +16,7 @@ import type { PositionState } from '@/position/state';
 import type { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 // leafStates is private on the store; this is the test seam.
-import { leafStatesOf } from './support/position-store-seam';
+import { leafStatesOf, seedLeaf } from './support/position-store-seam';
 
 // Timing is stated as "a beat" and "long after", never as the grace period
 // itself: the mechanism, not the tuning value, is what these tests pin.
@@ -168,7 +168,7 @@ describe('PositionManager vault path changes', () => {
 	// guard, silently collapsing a per-tab split onto the file record.
 	it('a rename re-keys the per-leaf records along with the file record', () => {
 		const h = makeHarness();
-		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		seedLeaf(h.store, 'leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
 
 		h.manager.renameFile(h.file('b.md'), 'a.md');
 
@@ -182,8 +182,8 @@ describe('PositionManager vault path changes', () => {
 	it('a genuine delete drops the per-leaf records of that path too, and only those', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
-		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
-		leafStatesOf(h.store).set('leaf-2', { filePath: 'b.md', st: { scroll: 9 } });
+		seedLeaf(h.store, 'leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		seedLeaf(h.store, 'leaf-2', { filePath: 'b.md', st: { scroll: 9 } });
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
@@ -198,7 +198,7 @@ describe('PositionManager vault path changes', () => {
 	it('a sync remove + rename keeps the per-leaf records for the surviving path', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
-		leafStatesOf(h.store).set('leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
+		seedLeaf(h.store, 'leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
 		h.files.add('a.md');
 
 		h.files.delete('a.md');

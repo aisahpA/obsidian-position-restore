@@ -288,6 +288,35 @@ describe('dropExcluded', () => {
 		expect(leafStatesOf(store).has('leaf-2')).toBe(false);
 		expect(leafStatesOf(store).get('leaf-3')).toEqual(rec('b.md', 7));
 	});
+
+	// What is dropped is reached through the path → leaf index rather than by
+	// walking the layer, so the index has to travel with a record that does.
+	it('drops a leaf with the file it is on now, not the one it left', () => {
+		const { store } = makeStore();
+		store.write('leaf-1', 'a.md', { scroll: 42 });
+		store.write('leaf-1', 'b.md', { scroll: 7 });
+
+		// The file the leaf left has no leaf on it any more.
+		store.dropExcluded('a.md');
+		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('b.md', 7));
+
+		store.dropExcluded('b.md');
+		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
+	});
+
+	it('finds the leaves a rename moved onto the new path', () => {
+		const { store } = makeStore();
+		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
+		store.renameFile('b.md', 'a.md');
+
+		// The old path has nothing on it now...
+		store.dropExcluded('a.md');
+		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('b.md', 42));
+
+		// ...and the new one does.
+		store.dropExcluded('b.md');
+		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
+	});
 });
 
 describe('pruneDatabase', () => {
