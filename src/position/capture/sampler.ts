@@ -20,8 +20,10 @@ import type { NavFunnel } from '@/nav/funnel';
 //    scrolls inside embedded renderers (dataview blocks, ![[embed]] — recording those
 //    would write the HOST editor's state over movement the embedded content made) and
 //    scroll deltas with no recent user input (programmatic re-renders).
-// Owns the per-leaf capture baseline and the exclusion-path memoization; the plugin
-// polls it via PositionManager, which stays the single entry point.
+// Owns the per-leaf capture baseline. It does NOT memoize the exclusion path: it asks
+// the checker once per poll, which is what lets a frontmatter edit take effect without
+// anything having to be invalidated (see ExclusionChecker). The plugin polls it via
+// PositionManager, which stays the single entry point.
 export class Sampler {
 	private app: App;
 	private store: PositionStore;
