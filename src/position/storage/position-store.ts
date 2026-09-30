@@ -73,19 +73,21 @@ export class PositionStore {
 		}
 	}
 
-	// The five below are how the leaf layer is maintained, and the only places in this
-	// class that touch the map. Not for encapsulation — the field is already private —
-	// but because three callers walk it and drop what matches, for different reasons
-	// (dropPath, pruneDeadLeaves, pruneDatabase): written out three times, that walk
-	// becomes three places to change when the rule changes.
-	private leafEntries(): IterableIterator<[string, TabStateRecord]> {
-		return this.leafStates.entries();
-	}
-
+	// Reading the leaf layer. Neither can go stale: both answer out of the map, and no
+	// caller keeps what they hand back.
 	private leafRecord(leafId: string): TabStateRecord | undefined {
 		return this.leafStates.get(leafId);
 	}
 
+	private leafEntries(): IterableIterator<[string, TabStateRecord]> {
+		return this.leafStates.entries();
+	}
+
+	// Writing it, and the two places a derived structure would hang off. Every change
+	// goes through putLeaf() and dropLeaf() and there is no third way — renameFile()
+	// re-keys by replacing a record rather than by moving its path by hand — so a
+	// path → leaf index, were the scan below ever worth replacing, is maintained here
+	// and in loadLeafStates(), nowhere else.
 	private putLeaf(leafId: string, record: TabStateRecord): void {
 		this.leafStates.set(leafId, record);
 	}
@@ -94,6 +96,10 @@ export class PositionStore {
 		this.leafStates.delete(leafId);
 	}
 
+	// Three callers walk the layer and drop what matches, each for its own reason: a
+	// path being dropped, a leaf that closed, a file record the prune rejected. One
+	// walk instead of three, and it drops through dropLeaf() like any other caller, so
+	// a derived structure maintained there covers this too.
 	// @returns whether any record was dropped.
 	private dropLeavesWhere(drop: (leafId: string, record: TabStateRecord) => boolean): boolean {
 		let dropped = false;
