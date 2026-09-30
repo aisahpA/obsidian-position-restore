@@ -51,6 +51,8 @@ export class PreviewSettle {
 	// The popover being tracked, while one is open — kept even after the hover ends, so a pointer
 	// coming back to the list meets an old friend rather than "discovering" it a second time (which
 	// would re-report the opening and, for a line-asking, cover a note already standing at its line).
+	// It can outlive the popover itself: once the loop has stood down nothing clears it, and the
+	// next look is what finds out.
 	private popover?: HoverPopover;
 	// The element under the cover right now, and what exactly was hidden in it: nothing here guesses
 	// at another element's opacity.
@@ -119,10 +121,17 @@ export class PreviewSettle {
 		void this.loop();
 	}
 
-	// One look per paint, for as long as there is anything to look at: a live asking, or a popover
-	// still open. An idle panel runs nothing.
+	// One look per paint, for as long as there is anything to AWAIT: a live asking, or a cover
+	// waiting on the note's own journey. An idle panel runs nothing — and neither does a hover that
+	// has ENDED, however long the popover it asked for stands open afterwards. What the loop would
+	// still be looking for is a NEW answer from the app, and with no asking live there cannot be
+	// one: the app opens its preview off the pointer, and the pointer has left the list.
+	//
+	// The tracking popover is therefore not what keeps it alive. Standing down costs nothing to
+	// restore: the next asking starts the loop again, and its first look is the one that notices
+	// the old popover has since closed.
 	private async loop(): Promise<void> {
-		while (this.running && (this.session || this.popover !== undefined || this.coveredEl)) {
+		while (this.running && (this.session || this.coveredEl)) {
 			this.tick();
 			await nextPaint();
 		}
