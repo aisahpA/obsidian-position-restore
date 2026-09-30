@@ -123,7 +123,7 @@ export class Sampler {
 		// pushes nav entries.
 		const skipRecording = this.exclusions.shouldSkipRecording(view);
 		if (skipRecording)
-			this.store.deleteFile(filePath);
+			this.store.dropExcluded(filePath);
 
 		const st = readEphemeralState(view);
 		if (!st)
@@ -249,7 +249,7 @@ export class Sampler {
 		const leafId = this.state.leafId(leaf);
 
 		if (this.exclusions.shouldSkipRecording(view)) {
-			this.store.deleteFile(filePath);
+			this.store.dropExcluded(filePath);
 			return;
 		}
 
@@ -529,7 +529,7 @@ export class Sampler {
 		const onCacheChanged = (file: TFile) => {
 			const decision = frontmatterDecisionFor(this.app, file, this.settings);
 			if (decision?.skip)
-				this.store.deleteFile(file.path);
+				this.store.dropExcluded(file.path);
 		};
 		const ref = this.app.metadataCache.on('changed', onCacheChanged);
 		registerCleanup(() => {

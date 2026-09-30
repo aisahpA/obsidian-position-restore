@@ -270,6 +270,26 @@ describe('deleteFile', () => {
 	});
 });
 
+describe('dropExcluded', () => {
+	// The file is still there — only the recording rules reject it. Same act as a delete
+	// all the same, so a tab that is not the one being polled loses its record too.
+	it('drops the same two layers a delete does', () => {
+		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 }, 'b.md': { scroll: 2 } }));
+		setLeafStates(store, [
+			['leaf-1', rec('a.md', 42)],
+			['leaf-2', rec('a.md', 99)],
+			['leaf-3', rec('b.md', 7)],
+		]);
+
+		store.dropExcluded('a.md');
+
+		expect(db.db['a.md']).toBeUndefined();
+		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
+		expect(leafStatesOf(store).has('leaf-2')).toBe(false);
+		expect(leafStatesOf(store).get('leaf-3')).toEqual(rec('b.md', 7));
+	});
+});
+
 describe('pruneDatabase', () => {
 	it('mirrors the file-layer prune onto the leaf layer', () => {
 		const db = makeDb({ 'ex.txt': { scroll: 1 }, 'ok.md': { scroll: 2 } });

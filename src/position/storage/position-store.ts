@@ -116,14 +116,29 @@ export class PositionStore {
 		this.leafStates.delete(leafId);
 	}
 
-	// Drop every record for a path: the file record AND every leaf record that named it. Both halves
-	// are mandatory — a surviving leaf record would be handed straight back by read() for the deleted
-	// path, and a new file later created at the same path would restore the old file's spot.
-	deleteFile(filePath: string): void {
+	// The one act behind the two reasons below: hold nothing for a path, in either layer.
+	// Both halves are mandatory — a surviving leaf record would be handed straight back
+	// by read() for the path, and a file later created there would restore the old one's
+	// spot.
+	private dropPath(filePath: string): void {
 		this.database.deleteFile(filePath);
 		for (const [leafId, r] of this.leafStates)
 			if (r.filePath === filePath)
 				this.leafStates.delete(leafId);
+	}
+
+	// The file is GONE: a vault delete that outlived its grace window (see
+	// position/path-bookkeeping.ts).
+	deleteFile(filePath: string): void {
+		this.dropPath(filePath);
+	}
+
+	// The file is EXCLUDED — present, but the recording rules say no position is kept for
+	// it. The same dropping, and with the same reach: what makes a record wrong is
+	// per-file, so a tab that is not the one being polled loses its record too. A name of
+	// its own because `deleteFile` in the sampler reads as a deletion happening there.
+	dropExcluded(filePath: string): void {
+		this.dropPath(filePath);
 	}
 
 	// Re-key both layers with a renamed file. Without the leaf half, the path guard in read() would
