@@ -18,10 +18,7 @@ export default class PositionRestorePlugin extends Plugin {
 		await this.loadSettings();
 		this.database = new CursorPositionDatabase(this, this.settings);
 		this.manager = new PositionManager(this.app, this.database, this.settings);
-
 		await this.database.readDb();
-		this.manager.prunePositions();
-		this.manager.sweepMissingHistory();
 
 		this.addSettingTab(new SettingTab(this.app, this));
 
@@ -37,6 +34,14 @@ export default class PositionRestorePlugin extends Plugin {
 		this.registerPolling();
 		this.registerDbFlush();
 		this.registerSuspendFlush();
+
+		// These cleanups are not needed for restore and the vault index is still
+		// warming up at this point — moving them to layoutReady costs no delay
+		// and gives prune() a fully populated metadata cache to consult.
+		this.app.workspace.onLayoutReady(() => {
+			this.manager.prunePositions();
+			this.manager.sweepMissingHistory();
+		});
 
 		this.manager.restoreEphemeralState();
 	}
