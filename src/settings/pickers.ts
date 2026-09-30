@@ -7,7 +7,9 @@ import { t } from '@/i18n';
 // may ask the app, not about the settings surface.
 declare module 'obsidian' {
 	interface MetadataCache {
-		getAllPropertyInfos(): Record<string, unknown>;
+		// Keyed by the LOWERCASED name — how the app folds `MyProp` and `myprop`
+		// into one property — with the spelling the notes actually use in `name`.
+		getAllPropertyInfos(): Record<string, { name: string }>;
 	}
 }
 
@@ -98,7 +100,11 @@ export class PropertySuggestModal extends FuzzySuggestModal<string> {
 	}
 
 	getItems(): string[] {
-		return Object.keys(this.app.metadataCache.getAllPropertyInfos())
+		// The stored `name`, never the key: the app's index is keyed by the
+		// lowercased name, and a rule written `myprop` would silently never
+		// match a note that wrote `MyProp` — property names keep their case.
+		return Object.values(this.app.metadataCache.getAllPropertyInfos())
+			.map((info) => info.name)
 			.sort((a, b) => a.localeCompare(b));
 	}
 
