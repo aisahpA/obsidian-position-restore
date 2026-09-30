@@ -511,6 +511,17 @@ export class CursorPositionDatabase {
 		stickyNotice(t('dataStorage.legacyDb.noticeOverwritten'));
 	}
 
+	// What the settings page says beside the entry count: how many of those
+	// records hold no position at all. The same test as the eviction below, so
+	// the page and the trim never disagree about which records are worthless.
+	countDefaultPosition(): number {
+		let n = 0;
+		for (const key of Object.keys(this.db))
+			if (this.isEmptyRecord(key, this.db[key]))
+				n++;
+		return n;
+	}
+
 	// Nothing worth restoring: no scroll, and a cursor sitting only where
 	// Obsidian puts it on open. That is what a note that was merely opened
 	// leaves behind, and it is the cheapest record to lose. The frontmatter

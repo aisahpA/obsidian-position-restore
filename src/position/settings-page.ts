@@ -293,7 +293,15 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 					name: t('dataStorage.entries.name'),
 					render: (setting) => {
 						const count = Object.keys(ctx.plugin.database.db).length;
-						setting.setDesc(t('dataStorage.entries.desc', String(count)));
+						const frag = createFragment();
+						frag.createDiv({ text: t('dataStorage.entries.desc', String(count)) });
+						// The count alone invites the wrong question ("am I about
+						// to lose positions?") — the split is what makes it
+						// readable, and it is only worth saying when it is so.
+						const atDefault = ctx.plugin.database.countDefaultPosition();
+						if (atDefault > 0)
+							frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.entries.atDefault', String(atDefault)) });
+						setting.setDesc(frag);
 					},
 				},
 			],

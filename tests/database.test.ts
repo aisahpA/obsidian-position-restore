@@ -924,3 +924,21 @@ describe('tombstone eviction', () => {
 		expect(db.db['f800']).toEqual({ time: expect.any(Number) });
 	});
 });
+
+describe('countDefaultPosition', () => {
+	it('counts the records that hold no position, and no others', () => {
+		const { db, fmPositions } = makeHarness();
+		// Same open-default line for both: frontmatter ends at line 4, so the
+		// app parks the cursor on line 5.
+		const fm = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
+		for (const p of ['a.md', 'c.md'] as const)
+			fmPositions[p] = fm;
+
+		db.setState('a.md', { cursor: POINT(5, 0) }); // parked on the default
+		db.setState('b.md', {});                      // tombstone
+		db.setState('c.md', { cursor: POINT(9, 0) }); // a real line
+		db.setState('d.md', { scroll: 40 });          // a real scroll
+
+		expect(db.countDefaultPosition()).toBe(2);
+	});
+});

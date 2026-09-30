@@ -122,8 +122,15 @@ export const en = {
 		'Position Restore: the data file was just rewritten in the older format by a device that has not been updated yet. The older version cannot read the new file, so it wrote back only its own positions; everything another device had recorded in the new format is gone from the file. What this device recorded is untouched and goes back on the next save. Update the plugin on your other devices, or this repeats on every sync.',
 
 	'dataStorage.entries.name': 'Entry count',
+	// "Default position" = the line the app leaves the cursor on when a note
+	// opens: the first line after its frontmatter, or the first line when it
+	// has none. Such a record is stored empty — it holds no position, but it
+	// is not useless: it is what keeps the edit-view default position from
+	// firing again, so deleting it makes the note count as "never recorded".
 	'dataStorage.entries.desc':
-		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the positions of the least-recently-visited files are removed first.',
+		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the least-recently-visited records that sit at the default position are dropped first; the rest go least-recently-visited first.',
+	'dataStorage.entries.atDefault':
+		'Of these, {0} sit at the default position (the first line after the frontmatter) and hold no actual position.',
 
 	// ── Shared · what a hotkey row says, on either page that binds one ──
 	// Named for what it HOLDS, not for the page it stands on: a reader looking
