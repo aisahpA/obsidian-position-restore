@@ -413,10 +413,9 @@ export class CursorPositionDatabase {
 	async readDb(): Promise<void> {
 		this.lastDiskMtime = 0;
 
-		if (!(await this.app.vault.adapter.exists(this.getDbPath()))) {
-			this.db = {};
+		await this.cacheDiskMtime();
+		if (this.lastDiskMtime === 0)
 			return;
-		}
 
 		let data: string;
 		try {
@@ -432,7 +431,6 @@ export class CursorPositionDatabase {
 		try {
 			const { schema, db } = this.parseDb(data);
 			this.db = db;
-			await this.cacheDiskMtime();
 			this.noteSchema(schema, true);
 		} catch (e) {
 			// The file exists but holds something else: clearing the in-memory

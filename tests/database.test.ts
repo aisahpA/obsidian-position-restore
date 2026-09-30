@@ -198,11 +198,18 @@ describe('record codec (write → read round trip)', () => {
 });
 
 describe('corrupted data hardening (readDb / parseDb)', () => {
-	it('a missing file yields an empty db without attempting a read', async () => {
-		const { db, adapter } = makeHarness();
+	it('a missing file yields an empty db without a read or a complaint', async () => {
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+		consoleError.mockClear();
+		const { db, adapter, files } = makeHarness();
 		await db.readDb();
+
 		expect(db.db).toEqual({});
+		expect(copies(files)).toEqual([]);
+		// The leading stat doubles as the existence check, so a first run costs
+		// a single round-trip and says nothing — there is nothing to report.
 		expect(adapter.read).not.toHaveBeenCalled();
+		expect(consoleError).not.toHaveBeenCalled();
 	});
 
 	it('a readable db is read and leaves no copy behind', async () => {
