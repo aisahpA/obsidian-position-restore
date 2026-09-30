@@ -379,8 +379,12 @@ export class RecentFilesList {
 		this.disarm();
 		this.unmark();
 		this.tip.reset();
-		// The cursor's identity across the rebuild: the note's group index, or
-		// the stack index of the landing it is on. Captured BEFORE the rows go.
+		// Where the cursor stood across the rebuild: the SLOT it occupied, not
+		// the row that stood in it — the group's index, or the stack index of
+		// the landing it was on. So a redraw that reorders (a filter typed, a
+		// row dismissed, a pin moved up) leaves the cursor on the same slot,
+		// which now names another note: chosen deliberately, and the reason a
+		// row is never announced by position. Captured BEFORE the rows go.
 		const cursor = this.selected;
 		const wasGroup = cursor?.group;
 		const wasRep = cursor && cursor.group === undefined ? cursor.rep ?? -1 : -1;
