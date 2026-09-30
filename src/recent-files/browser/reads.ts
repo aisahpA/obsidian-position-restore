@@ -1,14 +1,15 @@
 import { App, EventRef, TFile } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { EphemeralState } from '@/types';
-import { HeadingRef, NavEntryDescription, describeNavEntry, headingsFromText } from './model';
+import { HeadingRef, NavEntryDescription, describeNavEntry, headingsFromLines } from './model';
 
 // Everything the browser reads out of the vault, cached: an entry's display pieces
 // (one render's worth) and, per path, what the file's metadata cache answers — its
 // headings and the other names it goes by. None of these needs the file's text.
 //
-// ONE question may go to the text, and only after the cache has been asked and said
-// nothing: the section chain of a note the app has not re-parsed (see headingsFor).
+// TWO questions may go to the text, and only after the cache has been asked and said
+// nothing: the section chain of a note the app has not re-parsed (see headingsFor),
+// and the line a stale number has moved to (see linesFor).
 
 export interface RecentFilesReadsOptions {
 	// A file record carries no position of its own, so the line such a row prints is
@@ -85,10 +86,17 @@ export class RecentFilesReads {
 	// moved to (see linesFor). One reading serves both — a note's lines are the lines
 	// its headings sit on.
 	//
+	// TWO records, because the two answers have different lifetimes and one reading fills both.
+	// A chain is asked for by EVERY landing row of every render, and is kept for as long as the
+	// body lives; the lines are asked for by the line fallback alone, and whether they are worth
+	// keeping at all is still an open question. Kept apart so that dropping them cannot take the
+	// chain with them (see ensureText's `want`).
+	//
 	// Remembered against mtime rather than invalidated by an event: what makes such a
 	// reading stale is an EXTERNAL change, and an external change fires no 'changed' —
 	// that is the whole reason this fallback exists.
-	private text = new Map<string, { mtime: number; headings: HeadingRef[]; lines: string[] }>();
+	private heads = new Map<string, { mtime: number; headings: HeadingRef[] }>();
+	private lines = new Map<string, { mtime: number; lines: string[] }>();
 	// Paths being read right now: however many renders ask, the file is read once.
 	private reading = new Set<string>();
 	private metaRef?: EventRef;
@@ -212,8 +220,12 @@ export class RecentFilesReads {
 	// being drawn now is drawn without the chain. Until the reading lands, what shows
 	// is the last reading taken at this mtime — a chain one sync old still names the
 	// section, which is more than a line number does.
+	//
+	// …which is why this answers with the record whatever mtime it was taken at, while
+	// linesFor below may not.
 	private textHeadings(path: string): HeadingRef[] | undefined {
-		return this.ensureText(path)?.headings ?? this.text.get(path)?.headings;
+		this.ensureText(path, true, 'heads');
+		return this.heads.get(path)?.headings;
 	}
 
 	// The lines a stale line number is re-found in (see nowLineFor). Never a reading
@@ -224,25 +236,28 @@ export class RecentFilesReads {
 	// await away. A render of fifty rows may not: fifty files read to label fifty rows
 	// is not a price a redraw pays.
 	linesFor(path: string, prime: boolean): string[] | undefined {
-		return this.ensureText(path, prime)?.lines;
+		const mtime = this.ensureText(path, prime, 'lines');
+		const known = this.lines.get(path);
+		return known && known.mtime === mtime ? known.lines : undefined;
 	}
 
-	// The text when it is in hand at the file's current mtime. Otherwise start reading
-	// it — unless `prime` says the asker will not wait — and answer undefined: the
-	// caller draws with what it had and hears about the reading when it lands.
-	private ensureText(path: string, prime = true) {
+	// Start reading a note's text, unless the record the asker is here for is already in hand at
+	// the file's CURRENT mtime. `want` names that record, because the two have different lifetimes
+	// (see the field): the chain being in hand never stands in for the lines, so the day the lines
+	// are dropped, a note already read for its chain is not read again for a question it has
+	// nothing to do with. Answered with the mtime such a reading is for — what the caller compares
+	// its own record against — or undefined for a path with no file behind it.
+	private ensureText(path: string, prime: boolean, want: 'heads' | 'lines'): number | undefined {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		if (!(file instanceof TFile))
 			return undefined;
-		const known = this.text.get(path);
 		const mtime = file.stat.mtime;
-		if (known && known.mtime === mtime)
-			return known;
-		if (prime && !this.reading.has(path)) {
+		const known = want === 'heads' ? this.heads.get(path) : this.lines.get(path);
+		if (known?.mtime !== mtime && prime && !this.reading.has(path)) {
 			this.reading.add(path);
 			void this.readText(path, file, mtime);
 		}
-		return undefined;
+		return mtime;
 	}
 
 	// Remembered against the mtime it was read at. A read that FAILS is remembered as
@@ -253,14 +268,15 @@ export class RecentFilesReads {
 		let headings: HeadingRef[] = [];
 		let lines: string[] = [];
 		try {
-			const content = await this.app.vault.cachedRead(file);
-			headings = headingsFromText(content);
-			lines = content.split('\n');
+			// Split ONCE: the headings are found among the very lines the line fallback reads.
+			lines = (await this.app.vault.cachedRead(file)).split('\n');
+			headings = headingsFromLines(lines);
 		} catch {
 			// Nothing to say about it, then: the row keeps its line number.
 		}
 		this.reading.delete(path);
-		this.text.set(path, { mtime, headings, lines });
+		this.heads.set(path, { mtime, headings });
+		this.lines.set(path, { mtime, lines });
 		this.opts.onLateRead?.();
 	}
 

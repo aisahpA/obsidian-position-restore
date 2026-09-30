@@ -268,9 +268,8 @@ export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: num
 // follows the marks: a line opening with `#tag` is one of the app's tags, and a `#` inside a fenced
 // block is a comment in somebody's shell. The frontmatter is skipped for the same reason —
 // `title: # 1` is a value.
-export function headingsFromText(text: string): HeadingRef[] {
+export function headingsFromLines(lines: readonly string[]): HeadingRef[] {
 	const out: HeadingRef[] = [];
-	const lines = text.split('\n');
 	// The marks that opened the fence that is still open, if one is: a block closes on a fence of
 	// its own kind, so ``` inside a ~~~ block is an ordinary line of it.
 	let fence: string | undefined;
@@ -302,6 +301,12 @@ export function headingsFromText(text: string): HeadingRef[] {
 			out.push({ heading, level: atx[1].length, line: i });
 	}
 	return out;
+}
+
+// The text-shaped entry point, for a caller holding the note whole. A caller that has already
+// split it hands the LINES over instead: a note is split once per reading, not twice (see reads.ts).
+export function headingsFromText(text: string): HeadingRef[] {
+	return headingsFromLines(text.split('\n'));
 }
 
 // The chain as a ROW prints it: the deepest `depth` levels only, outermost first (a row has one line

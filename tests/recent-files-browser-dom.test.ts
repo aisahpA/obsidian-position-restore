@@ -1545,6 +1545,33 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		h.changed();
 		expect(reads('a.md')).toHaveLength(1);
 	});
+
+	it('answers a hover\'s line out of the reading the render already took', async () => {
+		// ONE reading serves BOTH records — a note's lines are the lines its headings sit on
+		// (see RecentFilesReads) — so the reading a row's CHAIN starts is the same reading the
+		// LINE in a hover comes back out of. A spot whose record carries no key can be placed
+		// by nothing but the note's own text, and that text was already in hand: the question
+		// the chain paid for is not paid for a second time.
+		const h = harnessAll([
+			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
+			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
+			visit('b.md', NOW),
+		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, {});
+		const reads = (path: string) => h.cachedRead.mock.calls.filter(c => c[0].path === path);
+
+		// The cache says nothing about a.md, so the chain starts a reading…
+		expect(reads('a.md')).toHaveLength(1);
+		for (let i = 0; i < 10; i++)
+			await Promise.resolve();
+		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
+
+		// …and the hover that needs the note's OWN LINES is answered out of it. The hover is
+		// the ONE asker allowed to start a reading (see linesFor), so a note read again here
+		// would be the two records having come apart.
+		movedOnto(h.place('L7'));
+		expect(h.trigger).toHaveBeenCalled();
+		expect(reads('a.md')).toHaveLength(1);
+	});
 });
 
 describe('RecentFilesModal — the list\'s looks belong to the settings tab', () => {
