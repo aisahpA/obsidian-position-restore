@@ -90,8 +90,7 @@ export class PositionStore {
 	}
 
 	// Which leaves are on a path, without walking the layer for them. Copied out
-	// because both callers drop what they are handed, which edits the set the
-	// answer came from.
+	// because both callers drop what they are handed.
 	private leafIdsOnPath(filePath: string): string[] {
 		const ids = this.leavesByPath.get(filePath);
 		return ids ? [...ids] : [];
@@ -99,48 +98,35 @@ export class PositionStore {
 
 	// Writing it. Every change goes through putLeaf() and dropLeaf() and there is
 	// no third way — renameFile() re-keys by replacing a record rather than by
-	// moving its path by hand — so the index is maintained here, and in
-	// reindexLeaves() when the whole layer is replaced underneath, nowhere else.
+	// moving its path by hand.
+	//
+	// The index is REBUILT after a write, not patched: it is derived from the map,
+	// and a patch has to know which path the leaf left, which is a second thing to
+	// keep true. Rebuilding costs a walk of the tabs that are open — a write
+	// happens when the reader moves, while what needs the index cheap is READING
+	// it, once per poll.
 	private putLeaf(leafId: string, record: TabStateRecord): void {
-		const prev = this.leafStates.get(leafId);
-		if (prev && prev.filePath !== record.filePath)
-			this.indexDrop(leafId, prev.filePath);
 		this.leafStates.set(leafId, record);
-		this.indexAdd(leafId, record.filePath);
+		this.reindexLeaves();
 	}
 
 	private dropLeaf(leafId: string): void {
-		const prev = this.leafStates.get(leafId);
-		if (prev)
-			this.indexDrop(leafId, prev.filePath);
 		this.leafStates.delete(leafId);
+		this.reindexLeaves();
 	}
 
-	// The whole layer replaced underneath it: the startup read, and the test seam
-	// standing in for one. Bulk, so it skips putLeaf() and rebuilds the index out
-	// of the map instead.
+	// The one place the index is maintained: rebuilt out of the map, so it cannot
+	// drift from it. Runs after every write, and after the startup load — the one
+	// bulk change that does not go through putLeaf().
 	private reindexLeaves(): void {
 		this.leavesByPath.clear();
-		for (const [leafId, r] of this.leafStates)
-			this.indexAdd(leafId, r.filePath);
-	}
-
-	private indexAdd(leafId: string, filePath: string): void {
-		const ids = this.leavesByPath.get(filePath);
-		if (ids) {
-			ids.add(leafId);
-			return;
+		for (const [leafId, r] of this.leafStates) {
+			const ids = this.leavesByPath.get(r.filePath);
+			if (ids)
+				ids.add(leafId);
+			else
+				this.leavesByPath.set(r.filePath, new Set([leafId]));
 		}
-		this.leavesByPath.set(filePath, new Set([leafId]));
-	}
-
-	private indexDrop(leafId: string, filePath: string): void {
-		const ids = this.leavesByPath.get(filePath);
-		if (!ids)
-			return;
-		ids.delete(leafId);
-		if (ids.size === 0)
-			this.leavesByPath.delete(filePath);
 	}
 
 	// Two callers walk the layer and drop what matches, each for its own reason: a
