@@ -119,37 +119,27 @@ function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): st
 // Opens Obsidian's hotkey settings on this plugin's commands. Only reachable
 // from a settings row, so the settings modal is already open — calling open()
 // again would stack a second modal (Obsidian does not guard re-entry) and the
-// tab swap would land on the invisible instance. The swap from inside a click
-// handler completes asynchronously, so the query prefill retries until the
-// hotkeys tab is live. A tab that never arrives is said out loud: a button
-// that does nothing is worse than no button.
+// tab swap would land on the invisible instance.
+//
+// openTabById hands the tab back there and then, or null when there is no such
+// tab — so nothing here waits for it. A retry timer would outlive a settings
+// window the reader had already closed, and then tell them about a failure
+// that never happened. A tab that really never arrives is said out loud: a
+// button that does nothing is worse than no button.
 function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
-			openTabById(id: string): void;
-			activeTab?: { id?: string; setQuery?(query: string): void };
+			openTabById(id: string): { setQuery?(query: string): void } | null;
 		};
 	}).setting;
+	const tab = setting?.openTabById('hotkeys');
 	// Same sentence either way: what was promised was a way to bind a key,
 	// and it is the outcome — not the reason — the reader is left looking at.
-	if (!setting) {
+	if (!tab) {
 		new Notice(t('hotkeys.openFailed'));
 		return;
 	}
-	setting.openTabById('hotkeys');
-	const prefill = (retries: number): void => {
-		const tab = setting.activeTab;
-		// Arriving on the tab is the job; the query is only a convenience, so a
-		// tab with no setQuery counts as arrived and says nothing.
-		if (tab?.id === 'hotkeys') {
-			tab.setQuery?.(plugin.manifest.name);
-			return;
-		}
-		if (retries > 0) {
-			window.setTimeout(() => prefill(retries - 1), 50);
-			return;
-		}
-		new Notice(t('hotkeys.openFailed'));
-	};
-	prefill(20);
+	// Prefilling the search is a convenience, not the job: a tab that arrived
+	// without a way to do it is still a tab the reader was sent to.
+	tab.setQuery?.(plugin.manifest.name);
 }

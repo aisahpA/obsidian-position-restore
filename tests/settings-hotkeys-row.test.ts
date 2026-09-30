@@ -8,7 +8,7 @@
 // instruction is said once for the whole row instead of after every unbound
 // command, and a click that never reaches the hotkeys tab says so out loud
 // instead of doing nothing.
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
 import { Notice } from './support/obsidian-stub';
 import { hotkeys } from '@/settings/page';
 import { zh } from '@/i18n/locales/zh';
@@ -24,8 +24,7 @@ interface FakeButton {
 // slot for the button. The plugin under it is reduced to the two fields the
 // row reads — the app it opens settings through, and its own manifest.
 function renderRow(setting: {
-	openTabById(id: string): void;
-	activeTab?: { id?: string; setQuery?(query: string): void };
+	openTabById(id: string): { setQuery?(query: string): void } | null;
 } | undefined, commands: { id: string; name: string }[]): {
 	desc: string;
 	click: () => void;
@@ -64,15 +63,9 @@ function countOccurrences(haystack: string, needle: string): number {
 	return haystack.split(needle).length - 1;
 }
 
-// 20 retries at 50ms — see settings/page's openHotkeySettings.
-const RETRY_BUDGET_MS = 20 * 50 + 200;
-
 describe('hotkeys row', () => {
 	beforeEach(() => {
 		Notice.reset();
-	});
-	afterEach(() => {
-		vi.useRealTimers();
 	});
 
 	const commands = [
@@ -103,12 +96,11 @@ describe('hotkeys row', () => {
 		const { click } = renderRow({
 			openTabById(id) {
 				opened.push(id);
-			},
-			activeTab: {
-				id: 'hotkeys',
-				setQuery(query) {
-					queries.push(query);
-				},
+				return {
+					setQuery(query) {
+						queries.push(query);
+					},
+				};
 			},
 		}, commands);
 		click();
@@ -120,34 +112,25 @@ describe('hotkeys row', () => {
 	// Arriving on the tab is the job; the query is a convenience it cannot
 	// always do. A tab with no setQuery is still a tab the reader was sent to.
 	it('says nothing when the tab arrives without a way to prefill the query', () => {
-		const { click } = renderRow({
-			openTabById() {},
-			activeTab: { id: 'hotkeys' },
-		}, commands);
+		const { click } = renderRow({ openTabById: () => ({}) }, commands);
 		click();
 		expect(Notice.instances).toHaveLength(0);
 	});
 
 	// A button that does nothing is worse than no button: the row promised a
-	// way to bind a key, and the reader is left standing on it.
-	it('says so when the click never lands on the hotkeys tab', () => {
-		vi.useFakeTimers();
-		const { click } = renderRow({
-			openTabById() {},
-			activeTab: { id: 'about' },
-		}, commands);
+	// way to bind a key, and the reader is left standing on it. Said AT ONCE —
+	// a reader who has since closed the settings window must not be told a
+	// second later about a failure that never happened.
+	it('says so the moment the click lands on no hotkeys tab', () => {
+		const { click } = renderRow({ openTabById: () => null }, commands);
 		click();
-		expect(Notice.instances).toHaveLength(0);
-		vi.advanceTimersByTime(RETRY_BUDGET_MS);
 		expect(Notice.instances).toHaveLength(1);
 		expect(Notice.instances[0].message).toContain('Settings → Hotkeys');
 	});
 
 	it('says so when there is no settings surface at all', () => {
-		vi.useFakeTimers();
 		const { click } = renderRow(undefined, commands);
 		click();
-		vi.advanceTimersByTime(RETRY_BUDGET_MS);
 		expect(Notice.instances).toHaveLength(1);
 	});
 });
