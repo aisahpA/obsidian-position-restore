@@ -151,7 +151,7 @@ afterEach(() => {
 });
 
 describe('Restorer.completeInjectedRestore', () => {
-	it('does nothing when the active leaf has no injected marker', async () => {
+	it('活动 leaf 没有注入标记时什么都不做', async () => {
 		const { state, leaf, restorer } = makeHarness({ marker: false });
 		// The active file changed from the previous leaf — the signature of a
 		// genuine open whose own file-open already consumed the marker and
@@ -168,7 +168,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.lastActiveFilePath).toBe('a.md');
 	});
 
-	it('completes an unconsumed injected open: settle, reveal, and anchor', async () => {
+	it('完成一次还没被消费的注入打开：落定、揭幕、锚定', async () => {
 		const { state, leaf, restorer } = makeHarness();
 
 		await restorer.completeInjectedRestore(leaf);
@@ -179,7 +179,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 
-	it('glide setting does not turn a covered injected open into a glide (the cover must lift)', async () => {
+	it('glide 设置不会把一个盖着的注入打开变成 glide（盖布必须掀开）', async () => {
 		// A history traversal (back/forward) injects and covers REGARDLESS of
 		// the glide setting ("must land instantly"). Dispatching it to
 		// glideRestore left the first-paint cover stuck — glideRestore never
@@ -193,7 +193,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 
-	it('an injected open settles to the landing the patch handed it, not the store record', async () => {
+	it('注入打开落定到补丁交给它的那个落点，而不是存储里的记录', async () => {
 		// A cross-file history jump: the patch injects the TARGET ENTRY's own
 		// position (what the browser row shows) and hands it over here. The
 		// store record deliberately differs — it holds the spot the user had
@@ -212,7 +212,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedLeafStates.size).toBe(0);
 	});
 
-	it('an injected open with no handed landing falls back to the store record', async () => {
+	it('没有交下落点时就退回存储记录', async () => {
 		const { state, leaf, restorer } = makeHarness();
 		const settle = vi.spyOn(RestoreModes.prototype, 'restoreInjectedSource')
 			.mockResolvedValue(undefined);
@@ -223,7 +223,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedLeafStates.size).toBe(0);
 	});
 
-	it('skips the landing cue while a navigation traversal suppresses it', async () => {
+	it('一次导航跳转正在压着提示时不显示落点提示', async () => {
 		// NavStack arms cueSuppressUntil on back/forward: the restore still
 		// lands (and anchors) but must not show the position-restored chip.
 		const { state, leaf, restorer } = makeHarness();
@@ -242,7 +242,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(show).toHaveBeenCalled();
 	});
 
-	it('skips a duplicate re-assert while the same leaf+file restore is in flight', async () => {
+	it('同一 leaf+file 的恢复正在飞时，跳过重复的那次再次声明', async () => {
 		// The two entry points ('file-open' and the 'active-leaf-change'
 		// completion) can both fire for one open. The first consumes the
 		// injected marker and starts the settle; the second, landing while it
@@ -259,7 +259,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.inFlightRestoreLeafRuns.size).toBe(0); // cleaned up
 	});
 
-	it('a different file on the same leaf is not blocked by the in-flight pair', async () => {
+	it('同一个 leaf 上换了文件，不被正在飞的那一对挡住', async () => {
 		// Rapid file switch: an in-flight restore of a.md must not make the
 		// guard swallow a b.md open on the same leaf. Seed the a.md pair as
 		// in-flight; the b.md open on the same leaf must still restore.
@@ -276,7 +276,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.inFlightRestoreLeafRuns.size).toBe(0);
 	});
 
-	it('does nothing before layout-ready and keeps the marker for the real activation', async () => {
+	it('layout-ready 之前什么都不做，把标记留给真正的那次激活', async () => {
 		const { state, leaf, restorer } = makeHarness({ layoutReady: false });
 
 		await restorer.completeInjectedRestore(leaf);
@@ -285,7 +285,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 	});
 
-	it('does nothing when the active view is not a markdown view', async () => {
+	it('活动视图不是 markdown 视图时什么都不做', async () => {
 		const { state, leaf, restorer } = makeHarness({ activeIsMarkdown: false });
 
 		await restorer.completeInjectedRestore(leaf);
@@ -294,7 +294,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 	});
 
-	it('restores an unhandled reading leaf on a same-file activation (no marker, no file-open)', async () => {
+	it('同文件激活时恢复一个未处理的阅读 leaf（既没有标记，也没有 file-open）', async () => {
 		// A deferred reading tab's activation builds its view but changes no
 		// active FILE, so no 'file-open' fires and the injected marker never
 		// exists. The event carries only the new leaf, so the previously
@@ -327,7 +327,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.lastLoadedFilePath).toBe('a.md');
 	});
 
-	it('never restores when the active file changed (a genuine open owns its file-open)', async () => {
+	it('活动文件变了就绝不恢复（一次真正的打开自己有 file-open）', async () => {
 		// The previously active file differs: this is a real file switch,
 		// whose own 'file-open' will restore — the completion must not race it.
 		const state = new PositionState(DEFAULT_SETTINGS);
@@ -356,7 +356,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.handledLeafIdMap.has('leaf-1')).toBe(false);
 	});
 
-	it('skips a same-file activation of an already-handled leaf', async () => {
+	it('已经处理过的 leaf，其同文件激活跳过', async () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		state.lastActiveFilePath = 'a.md';
 		const leaf = makeLeaf('leaf-1');

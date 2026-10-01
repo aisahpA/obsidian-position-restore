@@ -31,7 +31,7 @@ const popover = () => {
 // nextPaint), so one turn of the fake clock past it is one look.
 const look = () => vi.advanceTimersByTimeAsync(150);
 
-describe('PreviewSettle — the cover over the preview’s own journey', () => {
+describe('PreviewSettle —— 盖在预览自己那段路程上的遮罩', () => {
 	let settle: PreviewSettle;
 	let opened: ReturnType<typeof vi.fn>;
 
@@ -48,7 +48,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		document.body.innerHTML = '';
 	});
 
-	it('covers the popover whenever it arrives — the key may come long after the asking', async () => {
+	it('popover 什么时候到都罩住它 —— 钥匙可能比提问晚很久才来', async () => {
 		// The panel's own registration says the Mod key is required (see main.ts), so
 		// the app answers when the reader PRESSES it: ten seconds of hovering first is
 		// an ordinary thing, and a cover that has gone home by then is the jump and
@@ -69,7 +69,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(opened).toHaveBeenCalledWith(el);
 	});
 
-	it('reveals when the scroll’s own witness arrives, with the search mark already off', async () => {
+	it('滚动自己的见证到达时才揭幕，而且搜索标记已经摘掉', async () => {
 		// The core puts `.is-flashing` on the line in the SAME call that moves the
 		// scroller, so the flash is the certain news that the note has landed — and it
 		// is the search hit's three seconds, never meant for a preview, so it is taken
@@ -90,7 +90,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(el.querySelector('.is-flashing')).toBeNull();
 	});
 
-	it('hides content that arrives after the card itself', async () => {
+	it('比卡片本身晚到的内容先藏着', async () => {
 		// The content node is later than the popover it belongs to, so the cover is
 		// re-applied at every look rather than once.
 		const { el } = popover();
@@ -106,7 +106,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(late.style.opacity).toBe('0');
 	});
 
-	it('stops waiting at the deadline rather than holding a blank card', async () => {
+	it('到了期限就停止等待，而不是一直举着一张空卡片', async () => {
 		// The deadline is for the version of the app that keeps the position and drops
 		// the flash: a popover that never quite caught up is uncovered whole rather
 		// than held blank while we wonder about it.
@@ -122,7 +122,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('');
 	});
 
-	it('reports the opening — and covers nothing — when no line was asked', async () => {
+	it('没有请求行号时报告「开了」，但不盖任何东西', async () => {
 		// A section is drawn where it stands, so there is no journey to hide; but the
 		// OPENING itself is still news the panel is waiting for (see NavRowTip).
 		const parent = parentOf();
@@ -136,7 +136,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('');
 	});
 
-	it('covers an already-standing popover when the next asking names a line', async () => {
+	it('下一次提问点名了行号时，把已经立着的 popover 罩上', async () => {
 		// The pointer crossed over from another row: the note about to load into the
 		// open card makes the same journey, so the cover starts with the asking —
 		// one visible frame of the note's head is already too late.
@@ -152,7 +152,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('0');
 	});
 
-	it('puts the old note back at the deadline when an asking is answered with nothing', async () => {
+	it('提问被回答成「什么都没有」时，到期限就把旧笔记放回去', async () => {
 		// Covering the standing card is a bet that a journey is beginning; a refused
 		// asking must not keep the reader's note hidden for it.
 		const { el, content } = popover();
@@ -168,7 +168,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('');
 	});
 
-	it('lets go when the hover ends — and watches again when one begins', async () => {
+	it('悬停结束就放手 —— 下一次开始再重新盯着', async () => {
 		// The pointer leaving the list ends the ASKING, not the popover: a cover still
 		// on comes off, but the card stays tracked, so a pointer coming back is not
 		// told a second time that it "opened".
@@ -188,7 +188,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(opened).toHaveBeenCalledTimes(1);
 	});
 
-	it('lets a newer popover own the cover', async () => {
+	it('让更新的那个 popover 接管遮罩', async () => {
 		// Rows are crossed one after another: an older card has no business staying
 		// covered once the app has answered a newer asking.
 		const first = popover();
@@ -207,7 +207,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(opened).toHaveBeenCalledTimes(2);
 	});
 
-	it('answers "is one open" from the app’s own handle, not from memory', async () => {
+	it('「有没有开着一个」由 app 自己的句柄回答，不靠记忆', async () => {
 		// The rows' hints ask this before speaking (see NavRowTip): a remembered
 		// answer would go stale exactly when it mattered — the popover closing while
 		// the pointer never left the list.
@@ -223,7 +223,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(settle.isOpen()).toBe(false);
 	});
 
-	it('restores a card it is no longer covering when the asking moves on', async () => {
+	it('提问换了目标时，把已经不再罩着的那张卡片恢复原样', async () => {
 		// An asking can arrive while another card is still under the cover — the app
 		// replaced its popover between looks, and the new asking names a line. The old
 		// card is the app's to show again exactly as it was.
@@ -242,7 +242,7 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(second.content.style.opacity).toBe('0');
 	});
 
-	it('leaves nothing hidden when the panel goes away', async () => {
+	it('面板离开时一件藏着的东西都不留', async () => {
 		// A popover left covered would be a bug that outlives the rows that caused it.
 		const { el, content } = popover();
 		const parent = parentOf(el);

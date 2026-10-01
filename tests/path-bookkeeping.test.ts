@@ -67,8 +67,8 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
-describe('PathBookkeeper rename', () => {
-	it('moves the position record, the history entries and the current-file pointer', () => {
+describe('PathBookkeeper 改名', () => {
+	it('挪走位置记录、历史条目与当前文件指针', () => {
 		const h = makeHarness();
 		h.state.lastLoadedFilePath = 'a.md';
 
@@ -82,7 +82,7 @@ describe('PathBookkeeper rename', () => {
 		expect(h.state.lastLoadedFilePath).toBe('b.md');
 	});
 
-	it('leaves the current-file pointer alone when it named another file', () => {
+	it('当前文件指针指的是别的文件时不动它', () => {
 		const h = makeHarness();
 		h.state.lastLoadedFilePath = 'c.md';
 
@@ -93,8 +93,8 @@ describe('PathBookkeeper rename', () => {
 	});
 });
 
-describe('PathBookkeeper delete', () => {
-	it('a path that is back when the window closes is not pruned (the sync replacement)', async () => {
+describe('PathBookkeeper 删除', () => {
+	it('窗口结束时又回来的路径不清掉（同步替换）', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.restore('a.md');
@@ -112,7 +112,7 @@ describe('PathBookkeeper delete', () => {
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('a path still missing when the window closes is pruned from both stores, and not before', async () => {
+	it('窗口结束时仍然缺失的路径从两个 store 清掉，且绝不提前', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
@@ -127,7 +127,7 @@ describe('PathBookkeeper delete', () => {
 		expect(h.navStore.deleteFile).toHaveBeenCalledWith('a.md');
 	});
 
-	it('repeated deletes of a still-missing path prune once: a later delete restarts the window', async () => {
+	it('对仍然缺失的路径反复删除只清一次：后一次删除会重启窗口', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
@@ -147,7 +147,7 @@ describe('PathBookkeeper delete', () => {
 	// something the record's survival may depend on. The vault's own word that the path
 	// is back cancels the prune — the window is only what happens to a delete nothing
 	// ever contradicts.
-	it('a create for a deleted path cancels the prune (the sync remove-then-write)', async () => {
+	it('为已删路径新建文件会取消清理（同步的删掉再写入）', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
@@ -160,7 +160,7 @@ describe('PathBookkeeper delete', () => {
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('a rename over a deleted path cancels the prune (the sync remove-then-rename)', async () => {
+	it('覆盖到已删路径的改名取消清理（同步的删掉再改名）', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
@@ -181,7 +181,7 @@ describe('PathBookkeeper delete', () => {
 	// not hear about it: the delete it triggered is answered by a disk that has the file back and
 	// an index that still does not. The record has to survive that disagreement — an index that
 	// lags the disk is one sync behind, not a file that is gone.
-	it('a path the disk has but the index does not is not pruned (a sync writing behind the vault)', async () => {
+	it('磁盘上有、索引里没有的路径不清掉（同步绕过了 vault 直接写）', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 
@@ -195,8 +195,8 @@ describe('PathBookkeeper delete', () => {
 	});
 });
 
-describe('PathBookkeeper startup sweep', () => {
-	it('drops the history of a path the vault does not have — and only the history', async () => {
+describe('PathBookkeeper 启动扫描', () => {
+	it('丢掉 vault 里没有的那个路径的历史 —— 而且只丢历史', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.navStore.knownPaths.mockReturnValue(['a.md', 'b.md']);
@@ -218,7 +218,7 @@ describe('PathBookkeeper startup sweep', () => {
 		expect(h.navStore.persist).toHaveBeenCalled();
 	});
 
-	it('a swept path that is back within the window keeps its history', async () => {
+	it('被扫到的路径在窗口内回来了就保留历史', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.navStore.knownPaths.mockReturnValue(['a.md']);
@@ -232,7 +232,7 @@ describe('PathBookkeeper startup sweep', () => {
 		expect(h.navStore.persist).not.toHaveBeenCalled();
 	});
 
-	it('a live delete of a swept path still drops both stores', async () => {
+	it('被扫到的路径被实时删除时，仍然清掉两个 store', async () => {
 		// The two deferrals are independent maps, so a vault 'delete' arriving
 		// while a sweep is pending must not be narrowed to history-only by it.
 		vi.useFakeTimers();
@@ -248,7 +248,7 @@ describe('PathBookkeeper startup sweep', () => {
 		expect(h.navStore.deleteFile).toHaveBeenCalledWith('a.md');
 	});
 
-	it('reaches every navigation store, not just the first', async () => {
+	it('够到每一个导航 store，不只是第一个', async () => {
 		// The bookkeeper is handed a LIST (the stack and the recent-files list in
 		// production), and each store re-keys/drops its OWN records — so a drop that
 		// only ever reached the first would leave the second holding dead rows.
@@ -275,7 +275,7 @@ describe('PathBookkeeper startup sweep', () => {
 		expect(other.persist).toHaveBeenCalled();
 	});
 
-	it('a swept path the sync delivers while the window stands keeps its history', async () => {
+	it('窗口还站着时同步送来的那个被扫路径保留历史', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.navStore.knownPaths.mockReturnValue(['a.md']);

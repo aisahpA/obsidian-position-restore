@@ -86,8 +86,8 @@ afterEach(() => {
 	window.localStorage.clear();
 });
 
-describe('PositionManager vault path changes', () => {
-	it('a rename re-keys the position record, the history steps and the current-file pointer', () => {
+describe('PositionManager 的 vault 路径变更', () => {
+	it('改名会同时换键：位置记录、历史步、当前文件指针', () => {
 		const h = makeHarness();
 		h.funnel.recordOpen('a.md', 'leaf-1');
 		h.state.lastLoadedFilePath = 'a.md';
@@ -99,7 +99,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.state.lastLoadedFilePath).toBe('b.md');
 	});
 
-	it('the sync remove + rename keeps the position record and the history steps', async () => {
+	it('同步的「删掉再改名」保留位置记录与历史步', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -120,7 +120,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.stack.index).toBe(1);
 	});
 
-	it('the sync remove + create keeps the position record and the history steps', async () => {
+	it('同步的「删掉再新建」保留位置记录与历史步', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -141,7 +141,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.paths()).toEqual(['a.md']);
 	});
 
-	it('a genuine delete still prunes both stores, once the window closes', async () => {
+	it('真删除仍然会在窗口结束后清掉两个 store', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');
@@ -166,7 +166,7 @@ describe('PositionManager vault path changes', () => {
 	// for a file later created at that same path (restoring a dead position),
 	// and one still naming the old path after a rename would fail its path
 	// guard, silently collapsing a per-tab split onto the file record.
-	it('a rename re-keys the per-leaf records along with the file record', () => {
+	it('改名会把按标签页的记录连文件记录一起换键', () => {
 		const h = makeHarness();
 		seedLeaf(h.store, 'leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
 
@@ -179,7 +179,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
 
-	it('a genuine delete drops the per-leaf records of that path too, and only those', async () => {
+	it('真删除也会丢掉该路径的按标签页记录，且只丢那些', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		seedLeaf(h.store, 'leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
@@ -195,7 +195,7 @@ describe('PositionManager vault path changes', () => {
 		expect(h.store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
 
-	it('a sync remove + rename keeps the per-leaf records for the surviving path', async () => {
+	it('同步的删掉再改名保留存活路径的按标签页记录', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		seedLeaf(h.store, 'leaf-1', { filePath: 'a.md', st: { scroll: 42 } });
@@ -215,8 +215,8 @@ describe('PositionManager vault path changes', () => {
 // The two maintenance paths that have no vault event behind them: the stack
 // ceiling changing in the settings, and history left over for files deleted
 // while Obsidian was closed.
-describe('PositionManager navigation history maintenance', () => {
-	it('a changed stack cap trims the stack already in memory', () => {
+describe('PositionManager 的导航历史维护', () => {
+	it('改了栈上限会立刻裁掉内存里已有的栈', () => {
 		const h = makeHarness();
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
 			h.funnel.recordOpen(p, 'leaf-1');
@@ -247,7 +247,7 @@ describe('PositionManager navigation history maintenance', () => {
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('the startup sweep leaves the history of a file the vault still has', async () => {
+	it('启动扫描保留 vault 里还在的那些文件的历史', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');

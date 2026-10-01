@@ -167,7 +167,7 @@ afterEach(() => {
 });
 
 describe('BackgroundSettler.completeBackgroundRestores', () => {
-	it('settles a built background source-injected leaf and leaves the active baseline alone', async () => {
+	it('落定一个已建好的后台源码注入 leaf，且不碰活动基线', async () => {
 		const bg = { id: 'leaf-bg', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({ leaves: [bg] });
 		markInjected(state, [leafObjs['leaf-bg']]);
@@ -184,7 +184,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.lastEphemeralState).toEqual({ scroll: 1 });
 	});
 
-	it('restores a built background reading leaf via the masked path and records it handled', async () => {
+	it('经盖布路径恢复一个已建好的后台阅读 leaf，并记为已处理', async () => {
 		const bg = { id: 'leaf-bg', view: makePreviewView('a.md') };
 		const { state, settler } = makeHarness({ leaves: [bg], db: { 'a.md': READING_RECORD } });
 		state.lastLoadedFilePath = 'active.md';
@@ -199,7 +199,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.lastEphemeralState).toBeUndefined();
 	});
 
-	it('skips a caller-target-handled leaf (Obsidian native cached position wins)', async () => {
+	it('跳过已被 caller 目标接管的 leaf（以 Obsidian 原生缓存位置为准）', async () => {
 		const bg = { id: 'leaf-bg', view: makePreviewView('a.md') };
 		const { state, settler } = makeHarness({ leaves: [bg] });
 		state.handledLeafIdMap.set('leaf-bg', 'a.md');
@@ -211,7 +211,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.lastLoadedFilePath).toBeUndefined();
 	});
 
-	it('never touches the active leaf', async () => {
+	it('绝不碰活动 leaf', async () => {
 		const active = { id: 'leaf-active', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({ active, leaves: [active] });
 		markInjected(state, [leafObjs['leaf-active']]);
@@ -222,7 +222,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.cover.isCovered(leafObjs['leaf-active'])).toBe(true);
 	});
 
-	it('keeps the marker of a deferred leaf (no editor) and reports pending', async () => {
+	it('保留一个延迟 leaf（还没有编辑器）的标记，并报告 pending', async () => {
 		const deferred = { id: 'leaf-def', view: makeSourceView('a.md') };
 		delete (deferred.view as { editor?: unknown }).editor;
 		const { state, settler, leafObjs } = makeHarness({ leaves: [deferred] });
@@ -233,7 +233,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.cover.isCovered(leafObjs['leaf-def'])).toBe(true);
 	});
 
-	it('consumes a stale marker whose handled pair moved to another file', async () => {
+	it('消费掉一个陈旧标记：与它配对的那条已处理标记移到了别的文件', async () => {
 		const bg = { id: 'leaf-bg', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({ leaves: [bg] });
 		markInjected(state, [leafObjs['leaf-bg']], 'a.md');
@@ -246,7 +246,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.handledLeafIdMap.get('leaf-bg')).toBe('b.md');
 	});
 
-	it('does nothing before layout-ready', async () => {
+	it('layout-ready 之前什么都不做', async () => {
 		const bg = { id: 'leaf-bg', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({ leaves: [bg], layoutReady: false });
 		markInjected(state, [leafObjs['leaf-bg']]);
@@ -255,7 +255,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-bg')).toBe(true);
 	});
 
-	it('skips a leaf owned by an in-flight restore, untouched', async () => {
+	it('跳过正被一次进行中恢复持有的 leaf，一下都不碰', async () => {
 		const bg = { id: 'leaf-bg', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({ leaves: [bg] });
 		markInjected(state, [leafObjs['leaf-bg']]);
@@ -267,7 +267,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.cover.isCovered(leafObjs['leaf-bg'])).toBe(true);
 	});
 
-	it('skips a built background leaf with no saved record', async () => {
+	it('跳过已建好但没有存下记录的后台 leaf', async () => {
 		const bg = { id: 'leaf-bg', view: makePreviewView('a.md') };
 		const { state, settler } = makeHarness({ leaves: [bg], db: {} });
 
@@ -277,7 +277,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(bg.view.currentMode.getScroll()).toBe(0); // nothing applied
 	});
 
-	it('reveals a scroll-0 (cursor-only) injected leaf without settling', async () => {
+	it('对 scroll 为 0（只有光标）的注入 leaf 直接揭幕，不落定', async () => {
 		const bg = { id: 'leaf-bg', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({
 			leaves: [bg],
@@ -291,7 +291,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.cover.isCovered(leafObjs['leaf-bg'])).toBe(false);
 	});
 
-	it('refuses an overlapping pass while one is in flight', async () => {
+	it('有一轮还在飞时，拒绝再来一轮', async () => {
 		const deferred = { id: 'leaf-def', view: makeSourceView('a.md') };
 		delete (deferred.view as { editor?: unknown }).editor;
 		const { state, settler, leafObjs } = makeHarness({ leaves: [deferred] });

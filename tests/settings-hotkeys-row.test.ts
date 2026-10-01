@@ -64,7 +64,7 @@ function countOccurrences(haystack: string, needle: string): number {
 	return haystack.split(needle).length - 1;
 }
 
-describe('hotkeys row', () => {
+describe('热键那一行', () => {
 	beforeEach(() => {
 		Notice.reset();
 	});
@@ -76,7 +76,7 @@ describe('hotkeys row', () => {
 
 	// The hint belongs to the row, not to the commands: two commands must not
 	// turn it into two copies of the same instruction.
-	it('prints the binding instruction once for the row, not once per command', () => {
+	it('按键说明整行只印一次，不是每条命令印一次', () => {
 		const { desc } = renderRow(undefined, commands);
 		expect(countOccurrences(desc, 'Back: Not bound')).toBe(1);
 		expect(countOccurrences(desc, 'Forward: Not bound')).toBe(1);
@@ -85,13 +85,13 @@ describe('hotkeys row', () => {
 
 	// An unbound command used to carry the instruction itself ("click the
 	// button on the right to set it up"). Now it carries only the fact.
-	it('leaves an unbound command at just "Not bound"', () => {
+	it('没有绑定按键的命令就只写「未绑定」', () => {
 		const { desc } = renderRow(undefined, [commands[0]]);
 		expect(desc).toContain('Back: Not bound');
 		expect(desc).not.toContain('Not bound —');
 	});
 
-	it('brings the window up before switching to the hotkeys tab, filtered to this plugin', () => {
+	it('先把设置窗口抬起来，再切到热键页，并按本插件名过滤', () => {
 		const calls: string[] = [];
 		const queries: string[] = [];
 		const { click } = renderRow({
@@ -118,7 +118,7 @@ describe('hotkeys row', () => {
 
 	// Arriving on the tab is the job; the query is a convenience it cannot
 	// always do. A tab with no setQuery is still a tab the reader was sent to.
-	it('says nothing when the tab arrives without a way to prefill the query', () => {
+	it('拿到的 tab 没法预填查询时，什么也不说', () => {
 		const { click } = renderRow({ open() {}, openTabById: () => ({}) }, commands);
 		click();
 		expect(Notice.instances).toHaveLength(0);
@@ -128,14 +128,14 @@ describe('hotkeys row', () => {
 	// way to bind a key, and the reader is left standing on it. Said AT ONCE —
 	// a reader who has since closed the settings window must not be told a
 	// second later about a failure that never happened.
-	it('says so the moment the click lands on no hotkeys tab', () => {
+	it('点击没落到热键 tab 上时当场说明', () => {
 		const { click } = renderRow({ open() {}, openTabById: () => null }, commands);
 		click();
 		expect(Notice.instances).toHaveLength(1);
 		expect(Notice.instances[0].message).toContain('Settings → Hotkeys');
 	});
 
-	it('says so when there is no settings surface at all', () => {
+	it('压根没有设置窗口时也照样说明', () => {
 		const { click } = renderRow(undefined, commands);
 		click();
 		expect(Notice.instances).toHaveLength(1);
@@ -145,27 +145,27 @@ describe('hotkeys row', () => {
 // The Chinese string is the one that carried the direction: it read "点击右侧
 // 按钮设置". Nothing in the hotkeys row may name a side, because which side the
 // button ends up on is the app's layout, not the plugin's.
-describe('hotkeys row copy, in Chinese', () => {
+describe('热键那一行的中文文案', () => {
 	const sideWords = ['右侧', '左边', '上面', '下面', '上方', '下方'];
 
-	it('names no side the button could stand on', () => {
+	it('不提按钮可能在哪一侧', () => {
 		for (const word of sideWords)
 			for (const key of ['hotkeys.hint', 'hotkeys.unbound', 'hotkeys.openFailed'] as const)
 				expect(zh[key]).not.toContain(word);
 	});
 
 	// What it names instead is the button's own look — the keyboard icon.
-	it('names the button by what it looks like', () => {
+	it('按按钮长什么样来称呼它', () => {
 		expect(zh['hotkeys.hint']).toContain('键盘按钮');
 	});
 
-	it('leaves the unbound fact alone', () => {
+	it('未绑定这个事实照实说', () => {
 		expect(zh['hotkeys.unbound']).toBe('未绑定');
 	});
 
 	// "物理键盘", not "外接键盘": a soft keyboard cannot press a combination,
 	// and a desktop keyboard is physical already — one sentence, both ends.
-	it('promises only what a bound key can actually be pressed on', () => {
+	it('只承诺一个已绑定的按键真能按下去的场合', () => {
 		expect(zh['hotkeys.hint']).toContain('物理键盘');
 	});
 });
