@@ -319,7 +319,7 @@ async function mount(
 	return { view, el, nav, rows, names, list, trigger, arrows };
 }
 
-describe('RecentFilesView — the resident panel', () => {
+describe('RecentFilesView —— 常驻面板', () => {
 	beforeEach(() => {
 		// The app's own answers (see Keymap): an input a test sets, and one left over
 		// from the case before it would decide this one.
@@ -327,7 +327,7 @@ describe('RecentFilesView — the resident panel', () => {
 		document.body.empty();
 	});
 
-	it('mounts the browser body into the pane, with no dialog around it', async () => {
+	it('把列表内容直接装进 pane，外面不套对话框', async () => {
 		const { view, el, names } = await mount([visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1);
 
 		// The body, whole: the toolbar — the search box, and nothing beside it — and
@@ -347,7 +347,7 @@ describe('RecentFilesView — the resident panel', () => {
 		expect(view.contentEl.classList.contains('position-restore-nav-view')).toBe(true);
 	});
 
-	it('leaves the caret in the editor: a restored panel focuses nothing', async () => {
+	it('光标留在编辑器里：面板恢复时不抢焦点', async () => {
 		const { el } = await mount([visit('a.md', NOW)], 0);
 		const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
@@ -362,7 +362,7 @@ describe('RecentFilesView — the resident panel', () => {
 		expect(el.querySelector('.position-restore-nav-hint')).toBeNull();
 	});
 
-	it('follows the history while it is up', async () => {
+	it('面板开着的时候跟随浏览历史', async () => {
 		const { el, nav, names } = await mount(
 			[visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1, browserPrefs(), ['c.md']);
 		expect(names()).toEqual(['b', 'a']);
@@ -383,7 +383,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// looking at is the one thing a redraw must not re-arrange: a row that opens a
 	// note and then moves under the hand that opened it is a list that answers a
 	// click with a shuffle.
-	it('holds the order it is being read at, and catches up when the pointer leaves', async () => {
+	it('正被读的顺序先按住不动，指针离开后再补上', async () => {
 		const { el, nav, names, list } = await mount([
 			place('a.md', NOW - 3 * MINUTE, 10),
 			place('b.md', NOW - 2 * MINUTE, 20),
@@ -426,7 +426,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// would otherwise keep saying "5m" while the note it names got an hour old. The
 	// interval that fixes that belongs to the BODY (both shells are destroyed through
 	// it) — and a timer that outlives the panel it redraws is the leak this pins.
-	it('refreshes the ages while it stands, and stops when the panel closes', async () => {
+	it('站着的时候刷新时间差，面板一关就停', async () => {
 		vi.useFakeTimers();
 		try {
 			const { view, el } = await mount([visit('a.md', NOW)], 0, browserPrefs('last', 'smart', true));
@@ -450,7 +450,7 @@ describe('RecentFilesView — the resident panel', () => {
 		}
 	});
 
-	it('stops hearing about the history once it is closed', async () => {
+	it('关闭之后就不再听历史的消息', async () => {
 		const { view, nav } = await mount([visit('a.md', NOW)], 0);
 		expect(nav.listenerCount).toBe(1);
 
@@ -466,7 +466,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// and the panel have to agree on (see PositionManager.refreshNavPanels): the
 	// value is written where settings are written, and every standing panel is asked
 	// to draw itself again.
-	it('redraws a standing list when a preference it draws by is changed', async () => {
+	it('改了它据以绘制的偏好时，正在显示的列表就地重画', async () => {
 		const prefs = browserPrefs('last');
 		const entries: NavEntry[] = [
 			place('a.md', NOW - 2 * MINUTE, 10),
@@ -498,7 +498,7 @@ describe('RecentFilesView — the resident panel', () => {
 		return d;
 	};
 
-	it('collapses the phone\'s drawer on a travel, so the note it opened can be seen', async () => {
+	it('手机上做前进后退时把抽屉收起来，好让被打开的那篇看得见', async () => {
 		// On a phone the resident panel IS a drawer over the whole screen: a row that
 		// opens a note behind it looks like a row that did nothing. The panel itself
 		// stays in the layout — collapsing is not closing, and where to put it is the
@@ -528,7 +528,7 @@ describe('RecentFilesView — the resident panel', () => {
 		expect(nav.jumped).toHaveLength(2);
 	});
 
-	it('takes the menu it raised off the screen before it folds the drawer away', async () => {
+	it('先把弹起的菜单撤下屏幕，再收抽屉', async () => {
 		// The menu stands on the DOCUMENT and not in this panel's element, and it is the
 		// app's: what the app takes one off the screen for is a click outside it, an
 		// item chosen on it, or Escape. Folding a drawer is none of those, so a panel
@@ -563,7 +563,7 @@ describe('RecentFilesView — the resident panel', () => {
 		}
 	});
 
-	it('travels even when the shell\'s reaction throws', async () => {
+	it('外壳的响应抛了错，前进后退照样走', async () => {
 		// The reader asked to go somewhere; the shell's own reaction (a dialog closing,
 		// a drawer folding) is the shell's business. One that throws must cost them the
 		// reaction, not the journey — the failure mode this test exists for was a
@@ -597,7 +597,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// "you are here" mark rides along with it. The panel is leaving anyway — what it owes
 	// the reader is a list that is true the next time the drawer is pulled open, and
 	// nothing in between (see RecentFilesView.standAside).
-	it('holds the list still while the panel leaves the screen, and catches up once it has gone', async () => {
+	it('面板离场期间按住列表不重画，等它走了再补', async () => {
 		vi.useFakeTimers();
 		try {
 			const { el, nav, view, names } = await mount(
@@ -639,7 +639,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// drawer away, or closes the pane, inside the same few hundred milliseconds. Nothing
 	// is owed then either: the catch-up dies with the panel it was held for, rather than
 	// drawing into a body that has been torn down.
-	it('drops the redraw it is holding back when the panel is closed on the way out', async () => {
+	it('半路上就把面板关掉时，压着的那次重画直接丢掉', async () => {
 		vi.useFakeTimers();
 		try {
 			const { el, view } = await mount([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
@@ -674,7 +674,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// so the re-ordering is the ANSWER rather than a distraction — the note the reader
 	// went to takes the top row and the mark with it. A panel standing in full view must
 	// not be a step behind the history it is showing.
-	it('redraws on the spot where the panel stays put', async () => {
+	it('面板原地不动时就地重画', async () => {
 		const { el, names } = await mount(
 			[visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)], 2);
 		const click = (row: HTMLElement) =>
@@ -695,7 +695,7 @@ describe('RecentFilesView — the resident panel', () => {
 	// it has LANDED, and not under it. Asked on the spot, a traversal in flight answers
 	// "no step either way" and both arrows sit greyed for as long as it takes, which is
 	// how two live buttons come to look like two broken ones.
-	it('asks the four again once an arrow\'s act has landed, and not under it', async () => {
+	it('箭头动作落地之后才重问那四个按钮，不是在执行途中', async () => {
 		const { el, arrows } = await mount([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
 		const [back, forward] = Array.from(
 			el.querySelectorAll<HTMLButtonElement>('.position-restore-nav-arrow'));
@@ -716,7 +716,7 @@ describe('RecentFilesView — the resident panel', () => {
 	});
 });
 
-describe('RecentFilesView — the pointer is driven by clicks only', () => {
+describe('RecentFilesView —— 指针只由点击驱动', () => {
 	// A note with several spots, so there is a landing row to click once the list is
 	// asked to print them (see groupByFile / LandingsMode). The list runs OLDEST FIRST,
 	// which is the order a real history is built in (see NavStack.push): the newest
@@ -737,7 +737,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === name)!;
 
-	it('chooses nothing on hover: only a click is a gesture', async () => {
+	it('悬停不选中任何东西：只有点击才算手势', async () => {
 		const { el } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 
@@ -761,7 +761,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).not.toBeNull();
 	});
 
-	it('prints a note\'s places when the list is asked for them', async () => {
+	it('列表被要求时才印出笔记的各个标题', async () => {
 		const { el } = await mount(stack(), 2, browserPrefs('all'));
 
 		// Both of a.md's places, and nothing under b.md, which holds one (see
@@ -770,7 +770,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(2);
 	});
 
-	it('opens in a new tab where the app says so, and stays standing', async () => {
+	it('app 要求开新标签页时就开新标签页，面板保持不倒', async () => {
 		// The modifier is the APP's answer (see Keymap.isModEvent), and the panel's own
 		// contract does not change with it: a resident panel answers a click by going
 		// somewhere, and it is still there afterwards — the note opened beside it, the
@@ -788,7 +788,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(nav.listenerCount).toBe(1);
 	});
 
-	it('opens the file from the row itself, in one click', async () => {
+	it('点一下行本身就打开这个文件', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 
@@ -804,7 +804,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 
-	it('opens a landing row at ITS place', async () => {
+	it('标题行按它自己的那个位置打开', async () => {
 		const { el, nav } = await mount(stack(), 2, browserPrefs('all'));
 		const place = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
 			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L11')!;
@@ -820,7 +820,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(nav.listenerCount).toBe(1);
 	});
 
-	it('opens nothing on a right-click', async () => {
+	it('右键什么也不打开', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = noteRow(el, 'a');
 
@@ -832,7 +832,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(nav.jumped).toEqual([]);
 	});
 
-	it('leaves a press that was only held down where it was', async () => {
+	it('只是按住没有点实，就当它没发生', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = noteRow(el, 'a');
 
@@ -852,7 +852,7 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 	// stack index below it shifts and the groups are rebuilt. A position
 	// kept across that rewrite stands on whatever slid into its slot. This is that list,
 	// and the regression it guards.
-	it('starts the next list from a cleared position, not from the row that used to be in that slot', async () => {
+	it('下一次列表从清空后的位置起算，而不是从原来占着那个槽位的行起算', async () => {
 		const entries = [
 			place('a.md', NOW - 5 * MINUTE, 10),
 			place('b.md', NOW - 4 * MINUTE, 5),
@@ -903,8 +903,8 @@ const menuFor = (view: RecentFilesView) => {
 	return menu;
 };
 
-describe('RecentFilesView — the tab’s own menu', () => {
-	it('offers the whole list to be cleared, and leaves the pinned block standing', async () => {
+describe('RecentFilesView —— 标签页自己的菜单', () => {
+	it('提供清空整个列表的菜单项，置顶区不受影响', async () => {
 		// The list as the store holds it — OLDEST FIRST, the order a real history is
 		// built in (see NavPlaces.remember) — and as the panel draws it, newest first
 		// under the pinned block.
@@ -933,7 +933,7 @@ describe('RecentFilesView — the tab’s own menu', () => {
 		expect(el.querySelectorAll('.position-restore-nav-row')).toHaveLength(1);
 	});
 
-	it('offers nothing to clear where a clear would take nothing off', async () => {
+	it('清了也一个不少时，不提供清空项', async () => {
 		// An item that would empty nothing is worse than an item that is not there
 		// (see body.ts's pinItems), and a list of pins alone is already what a clear
 		// leaves behind.
@@ -943,7 +943,7 @@ describe('RecentFilesView — the tab’s own menu', () => {
 		expect(menuFor(view).items).toEqual([]);
 	});
 
-	it('offers nothing to clear on a list that holds nothing at all', async () => {
+	it('列表一条都没有时不提供清空项', async () => {
 		// A panel opened before the reader has been anywhere: the menu is the app's,
 		// and this panel puts nothing on it.
 		const { view } = await mount([], -1);
@@ -953,7 +953,7 @@ describe('RecentFilesView — the tab’s own menu', () => {
 });
 
 describe('activateRecentFilesView', () => {
-	it('brings the panel that is already open back rather than opening a second', async () => {
+	it('面板已经开着就把它唤回来，而不是再开一个', async () => {
 		const leaf = new WorkspaceLeaf();
 		const revealLeaf = vi.fn(async () => {});
 		const getRightLeaf = vi.fn();
@@ -973,7 +973,7 @@ describe('activateRecentFilesView', () => {
 		expect(getRightLeaf).not.toHaveBeenCalled();
 	});
 
-	it('opens the panel in the right sidebar when there is none', async () => {
+	it('还没有面板时在右侧栏打开', async () => {
 		// The stub's leaf carries the `state` the last setViewState was handed;
 		// the app's own typings do not declare it (see obsidian-stub.ts).
 		const leaf = new WorkspaceLeaf() as WorkspaceLeaf & { state: unknown };
