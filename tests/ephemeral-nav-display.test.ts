@@ -76,8 +76,8 @@ function words(view: MarkdownView, st: EphemeralState = { scroll: 1, cursor: cur
 // What the row is searched by: the lines recorded BELOW the landing.
 const below = (st: NavEntryState | undefined): string[] | undefined => st?.context;
 
-describe('readEphemeralState — the hot read is position only', () => {
-	it('carries none of the nav-display fields, even when the view could provide them', () => {
+describe('readEphemeralState —— 热读取只取位置', () => {
+	it('一个导航显示字段都不带，即便视图给得出', () => {
 		const view = makeView({ scroll: 42.3, cursorLine: 3, mode: 'source', lines: ['a', 'b', 'c', 'd'] });
 		expect(readEphemeralState(view)).toEqual({
 			scroll: 42,
@@ -89,8 +89,8 @@ describe('readEphemeralState — the hot read is position only', () => {
 // The scroll capture's read is the ONE that may take the app's own per-tab cache: the scroll that
 // fills it has already run by the time the listener fires, and a pane out of layout has no
 // scrollTop left to measure. Every other read measures the DOM.
-describe('readSampledState — the last-position read', () => {
-	it('takes the cached scroll over the live measure', () => {
+describe('readSampledState —— 上一次位置的读法', () => {
+	it('优先用缓存的 scroll，而不是实时量', () => {
 		const view = Object.assign(
 			makeView({ scroll: 10, cursorLine: 686, mode: 'source', lines: ['x'] }),
 			{ scroll: 680.59 },
@@ -101,7 +101,7 @@ describe('readSampledState — the last-position read', () => {
 
 	// A tab that never scrolled, a mode switch, a reload: the cache is null, and a live measure
 	// beats no position at all.
-	it('falls back to the live read when the tab has no cache yet', () => {
+	it('标签页还没有缓存时退到实时读取', () => {
 		const view = makeView({ scroll: 42.3, cursorLine: 3, mode: 'source', lines: ['x'] });
 
 		expect(readSampledState(view)).toEqual({ scroll: 42, cursor: cursor(3) });
@@ -111,8 +111,8 @@ describe('readSampledState — the last-position read', () => {
 // A STEP carries the anchor it can be re-found by and the mtime its words were
 // taken at — and no words. The stack persists every step, so a block written
 // onto one is stored for a reader who never sees it.
-describe('readNavEntryState — what a step carries', () => {
-	it('adds the viewport anchor and the mtime, and no landing words', () => {
+describe('readNavEntryState —— 一步带着什么', () => {
+	it('加上视口 anchor 与 mtime，但不带落点的文字', () => {
 		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
 		const view = makeView({
 			scroll: 1.2, cursorLine: 3, mode: 'source',
@@ -136,7 +136,7 @@ describe('readNavEntryState — what a step carries', () => {
 	// A horizontal rule is a legal anchor by its text and a useless one by its nature: the remap
 	// scan looks outward from the recorded line, and in a note with several rules it finds a
 	// different one. Recorded like a blank line — no anchor, so the number stands or falls alone.
-	it('records no anchor when the viewport top is a horizontal rule', () => {
+	it('视口顶行是一条分割线时不记 anchor', () => {
 		for (const rule of ['---', '***', '___']) {
 			const view = makeView({
 				scroll: 1.2, cursorLine: 3, mode: 'source',
@@ -148,7 +148,7 @@ describe('readNavEntryState — what a step carries', () => {
 		}
 	});
 
-	it('still anchors a list item — only a bare rule is dropped', () => {
+	it('列表项照样记 anchor —— 只有光秃秃的分割线才丢掉', () => {
 		const view = makeView({
 			scroll: 1.2, cursorLine: 3, mode: 'source',
 			lines: ['top', '- a list item', 'x', 'cursor line'],
@@ -158,7 +158,7 @@ describe('readNavEntryState — what a step carries', () => {
 		expect(readNavEntryState(view)?.anchor).toBe('- a list item');
 	});
 
-	it('undefined when the hot read is undefined (renderer not caught up)', () => {
+	it('热读取是 undefined 时也是 undefined（渲染器没追上）', () => {
 		const view = makeView({ scroll: null as unknown as number, cursorLine: 3 });
 		expect(readNavEntryState(view)).toBeUndefined();
 	});
@@ -167,7 +167,7 @@ describe('readNavEntryState — what a step carries', () => {
 	// reads 0, so the live read says "top of file" for a reader 680 lines down, and the
 	// leave-refresh stores that top as their position. Obsidian's own per-tab cache is what still
 	// knows — and the anchor must come off that same line, not off the bogus one.
-	it('takes the cached scroll when the tab is out of layout', () => {
+	it('标签页不在布局里时用缓存的 scroll', () => {
 		const lines: string[] = Array.from({ length: 700 }, (_, i) => (i === 681 ? 'deep line' : 'x'));
 		lines[10] = 'top line';
 		const view = Object.assign(makeView({
@@ -183,7 +183,7 @@ describe('readNavEntryState — what a step carries', () => {
 
 	// Visible views keep reading the DOM: an applied restore writes the REQUESTED value into that
 	// cache, so trusting it here would echo the request back as the reader's position.
-	it('keeps the live read when the view is in layout, cache and all', () => {
+	it('视图在布局里时保留实时读取，有缓存也不管', () => {
 		const view = Object.assign(makeView({
 			scroll: 10, cursorLine: 686, mode: 'source', lines: Array.from({ length: 700 }, () => 'x'),
 			cm: makeCm({ viewport: { from: 0, to: 100 } }),
@@ -198,18 +198,18 @@ describe('readNavEntryState — what a step carries', () => {
 // on. Pinned through the words rather than through a stamped index: the line a
 // landing sits ON is the jump's key to name (see nav/entry.ts's landedLine),
 // and the words only ever answer "what stood below it".
-describe('landingContext — which line the window starts from', () => {
+describe('landingContext —— 这扇窗口从哪一行开始', () => {
 	const lines = Array.from({ length: 12 }, (_, i) => `L${i}`);
 	const after = (n: number) => [`L${n + 1}`, `L${n + 2}`, `L${n + 3}`, `L${n + 4}`];
 
-	it('starts on the cursor line when it is on screen (source mode)', () => {
+	it('光标行在屏幕上时就从光标行开始（源码模式）', () => {
 		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
 		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
 
 		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
 	});
 
-	it('starts on the VIEWPORT top when the cursor line was not rendered at all', () => {
+	it('光标行根本没被渲染时就从视口顶行开始', () => {
 		// Line 4 (1-based) sits at offset 30; the rendered range ends at 25.
 		const cm = makeCm({ viewport: { from: 0, to: 25 } });
 		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
@@ -217,7 +217,7 @@ describe('landingContext — which line the window starts from', () => {
 		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
 	});
 
-	it('starts on the VIEWPORT top when the cursor pixels sit outside the scroller box', () => {
+	it('光标的像素落在滚动盒之外时从视口顶行开始', () => {
 		// Line 4 at offset 30 renders inside the viewport; coordsAtPos reads
 		// top 60 (pos*2) — the scroller box starts at 100, so the line sits
 		// above the box: scrolled off, off screen.
@@ -227,34 +227,34 @@ describe('landingContext — which line the window starts from', () => {
 		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
 	});
 
-	it('assumes the cursor is visible when the editor view is unreachable', () => {
+	it('拿不到编辑器视图时假定光标可见', () => {
 		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines });
 
 		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
 	});
 
-	it('assumes the cursor is visible when the coords are not yet measured', () => {
+	it('坐标还没量出来时假定光标可见', () => {
 		const cm = makeCm({ viewport: { from: 0, to: 200 } });
 		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
 
 		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
 	});
 
-	it('starts at the VIEWPORT top for a reading capture (stale pre-preview cursor)', () => {
+	it('阅读模式的采集从视口顶行开始（进预览之前那个光标已经陈了）', () => {
 		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'preview', lines });
 
 		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
 	});
 
-	it('undefined when the recorded position names no line at all', () => {
+	it('记下的位置一个行号都没点名时为 undefined', () => {
 		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['a', 'b'] });
 
 		expect(landingContext(view, {})).toBeUndefined();
 	});
 });
 
-describe('landingContext — the recorded words', () => {
-	it('counts NON-BLANK lines, and stops at the budget', () => {
+describe('landingContext —— 记下哪些文字', () => {
+	it('只数非空行，到预算为止', () => {
 		// One sentence per line with blank separators (the ordinary shape of a
 		// Chinese markdown note): a raw four would spend the window on blanks.
 		const lines = [
@@ -268,7 +268,7 @@ describe('landingContext — the recorded words', () => {
 			.toEqual(['本节第一段', '本节第二段', '本节第三段', '本节第四段']);
 	});
 
-	it('takes NOTHING from above the landing — those words are the section before', () => {
+	it('落点之上一行都不取 —— 那些字属于前面那一节', () => {
 		// Every landing is a heading jump, and a heading's line is where its section
 		// STARTS: the words above belong to the previous section, and recording them
 		// is what once made a search for that section's words pull this row up.
@@ -279,7 +279,7 @@ describe('landingContext — the recorded words', () => {
 		expect(below(words(view, { scroll: 2, cursor: cursor(2) }))).toEqual(['本节第一段']);
 	});
 
-	it('undefined when nothing but blanks follows the landing (a heading at the foot)', () => {
+	it('落点之后只剩空行时为 undefined（标题就在末尾）', () => {
 		const lines = ['a', 'b', '## Last', '', ''];
 		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
 		const view = makeView({ scroll: 2, cursorLine: 2, mode: 'source', lines, cm });
@@ -287,20 +287,20 @@ describe('landingContext — the recorded words', () => {
 		expect(landingContext(view, { scroll: 2, cursor: cursor(2) })).toBeUndefined();
 	});
 
-	it('caps one recorded line so a paragraph-per-line note cannot bloat the list', () => {
+	it('单行也有长度上限，免得一行一整段的笔记把列表撑爆', () => {
 		const long = 'x'.repeat(500);
 		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: [long, long] });
 
 		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))?.[0]).toHaveLength(120);
 	});
 
-	it('trims a line, so the recorded text is what the panel prints', () => {
+	it('行要 trim，记下的文字就是面板印出来的那些', () => {
 		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['r0', '\t  缩进的段落  '] });
 
 		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))).toEqual(['缩进的段落']);
 	});
 
-	it('bounds how far it looks for non-blank lines (the read stays cheap)', () => {
+	it('找非空行只看有限的距离（这趟读取必须便宜）', () => {
 		// Past the bound it records nothing rather than walking a long blank
 		// stretch to the end of the note.
 		const lines = ['落点', ...Array.from({ length: 400 }, () => '')];
@@ -313,8 +313,8 @@ describe('landingContext — the recorded words', () => {
 // The landing is recorded the moment it settles, and the words it is searched and quoted by are
 // read in that SAME read: the state arrives whole at both lists, and the stack leaves them behind
 // when it writes a step.
-describe('readLandingState — the read that records a landing', () => {
-	it('is what a step carries plus the words below the landing', () => {
+describe('readLandingState —— 记录落点的那次读取', () => {
+	it('等于一步带着的东西，再加上落点下面的文字', () => {
 		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
 		const view = makeView({
 			scroll: 1.2, cursorLine: 3, mode: 'source',
@@ -333,8 +333,8 @@ describe('readLandingState — the read that records a landing', () => {
 	});
 });
 
-describe('withNavDisplay — rebuilds display fields around an existing position', () => {
-	it('annotates the baseline without mutating it', () => {
+describe('withNavDisplay —— 在一个已有位置外面重建显示字段', () => {
+	it('给基线加注解，但不改它', () => {
 		const baseline: EphemeralState = { scroll: 500, cursor: cursor(101) };
 		// Cursor line 102 (1-based) sits at offset 1010 — outside the rendered
 		// range [0, 500): the baseline was read while the cursor was off screen.

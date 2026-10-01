@@ -118,8 +118,8 @@ function appendEmbed(h: ReturnType<typeof makeHarness>, embedClass: string): HTM
 	return inner;
 }
 
-describe('Sampler.onScrollCapture — embed-boundary guard', () => {
-	it('records a scroll of the host scroller itself', () => {
+describe('Sampler.onScrollCapture —— 嵌入块边界的守卫', () => {
+	it('宿主滚动容器自己的滚动会被记录', () => {
 		const h = makeHarness();
 		h.capture(makeEvent(h.dom.hostScroller));
 		expect(h.database.setState).toHaveBeenCalledTimes(1);
@@ -141,7 +141,7 @@ describe('Sampler.onScrollCapture — embed-boundary guard', () => {
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('does not leak the skipped embed scroll into later records (baseline untouched)', () => {
+	it('被跳过的嵌入块滚动不会漏进之后的记录（基线不动）', () => {
 		const h = makeHarness();
 		const inner = appendEmbed(h, 'block-language-dataviewjs');
 
@@ -152,8 +152,8 @@ describe('Sampler.onScrollCapture — embed-boundary guard', () => {
 	});
 });
 
-describe('Sampler.onScrollCapture — desktop user-intent guard', () => {
-	it('absorbs a scroll with no recent user input (re-render layout shift)', () => {
+describe('Sampler.onScrollCapture —— 桌面的用户意图守卫', () => {
+	it('没有近期输入的那次滚动被吸收（重绘引起的版面抖动）', () => {
 		const h = makeHarness();
 		h.state.lastUserInputAt = Date.now() - 2100;
 		h.capture(makeEvent(h.dom.hostScroller));
@@ -161,14 +161,14 @@ describe('Sampler.onScrollCapture — desktop user-intent guard', () => {
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('records a scroll right after user input (within the intent window)', () => {
+	it('刚有输入之后的滚动会被记录（落在意图窗口内）', () => {
 		const h = makeHarness();
 		h.state.lastUserInputAt = Date.now() - 500;
 		h.capture(makeEvent(h.dom.hostScroller));
 		expect(h.database.setState).toHaveBeenCalledTimes(1);
 	});
 
-	it('installUserIntentTracker stamps wheel, pointerdown and keydown', () => {
+	it('installUserIntentTracker 给 wheel、pointerdown、keydown 盖章', () => {
 		const h = makeHarness();
 		const cleanups: Array<() => void> = [];
 		h.sampler.installUserIntentTracker(fn => cleanups.push(fn));
@@ -192,29 +192,29 @@ describe('Sampler.onScrollCapture — desktop user-intent guard', () => {
 	});
 });
 
-describe('Sampler.onScrollCapture — guard ordering with the pre-existing gates', () => {
-	it('restore bracket still suppresses recording', () => {
+describe('Sampler.onScrollCapture —— 与既有几道闸门的先后次序', () => {
+	it('恢复的 bracket 仍然压住记录', () => {
 		const h = makeHarness();
 		h.state.restoreStarted();
 		h.capture(makeEvent(h.dom.hostScroller));
 		expect(h.database.setState).not.toHaveBeenCalled();
 	});
 
-	it('search anchor still suppresses recording', () => {
+	it('搜索锚仍然压住记录', () => {
 		const h = makeHarness();
 		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
 		h.capture(makeEvent(h.dom.hostScroller));
 		expect(h.database.setState).not.toHaveBeenCalled();
 	});
 
-	it('exclusion gate still drops the db record on a host scroll of an excluded file', () => {
+	it('排除闸门仍然在被排除文件的宿主滚动上不写库记录', () => {
 		const h = makeHarness({ excludedFolders: ['dashboard.md'] });
 		h.capture(makeEvent(h.dom.hostScroller));
 		expect(h.database.setState).not.toHaveBeenCalled();
 		expect(h.database.deleteFile).toHaveBeenCalledWith('dashboard.md');
 	});
 
-	it('frontmatter B rule drops the db record on a host scroll of a matching file', () => {
+	it('frontmatter 的 B 规则在命中的文件上不写库记录', () => {
 		const h = makeHarness({
 			frontmatterExcludeProperties: ['publish: true'],
 			frontmatters: { 'dashboard.md': { publish: true } },
@@ -224,7 +224,7 @@ describe('Sampler.onScrollCapture — guard ordering with the pre-existing gates
 		expect(h.database.deleteFile).toHaveBeenCalledWith('dashboard.md');
 	});
 
-	it('frontmatter B rule keeps the db record when the value does not match', () => {
+	it('frontmatter 的 B 规则在值不匹配时保留库记录', () => {
 		const h = makeHarness({
 			frontmatterExcludeProperties: ['publish: true'],
 			frontmatters: { 'dashboard.md': { publish: false } },
@@ -234,7 +234,7 @@ describe('Sampler.onScrollCapture — guard ordering with the pre-existing gates
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('escape-hatch `position-restore: true` records despite an excluded folder', () => {
+	it('逃生舱 `position-restore: true` 即便在被排除的文件夹里也照样记录', () => {
 		const h = makeHarness({
 			excludedFolders: ['dashboard.md'],
 			frontmatters: { 'dashboard.md': { 'position-restore': true } },
@@ -244,7 +244,7 @@ describe('Sampler.onScrollCapture — guard ordering with the pre-existing gates
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 	});
 
-	it('an embed scroll of an excluded file is pure noise: no write, no delete', () => {
+	it('被排除文件里的嵌入块滚动纯属噪声：既不写也不删', () => {
 		const h = makeHarness({ excludedFolders: ['dashboard.md'] });
 		const inner = appendEmbed(h, 'cm-embed-block');
 
@@ -254,8 +254,8 @@ describe('Sampler.onScrollCapture — guard ordering with the pre-existing gates
 	});
 });
 
-describe('Sampler.onScrollCapture — non-markdown views', () => {
-	it('still records opted-in bases views (raw scrollTop), embed guard notwithstanding', () => {
+describe('Sampler.onScrollCapture —— 非 markdown 视图', () => {
+	it('主动加入的 bases 视图照样记录（原始 scrollTop），嵌入守卫也不拦', () => {
 		const containerEl = document.createElement('div');
 		const scroller = document.createElement('div');
 		scroller.className = 'bases-view';
@@ -291,8 +291,8 @@ describe('Sampler.onScrollCapture — non-markdown views', () => {
 });
 
 // Sanity: the mock routing used by the capture setup still matches desktop.
-describe('environment sanity', () => {
-	it('mocked Platform matches the desktop capture setup', () => {
+describe('环境自检', () => {
+	it('打桩的 Platform 与桌面采集的假设一致', () => {
 		expect(Platform.isDesktopApp).toBe(true);
 		expect(Platform.isMobileApp).toBe(false);
 	});
@@ -302,7 +302,7 @@ describe('environment sanity', () => {
 // (the leaf records): on mobile there is no scroll-capture listener, so the
 // 100ms poll must feed the per-tab baseline too, or the same file open in
 // two tabs restores both to the same per-file record after a restart.
-describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
+describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
 	// A markdown view whose scroll is settable, so one harness can simulate
 	// two tabs of the same file at different positions.
 	function makeScrollingView(path: string, scroll: number, leafId: string): MarkdownView {
@@ -343,7 +343,7 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 		};
 	}
 
-	it('records each tab of the same file at its own position (scroll-only, trusted)', () => {
+	it('同一文件的每个标签页各记各的位置（只有 scroll，可信）', () => {
 		const origMobile = Platform.isMobileApp;
 		Platform.isMobileApp = true;
 		try {
@@ -371,7 +371,7 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 		}
 	});
 
-	it('leaves the per-tab baseline untouched for an absorbed scroll-only delta', () => {
+	it('被吸收的、只有 scroll 的变化不动按标签页的基线', () => {
 		const origMobile = Platform.isMobileApp;
 		Platform.isMobileApp = true;
 		try {
@@ -398,7 +398,7 @@ describe('Sampler.sampleActiveView — mobile per-tab recording', () => {
 // during the post-blur grace window: a normal blur also leaves activeElement
 // on body, and clearing the Infinity there would cut SEARCH_ANCHOR_GRACE_MS
 // short, letting the search jump's landing overwrite the saved position.
-describe('Sampler.sampleActiveView — search-anchor grace window', () => {
+describe('Sampler.sampleActiveView —— 搜索锚的宽限窗口', () => {
 	function makeAnchorHarness() {
 		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
 		const settings = { ...DEFAULT_SETTINGS } as PluginSettings;
@@ -416,7 +416,7 @@ describe('Sampler.sampleActiveView — search-anchor grace window', () => {
 		return { sampler, state, poll: () => sampler.sampleActiveView() };
 	}
 
-	it('keeps the anchor armed through the post-blur grace window', () => {
+	it('失焦之后的宽限窗口里一直把锚撑着', () => {
 		const h = makeAnchorHarness();
 		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
 		// A normal blur scheduled the grace timer; activeElement has already
@@ -429,7 +429,7 @@ describe('Sampler.sampleActiveView — search-anchor grace window', () => {
 		expect(h.state.searchAnchorUntil).toBe(Number.POSITIVE_INFINITY);
 	});
 
-	it('rescues a stuck anchor when no grace timer is pending (input removed from DOM)', () => {
+	it('没有宽限计时器在跑时（输入框已从 DOM 移除）救回一个卡住的锚', () => {
 		const h = makeAnchorHarness();
 		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
 		(h.sampler as unknown as { searchGraceTimer: number }).searchGraceTimer = 0;
@@ -445,7 +445,7 @@ describe('Sampler.sampleActiveView — search-anchor grace window', () => {
 // re-measures the viewport AND re-maps the cursor with the reader doing
 // nothing, and either half alone was enough to overwrite the saved record with
 // the top of the note.
-describe('Sampler.sampleActiveView — a sync rewrite is not reader movement', () => {
+describe('Sampler.sampleActiveView —— 同步重写不是读者的移动', () => {
 	function makeSyncView(path: string, leafId: string, scroll: number, cursorLine: number): MarkdownView {
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
 			file: { path },
@@ -492,7 +492,7 @@ describe('Sampler.sampleActiveView — a sync rewrite is not reader movement', (
 		h.state.lastTouchAt = inputAt;
 	}
 
-	it('mobile: the swap writes nothing', () => {
+	it('手机：这一次替换什么都不写', () => {
 		const orig = Platform.isMobileApp;
 		Platform.isMobileApp = true;
 		try {
@@ -508,7 +508,7 @@ describe('Sampler.sampleActiveView — a sync rewrite is not reader movement', (
 		}
 	});
 
-	it('mobile: a touch minutes ago does not license the session after it', () => {
+	it('手机：几分钟前的一次触摸不能给之后整段会话放行', () => {
 		const orig = Platform.isMobileApp;
 		Platform.isMobileApp = true;
 		try {
@@ -527,7 +527,7 @@ describe('Sampler.sampleActiveView — a sync rewrite is not reader movement', (
 		}
 	});
 
-	it('desktop: the swap writes nothing', () => {
+	it('桌面：这一次替换什么都不写', () => {
 		const orig = Platform.isMobileApp;
 		Platform.isMobileApp = false;
 		try {
@@ -542,7 +542,7 @@ describe('Sampler.sampleActiveView — a sync rewrite is not reader movement', (
 		}
 	});
 
-	it('desktop: the same delta right after a keystroke still records', () => {
+	it('桌面：刚敲过键之后的同样位移仍然记录', () => {
 		const orig = Platform.isMobileApp;
 		Platform.isMobileApp = false;
 		try {

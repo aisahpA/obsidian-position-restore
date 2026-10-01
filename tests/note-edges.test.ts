@@ -186,8 +186,8 @@ function makeManager(
 	};
 }
 
-describe('moving to an end of a note', () => {
-	it('scrolls the view to the top of its own range', () => {
+describe('移到笔记的一端', () => {
+	it('把视图滚到它自己那段范围的顶端', () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 
@@ -196,7 +196,7 @@ describe('moving to an end of a note', () => {
 		expect(scroller.scrollTop).toBe(0);
 	});
 
-	it('scrolls to the far end, where the last line sits at the bottom', () => {
+	it('滚到最远端，让最后一行落在底部', () => {
 		const scroller = makeScroller(1000, 200, 0);
 		const { view } = makeView({ mode: 'preview', scroller });
 
@@ -207,7 +207,7 @@ describe('moving to an end of a note', () => {
 		expect(scroller.scrollTop).toBe(800);
 	});
 
-	it('leaves the caret at the head of the first line, being an editor key', () => {
+	it('把光标留在第一行的行首（它是编辑器的按键行为）', () => {
 		const { view, editor } = makeView({ mode: 'source', scroller: makeScroller(1000, 200, 400) });
 
 		moveToEdge(view, 'top');
@@ -215,7 +215,7 @@ describe('moving to an end of a note', () => {
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
 	});
 
-	it('leaves the caret at the end of the last line', () => {
+	it('把光标留在最后一行的行尾', () => {
 		const { view, editor } = makeView({ mode: 'source', scroller: makeScroller(1000, 200, 0) });
 
 		moveToEdge(view, 'bottom');
@@ -223,7 +223,7 @@ describe('moving to an end of a note', () => {
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three"
 	});
 
-	it('moves a reading view too, whose caret is not for showing', () => {
+	it('阅读视图也一样移动，它的光标不是用来显示的', () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view, editor } = makeView({ mode: 'preview', scroller, cursor: { line: 2, ch: 3 } });
 
@@ -239,8 +239,8 @@ describe('moving to an end of a note', () => {
 // The bottom of a note is the end of what the reader wrote. The backlinks pane is a pane of the
 // TAB, appended inside the same scroller, and one taller than a window puts the furthest
 // scrollable point past the note's last line altogether.
-describe('the end of the note, not the end of the tab', () => {
-	it('stops where the pane starts, keeping the last line in view', () => {
+describe('是笔记的末尾，不是标签页的末尾', () => {
+	it('停在面板开始的地方，让最后一行还看得见', () => {
 		const scroller = makeScroller(1000, 200, 0);
 		withBacklinks(scroller, 700); // the pane fills 700..1000 of a 200-tall window
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -251,7 +251,7 @@ describe('the end of the note, not the end of the tab', () => {
 		expect(scroller.scrollTop).toBe(500);
 	});
 
-	it('goes to the furthest when the pane is switched off', () => {
+	it('面板被关掉时就走到最远处', () => {
 		const scroller = makeScroller(1000, 200, 0);
 		withBacklinks(scroller, 700, 0);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -273,7 +273,7 @@ describe('the end of the note, not the end of the tab', () => {
 
 	// Too short to scroll: the pane's edge is above the window, so there is nowhere to stop
 	// short of — and nowhere to go.
-	it('asks for nothing of a note that cannot be scrolled', () => {
+	it('对滚不动的笔记什么都不要求', () => {
 		const scroller = makeScroller(200, 200);
 		withBacklinks(scroller, 150);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -287,7 +287,7 @@ describe('the end of the note, not the end of the tab', () => {
 // The bottom of the window is not the bottom of what the reader can SEE: on a phone the app floats
 // one of its own bars over the foot of a note. Which bar is there depends on the mode, and a soft
 // keyboard moves it, so the strip is measured rather than read off a variable.
-describe('the part of the window a reader cannot see', () => {
+describe('窗口里读者看不见的那一部分', () => {
 	// A 200-tall window, the note ending at 700, and a bar over its foot.
 	function underBar(barTop: number, barHeight = 40, withPane = true) {
 		const scroller = makeScroller(1000, 200, 0);
@@ -298,7 +298,7 @@ describe('the part of the window a reader cannot see', () => {
 		return { scroller, view: makeView({ mode: 'preview', scroller }).view };
 	}
 
-	it('ends the note above the bar rather than behind it', () => {
+	it('让笔记结束在那条栏之上，而不是藏在它后面', () => {
 		const { scroller, view } = underBar(160);
 
 		moveToEdge(view, 'bottom');
@@ -308,7 +308,7 @@ describe('the part of the window a reader cannot see', () => {
 	});
 
 	// A soft keyboard pushes the bar off the window instead of over it.
-	it('takes nothing off for a bar that is no longer in the way', () => {
+	it('栏已经不挡道了就一点都不扣', () => {
 		const { scroller, view } = underBar(210);
 
 		moveToEdge(view, 'bottom');
@@ -318,7 +318,7 @@ describe('the part of the window a reader cannot see', () => {
 
 	// No pane means the app has already padded the foot of the note by half a window, so the last
 	// line clears the bar on its own — and there is nowhere further to go anyway.
-	it('asks for the furthest when there is no pane to stop short of', () => {
+	it('没有面板可以提前停时就要求最远处', () => {
 		const { scroller, view } = underBar(160, 40, false);
 
 		moveToEdge(view, 'bottom');
@@ -330,7 +330,7 @@ describe('the part of the window a reader cannot see', () => {
 // The end is not always kept: the reading renderer re-applies a scroll it captured BEFORE the
 // move, one render pass later — a pass the reader's own scrolling queued, which finishes after
 // the command has run. That is the flash at the top followed by the slide back.
-describe('holding the end', () => {
+describe('把端点按住', () => {
 	// Every write to the scroller is followed, a tick later, by the old position coming back.
 	function clobber(scroller: HTMLElement, backTo: number, times = 1) {
 		const inner = Object.getOwnPropertyDescriptor(scroller, 'scrollTop')!;
@@ -349,7 +349,7 @@ describe('holding the end', () => {
 		return counter;
 	}
 
-	it('puts the end back when a late render pass restores the old position', async () => {
+	it('晚到的那一轮渲染把旧位置贴回来时，把端点放回去', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		clobber(scroller, 400);
@@ -362,7 +362,7 @@ describe('holding the end', () => {
 
 	// Two corrections and out: a view that keeps being clobbered is one the plugin cannot win,
 	// and a command must not spend the rest of the session fighting it.
-	it('stops correcting rather than fighting something that keeps winning', async () => {
+	it('停止校正，而不是跟一个一直赢的东西对打', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		const writes = clobber(scroller, 400, 99);
@@ -375,7 +375,7 @@ describe('holding the end', () => {
 		expect(writes.writes).toBeLessThanOrEqual(3);
 	});
 
-	it('yields the moment the reader moves on their own', async () => {
+	it('读者自己一动就立刻让位', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		const writes = clobber(scroller, 400, 99);
@@ -403,7 +403,7 @@ describe('holding the end', () => {
 		expect(scroller.scrollTop).toBe(500);
 	});
 
-	it('leaves a scroller no longer in the document alone', async () => {
+	it('已经不在文档里的滚动容器随它去', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		scroller.remove();
@@ -412,8 +412,8 @@ describe('holding the end', () => {
 	});
 });
 
-describe('already standing at that end', () => {
-	it('is true at the top for the top, and at the bottom for the bottom', () => {
+describe('本来就已经站在那一端', () => {
+	it('顶部那端算在顶部，底部那端算在底部', () => {
 		const atTop = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 0) }).view;
 		const atBottom = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 800) }).view;
 		const between = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 400) }).view;
@@ -427,7 +427,7 @@ describe('already standing at that end', () => {
 
 	// A note shorter than its window cannot be scrolled to either end, so both
 	// commands are already satisfied — and neither should record an arrival.
-	it('is true of both ends in a note too short to scroll', () => {
+	it('短到根本滚不动的笔记，两端都算', () => {
 		const { view } = makeView({ mode: 'preview', scroller: makeScroller(200, 200) });
 
 		expect(atEdge(view, 'top')).toBe(true);
@@ -435,7 +435,7 @@ describe('already standing at that end', () => {
 	});
 
 	// The scroll is only half of "already there" — see the caret below.
-	it('is still true of the scroll when the caret is somewhere else', () => {
+	it('光标在别处时，scroll 那一端仍然算', () => {
 		const { view } = makeView({
 			mode: 'source',
 			scroller: makeScroller(1000, 200, 0),
@@ -450,13 +450,13 @@ describe('already standing at that end', () => {
 // The caret is what a reader still wants moved when the view already shows the end they asked
 // for: a note can be sitting at its top with the cursor 200 lines down, and "go to the top" that
 // answers "you are already there" leaves the reader to find it by hand.
-describe('the caret standing at that end', () => {
+describe('光标站在那一端', () => {
 	const atTop = (cursor: { line: number; ch: number }) =>
 		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 0), cursor }).view;
 	const atBottom = (cursor: { line: number; ch: number }) =>
 		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 800), cursor }).view;
 
-	it('is true only where the move would leave it', () => {
+	it('只有在移动会把它留在那儿时才算', () => {
 		expect(caretAtEdge(atTop({ line: 0, ch: 0 }), 'top')).toBe(true);
 		expect(caretAtEdge(atTop({ line: 0, ch: 2 }), 'top')).toBe(false);
 		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // end of "three"
@@ -464,7 +464,7 @@ describe('the caret standing at that end', () => {
 	});
 
 	// Reading mode is no exception: its caret is invisible, not absent.
-	it('is read off a reading view the same way', () => {
+	it('在阅读视图上用同样的方式读', () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 0),
@@ -481,8 +481,8 @@ describe('the caret standing at that end', () => {
 // when the last render is at least 100ms old, something scrolling a virtualized preview never is.
 // Asking for an end in reading mode and switching to editing therefore resumed where the reader
 // stood BEFORE the command.
-describe('the arrival reaching the view, not just the scroller', () => {
-	it('is told to the view, which is what setMode() carries across', async () => {
+describe('抵达要送到视图，而不只是送到滚动容器', () => {
+	it('要告诉视图本身 —— setMode() 带过去的就是它', async () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 400),
@@ -494,7 +494,7 @@ describe('the arrival reaching the view, not just the scroller', () => {
 		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 142 });
 	});
 
-	it('waits for a renderer that has not caught up, rather than carrying a stale number', async () => {
+	it('等一个还没追上的渲染器，而不是捧着一个陈旧的数字往前走', async () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 400),
@@ -511,7 +511,7 @@ describe('the arrival reaching the view, not just the scroller', () => {
 		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 42 });
 	});
 
-	it('says nothing when the renderer never answers', async () => {
+	it('渲染器始终不回答时就什么也不说', async () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 400),
@@ -524,7 +524,7 @@ describe('the arrival reaching the view, not just the scroller', () => {
 	});
 });
 
-describe('the step an end takes', () => {
+describe('到端点这一下算不算一步', () => {
 	// Stand in a.md at line 300, then ask for the bottom.
 	function standingAt(
 		topLine: number,
@@ -539,7 +539,7 @@ describe('the step an end takes', () => {
 		return { ...rig, scroller, view, editor };
 	}
 
-	it('keeps where the reader stood and gives the arrival a step of its own', async () => {
+	it('保留读者原来站的位置，并给这次抵达单独一步', async () => {
 		const { manager, stack, funnel } = standingAt(300);
 
 		manager.goToEdge('bottom');
@@ -562,7 +562,7 @@ describe('the step an end takes', () => {
 		expect(stack.canNavigate(-1)).toBe(true);
 	});
 
-	it('records nothing when the view already stands at that end', async () => {
+	it('视图本来就在那一端时不记任何东西', async () => {
 		const { manager, stack } = standingAt(800); // the furthest this view goes
 
 		manager.goToEdge('bottom');
@@ -574,7 +574,7 @@ describe('the step an end takes', () => {
 	// The view showing the top is not the same as the reader being there: the caret is half of
 	// what the command moves. No step for it — back from a press that stirred nothing the eye
 	// could see would answer with another such press.
-	it('still moves a caret the view had left behind, taking no step', async () => {
+	it('仍然挪动视图落在后面的光标，但不记步', async () => {
 		const { manager, stack, editor } = standingAt(0, 'source', { line: 2, ch: 3 });
 
 		manager.goToEdge('top');
@@ -585,7 +585,7 @@ describe('the step an end takes', () => {
 	});
 
 	// …in reading mode too, where what gets placed is the caret the mode switch will uncover.
-	it('moves the same hidden caret in a reading view, taking no step', async () => {
+	it('阅读视图里那个看不见的光标同样挪动，也不记步', async () => {
 		const { manager, stack, editor } = standingAt(0, 'preview', { line: 2, ch: 3 });
 
 		manager.goToEdge('top');
@@ -595,7 +595,7 @@ describe('the step an end takes', () => {
 		expect(stack.entries).toHaveLength(1);
 	});
 
-	it('does nothing when the caret already stands at that end too', async () => {
+	it('光标本来也在那一端时就什么都不做', async () => {
 		const { manager, stack, editor } = standingAt(0, 'source', { line: 0, ch: 0 });
 
 		manager.goToEdge('top');
@@ -607,7 +607,7 @@ describe('the step an end takes', () => {
 
 	// …and the arrival has to reach the view too, or switching modes resumes the place the reader
 	// stood before the command (see the sync above).
-	it('tells the view where the arrival is, so a later mode switch resumes there', async () => {
+	it('把抵达的位置告诉视图，好让之后切模式还在那儿', async () => {
 		const { manager, view } = standingAt(300, 'preview');
 
 		manager.goToEdge('top');
@@ -616,7 +616,7 @@ describe('the step an end takes', () => {
 		expect(view.setEphemeralState).toHaveBeenCalled();
 	});
 
-	it('is available only while a note is the active view', () => {
+	it('只有在笔记是当前视图时才可用', () => {
 		expect(makeManager(null).manager.canGoToEdge()).toBe(false);
 		expect(standingAt(300).manager.canGoToEdge()).toBe(true);
 	});
@@ -625,7 +625,7 @@ describe('the step an end takes', () => {
 	// a panel — the arrows — IS the active leaf the moment it is tapped, and the app's own
 	// `getActiveViewOfType` answers off that leaf alone, so a panel asking for an end would
 	// be given nothing. This is the whole of what makes a button in a panel pressable.
-	it('acts on the tab the reader was in, not on the leaf holding the focus', () => {
+	it('作用在读者所在的那个标签页上，而不是握着焦点的那个 leaf', () => {
 		const scroller = makeScroller(1000, 200, 300);
 		const { view } = makeView({ mode: 'preview', scroller, topLine: 300 });
 		const { manager } = makeManager(null, [{ id: 'leaf-1', view }]);
