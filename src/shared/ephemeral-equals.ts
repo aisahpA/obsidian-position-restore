@@ -1,13 +1,11 @@
 import { EphemeralState } from '@/types';
 
-// Position-record comparison, shared by two owners that must agree on what
-// "the same position" means: the recorder (Sampler, change detection) and the
-// store (PositionStore, whether a leaf's record still diverges). It lives in
-// shared/ so the storage layer never imports the capture layer for two pure
-// functions.
+// 位置记录怎么比「同一个位置」，有两个主人必须口径一致：记录者（Sampler，判位置变没变）
+// 与存储层（PositionStore，判某个标签页的记录是不是还在分叉）。放在 shared/ 是为了让存储层
+// 不必为两个纯函数去依赖采集层。
 
-// For callers tracking cursor movement independently of scroll (the 100ms
-// poll's baseline may carry a scroll field that must not participate).
+// 给需要把光标位移与滚动分开跟踪的调用方用：100ms 轮询的基准值可能带着一个
+// 不该参与比较的 scroll 字段。
 export function isCursorStatesEqual(
 	state1?: EphemeralState['cursor'],
 	state2?: EphemeralState['cursor']

@@ -1,39 +1,33 @@
-// ONE WAY TO READ A NOTE'S HEADINGS, and one way to build the section chain a
-// line sits in. Two callers must name a section identically or one place gets
-// two names: the post-restore breadcrumb (position/ui/cue.ts) and the
-// recent-files row's strip (recent-files/browser/body.ts).
+// 读一篇笔记的标题只有一种写法，算某一行落在哪条标题链上也只有一种 —— 两个调用方必须给出
+// 同一个说法，否则同一个地点会有两个名字：恢复后的面包屑（position/ui/cue.ts）与最近文件
+// 那一行的层次条（recent-files/browser/body.ts）。
 //
-// WHERE THE HEADINGS COME FROM is not this file's business and the two callers
-// differ, for a good reason: the row reads the metadata cache (the app's own
-// parse, already excluding headings inside fences and comments), the cue reads
-// the live editor buffer, which can be ahead of the cache. What is shared is
-// the TEXT fallback — for a note the cache says nothing about, or one the
-// reader is editing right now — and the chain built on top.
+// 标题从哪来不是本文件的事，而且两个调用方故意不同：行读 metadata cache（app 自己的解析，
+// 天然排除代码块与注释里的 `##`），cue 读活的编辑器缓冲区（可能比缓存新）。共享的只是
+// 「从文本兜底」这一层 —— 给缓存答不上来的笔记，或读者此刻正在编辑的笔记 —— 以及建在其上的链。
 export interface HeadingRef {
 	heading: string;
 	level: number;
 	line: number;
 }
 
-// The headings in a note's own text, in document order — the FALLBACK for a note the metadata cache
-// has nothing to say about: one a sync has just replaced, or one the app has not re-parsed, which on
-// a phone it may not do for a file the reader never edits — and OPENING the file does not make it
-// happen either (the editor reads the text, the cache does not). Without this a row printed its line
-// alone — `L412` — for as long as that state lasted.
+// 从笔记自己的文本里读标题，按文档顺序 —— 这是给 metadata cache 答不上来的笔记留的兜底：
+// 刚被同步替换掉的、app 还没重新解析的（手机上读者从不编辑的文件可能一直不解析），而打开
+// 这个文件也不会促成那件事（编辑器读的是文本，缓存不是）。没有这一层，一行就只会印出一个
+// 孤立的行号 `L412`，直到那阵状态过去。
 //
-// Deliberately only ATX headings (`#` … `######`), and only where a space, a tab or the end of the
-// line follows the marks: a line opening with `#tag` is one of the app's tags, and a `#` inside a
-// fenced block is a comment in somebody's shell. The frontmatter is skipped for the same reason —
-// `title: # 1` is a value.
+// 刻意只认 ATX 标题（`#` … `######`），且井号后面必须跟空格、tab 或行尾：`#tag` 开头的一行是
+// 标签，代码块里的 `#` 是别人脚本里的注释。跳过 frontmatter 是同一个道理 —— `title: # 1`
+// 只是一个值。
 export function headingsFromLines(lines: readonly string[]): HeadingRef[] {
 	const out: HeadingRef[] = [];
-	// The run that opened the fence still open, if one is: a block closes on a run of its own kind
-	// AT LEAST AS LONG AS ITS OPENER (CommonMark), so three marks inside a six-mark block are an
-	// ordinary line of it. Comment blocks close at the next marker anywhere in a line.
+	// 当前还开着的那串围栏（如果有）：按 CommonMark，围栏块的结束记号必须至少和开始的一样长，
+	// 所以六个反引号的块里出现三个反引号，只是块里普通的一行。注释块则在行内任意位置遇到
+	// 下一个结束标记就关。
 	let fence: string | undefined;
 	let inHtml = false;
 	let inObsidian = false;
-	// Whether the frontmatter block is still open. It is the file's FIRST line or nothing at all.
+	// frontmatter 块是否还开着。它只可能是文件的第一行，别的行都不算。
 	let frontmatter = lines[0]?.trim() === '---';
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
@@ -75,8 +69,7 @@ export function headingsFromLines(lines: readonly string[]): HeadingRef[] {
 		const atx = line.match(/^ {0,3}(#{1,6})(?:[ \t]|$)(.*)$/);
 		if (!atx)
 			continue;
-		// Trailing marks are the closing half of the closed form (`## One ##`); a comment is not
-		// part of what the heading says.
+		// 行尾那串井号是闭合写法（`## One ##`）的后半边；注释不属于标题要说的内容。
 		const heading = atx[2]
 			.replace(/[ \t]+#+[ \t]*$/, '')
 			.replace(/<!--[\s\S]*-->/g, '')
@@ -88,15 +81,14 @@ export function headingsFromLines(lines: readonly string[]): HeadingRef[] {
 	return out;
 }
 
-// The text-shaped entry point, for a caller holding the note whole. A caller that has already
-// split it hands the LINES over instead: a note is split once per reading, not twice (see reads.ts).
+// 给手握整篇文本的调用方用的入口。已经切好行的调用方应当直接把 LINES 交出来：一篇笔记一次
+// 阅读只切一次，不切两次（见 reads.ts）。
 export function headingsFromText(text: string): HeadingRef[] {
 	return headingsFromLines(text.split('\n'));
 }
 
-// The chain of headings the line falls under, outermost first. A heading ON the line is included as
-// the deepest segment: the chain names the target line rather than skipping to its parent section.
-// `headings` is in document order, as the cache stores it.
+// 这一行落在哪条标题链里，最外层在前。标题正好在这一行上时也算作最深的一段：这条链要给目标
+// 行命名，而不是跳到它的父一级。`headings` 按文档顺序传入，与缓存里的顺序一致。
 export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: number): string[] {
 	if (!headings || !headings.length)
 		return [];
@@ -111,8 +103,8 @@ export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: num
 	return stack.map(h => h.heading);
 }
 
-// The chain a line sits in, read straight out of the note's own text — the shape a caller working
-// from a live editor buffer has in hand (see position/ui/cue.ts).
+// 直接从笔记自己的文本算出某行的标题链 —— 从活的编辑器缓冲区出发的调用方手里正好是这个形状
+// （见 position/ui/cue.ts）。
 export function outlinePathAtLine(lines: readonly string[], line: number): string[] {
 	return headingTrailAtLine(headingsFromLines(lines), line);
 }

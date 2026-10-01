@@ -1,30 +1,26 @@
 import { App, MarkdownView, View, WorkspaceLeaf } from 'obsidian';
 
-// Leaf helpers shared by the position core and the nav feature. They live here
-// and not in nav/entry, so the position core never depends on navigation.
+// 位置核心与导航功能共用的一小把 leaf 工具。放这儿而不是 nav/entry，是为了让位置核心
+// 不必依赖导航。
 
-// Only main-area leaves record as navigation entries. A sidebar panel (outline,
-// backlinks, local graph) tracks the active file in its own view state, so
-// recording it makes a phantom entry whose traversal only re-focuses the panel.
+// 只有主区的 leaf 会记成导航记录。侧边栏面板（大纲、反向链接、局部图谱）自己在 view state 里
+// 就跟着当前文件走，把它记下来只会造出一条幽灵记录 —— 跳过去不过是把面板重新聚焦一次。
 export function isMainAreaLeaf(app: App, leaf: WorkspaceLeaf): boolean {
 	const root = app.workspace.rootSplit as { containerEl?: HTMLElement } | undefined;
 	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
 	return !!root?.containerEl && !!el && root.containerEl.contains(el);
 }
 
-// A real leaf hosted inside a hover popover — what a plugin that turns the
-// preview into an editable pane puts there. It is a PREVIEW, not a pane the
-// reader opened: restoring a position in one lands the card on a line nobody
-// asked to see, and the cover that comes with the restore holds it blank until
-// the settle finishes.
+// 悬停浮层里托着的真 leaf —— 把预览变成可编辑面板的插件会这么做。它是「预览」，不是读者打开的
+// 窗格：在里面恢复位置会让这张卡片停在没人要看的那一行，而随恢复而来的打开保护窗口还要把它
+// 压着空白到落位结束。
 export function isPopoverLeaf(leaf: WorkspaceLeaf): boolean {
 	const el = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
 	return !!el && !!el.closest?.('.hover-popover');
 }
 
-// The markdown view SHOWING one path right now, if any — the only place a note's
-// lines can be read as the reader has it, saved or not: the editor is ahead of
-// the disk by whatever they typed.
+// 此刻正显示着某个路径的 markdown 视图（如果有）—— 这是唯一能把笔记的行读成「读者手上那份」
+// 的地方，存没存都一样：编辑器比磁盘多出读者刚敲进去的内容。
 export function markdownViewFor(app: App, path: string): MarkdownView | undefined {
 	for (const leaf of app.workspace.getLeavesOfType('markdown')) {
 		const view = leaf.view as MarkdownView | undefined;
@@ -34,11 +30,9 @@ export function markdownViewFor(app: App, path: string): MarkdownView | undefine
 	return undefined;
 }
 
-// The markdown view a control standing OUTSIDE the note acts on. `getActiveViewOfType`
-// answers off the active leaf alone, and a sidebar panel — or a phone's drawer — IS that
-// leaf the moment the reader taps it, so such a control would act on nothing at all.
-// What it needs is the file tab the reader was in, which is what the app itself calls
-// most recent: the one whose activeTime is the greatest.
+// 站在笔记之外的控件该作用在哪个 markdown 视图上。`getActiveViewOfType` 只看当前激活的 leaf，
+// 而读者一碰，激活的就变成侧边栏面板（或手机上的抽屉）本身 ⇒ 这个控件会对着空气操作。
+// 它真正要的是读者所在的那个文件标签页，也就是 app 自己认为「最近使用」的那个：`activeTime` 最大。
 export function markdownViewInUse(app: App): MarkdownView | undefined {
 	const active = app.workspace.getActiveViewOfType(MarkdownView);
 	if (active?.file)
@@ -46,8 +40,8 @@ export function markdownViewInUse(app: App): MarkdownView | undefined {
 	let best: MarkdownView | undefined;
 	let latest = -1;
 	for (const leaf of app.workspace.getLeavesOfType('markdown')) {
-		// A preview is a card, not a pane the reader opened; a deferred tab is a
-		// placeholder that answers a markdown view's questions off a saved state.
+		// 预览是一张卡片，不是读者打开的窗格；延迟标签页是个占位符，照着存下来的 state 回答
+		// markdown 视图的问题。
 		if (isPopoverLeaf(leaf) || isDeferredLeaf(leaf))
 			continue;
 		const view = leaf.view as MarkdownView | undefined;
@@ -62,19 +56,16 @@ export function markdownViewInUse(app: App): MarkdownView | undefined {
 	return best;
 }
 
-// A leaf's id. Runtime API, absent from the public typings — and the same cast
-// family as the one above.
+// 取一个 leaf 的 id。这是运行期才有的字段，公开类型里没有 —— 和上面那几处是同一种 cast。
 export function leafIdOf(leaf: WorkspaceLeaf): string {
 	return (leaf as unknown as { id: string }).id;
 }
 
-// The name a view gives itself — what its own tab header prints. getDisplayText
-// is the app's own channel for it, so a third-party view names itself without
-// this plugin knowing that plugin exists.
+// 视图给自己起的名字 —— 也就是它标签头部印的那串。`getDisplayText` 是 app 自己留的通道，
+// 所以第三方视图不必让本插件知道它存在，也能报上自己的名字。
 //
-// Empty is NO NAME rather than an empty one: the row has its own wording for a
-// view that never named one. Guarded because it is a foreign method called from
-// a workspace event handler — a throw here would take a tab switch down with it.
+// 空出来是「没有名字」，而不是「名字是空的」：一行对没起过名字的视图有自己的说法。包 try 是因为
+// 这是在 workspace 事件回调里调别人的方法 —— 这里一抛异常，连切换标签页都会一起挂掉。
 export function viewLabel(view: View | undefined): string | undefined {
 	if (!view)
 		return undefined;
@@ -86,11 +77,10 @@ export function viewLabel(view: View | undefined): string | undefined {
 	}
 }
 
-// The icon a view gives itself, for the mark a row standing for it prints. Same
-// channel, same guards.
+// 视图给自己配的图标，给代表它的那一行画标记用。同一个通道、同样的保护。
 //
-// Absent is NO ICON and not a default one: an icon id the app's build does not
-// know draws an empty slot, and an empty slot says less than a word does.
+// 取不到是「没有图标」，不要替它填一个默认图标：app 这个构建版本不认识的图标 id 只会画出
+// 一格空白，而一格空白比一个词说的还少。
 export function viewIcon(view: View | undefined): string | undefined {
 	if (!view)
 		return undefined;
@@ -102,19 +92,17 @@ export function viewIcon(view: View | undefined): string | undefined {
 	}
 }
 
-// A leaf whose VIEW HAS NOT BEEN BUILT: the workspace restores a tab as a placeholder that
-// answers a view's questions off the state it was saved with — and that placeholder is not the
-// view's own class, so `instanceof FileView` is false for a note's tab (mobile comes back to
-// one this way). Runtime-only, absent from the public typings.
+// 视图还没真正建起来的 leaf：workspace 恢复标签页时先放一个占位符，它照着存下的 state 来回答
+// 视图的问题 —— 而这个占位符不是视图自己的类，所以对笔记的标签页来说 `instanceof FileView`
+// 是 false（手机回到某个标签页就是这样的）。仅运行期存在，公开类型里没有。
 export function isDeferredLeaf(leaf: WorkspaceLeaf | null | undefined): boolean {
 	return !!(leaf as unknown as { isDeferred?: boolean } | null | undefined)?.isDeferred;
 }
 
-// Whether the app can still BUILD that view. Its factory table holds one entry per type, and a
-// type with none (a plugin switched off, uninstalled, or not loaded yet) is answered by a
-// placeholder pane that CLAIMS to be it — nothing the reader can ever return to. A read that
-// fails, or a table this build does not expose, answers "not missing": the call can only ever
-// EXCLUDE, so losing it degrades to today rather than to recording nothing at all.
+// app 现在还能不能造出这个视图。每种类型在工厂表里有一条记录；查不到的类型（插件被关掉、卸载、
+// 或还没加载）会得到一个「自称是它」的占位窗格 —— 读者永远回不去的地方。读取失败、或这个构建
+// 版本没暴露这张表，一律回答「没缺」：这个调用只可能用来排除，所以丢掉它最坏的结果是退回现状，
+// 而不是从此什么都记不下来。
 export function viewTypeIsMissing(app: App, viewType: string): boolean {
 	const registry = (app as unknown as {
 		viewRegistry?: { getViewCreatorByType?: (type: string) => unknown };
@@ -128,38 +116,33 @@ export function viewTypeIsMissing(app: App, viewType: string): boolean {
 	}
 }
 
-// Whether that FileView IS the note's destination. A FileView may instead FOLLOW the note it is
-// looking at — outline, backlinks, local graph, file properties — which the app records in a
-// runtime-only flag absent from the typings. Those answer every question a FileView does, so in
-// the main area only this tells them apart (see nav/funnel.ts for what recording them as the file
-// costs: a second row for a note the reader never went to).
+// 这个 FileView 是不是那篇笔记的目的地。FileView 也可能只是跟着它正在看的笔记走 —— 大纲、
+// 反向链接、局部图谱、文件属性 —— app 把这个区别记在一个只在运行期存在、公开类型里没有的标记里。
+// 这些能用 FileView 的每一个问题来回答自己在主区哪儿也不算？不：在主区只有这个标记能分辨它们
+// （把它们记成这篇笔记的代价见 nav/funnel.ts：会给读者从没去过的笔记多出一行）。
 //
-// ONLY `false` excludes: a build that renames or drops the field reads undefined, and answering
-// "not a file" then would take every real file view with it.
+// 只有 `false` 才算排除：万一某个构建版本把这字段改名或删了，读到的是 undefined，那时若回答
+// 「不是文件」，会把所有真正的文件视图一起带走。
 export function isFileDestination(view: View): boolean {
 	return (view as unknown as { navigation?: boolean }).navigation !== false;
 }
 
-// The file a deferred placeholder stands in for, read off the state it was restored with: the
-// tab is still that note, and recording it as a view would mint a place with no file behind it.
+// 延迟占位符所代表的文件，从它恢复时用的 state 里读出来：这个标签页仍然是那篇笔记，把它记成
+// 视图就会凭空造出一个背后没有文件的地点。
 export function deferredFilePath(view: View | undefined): string | undefined {
 	const file = viewState(view)?.file;
 	return typeof file === 'string' && file ? file : undefined;
 }
 
-// The most one view's state may take in storage, as serialized length. The blob
-// it shares is a whole list of places (places-store.ts), so a plugin keeping its
-// cache in its view state must not be able to take the list's budget.
+// 单个视图的 state 最多能占多少存储，按序列化后的长度算。它挤占的那份数据是整张地点列表
+// （places-store.ts），所以某个插件把自己的缓存塞进 view state 也吃不掉这份预算。
 const VIEW_STATE_MAX_BYTES = 2048;
 
-// The state a view had while the reader was there — what the place is rebuilt
-// with when its tab is gone (`setViewState({ type, state })`). The one thing
-// about a view that cannot be re-derived later.
+// 读者在场时那个视图的 state —— 标签页没了的时候，地点就是拿它重建的
+// （`setViewState({ type, state })`）。这是视图身上唯一事后推不出来的东西。
 //
-// The JSON round-trip's second job is the one that is easy to miss: it keeps a
-// COPY. A view goes on mutating its own state object, and a row holding a
-// reference would drift with it — replaying the place would then take the reader
-// to wherever the view happens to be NOW.
+// 这个 JSON 往返还有一层容易被忽略的作用：它留下的是一份副本。视图会一直改自己的 state 对象，
+// 一行要是攥着引用就会跟着漂 —— 那样重放这个地点会把读者送到视图此刻碰巧所在的地方。
 export function viewState(view: View | undefined): Record<string, unknown> | undefined {
 	if (!view)
 		return undefined;
