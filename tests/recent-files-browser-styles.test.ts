@@ -61,18 +61,18 @@ const css = readFileSync(resolve(process.cwd(), 'styles.css'), 'utf8');
 // db-path modal are different surfaces with their own colour decisions.
 const browser = css.slice(css.indexOf('/* Recent-files browser (RecentFilesModal)'));
 
-describe('recent-files browser quiet tiers', () => {
-	it('slices out the browser section', () => {
+describe('最近文件面板的两档弱墨', () => {
+	it('切出面板自己那一段样式', () => {
 		expect(browser).toContain('.position-restore-nav-row');
 		expect(browser.length).toBeGreaterThan(2000);
 	});
 
-	it('derives both tiers from the theme primary text colour', () => {
+	it('两档都由主题的主文本色派生', () => {
 		for (const name of ['--nav-muted', '--nav-faint'])
 			expect(browser).toContain(`${name}: color-mix(in srgb, var(--text-normal)`);
 	});
 
-	it('paints no tier with a variable a theme is free to re-hue', () => {
+	it('哪一档都不许直接用主题可以随意改色相的变量', () => {
 		// `var(...)` and not the bare names: the rules above explain the
 		// rejected variables in prose, and that prose may name them.
 		expect(browser.match(/var\(--text-(?:faint|muted)\)/g) ?? []).toEqual([]);
@@ -84,7 +84,7 @@ describe('recent-files browser quiet tiers', () => {
 	// section. There is no list-wide measured column any more — that existed so a
 	// single column of sections started on one x down a FLAT list, and the list says
 	// the same thing with its indent (see the next test).
-	it('lays a note out as its name, and a landing as coordinate + section', () => {
+	it('笔记行就是它的名字，标题行是行号 + 所属标题', () => {
 		// The caret is gone outright, and so is the "+N" that counted what a click would
 		// open: there is no tree to open any more, so a column of every row repeating
 		// that state is a column spent twice (see RecentFilesList.fileRow).
@@ -125,7 +125,7 @@ describe('recent-files browser quiet tiers', () => {
 	// used to carry (100 against 1) left the deepest level 0.2px short — and 0.2px is
 	// not nothing when `text-overflow: ellipsis` charges a whole glyph for any overflow
 	// at all: that row printed "新插件 Positi… 2026-09-…".
-	it('collapses a section chain from the outside in', () => {
+	it('标题链由外向内收', () => {
 		const seg = browser.match(/\.position-restore-nav-row \.nav-row-trail \.nav-trail-seg\s*\{[^}]*\}/)?.[0] ?? '';
 		const deep = browser.match(/\.position-restore-nav-row \.nav-row-trail \.nav-trail-deep\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(seg).not.toBe('');
@@ -157,7 +157,7 @@ describe('recent-files browser quiet tiers', () => {
 	// (see RecentFilesList.fitTrails). The stylesheet's half of that is one rule, and it
 	// is `display: none` — a WIDTH would leave the fragment standing in the row it was
 	// taken off.
-	it('takes off the outer level a row could not print', () => {
+	it('挤到印不出来的那层外层，直接摘掉', () => {
 		const off = browser.match(
 			/\.position-restore-nav-row\.is-deep-only \.nav-trail-seg\s*\{[^}]*\}/,
 		)?.[0] ?? '';
@@ -171,7 +171,7 @@ describe('recent-files browser quiet tiers', () => {
 	// the app sets its own lists in (13px on a desktop, the text size on a phone, see
 	// its .tree-item-self), so a row matches its neighbour without this file picking a
 	// number — and the strip and the setting menu keep the smaller tiers they name.
-	it('sets a row in the app\'s own nav-list tier', () => {
+	it('行的字号取 app 自己 nav-list 的那一档', () => {
 		// The row's OWN rule, and not the desktop dialog's override of its padding, which
 		// starts with the same class: anchored at the line's start so nothing prefixed
 		// can be read as it.
@@ -184,7 +184,7 @@ describe('recent-files browser quiet tiers', () => {
 	// A ROW IS ONE TARGET: the gutter that held the details control is gone with the
 	// panel it opened (see RecentFilesList), so the row's padding is plain and nothing is
 	// absolutely positioned inside it that could touch the row's height.
-	it('gives a row one plain padding and nothing pinned inside it', () => {
+	it('行只有一套朴素内边距，里面没有绝对定位的东西', () => {
 		expect(browser).toMatch(/\.position-restore-nav-row\s*\{[^}]*padding: 4px 8px;/);
 		expect(browser).not.toContain('nav-row-disclose');
 		expect(browser).not.toContain('--nav-disclose-');
@@ -197,7 +197,7 @@ describe('recent-files browser quiet tiers', () => {
 	// order never changes (the name's own box, then the folder), so this one class is
 	// the whole of the difference between the two "always" modes (see
 	// PathDisplayMode).
-	it('prints the folder on the side the setting asks for, and wraps the other half', () => {
+	it('文件夹按设置指定的那一边印，让行的另一半去挤', () => {
 		// The cell wraps, and separates what shares a line with a COLUMN gap: a margin
 		// would indent the line that wrapped, and the two lines would read as unrelated.
 		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*flex-wrap: wrap/);
@@ -222,7 +222,7 @@ describe('recent-files browser quiet tiers', () => {
 	// row: a path too long for the row is WRAPPED rather than cut. Where the path stands is
 	// still the reader's setting (asserted above) — the dialog does not override the SIDE it
 	// asked for, only whether the path may spend a line saying all of itself.
-	it('wraps a long path in the desktop dialog instead of cutting it', () => {
+	it('桌面对话框里长路径换行显示，而不是截断', () => {
 		const path = browser.match(
 			/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \.position-restore-nav-row \.nav-row-path\s*\{[^}]*\}/,
 		)?.[0] ?? '';
@@ -250,7 +250,7 @@ describe('recent-files browser quiet tiers', () => {
 	// right for the explorer and wrong for a name, and both are taken back: the tag
 	// there is pushed to the FAR END of its line (it stands for the whole row) and it
 	// is allowed to shrink (a squeezed tag reads "PD / F").
-	it('marks a note\'s type with the app\'s own tag, and only corrects it', () => {
+	it('笔记的类型用 app 自己的标签来标，只做修正', () => {
 		const tag = browser.match(/\.position-restore-nav-row \.nav-file-tag\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(tag).not.toBe('');
 		expect(tag).toMatch(/margin-inline-start: 0/);
@@ -268,7 +268,7 @@ describe('recent-files browser quiet tiers', () => {
 	// …and the mark stays ON THE NAME'S LINE: as a sibling of the name it is the first
 	// thing the wrapping cell drops, which prints the type on a line of its own, under
 	// the name it belongs to. The name and its mark are one box that never wraps.
-	it('keeps the name and its mark on one line, whatever the row has room for', () => {
+	it('名字和它的标记始终同一行，无论这一行还剩多少地方', () => {
 		const head = browser.match(/\.nav-row-head\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(head).not.toBe('');
 		expect(head).toMatch(/flex-wrap: nowrap/);
@@ -285,7 +285,7 @@ describe('recent-files browser quiet tiers', () => {
 	// The row states the track only while it has a label (see is-timed), so a list with
 	// the age switched off spends no second column: the automatic margin the label used
 	// to be pushed with was a per-row trick that only worked where no folder printed.
-	it('dates a row in the far track, which the row states only when it has one', () => {
+	it('日期放在远端那一轨，行只有真的有日期时才声明这一轨', () => {
 		const time = browser.match(/\.nav-row-time\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(time).not.toBe('');
 		expect(time).toMatch(/color: var\(--nav-faint\)/);
@@ -314,7 +314,7 @@ describe('recent-files browser quiet tiers', () => {
 	// under the pointer that summoned them — the one thing this list never does (see the
 	// hover tint below). The age gives up its COLOUR and not its track when the two trade
 	// places, so nothing moves there either.
-	it('floats the row\'s controls over that far end, and moves nothing to show them', () => {
+	it('行的控件浮在那一端之上，显示它们不挤动任何东西', () => {
 		const actions =
 			browser.match(/\.position-restore-nav-row \.nav-row-actions\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(actions).not.toBe('');
@@ -418,7 +418,7 @@ describe('recent-files browser quiet tiers', () => {
 	// "You are here" is a dot on the note and on the landing the current entry
 	// recorded: the current position is marked INSIDE the list rather than held
 	// out of it.
-	it('marks the current landing with a dot in front of its coordinate', () => {
+	it('当前标题用行号前面的一个圆点标出', () => {
 		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*color: var\(--interactive-accent\)/);
 		// …HUNG off the coordinate's own START edge, so it leads the number it marks
 		// without standing in the coordinate's box: a dot laid out in there would be a
@@ -436,7 +436,7 @@ describe('recent-files browser quiet tiers', () => {
 
 	// THE POSITION is the row the keyboard is on (see RecentFilesList.choose), and the
 	// wash has to survive the pointer reaching that very row.
-	it('paints the position, and keeps it under the pointer', () => {
+	it('位置那几个字是有颜色的，指针压上去也不改', () => {
 		expect(browser).toMatch(
 			/\.position-restore-nav-row\.is-selected\s*\{[^}]*background-color: color-mix\(in srgb, var\(--interactive-accent\)/,
 		);
@@ -455,7 +455,7 @@ describe('recent-files browser quiet tiers', () => {
 	//     mark and the pointer must not replace it with a weaker one;
 	//   - it is scoped away from touch: a finger's tap leaves `:hover` stuck on the row
 	//     it touched, and a row tinted for a pointer that is gone says nothing true.
-	it('tints the row under the pointer, without touching the position or a finger', () => {
+	it('指针悬停只给整行上色，不动位置那几个字，也跟手指无关', () => {
 		const hover =
 			browser.match(
 				/\.position-restore-nav-panel:not\(\.is-touch\) \.position-restore-nav-row:hover:not\(\.is-selected\):not\(\.is-pressed\)\s*\{[^}]*\}/,
@@ -472,7 +472,7 @@ describe('recent-files browser quiet tiers', () => {
 	// A FINGER HAS NO HOVER TO GO BY, and the travel a tap asked for is a moment away
 	// and happens somewhere else — a note opening, a drawer folding away — so the press
 	// itself is the only thing a row can answer with (see list.ts's markPressed).
-	it('marks the row a press landed on, and outranks the two tints it could lose to', () => {
+	it('按下落在哪一行就标记哪一行，并压过那两种它可能让位的着色', () => {
 		const pressed =
 			browser.match(
 				/\.position-restore-nav-panel \.position-restore-nav-row\.is-pressed\s*\{[^}]*\}/,
@@ -509,7 +509,7 @@ describe('recent-files browser quiet tiers', () => {
 	// has no control surface left to paint — no button, no menu hanging off the strip,
 	// and no ink fought over with a theme on their behalf. The strip is the search
 	// box, which is all a navigator needs.
-	it('leaves the strip to the box — no gear, no menu, no hint beside it', () => {
+	it('工具条只留给搜索框 —— 没有齿轮、没有菜单、旁边也没有提示语', () => {
 		expect(browser).not.toMatch(/position-restore-nav-settings/);
 		expect(browser).not.toMatch(/nav-settings-/);
 		expect(browser).not.toMatch(/nav-settings-ink/);
@@ -528,7 +528,7 @@ describe('recent-files browser quiet tiers', () => {
 
 	// The list is the only column there is: it takes the whole width, and the dialog is
 	// sized for one (see the modal's own rule).
-	it('gives the list the whole width, and the dialog the width of a list', () => {
+	it('列表占满整个宽度，对话框按一个列表的宽度来', () => {
 		expect(browser).toMatch(/\.position-restore-nav-list\s*\{[^}]*flex: 1 1 auto/);
 		expect(browser).toMatch(/\.modal\.position-restore-nav-modal\s*\{[^}]*width: min\(23em/);
 		expect(browser).not.toContain('is-no-details');
@@ -542,7 +542,7 @@ describe('recent-files browser quiet tiers', () => {
 	// so none of them can be allowed to fall back to a number of this file's own. A PHONE
 	// KEEPS ITS OWN SIZE (see the base rules these two override): a 700px dialog is a screen
 	// it cannot put away.
-	it('sizes the desktop dialog the way the app sizes its own prompt', () => {
+	it('桌面对话框的尺寸照 app 自己那个 prompt 的量法来', () => {
 		const desktop =
 			browser.match(/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \{[^}]*\}/)?.[0] ?? '';
 		expect(desktop).not.toBe('');
@@ -569,7 +569,7 @@ describe('recent-files browser quiet tiers', () => {
 	// dialog sized by its content SHRINKS under every keystroke and drags itself back toward
 	// the middle of the window while the reader is still typing, so this is the assertion that
 	// keeps anyone from making the pin conditional on the list again. A phone keeps its own.
-	it('pins the desktop dialog\'s height so filtering cannot resize it', () => {
+	it('桌面对话框的高度钉死，筛选也撑不动它', () => {
 		const pinned =
 			browser.match(
 				/\.modal\.position-restore-nav-modal\.is-fixed:not\(\.is-touch\) \{[^}]*\}/,
@@ -585,7 +585,7 @@ describe('recent-files browser quiet tiers', () => {
 	// is a filter box and a list, nothing above them). The name is not unset but DISPLAYED
 	// AWAY — the title going empty leaves the header its row, margin-bottom and all — and the
 	// list below still carries the string for assistive tech (see body.ts).
-	it('puts the filter box at the top of the desktop dialog', () => {
+	it('筛选框放在桌面对话框的顶部', () => {
 		const header = browser.match(
 			/\.modal\.position-restore-nav-modal:not\(\.is-touch\) \.modal-header\s*\{[^}]*\}/,
 		)?.[0] ?? '';
@@ -600,7 +600,7 @@ describe('recent-files browser quiet tiers', () => {
 	// box's own × closes it when there is nothing typed to clear (see RecentFilesBrowser.toolbar)
 	// — one glyph doing both jobs where the app's own prompt puts it. A phone keeps the app's ×,
 	// since it keeps the name that × belongs to.
-	it('leaves one × where the app leaves one', () => {
+	it('app 留一个 × 的地方，也只留一个 ×', () => {
 		const x = browser.match(
 			/\.modal\.position-restore-nav-modal\.is-dismissive:not\(\.is-touch\) \.modal-header-button,\n[^}]*\}/,
 		)?.[0] ?? '';
@@ -613,7 +613,7 @@ describe('recent-files browser quiet tiers', () => {
 	// WHERE THE PINNED ROWS STOP is a line and nothing else: a heading would spend a
 	// row's height saying what the line already says, and an icon on each pinned row
 	// has nowhere to stand — the row's far end belongs to its own controls.
-	it('ends the pinned block with a line, and names the block nowhere', () => {
+	it('置顶区末尾有一条线收住，但不给这个区写名字', () => {
 		const sep = browser.match(/\.position-restore-nav-pinned-sep\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(sep).not.toBe('');
 		expect(sep).toMatch(/border-top: 1px solid/);
@@ -627,7 +627,7 @@ describe('recent-files browser quiet tiers', () => {
 	// of the narrow-screen rule that hid the coordinate and the age and left the list
 	// saying nothing but file names. What is worth pinning is that nothing is hidden
 	// on touch, and that the row is a finger's target.
-	it('gives a phone the desktop rows, one line each and never a hidden cell', () => {
+	it('手机上照用桌面的行：一行一条，绝没有藏起来的格子', () => {
 		// The ROOM a row gives a finger, and not the first rule the selector matches —
 		// a phone's rows carry more than one (see the long press's own rule above).
 		const touch = browser.match(
@@ -646,7 +646,7 @@ describe('recent-files browser quiet tiers', () => {
 	// gone, and the GRID that stated the two rows went with it — a single cell named
 	// 'box' would have been a grid saying what a flex line already said. What the
 	// touch layout still asks of the strip is the ×: a target a finger can hit.
-	it('leaves the touch toolbar one line, and the × a target a finger can hit', () => {
+	it('触屏工具条保持一行，× 保持手指点得到的尺寸', () => {
 		expect(browser).not.toMatch(/is-touch \.position-restore-nav-toolbar\s*\{[^}]*display: grid/);
 		expect(browser).not.toContain('grid-area: box');
 		const clear = browser.match(
@@ -662,7 +662,7 @@ describe('recent-files browser quiet tiers', () => {
 	// was being painted under the pointer every time a row was hovered. `--no-tooltip`
 	// is the app's own switch and it INHERITS, so one declaration on the shared shell
 	// covers the list and the setting groups together.
-	it('keeps the app\'s own tooltips off the panel\'s accessible names', () => {
+	it('不许 app 自己的 tooltip 混进面板的无障碍名字', () => {
 		const panel = browser.match(/\.position-restore-nav-panel\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(panel).toMatch(/--no-tooltip: true/);
 	});
@@ -673,7 +673,7 @@ describe('recent-files browser quiet tiers', () => {
 	// least visible thing in the string. Both are decided here: the path one tier above
 	// the app's own tooltip type (--font-ui-small, where the app's is the smaller one),
 	// and the separators as their own spans with a weight no font can thin away.
-	it('draws the row\'s tooltip in a readable type, with separators of its own', () => {
+	it('行的 tooltip 用可读的字号画，分隔符自己提供', () => {
 		expect(browser).toMatch(
 			/\.position-restore-nav-tip\s*\{[^}]*position: fixed[^}]*pointer-events: none/,
 		);
@@ -701,7 +701,7 @@ describe('recent-files browser quiet tiers', () => {
 	// than by a typeface, and never clipped — a line of the note cut off in the middle
 	// says something the note never said, and this is the one thing on a landing's row
 	// the reader is reading for its own sake.
-	it('draws a quoted line as a quote, and lets it wrap', () => {
+	it('被引的那一行按引文的样子画，并允许换行', () => {
 		const quote = browser.match(/\.nav-tip-quote\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(quote).toMatch(/border-inline-start: 2px solid var\(--background-modifier-border\)/);
 		expect(quote).toMatch(/padding-inline-start: 6px/);
@@ -716,7 +716,7 @@ describe('recent-files browser quiet tiers', () => {
 	// speaking about the note's words, and a reader has to be able to tell the two
 	// apart at a glance. Fainter than a quote, and in the panel's own faint tier
 	// rather than --text-faint, which a theme is free to re-hue.
-	it('sets the line about the quotes apart by ink, not by a rule', () => {
+	it('说明引文的那一行靠墨色区分开，不靠分隔线', () => {
 		const note = browser.match(/\.nav-tip-note\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(note).toMatch(/color: var\(--nav-faint\)/);
 		expect(note).not.toMatch(/border-inline-start/);
@@ -728,7 +728,7 @@ describe('recent-files browser quiet tiers', () => {
 	// looks like) instead of a class a listener has to keep in step. A box whose × also
 	// DISMISSES the shell it stands in never has nothing for it to do, and so never
 	// hid it — see RecentFilesBrowser.toolbar.
-	it('shows the clear button only while the box has something in it', () => {
+	it('只有框里有内容时才显示清除按钮', () => {
 		expect(browser).toMatch(
 			/\.position-restore-nav-panel:not\(\.is-dismissive\) \.position-restore-nav-search input:placeholder-shown ~ \.position-restore-nav-clear\s*\{\s*display: none/,
 		);
@@ -746,7 +746,7 @@ describe('recent-files browser quiet tiers', () => {
 	// dialog that had already claimed its height, and the rest was dead space the
 	// scrollbar was not even in. The height is pinned so that filtering cannot resize and
 	// re-center the dialog (see is-fixed), so the fix is to fill it.
-	it('fills the pinned height with the list instead of stopping short of it', () => {
+	it('钉死的高度由列表填满，而不是差一截填不到底', () => {
 		expect(browser).toMatch(
 			/is-fixed \.position-restore-nav-list\s*\{[^}]*flex: 1 1 auto[^}]*max-height: none/,
 		);
@@ -769,13 +769,13 @@ describe('recent-files browser quiet tiers', () => {
 	// RecentFilesList.onClick / disclose). The content switch that used to sit on the
 	// caption line is gone with the two contents it chose between, so the stylesheet
 	// must not have kept a home for it.
-	it('offers no control of its own — no switch, no travel button', () => {
+	it('自己不提供任何控件 —— 没有开关，也没有前进后退按钮', () => {
 		expect(browser).not.toContain('.nav-preview');
 	});
 
 	// A phone held sideways has ~370px of height for everything (the dialog's name, the
 	// filter, the list): every one of these is a line the list gets back.
-	it('compacts the short-dialog (landscape phone) layout', () => {
+	it('矮对话框（手机横屏）的布局更紧凑', () => {
 		const landscape = browser.slice(browser.indexOf('@media (max-height: 520px)'));
 		expect(landscape.length).toBeGreaterThan(500);
 
@@ -819,7 +819,7 @@ describe('recent-files browser quiet tiers', () => {
 	// and the rule went on being written against a string no leaf carries any more —
 	// which no build step and no test could notice, and which is why this test is
 	// here. A class cannot drift: the pane adds it itself, in the same call.
-	it('bounds the resident pane by the pane itself, not by a view-type string', () => {
+	it('常驻面板按面板自身来限定范围，而不是按 viewType 字符串', () => {
 		const pane = browser.match(/\.workspace-leaf-content [^{]*position-restore-nav-view\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(pane).not.toBe('');
 		expect(pane).toMatch(/display: flex/);
@@ -839,7 +839,7 @@ describe('recent-files browser quiet tiers', () => {
 	//    record carries, struck through and down a tier — those words are the last
 	//    thing naming the spot, and what is struck is only the claim that the note
 	//    still has them (see RecentFilesList.placeRow / landingNote).
-	it('strikes the heading a note no longer has, rather than dropping it', () => {
+	it('笔记已经没有的那个标题加删除线，而不是把它丢掉', () => {
 		const lost = browser.match(/\.position-restore-nav-row \.nav-row-trail\.is-lost \{[^}]*\}/)?.[0] ?? '';
 		expect(lost).not.toBe('');
 		expect(lost).toMatch(/text-decoration: line-through/);
@@ -855,7 +855,7 @@ describe('recent-files browser quiet tiers', () => {
 	// than leaving itself to be measured: a vertical drag is its own, a horizontal
 	// one is not a scroll at all, and a drag that reaches either end stops there
 	// instead of being handed on to whatever scrolls around the pane.
-	it('answers a phone\'s drag as a scroll of the list', () => {
+	it('手机上拖动按列表滚动来响应', () => {
 		// The base rule, not the one the resident pane restates it with: anchored at
 		// the line's start so a longer selector ending in this class cannot match.
 		const list = browser.match(/(?:^|\n)\.position-restore-nav-list \{[^}]*\}/)?.[0] ?? '';
@@ -868,7 +868,7 @@ describe('recent-files browser quiet tiers', () => {
 	// and the one control in it that acts on the NOTE rather than on the list. What the
 	// stylesheet has to hold is the whole of the difficulty: four arrows standing over a
 	// list are read as four ways to scroll that list, and no rule here may let them be.
-	it('holds the arrows in two capsules, which no row of the list is drawn in', () => {
+	it('箭头装在两个胶囊里，列表的任何一行都不画在它们里面', () => {
 		const strip = browser.match(/\.position-restore-nav-arrows \{[^}]*\}/)?.[0] ?? '';
 		expect(strip).not.toBe('');
 		expect(strip).toMatch(/display: flex/);
@@ -895,7 +895,7 @@ describe('recent-files browser quiet tiers', () => {
 	// with the room the strip takes. And one that would do nothing goes quiet rather
 	// than answering with nothing — which is also the panel's standing answer about whose
 	// ends the last two of them go to.
-	it('sizes an arrow as a target, and greys one that would do nothing', () => {
+	it('箭头做成可点的尺寸，点了没用的那个置灰', () => {
 		const arrow = browser.match(/\.position-restore-nav-arrow \{[^}]*\}/)?.[0] ?? '';
 		expect(arrow).not.toBe('');
 		expect(arrow).toMatch(/width: var\(--nav-arrow-target\)/);
@@ -932,7 +932,7 @@ describe('recent-files browser quiet tiers', () => {
 	// stood beside the filter box, where a hand going for the box lands on an arrow instead.
 	// So the base rule says it, once, and the DOM says it too (asserted in the DOM suite):
 	// no `order` is needed, and Tab reaches them where the eye does.
-	it('puts the arrows under the list, on every device and not only on a phone', () => {
+	it('箭头放在列表下方，每种设备都放，不只是手机', () => {
 		const strip = browser.match(/\.position-restore-nav-arrows \{[^}]*\}/)?.[0] ?? '';
 		expect(strip).not.toBe('');
 		// CENTRED, and not laid against the list's left edge: buttons that line up with
@@ -953,7 +953,7 @@ describe('recent-files browser quiet tiers', () => {
 
 	// A PHONE GIVES THEM ROOM UNDER THEM as well: the app's own toolbar stands at the foot
 	// of a phone screen, and a strip that touches it reads as part of it.
-	it('keeps the arrows off the phone\'s own toolbar', () => {
+	it('箭头避开手机自己的工具条', () => {
 		const touch = browser.match(
 			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-arrows \{[^}]*\}/,
 		)?.[0] ?? '';
@@ -966,7 +966,7 @@ describe('recent-files browser quiet tiers', () => {
 	// `position: fixed; bottom: 0; right: 0`), so the foot of a resident pane is not the
 	// foot of anything — it is under the bar. A strip flush with that foot is a strip the
 	// bar covers. A DIALOG needs none of it: it is centred, nowhere near the window's foot.
-	it('lifts the arrows off the app\'s own status bar, in a pane that reaches it', () => {
+	it('在够得到状态栏的面板里，把箭头抬离 app 自己的状态栏', () => {
 		const pane = browser.match(
 			/\.position-restore-nav-view \.position-restore-nav-arrows \{[^}]*\}/,
 		)?.[0] ?? '';
@@ -978,7 +978,7 @@ describe('recent-files browser quiet tiers', () => {
 	// bottom-RIGHT corner and sized to its own content (app.css: `right: 0`, `width: auto`),
 	// so a pane standing on the left has a foot that is the screen's own, and 34px of air
 	// under these four is 34px of pane spent on a bar at the far side of the window.
-	it('lets the arrows down to the foot of a pane in the left rail', () => {
+	it('左栏里的面板可以让箭头落到面板底部', () => {
 		const left = browser.match(
 			/(?:^|\n)\.mod-left-split \.position-restore-nav-arrows \{[^}]*\}/,
 		)?.[0] ?? '';
