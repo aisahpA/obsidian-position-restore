@@ -79,18 +79,18 @@ beforeEach(() => {
 });
 
 describe('loadLeafStates', () => {
-	it('loads the persisted overlay into a leaf-keyed map', () => {
+	it('把已存的覆盖层读成一张以标签页为键的表', () => {
 		seedStorage({ 'leaf-1': rec('a.md', 42) });
 		const records = loadLeafStates(APP_STUB);
 		expect(records.get('leaf-1')).toEqual(rec('a.md', 42));
 	});
 
-	it('corrupt storage degrades to an empty load without throwing', () => {
+	it('存的内容坏了就退化成空读，不抛错', () => {
 		seedStorage('{not json');
 		expect(loadLeafStates(APP_STUB).size).toBe(0);
 	});
 
-	it('drops malformed entries (no path or no state) instead of trusting the parse', () => {
+	it('丢掉残缺的条目（没有 path 或没有 state），而不是照信解析结果', () => {
 		seedStorage(JSON.stringify({ 'leaf-1': { scroll: 1 }, 'leaf-2': rec('b.md', 2) }));
 		const records = loadLeafStates(APP_STUB);
 		expect(records.has('leaf-1')).toBe(false);
@@ -99,7 +99,7 @@ describe('loadLeafStates', () => {
 });
 
 describe('read', () => {
-	it('prefers the leaf record for the file it names, path-guarded, without consuming', () => {
+	it('优先用它所指文件的标签页记录，带路径校验，读了也不消耗', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 } }));
 		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 
@@ -115,14 +115,14 @@ describe('read', () => {
 });
 
 describe('write', () => {
-	it('records in both layers', () => {
+	it('两层都写', () => {
 		const { store, db } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 7 });
 		expect(db.db['a.md']).toEqual({ scroll: 7 });
 		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('a.md', 7));
 	});
 
-	it('is a no-op when the leaf record is unchanged', () => {
+	it('标签页记录没变时空转不做', () => {
 		const { store, db } = makeStore();
 		const setState = (db.setState = vi.fn());
 		setLeafStates(store, [['leaf-1', rec('a.md', 7)]]);
@@ -132,7 +132,7 @@ describe('write', () => {
 		expect(setState).not.toHaveBeenCalled();
 	});
 
-	it('seeds a first sighting that already matches the file record without a file write', () => {
+	it('头一次见就与文件记录一致时只播种，不去写文件', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 7 } }));
 		const setState = (db.setState = vi.fn());
 
@@ -142,7 +142,7 @@ describe('write', () => {
 		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('a.md', 7));
 	});
 
-	it('keeps two leaves of one file independent (the file layer holds the last write)', () => {
+	it('同一个文件的两个标签页互不干扰（文件层拿着最后一次写）', () => {
 		const { store, db } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 10 });
 		store.write('leaf-2', 'a.md', { scroll: 100 });
@@ -153,15 +153,15 @@ describe('write', () => {
 	});
 });
 
-describe('persist — the overlay holds only the true divergence', () => {
-	it('persists nothing while every leaf agrees with the file record', () => {
+describe('persist —— 覆盖层只放真正的分歧', () => {
+	it('每个标签页都与文件记录一致时，一个也不存', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 10 });
 		store.persist();
 		expect(persisted()).toEqual({});
 	});
 
-	it('persists only the leaf whose value the file record does not hold', () => {
+	it('只存那些文件记录里没有的标签页值', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 10 });
 		store.write('leaf-2', 'a.md', { scroll: 100 });
@@ -170,7 +170,7 @@ describe('persist — the overlay holds only the true divergence', () => {
 		expect(persisted()).toEqual({ 'leaf-1': rec('a.md', 10) });
 	});
 
-	it('stops persisting a leaf once the file record catches up with it', () => {
+	it('文件记录追上某个标签页后就不再存它', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 10 });
 		store.write('leaf-2', 'a.md', { scroll: 100 });
@@ -184,14 +184,14 @@ describe('persist — the overlay holds only the true divergence', () => {
 		expect(persisted()).toEqual({});
 	});
 
-	it('keeps a leaf record that has no file record at all (it is the only copy)', () => {
+	it('完全没有文件记录的标签页记录要留住（它是唯一的一份）', () => {
 		const { store } = makeStore();
 		setLeafStates(store, [['leaf-1', rec('a.md', 10)]]);
 		store.persist();
 		expect(persisted()).toEqual({ 'leaf-1': rec('a.md', 10) });
 	});
 
-	it('degrades quietly when localStorage rejects the write (quota / disabled)', () => {
+	it('localStorage 拒绝写入时安静降级（配额用尽 / 被禁用）', () => {
 		const { store } = makeStore();
 		const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
 			throw new Error('quota');
@@ -203,7 +203,7 @@ describe('persist — the overlay holds only the true divergence', () => {
 });
 
 describe('renameFile', () => {
-	it('re-keys the file record AND the leaf records naming that path', () => {
+	it('文件记录和指着该路径的标签页记录都要换键', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 } }));
 		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 
@@ -217,7 +217,7 @@ describe('renameFile', () => {
 		expect(store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
 
-	it('survives a restart with the leaf still on the renamed file', () => {
+	it('重启之后标签页仍认得改名后的文件', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 } }));
 		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 		store.renameFile('b.md', 'a.md');
@@ -229,7 +229,7 @@ describe('renameFile', () => {
 });
 
 describe('deleteFile', () => {
-	it('drops the file record AND every leaf record naming that path', () => {
+	it('文件记录和所有指着该路径的标签页记录都丢掉', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 }, 'b.md': { scroll: 2 } }));
 		setLeafStates(store, [
 			['leaf-1', rec('a.md', 42)],
@@ -246,7 +246,7 @@ describe('deleteFile', () => {
 		expect(leafStatesOf(store).get('leaf-3')).toEqual(rec('b.md', 7));
 	});
 
-	it('does not hand a deleted position back to a new file at the same path', () => {
+	it('删掉的位置不许再交给同路径下的新文件', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 42 });
 		store.deleteFile('a.md');
@@ -257,7 +257,7 @@ describe('deleteFile', () => {
 		expect(store.read('leaf-1', 'a.md')).toEqual({ scroll: 3 });
 	});
 
-	it('a deleted path stops being persisted', () => {
+	it('路径删掉之后就不再落盘', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 10 });
 		store.write('leaf-2', 'a.md', { scroll: 100 });
@@ -273,7 +273,7 @@ describe('deleteFile', () => {
 describe('dropExcluded', () => {
 	// The file is still there — only the recording rules reject it. Same act as a delete
 	// all the same, so a tab that is not the one being polled loses its record too.
-	it('drops the same two layers a delete does', () => {
+	it('丢掉与删除相同的那两层', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 }, 'b.md': { scroll: 2 } }));
 		setLeafStates(store, [
 			['leaf-1', rec('a.md', 42)],
@@ -291,7 +291,7 @@ describe('dropExcluded', () => {
 
 	// What is dropped is reached through the path → leaf index rather than by
 	// walking the layer, so the index has to travel with a record that does.
-	it('drops a leaf with the file it is on now, not the one it left', () => {
+	it('按标签页当前所在的文件丢，而不是它已经离开的那个', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 42 });
 		store.write('leaf-1', 'b.md', { scroll: 7 });
@@ -304,7 +304,7 @@ describe('dropExcluded', () => {
 		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
 	});
 
-	it('finds the leaves a rename moved onto the new path', () => {
+	it('找得到被改名挪到新路径上的那些标签页', () => {
 		const { store } = makeStore();
 		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 		store.renameFile('b.md', 'a.md');
@@ -320,7 +320,7 @@ describe('dropExcluded', () => {
 });
 
 describe('pruneDatabase', () => {
-	it('mirrors the file-layer prune onto the leaf layer', () => {
+	it('把文件层的清理镜像到标签页层', () => {
 		const db = makeDb({ 'ex.txt': { scroll: 1 }, 'ok.md': { scroll: 2 } });
 		db.pruneDb = () => {
 			delete db.db['ex.txt']; // what the exclusion rules removed
@@ -340,7 +340,7 @@ describe('pruneDatabase', () => {
 		expect(store.read('leaf-1', 'ex.txt')).toBeUndefined();
 	});
 
-	it('leaves a leaf record whose path the file layer never held alone', () => {
+	it('文件层从未持有过的那类标签页记录，不去动它', () => {
 		const db = makeDb({ 'other.md': { scroll: 1 } });
 		db.pruneDb = () => {
 			delete db.db['other.md'];
@@ -356,7 +356,7 @@ describe('pruneDatabase', () => {
 		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('new.md', 42));
 	});
 
-	it('writes the overlay out when it dropped records (the settings panel is not a persist point)', () => {
+	it('丢掉过记录时要把覆盖层写出去（设置面板不是落盘点）', () => {
 		const db = makeDb({ 'ex.txt': { scroll: 1 } });
 		db.pruneDb = () => {
 			delete db.db['ex.txt'];
@@ -372,7 +372,7 @@ describe('pruneDatabase', () => {
 });
 
 describe('pruneDeadLeaves', () => {
-	it('drops records of leaves that are gone and keeps the live ones', () => {
+	it('已经不存在的标签页，记录丢掉；还活着的留住', () => {
 		const { store } = makeStore();
 		setLeafStates(store, [
 			['leaf-live', rec('a.md', 1)],

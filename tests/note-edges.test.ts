@@ -261,7 +261,7 @@ describe('是笔记的末尾，不是标签页的末尾', () => {
 		expect(scroller.scrollTop).toBe(800);
 	});
 
-	it('reads the pane\'s edge as the end, so the far end is no longer "already there"', () => {
+	it('把面板的那条边当作末端，于是远端不再算「已经在那里」', () => {
 		const scroller = makeScroller(1000, 200, 800);
 		withBacklinks(scroller, 700);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -391,7 +391,7 @@ describe('把端点按住', () => {
 
 	// The hold re-applies the end it moved to, which with a pane in the way is NOT the furthest:
 	// every correction would otherwise land at the end of the pane instead of the note.
-	it('holds the note\'s end rather than being pushed on to the far end', async () => {
+	it('停在笔记的末尾，而不是被推到远端', async () => {
 		const scroller = makeScroller(1000, 200, 0);
 		withBacklinks(scroller, 700);
 		const { view } = makeView({ mode: 'preview', scroller });

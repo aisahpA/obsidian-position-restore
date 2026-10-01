@@ -21,7 +21,7 @@ import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS } from '@/types';
 
 describe('PositionState 按 leaf 划分的恢复轮次', () => {
-	it('a restore on a different leaf does not supersede this leaf\'s in-flight restore', () => {
+	it('别的标签页上的恢复不顶掉本标签页正在进行的恢复', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const runA = state.beginLeafRestore('leafA', 'a.md');
 		const runB = state.beginLeafRestore('leafB', 'b.md');
@@ -39,7 +39,7 @@ describe('PositionState 按 leaf 划分的恢复轮次', () => {
 		expect(state.isCurrentLeafRestore('leafA', run2)).toBe(true);
 	});
 
-	it('clearing a leaf\'s in-flight entry stales its runs (winner finished)', () => {
+	it('清掉标签页的进行中条目会让它的各次运行作废（赢家已经跑完）', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const run = state.beginLeafRestore('leafA', 'a.md');
 
