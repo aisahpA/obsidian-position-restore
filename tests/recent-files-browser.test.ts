@@ -21,7 +21,7 @@ const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } 
 const block = (lines: string[]): NavEntryState => ({ context: lines });
 
 describe('describeNavEntry', () => {
-	it('a file entry shows its name, without the extension', () => {
+	it('一条文件步显示它的名字，不带扩展名', () => {
 		// "meeting-notes.md" is the note "meeting-notes": the suffix is not part of
 		// what a reader calls it, and a vault of markdown would print the same two
 		// characters on every row (see displayName).
@@ -31,7 +31,7 @@ describe('describeNavEntry', () => {
 		expect(d.lineIndex).toBeUndefined();
 	});
 
-	it('reads a jump landing line from its KEY, not from the position it recorded', () => {
+	it('jump 的标题行从它自己的 KEY 读，而不是从它记录的位置读', () => {
 		// Every landing either list keeps was a heading jump, and the key's line is that
 		// heading as metadataCache placed it (see NavJump.keyLine) — authoritative where a
 		// scroll is a viewport top and a cursor is wherever the reader last clicked.
@@ -45,7 +45,7 @@ describe('describeNavEntry', () => {
 		expect(d.lineIndex).toBe(17);
 	});
 
-	it('reads any other step landing off the position it recorded', () => {
+	it('其它那种步的标题行从它记录的位置读', () => {
 		// Nothing structural to answer from: a teleport, whose own target line is the jump's,
 		// and a jump whose target has since been renamed away. The words recorded below the
 		// landing say nothing about where anything stands.
@@ -58,14 +58,14 @@ describe('describeNavEntry', () => {
 		expect(edit.lineIndex).toBe(42);
 	});
 
-	it('a teleport whose landing never settled falls back to the recorded target line', () => {
+	it('跳变一直没有落地时，退回记录下来的目标行', () => {
 		const d = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
 		} as NavEntry);
 		expect(d.line).toBe('L42');
 	});
 
-	it('a state with no block falls back to the viewport top line', () => {
+	it('没有引文的位置状态退回视口顶行', () => {
 		// Not reachable for an entry this plugin recorded (see
 		// NavEntryState.context), but a position record fed into the row has no
 		// block, and the viewport top is the honest guess then.
@@ -77,7 +77,7 @@ describe('describeNavEntry', () => {
 		expect(d.lineIndex).toBe(41);
 	});
 
-	it('a cursorless state with no block still shows the viewport line', () => {
+	it('既没有光标也没有引文，仍然显示视口那一行', () => {
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, anchor: 'viewport top' },
@@ -85,7 +85,7 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L42');
 	});
 
-	it('calls a note by the reader’s own property, and by its file name without one', () => {
+	it('笔记按读者自己配的属性来称呼，没配就用文件名', () => {
 		// `titleOf` is the vault's answer, not this model's: one property the reader
 		// named in the settings (see reads.ts). Its UNDEFINED is the file name's
 		// turn rather than an absence — a note without the property is not nameless.
@@ -102,14 +102,14 @@ describe('describeNavEntry', () => {
 		expect(describeNavEntry(entry).name).toBe('a');
 	});
 
-	it('a pathless view with no name of its own falls back, and has no coordinate', () => {
+	it('连自己名字都没有的无路径视图退回兜底，并且不带行号', () => {
 		const graph = describeNavEntry({ kind: 'view', viewType: 'graph', leafId: 'leaf-1' } as NavEntry);
 		expect(graph.name).toBe(t('recentFiles.graphView'));
 		expect(graph.line).toBeUndefined();
 		expect(graph.lineIndex).toBeUndefined();
 	});
 
-	it('names a view by its own label, and falls back for one that has none', () => {
+	it('视图按它自己的标签取名，没有标签的退回兜底', () => {
 		// The view's own name is what its tab header said while the reader was there
 		// (see NavView.label), so a Thino row says "Thino" without this list having
 		// to know the plugin; a view that never named itself gets this list's wording
@@ -125,7 +125,7 @@ describe('describeNavEntry', () => {
 		expect(unnamed.name).toBe('thino_view');
 	});
 
-	it('an entry with no recorded position falls back to the file saved record', () => {
+	it('没有记录位置的步，退回文件层存的那一条', () => {
 		const d = describeNavEntry(
 			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavEntry,
 			() => ({ scroll: 41, cursor: line(99) }),
@@ -134,7 +134,7 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L100');
 	});
 
-	it('falls back to the saved scroll when the record has no cursor', () => {
+	it('记录里没有光标时退回存下来的顶行', () => {
 		const d = describeNavEntry(
 			{ kind: 'visit', path: 'a.md', leafId: 'leaf-1' } as NavEntry,
 			() => ({ scroll: 7 }),
@@ -158,7 +158,7 @@ describe('groupByFile', () => {
 	const lines = (entries: NavEntry[]) => (i: number) =>
 		entries[i].kind === 'view' ? undefined : entries[i].st?.scroll;
 
-	it('groups one note\'s steps together, newest first, and keeps the notes in recency order', () => {
+	it('同一篇笔记的步聚成一组，组内最新的在前，笔记之间按新旧排', () => {
 		const entries = [
 			spot('a.md', 0, 10),
 			spot('b.md', 1, 20),
@@ -174,7 +174,7 @@ describe('groupByFile', () => {
 		expect(groups[0].current).toBe(true);
 	});
 
-	it('keeps the note the reader is in where its recency puts it', () => {
+	it('读者所在的那篇按它的新旧排，不拎到前面', () => {
 		// "You are here" is a mark on a row (see NavFileGroup.current), never a place
 		// in the order: a.md is the note being read and the OLDER of the two, so it
 		// stays where its own time puts it — second.
@@ -186,7 +186,7 @@ describe('groupByFile', () => {
 		expect(groups[0].current).toBe(false);
 	});
 
-	it('drops the current note when nothing about it survives the filter', () => {
+	it('当前这篇里没有一样东西能通过筛选时，把它整组丢掉', () => {
 		// `keep` is the query. A note with no surviving step is not this list's
 		// business, current or not; the empty-group case is the one where the note
 		// is there but has nothing left to open.
@@ -196,7 +196,7 @@ describe('groupByFile', () => {
 		expect(groups.map(g => g.path)).toEqual(['a.md']);
 	});
 
-	it('orders the pathless view step (the graph) by its own time, like a note', () => {
+	it('无路径视图步（关系图谱）按它自己的时间排，跟笔记一样', () => {
 		// The graph is the NEWEST place here: the last step on the store's list is
 		// the most recent one (see places.ts). A view is somewhere the reader went,
 		// so it takes the place its time gives it — parked at the foot of the list
@@ -216,7 +216,7 @@ describe('groupByFile', () => {
 	// them, the fold was invisible once the row stopped printing the range, and the
 	// "you are here" dot could sit on a row whose line was not where the reader was.
 	// 'all' is the reader asking for every place in the note (see NavFileGroup).
-	describe('every landing is a row of its own', () => {
+	describe('每个标题各占一行', () => {
 		const at = (path: string, i: number, line: number): NavEntry =>
 			({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
 		const lineOf = (entries: NavEntry[]) => (i: number) => {
@@ -224,7 +224,7 @@ describe('groupByFile', () => {
 			return entry.kind === 'view' ? undefined : entry.st?.scroll;
 		};
 
-		it('keeps a trail a few lines apart as one row per line, down the note', () => {
+		it('相隔几行的几个落点各占一行，顺着笔记往下排', () => {
 			const entries = [at('a.md', 0, 10), at('a.md', 1, 18), at('a.md', 2, 26)];
 			const groups = groupByFile(entries, 0, undefined, lineOf(entries));
 
@@ -234,7 +234,7 @@ describe('groupByFile', () => {
 			expect(groups[0].indices).toEqual([0, 1, 2]);
 		});
 
-		it('stands for a line with its NEWEST step, and lets the reader\'s own step win', () => {
+		it('一行由它最新的那一步代表，读者自己那一步优先', () => {
 			// Two steps on one line are one landing (see landingKey). The row opens the
 			// newest of them — the last place the reader was in that line — except where
 			// the CURRENT entry shares the line: then the slot keeps the reader's own step,
@@ -250,7 +250,7 @@ describe('groupByFile', () => {
 			expect(current[0].current).toBe(true);
 		});
 
-		it('marks the row the reader is on, and marks nothing when no landing holds them', () => {
+		it('标记读者所在的那一行，没有任何标题兜住他时一个也不标', () => {
 			// The dot is the listed landing the reader is standing on — and the note's OWN
 			// record is not a landing, so a reader who is in the note without having jumped
 			// in it has no row to mark (see NavFileGroup.currentRep).
@@ -269,7 +269,7 @@ describe('groupByFile', () => {
 			expect(onNote[0].currentRep).toBeUndefined();
 		});
 
-		it('keeps a landing with no coordinate of its own apart from the numbered ones', () => {
+		it('自身没有行号的那个标题，与有行号的那些分开摆', () => {
 			// A `.base`, an image, a step whose position never resolved: one place, and it
 			// cannot be near anything — there is no number to be near.
 			const entries = [
@@ -286,7 +286,7 @@ describe('groupByFile', () => {
 	// a step landed on is what tells two of them apart, and it comes in as a
 	// resolver because the line a row prints is not always the entry's own (a
 	// step with no recorded block falls back to the file's saved position).
-	describe('one landing, however many steps reached it', () => {
+	describe('一个标题，无论有多少步到过它', () => {
 		const at = (path: string, i: number, line: number): NavEntry =>
 			({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:H${i}`, t: 1000 + i * 100, st: { scroll: line } });
 		const lineOf = (entries: NavEntry[]) => (i: number) => {
@@ -294,7 +294,7 @@ describe('groupByFile', () => {
 			return entry.kind === 'view' ? undefined : entry.st?.scroll;
 		};
 
-		it('keeps one row per line, in line order, and one slot in the group', () => {
+		it('每行一行、按行号排序，在组里只占一个槽位', () => {
 			const entries = [
 				at('a.md', 0, 10),
 				at('a.md', 1, 400),
@@ -309,7 +309,7 @@ describe('groupByFile', () => {
 			expect(groups[0].indices).toEqual([0, 3]);
 		});
 
-		it('lets the CURRENT step stand for the landing it shares', () => {
+		it('由当前那一步代表它同在的这个标题', () => {
 			// The current entry has to be drawn as "here", and it can be an OLDER
 			// step than the one it shares its landing with: the slot keeps the
 			// reader's own step rather than a newer one that goes to the same place.
@@ -320,7 +320,7 @@ describe('groupByFile', () => {
 			expect(groups[0].current).toBe(true);
 		});
 
-		it('puts the steps whose line nothing can resolve last, where their row says "—"', () => {
+		it('行号谁都答不出来的那些步排在最后，它们那一行写「—」', () => {
 			// A step with no line cannot be placed in the note's own order, so its
 			// landing stands after the ones that can — it is not a guess about WHERE,
 			// it is the one landing a file without coordinates has (see landingKey).
@@ -335,7 +335,7 @@ describe('groupByFile', () => {
 			expect(groups[0].indices).toEqual([0, 2, 3]);
 		});
 
-		it('merges the steps whose line nothing can resolve into ONE landing', () => {
+		it('行号谁都答不出来的那些步合并成一个标题', () => {
 			// Two steps of one file with no coordinate between them: a `.base` view, a
 			// PDF, an image — a file with nowhere in it to be. They are the same place,
 			// and the newest step is the one that stands for it (see landingKey: this
@@ -352,7 +352,7 @@ describe('groupByFile', () => {
 			expect(groups[0].indices).toEqual([1]);
 		});
 
-		it('collapses graph steps to the one tab they are', () => {
+		it('同一个标签页上的图谱步坍成一个', () => {
 			// A pathless view step is not a place in a note: the group is the graph
 			// tab, and however often it was switched to it is one destination.
 			const entries = [
@@ -368,7 +368,7 @@ describe('groupByFile', () => {
 			expect(groups[0].current).toBe(true);
 		});
 
-		it('never merges two notes, however alike their lines are', () => {
+		it('两篇笔记绝不合并，无论它们的行有多像', () => {
 			// The collapse is per note, so two notes captured at one line stay two
 			// destinations — the resolver is never asked across a group boundary.
 			const entries = [at('a.md', 0, 400), at('b.md', 1, 400)];
@@ -382,12 +382,12 @@ describe('groupByFile', () => {
 	// redraw does not re-order what the reader is reading (see RecentFilesList's
 	// `order` option). The keys are the groups' identities, not their indices —
 	// indices are what the redraw is about to change.
-	describe('a held order', () => {
+	describe('一个被按住的顺序', () => {
 		// Newest LAST, as the places list keeps them: a, b, c is oldest-first, so
 		// recency order is the reverse.
 		const three = [spot('a.md', 0, 10), spot('b.md', 1, 20), spot('c.md', 2, 30)];
 
-		it('gives every group the key it is held by', () => {
+		it('每个组都拿到它被按住所用的那个键', () => {
 			const entries = [
 				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 				...three,
@@ -399,7 +399,7 @@ describe('groupByFile', () => {
 			expect(groups.map(g => g.key)).toEqual(['c.md', 'b.md', 'a.md', 'view:graph']);
 		});
 
-		it('keeps the given sequence, and does NOT pull the current note to the front', () => {
+		it('保持给定的先后，不把当前这篇拽到最前面', () => {
 			// The current group is a.md. Recency pins it first (see the test above);
 			// a held order must not, because that pin is exactly the jump the reader
 			// would see after clicking: the note they clicked is the one that moves.
@@ -410,7 +410,7 @@ describe('groupByFile', () => {
 			expect(groups.find(g => g.path === 'a.md')?.current).toBe(true);
 		});
 
-		it('puts a note the order has never heard of FIRST, and the held ones after it', () => {
+		it('这个顺序没听过的笔记排最前，被按住的那些排在它后面', () => {
 			// A group that appeared since the order was taken is by recency the
 			// newest place, so it goes to the front — where a newly visited note
 			// belongs — while the notes the reader was looking at keep their places.
@@ -420,7 +420,7 @@ describe('groupByFile', () => {
 			expect(groups.map(g => g.path)).toEqual(['d.md', 'a.md', 'b.md', 'c.md']);
 		});
 
-		it('leaves the notes the order does not name in their own recency order', () => {
+		it('顺序里没点名的笔记按它们自己的新旧排', () => {
 			const entries = [...three, spot('d.md', 3, 40)];
 			const groups = groupByFile(entries, 0, undefined, lines(entries), ['b.md']);
 
@@ -431,7 +431,7 @@ describe('groupByFile', () => {
 			expect(groups.map(g => g.path)).toEqual(['d.md', 'c.md', 'a.md', 'b.md']);
 		});
 
-		it('orders a view group by recency when free, and by the held order when there is one', () => {
+		it('视图组没被按住时按新旧排，被按住时按给定顺序排', () => {
 			const entries = [
 				{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 9000 } as NavEntry,
 				...three,
@@ -448,7 +448,7 @@ describe('groupByFile', () => {
 			expect(held.map(g => g.path)).toEqual(['c.md', 'b.md', '', 'a.md']);
 		});
 
-		it('is recency and nothing else when nothing is held', () => {
+		it('什么都没按住时就只看新旧，别的都不算', () => {
 			// The regression that keeps the default honest: undefined holds nothing,
 			// so the list is the places' own recency — the current note included.
 			const groups = groupByFile(three, 0, undefined, lines(three), undefined);
@@ -467,12 +467,12 @@ describe('matchesNavFilter', () => {
 	const visit = (path: string, st?: NavEntryState): NavEntry =>
 		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
 
-	it('an empty or whitespace query matches everything', () => {
+	it('空串或只有空白的查询匹配一切', () => {
 		expect(matchesNavFilter(visit('notes/a.md'), '')).toBe(true);
 		expect(matchesNavFilter(visit('notes/a.md'), '   ')).toBe(true);
 	});
 
-	it('matches the basename, full path, and anchor text case-insensitively', () => {
+	it('文件名、完整路径、锚点文本都参与匹配，不分大小写', () => {
 		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
 		expect(matchesNavFilter(e, 'alpha')).toBe(true);
 		expect(matchesNavFilter(e, 'PROJECT')).toBe(true);
@@ -480,13 +480,13 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, 'beta')).toBe(false);
 	});
 
-	it('requires every whitespace-separated token (AND)', () => {
+	it('每个用空白分开的词都得命中（AND）', () => {
 		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
 		expect(matchesNavFilter(e, 'alpha chapter')).toBe(true);
 		expect(matchesNavFilter(e, 'alpha missing')).toBe(false);
 	});
 
-	it('matches a pathless view by its type, its own name, and this list\'s wording', () => {
+	it('无路径视图按它的类型、它自己的名字、以及本列表的措辞参与匹配', () => {
 		const e = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavEntry;
 		expect(matchesNavFilter(e, 'graph')).toBe(true);
 		expect(matchesNavFilter(e, t('recentFiles.graphView'))).toBe(true);
@@ -499,7 +499,7 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(thino, 'thino_view')).toBe(true);
 	});
 
-	it('matches the recorded context, any line of it', () => {
+	it('记录下来的引文，任意一行命中就算', () => {
 		// The lines below the landing are what the user was looking at when they left
 		// (see NavEntryState.context) — the whole point of recording them is that a
 		// search may hit any one of them.
@@ -511,7 +511,7 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '没写过的词')).toBe(false);
 	});
 
-	it('matches what the row prints: the section chain and the line label', () => {
+	it('匹配这一行印出来的东西：标题链和行号标签', () => {
 		// Derived from the vault's heading cache rather than the entry, so the
 		// caller passes it (see RecentFilesList.render).
 		const e = visit('notes/a.md');
@@ -520,14 +520,14 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, 'L999', 'L412 总览')).toBe(false);
 	});
 
-	it("matches a jump's own key: the heading, or the anchor the user picked", () => {
+	it("匹配 jump 自己的 key：那个标题，或者用户点中的锚点", () => {
 		const outline = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## 架构设计' } as NavEntry;
 		expect(matchesNavFilter(outline, '架构设计')).toBe(true);
 		const link = { kind: 'jump', path: 'a.md', leafId: 'l', key: 'b.md#安装步骤' } as NavEntry;
 		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
 	});
 
-	it('matches a visit on its anchor alone, the block being absent', () => {
+	it('visit 没有引文时，光靠锚点也能匹配', () => {
 		// A visit records no context (see readNavEntryState): the one piece of the NOTE's
 		// own text it carries is the anchor — the line that stood at the viewport top. So
 		// a reader who searches a sentence they were reading finds the note, and what
@@ -536,7 +536,7 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '落点')).toBe(true);
 	});
 
-	it('ignores a caller target key: a timestamp, not words', () => {
+	it('忽略调用方传来的目标 key：那是一串时间戳，不是词', () => {
 		// Caller-target jumps (a search-result click) are keyed `caller:<ms>`
 		// purely to take the keyed landing regime — there is nothing in there
 		// a user wrote.
@@ -553,20 +553,20 @@ describe('matchedContextLine', () => {
 		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
 	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区']));
 
-	it('is the line that carries the whole query', () => {
+	it('就是容得下整个查询的那一行', () => {
 		expect(matchedContextLine(ctx, '读取死区')).toBe('后一段：读取死区');
 		// A phrase standing on one line, which is what a reader usually types.
 		expect(matchedContextLine(ctx, '后一段 死区')).toBe('后一段：读取死区');
 	});
 
-	it('falls back to the first token\'s line when the tokens are spread over the block', () => {
+	it('几个词散落在引文各处时，退回第一个词所在的那一行', () => {
 		// The filter matched the block joined together (see matchesNavFilter), so
 		// no single line carries the query — and a row that then said nothing
 		// would be a row that matched by magic.
 		expect(matchedContextLine(ctx, '量化 死区')).toBe('前一段：换行与量化');
 	});
 
-	it('is undefined when the query hit none of the block', () => {
+	it('查询一个词也没落在引文里时是 undefined', () => {
 		// A row may match on its name, its path, an alias or its section, and
 		// every one of those is either printed on the row or said on hover
 		// already.
@@ -576,12 +576,12 @@ describe('matchedContextLine', () => {
 		expect(matchedContextLine(jump(), '落点')).toBeUndefined();
 	});
 
-	it('is case-insensitive, as the filter that matched it is', () => {
+	it('不分大小写，跟匹配它的那个筛选一致', () => {
 		const e = jump(block(['Alpha Beta', 'gamma']));
 		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
 	});
 
-	it('quotes nothing for a visit that matched on its anchor', () => {
+	it('靠锚点才匹配上的 visit，一句也不引', () => {
 		// THE CASE A READER MEETS: the row is on the list because the query matched the
 		// anchor (see the filter suite above), and the block — the only thing this answer
 		// reads — is what a visit does not carry. So the row matches and quotes nothing.
@@ -592,7 +592,7 @@ describe('matchedContextLine', () => {
 		expect(matchedContextLine(e, '落点')).toBeUndefined();
 	});
 
-	it('quotes a visit that does carry a block: the block decides, not the kind', () => {
+	it('带引文的 visit 照样引：看的是有没有引文，不是这一步的类型', () => {
 		// What withholds the quote is the ABSENT BLOCK, not the kind — a visit handed one
 		// is quoted like any landing. The distinction is what keeps the case above from
 		// hardening into "a visit never quotes".
@@ -602,7 +602,7 @@ describe('matchedContextLine', () => {
 });
 
 describe('folderOf / duplicateNames', () => {
-	it('names the folder a path sits in, with the vault root as "/"', () => {
+	it('给出路径所在的文件夹，vault 根就是 "/"', () => {
 		expect(folderOf('a/b/c.md')).toBe('a/b');
 		expect(folderOf('root.md')).toBe('');
 		// a pathless group (the graph) has no folder to print
@@ -612,13 +612,13 @@ describe('folderOf / duplicateNames', () => {
 	// What it counts is the names as PRINTED, which the caller has already
 	// resolved: a name may come from the file or from the property the reader
 	// named, and which it was is not this question.
-	it('reports exactly the names two rows print twice', () => {
+	it('报出来的正是那两个被重复印的名字', () => {
 		const doubles = duplicateNames(['index', 'index', 'notes']);
 		expect([...doubles]).toEqual(['index']);
 		expect(duplicateNames(['a', 'b']).size).toBe(0);
 	});
 
-	it('counts two rows as a collision on the name they both print', () => {
+	it('两行印出同一个名字就算撞名', () => {
 		// The collision is about what is on screen, and what is on screen is the name
 		// without its extension: "x.md" and "x.canvas" are one word twice, so the
 		// folder is printed on both. (The badge differs — that is what tells them
@@ -632,7 +632,7 @@ describe('folderOf / duplicateNames', () => {
 });
 
 describe('baseName', () => {
-	it('is the last path segment, and the path itself when there is none', () => {
+	it('取路径最后一段；没有分段时就是路径本身', () => {
 		expect(baseName('notes/deep/a.md')).toBe('a.md');
 		expect(baseName('a.md')).toBe('a.md');
 	});
@@ -641,19 +641,19 @@ describe('baseName', () => {
 // The line that says WHERE a note sits, which is also the line that says WHICH FILE it is —
 // the two are answered together or not at all (see PathDisplayMode).
 describe('pathLabel', () => {
-	it('prints nothing for a pathless group', () => {
+	it('没有路径的组一个字也不印', () => {
 		// A view has no file and prints no folder; the list never asks (see fileRow's own
 		// guard), and this is what "no path" means rather than an error.
 		expect(pathLabel('', 'Graph view')).toBe('');
 	});
 
-	it('prints the FOLDER while the row\'s own name is the file\'s', () => {
+	it('行自己的名字就是文件名时，印的是文件夹', () => {
 		expect(pathLabel('notes/deep/a.md', 'a')).toBe('notes/deep/');
 		// Root included: "/" rather than nothing, which would read as "not printed".
 		expect(pathLabel('a.md', 'a')).toBe('/');
 	});
 
-	it('prints the whole path where the name was borrowed', () => {
+	it('名字是借来的（取自属性）时，印出完整路径', () => {
 		// The row's name cell is then singing the note's frontmatter, so the folder alone
 		// would leave a row that says nothing about which note it stands for.
 		expect(pathLabel('notes/deep/a.md', '每周回顾')).toBe('notes/deep/a.md');
@@ -666,7 +666,7 @@ describe('pathLabel', () => {
 // every name printed without an extension is either markdown (no badge) or marked —
 // and the rules only close because of that.
 describe('displayName / badgeOf', () => {
-	it('prints the name without its extension', () => {
+	it('印出不带扩展名的名字', () => {
 		expect(displayName('notes/deep/a.md')).toBe('a');
 		expect(displayName('a.md')).toBe('a');
 		// The extension is only the LAST one: a name may contain dots of its own.
@@ -678,7 +678,7 @@ describe('displayName / badgeOf', () => {
 		expect(displayName('')).toBe('');
 	});
 
-	it('marks every type but markdown, and marks the ones with no type too', () => {
+	it('除 markdown 之外的每种类型都加标记，没有类型的也加', () => {
 		// Markdown has no badge: in a vault it is the unmarked default, and a badge on
 		// every row would be a column of noise.
 		expect(badgeOf('a.md')).toBeUndefined();
@@ -711,7 +711,7 @@ describe('ageOf / ageLabel', () => {
 	const HOUR = 60 * MINUTE;
 	const DAY = 24 * HOUR;
 
-	it('rounds DOWN, so a label never claims more time than has passed', () => {
+	it('一律向下取整，标签不会说出比实际更长的时间', () => {
 		expect(ago(59 * SECOND)).toBe('now');
 		// …and the unit changes exactly at the boundary, not a moment early.
 		expect(ago(60 * SECOND)).toBe('1m ago');
@@ -730,7 +730,7 @@ describe('ageOf / ageLabel', () => {
 		expect(ago(800 * DAY)).toBe('2y ago');
 	});
 
-	it('clamps a stamp in the FUTURE to now', () => {
+	it('戳落在未来就夹到「现在」', () => {
 		// A clock that moved backwards — a machine waking from sleep, two devices
 		// syncing — must not print "-3m", which reads as a bug in the list rather than
 		// as a wrong clock.
@@ -738,7 +738,7 @@ describe('ageOf / ageLabel', () => {
 		expect(ageOf(at, at - 3 * MINUTE)).toEqual({ n: 0, unit: 'now' });
 	});
 
-	it('says the number, the unit and "ago", and nothing else', () => {
+	it('只说数字、单位和「前」，别的什么都不说', () => {
 		// The unit is the LOCALE's word for it (the test stub is English, see
 		// obsidian-stub.ts), and the label stays a scan target: no date, no parentheses.
 		expect(ageOf(at, at + 90 * MINUTE)).toEqual({ n: 1, unit: 'h' });
@@ -749,7 +749,7 @@ describe('ageOf / ageLabel', () => {
 describe('newestStamp', () => {
 	const entry = (stamp?: number) => ({ kind: 'visit', path: 'a.md', leafId: 'l', t: stamp } as NavEntry);
 
-	it('is the newest stamp the group holds, wherever it sits', () => {
+	it('取这一组里最新的那个戳，不管它落在哪一步上', () => {
 		// The anchor is usually the note's last visit, but it can have been evicted
 		// while the jumps made inside the note survive — and a group's `indices` are in
 		// LINE order, not in time order (see groupByFile), so the answer is a question
@@ -760,7 +760,7 @@ describe('newestStamp', () => {
 		expect(newestStamp(entries, [0, 1], undefined)).toBe(40);
 	});
 
-	it('is undefined for a group with no stamp at all', () => {
+	it('一组连一个戳都没有时是 undefined', () => {
 		// The rows print nothing then, rather than "now" — which is what a missing
 		// stamp would otherwise read as.
 		expect(newestStamp([entry(undefined)], [], 0)).toBeUndefined();
@@ -777,7 +777,7 @@ describe('newestStamp', () => {
 describe('headingTrailAtLine', () => {
 	const h = (heading: string, level: number, line: number) => ({ heading, level, line });
 
-	it('nests by level, outermost first, and stops at the line', () => {
+	it('按层级嵌套，最外层在前，到那一行为止', () => {
 		const headings = [h('A', 1, 0), h('B', 2, 10), h('C', 3, 20), h('D', 2, 30)];
 		expect(headingTrailAtLine(headings, 25)).toEqual(['A', 'B', 'C']);
 		expect(headingTrailAtLine(headings, 10)).toEqual(['A', 'B']);
@@ -785,7 +785,7 @@ describe('headingTrailAtLine', () => {
 		expect(headingTrailAtLine(headings, 35)).toEqual(['A', 'D']);
 	});
 
-	it('is empty above the first heading and without headings', () => {
+	it('第一个标题之上、以及全文没有标题时都是空', () => {
 		expect(headingTrailAtLine([h('A', 1, 5)], 4)).toEqual([]);
 		expect(headingTrailAtLine(undefined, 4)).toEqual([]);
 	});
@@ -796,7 +796,7 @@ describe('headingTrailAtLine', () => {
 // a sync replaced it, or the app has not re-parsed it, and on a phone neither ends
 // when the note is opened.
 describe('headingsFromText', () => {
-	it('reads ATX headings with the line they stand on', () => {
+	it('读出 ATX 标题以及它所在的那一行', () => {
 		expect(headingsFromText('# 面板设计\n\n## 呈现方案\n\n正文\n'))
 			.toEqual([
 				{ heading: '面板设计', level: 1, line: 0 },
@@ -804,7 +804,7 @@ describe('headingsFromText', () => {
 			]);
 	});
 
-	it('names the same section the cache names', () => {
+	it('命名与 metadata 缓存给出的那一节相同', () => {
 		// The point of the fallback: it has to be the SAME reading, or a row would say
 		// one thing while the app had not parsed the note and another once it had.
 		const text = '# A\n\n## B\n\n正文\n\n### C\n';
@@ -816,7 +816,7 @@ describe('headingsFromText', () => {
 		expect(headingTrailAtLine(headingsFromText(text), 4)).toEqual(['A', 'B']);
 	});
 
-	it('reads no heading out of a tag, a comment or a value', () => {
+	it('标签、注释、属性值里读不出标题', () => {
 		// `#标签` is one of the app's TAGS; a `#` inside a fence is a line of somebody's
 		// shell; `title: # 1` is a frontmatter VALUE. All three were sections to a
 		// reading that split on `#`, and the row would have named a section that is not
@@ -827,19 +827,19 @@ describe('headingsFromText', () => {
 			.toEqual([{ heading: '真的标题', level: 1, line: 3 }]);
 	});
 
-	it('closes the trailing marks of the closed form, and skips a bare one', () => {
+	it('闭式标题收掉结尾那几个标记，只有开头标记的那种跳过', () => {
 		expect(headingsFromText('## 一 ##\n#\n'))
 			.toEqual([{ heading: '一', level: 2, line: 0 }]);
 	});
 });
 
 describe('rowTrail', () => {
-	it('keeps the deepest two levels', () => {
+	it('只留最深的两层', () => {
 		expect(rowTrail(['A', 'B', 'C'])).toEqual(['B', 'C']);
 		expect(rowTrail(['A'])).toEqual(['A']);
 	});
 
-	it('keeps the heading the landing line itself carries', () => {
+	it('保留落点所在行自身带着的那个标题', () => {
 		// an outline jump lands ON its heading: that heading IS the deepest
 		// level, and the row prints no landing text to repeat it with (only the
 		// preview panel does) — dropping it left the row naming the PARENT
@@ -851,7 +851,7 @@ describe('rowTrail', () => {
 describe('dropsOuterLevel', () => {
 	// The widths are a real row's, read off a laid-out one: what the outer level asks
 	// for (`whole`) against what the row could give it (`shown`).
-	it('keeps a level that fits, and one clipped by a character or two', () => {
+	it('放得下的那层留着，被裁掉一两个字的也留着', () => {
 		expect(dropsOuterLevel(80, 80)).toBe(false);
 		// "面板设计与信息架…" still says which section it is
 		expect(dropsOuterLevel(72, 80)).toBe(false);
@@ -859,7 +859,7 @@ describe('dropsOuterLevel', () => {
 		expect(dropsOuterLevel(40, 80)).toBe(false);
 	});
 
-	it('drops a level less than half of which survived', () => {
+	it('连一半都没剩下的那层丢掉', () => {
 		// "新插件 Positi…" names no section, and the level beside it takes the width it
 		// needs whether this one is on the row or not (see styles.css)
 		expect(dropsOuterLevel(39, 80)).toBe(true);
@@ -867,7 +867,7 @@ describe('dropsOuterLevel', () => {
 		expect(dropsOuterLevel(0, 80)).toBe(true);
 	});
 
-	it('keeps the level of a row that has not been laid out', () => {
+	it('还没排过版的行，它那一层留着', () => {
 		// A row with no layout reports no width for either question, and a level that
 		// reports nothing has not been clipped — it has not been measured. (The panel
 		// guards on the LIST's width before it asks at all; this is the answer for a
@@ -881,7 +881,7 @@ describe('revealDelta', () => {
 	// brought to when it is not on the list is 100 + (200 - 28) / 2 = 186.
 	const box = { top: 100, height: 200 };
 
-	it('asks for no scroll while any part of the row is on the list', () => {
+	it('行只要还有一部分在列表里，就一个像素也不滚', () => {
 		// Hovering a row must never move the view the reader is reading from, and a
 		// step inside the list must not move it either — including the row flush
 		// against the foot of the list.
@@ -890,7 +890,7 @@ describe('revealDelta', () => {
 		expect(revealDelta(272, 28, box.top, box.height)).toBeUndefined();
 	});
 
-	it('brings a row that left the list to the MIDDLE of it, whichever way it left', () => {
+	it('离开列表的行被带回列表中间，不管它是从哪一边离开的', () => {
 		// Not the smallest scroll that returns the row to sight: that would park it
 		// flush against the edge, and the walk would then scroll the list under a mark
 		// that never moves again.
@@ -898,7 +898,7 @@ describe('revealDelta', () => {
 		expect(revealDelta(60, 28, box.top, box.height)).toBe(-126); // …and from above
 	});
 
-	it('centres a row taller than the list rather than trying to fit it', () => {
+	it('比列表还高的行让它居中，而不是硬塞进去', () => {
 		// The rule is about the row's middle, and a row the list cannot hold has no
 		// scroll that fits it: the middle is the one place that shows the most of it.
 		expect(revealDelta(0, 200, 0, 100)).toBe(50);
