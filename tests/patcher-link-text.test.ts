@@ -33,21 +33,21 @@ function makeHarness() {
 	return { state, open: workspace.openLinkText as unknown as (...args: unknown[]) => Promise<void> };
 }
 
-describe('OpenPatcher link capture', () => {
-	it('keys a block link by the link, not by what it is labelled', async () => {
+describe('OpenPatcher 抓取链接', () => {
+	it('块链接按链接本身作 key，不按它标着什么', async () => {
 		const { state, open } = makeHarness();
 		await open('a.md#^b1|Example 2:', 'src.md');
 		expect(state.pendingLinkKind).toBe('anchorLink');
 		expect(state.pendingLinkText).toBe('a.md#^b1');
 	});
 
-	it('keys a heading link by the link, not by what it is labelled', async () => {
+	it('标题链接按链接本身作 key，不按它标着什么', async () => {
 		const { state, open } = makeHarness();
 		await open('a.md#my-heading|Example', 'src.md');
 		expect(state.pendingLinkText).toBe('a.md#my-heading');
 	});
 
-	it('leaves a link carrying no label alone', async () => {
+	it('没有标签的链接原样放过', async () => {
 		const { state, open } = makeHarness();
 		await open('a.md#^b1', 'src.md');
 		expect(state.pendingLinkText).toBe('a.md#^b1');
@@ -55,7 +55,7 @@ describe('OpenPatcher link capture', () => {
 		expect(state.pendingLinkText).toBe('#my-heading');
 	});
 
-	it('records no key for a link that names no anchor', async () => {
+	it('没点名锚点的链接不记 key', async () => {
 		// `[[a.md|Alias]]` opens the note whole: it is an open, not a jump, and a
 		// key taken from it would absorb every later landing on that note.
 		const { state, open } = makeHarness();

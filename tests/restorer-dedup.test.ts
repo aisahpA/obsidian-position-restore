@@ -43,8 +43,8 @@ function makeHarness(liveLeafIds: string[]) {
 	return { state, restorer };
 }
 
-describe('Restorer dedup', () => {
-	it('a fresh leaf is never deduped and gets recorded', () => {
+describe('Restorer 去重', () => {
+	it('全新的 leaf 绝不会被去重，而且会被记下来', () => {
 		const { state, restorer } = makeHarness(['leaf-1']);
 		const leaf = makeLeaf('leaf-1');
 
@@ -52,7 +52,7 @@ describe('Restorer dedup', () => {
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 	});
 
-	it('the same leaf+file a second time is a dedup hit', () => {
+	it('同一 leaf + 同一文件第二次算去重命中', () => {
 		const { restorer } = makeHarness(['leaf-1']);
 		const leaf = makeLeaf('leaf-1');
 
@@ -60,7 +60,7 @@ describe('Restorer dedup', () => {
 		expect(restorer.hasOpenedLeafPath(leaf, 'a.md')).toBe(true);
 	});
 
-	it('the same leaf opening a different file restores again and updates the record', () => {
+	it('同一个 leaf 打开别的文件会再次恢复并更新记录', () => {
 		const { state, restorer } = makeHarness(['leaf-1']);
 		const leaf = makeLeaf('leaf-1');
 
@@ -71,7 +71,7 @@ describe('Restorer dedup', () => {
 		expect(restorer.hasOpenedLeafPath(leaf, 'b.md')).toBe(true);
 	});
 
-	it('a fresh open prunes closed leaves and their pendingOpenKind markers', () => {
+	it('一次全新打开会清掉已关闭的 leaf 及其 pendingOpenKind 标记', () => {
 		const liveLeaf = makeLeaf('leaf-live');
 		const closedLeaf = makeLeaf('leaf-closed');
 		const { state, restorer } = makeHarness(['leaf-live']);
@@ -88,7 +88,7 @@ describe('Restorer dedup', () => {
 		expect(state.handledLeafIdMap.get('leaf-live')).toBe('a.md');
 	});
 
-	it('a reused leaf id cannot dedup a later open after its entry was pruned', () => {
+	it('被复用的 leaf id 在它的条目被清掉之后，不能再给后来的打开去重', () => {
 		const liveLeafIds = ['leaf-2'];
 		const { restorer } = makeHarness(liveLeafIds);
 		const leaf = makeLeaf('leaf-2');

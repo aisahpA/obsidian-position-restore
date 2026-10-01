@@ -103,8 +103,8 @@ afterEach(() => {
 	disposables = [];
 });
 
-describe('OpenPatcher open classification', () => {
-	it('a fresh open injects the saved position, covers, and records the pair', () => {
+describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
+	it('一次全新打开注入已存位置、盖上盖布，并记下这一对', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		const result = inject(leaf, SOURCE_OPEN_A(), undefined) as Record<string, unknown>;
 
@@ -115,7 +115,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
 	});
 
-	it('flushes the leaving view state to the record on an open (rapid-move loss window)', () => {
+	it('打开时把正要离开的视图状态刷进记录（快速移动会丢数据的那个窗口）', () => {
 		const { leaf, inject, flushOnLeave } = makeHarness();
 		const leavingView = Object.assign(Object.create(MarkdownView.prototype), {
 			file: { path: 'b.md' },
@@ -129,7 +129,7 @@ describe('OpenPatcher open classification', () => {
 		expect(flushOnLeave).toHaveBeenCalledWith(leavingView, 'b.md', { scroll: 3 });
 	});
 
-	it('injects nothing into a leaf a hover popover hosts', () => {
+	it('悬停浮层托着的 leaf 什么都不注入', () => {
 		// A preview that happens to be an editable pane is a preview: it opens
 		// where the app opens one. Restoring there lands the card on a line no
 		// one pointed at, and the cover that comes with it holds the card blank
@@ -152,7 +152,7 @@ describe('OpenPatcher open classification', () => {
 		popover.remove();
 	});
 
-	it('a fresh open with a caller target (search match) yields and records the pair', () => {
+	it('带 caller 目标（搜索命中）的全新打开让位给 core，并记下这一对', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		const eState = { match: {} };
 
@@ -165,7 +165,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
 	});
 
-	it('a fresh open with a bare cached eState (startup native cache) yields and records the pair', () => {
+	it('只带着缓存 eState（启动时的原生缓存）的全新打开让位，并记下这一对', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		const eState = { scroll: 5 };
 
@@ -177,7 +177,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
 	});
 
-	it('a replay whose eState echoes the record re-injects under the cover', () => {
+	it('eState 与记录一致的回放，在盖布下重新注入', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		const eState = { scroll: 10, cursor: RECORD.cursor };
@@ -194,7 +194,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
 	});
 
-	it('a replay clears a stale pending open kind from an open that never fired file-open', () => {
+	it('回放会清掉一次从未触发 file-open 的打开留下的陈旧 pending open kind', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		state.pendingOpenKind.set(leaf, 'callerTarget');
@@ -205,7 +205,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
 	});
 
-	it('a replay with an empty eState (quick switcher re-pick) stays native', () => {
+	it('eState 为空的回放（快速切换器再次选中）保持原生行为', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 
@@ -217,7 +217,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 	});
 	
-	it('a startup replay with a position-less eState ({focus:true} rebuild) re-injects', () => {
+	it('启动时带着没有位置的 eState 的回放（{focus:true} 重建）重新注入', () => {
 		// Debugged 2026-09: before layout-ready, core re-asserts the ACTIVE
 		// leaf with a second setViewState whose eState carries only
 		// {focus:true} — the rebuilt editor loses the injected position and
@@ -234,7 +234,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 	});
 
-	it('a caller-target eState carrying focus still yields on a startup replay', () => {
+	it('带 focus 的 caller 目标 eState，在启动回放时仍然让位', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD }, new Map(), false);
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		const eState = { focus: true, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
@@ -245,7 +245,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 
-	it('a replay whose cached position diverged from the record stays native', () => {
+	it('缓存位置已经与记录分叉的回放保持原生行为', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		const eState = { scroll: 99 };
@@ -257,7 +257,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 	});
 
-	it('a replay still yields to a genuine caller target (match)', () => {
+	it('回放仍然对真正的 caller 目标（命中）让位', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		const eState = { match: {} };
@@ -268,7 +268,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
 	});
 
-	it('a different file on the same leaf resets the handled marker', () => {
+	it('同一 leaf 上换了文件会重置已处理标记', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 
@@ -279,7 +279,7 @@ describe('OpenPatcher open classification', () => {
 		expect(state.handledLeafIdMap.has('leaf-1')).toBe(false);
 	});
 
-	it('a per-tab record wins over the per-file record', () => {
+	it('按标签页的记录胜过按文件的记录', () => {
 		// Per-file says scroll 10; this tab was at scroll 99 when Obsidian quit.
 		const { leaf, inject } = makeHarness(
 			{ 'a.md': RECORD },
@@ -291,7 +291,7 @@ describe('OpenPatcher open classification', () => {
 		expect(result).toMatchObject({ scroll: 99 });
 	});
 
-	it('a per-tab record does not shadow a caller target', () => {
+	it('按标签页的记录盖不住 caller 目标', () => {
 		const { leaf, inject } = makeHarness(
 			{ 'a.md': RECORD },
 			new Map([['leaf-1', { filePath: 'a.md', st: { scroll: 99 } }]]),
@@ -301,7 +301,7 @@ describe('OpenPatcher open classification', () => {
 		expect(inject(leaf, SOURCE_OPEN_A(), eState)).toBe(eState);
 	});
 
-	it('a per-tab record whose file changed reads as no record (path guard)', () => {
+	it('文件已经变了的按标签页记录当作没有记录（路径守卫）', () => {
 		const { leaf, inject } = makeHarness(
 			{ 'b.md': RECORD },
 			new Map([['leaf-1', { filePath: 'a.md', st: { scroll: 99 } }]]),
@@ -312,7 +312,7 @@ describe('OpenPatcher open classification', () => {
 		expect(result).toMatchObject({ scroll: 10 });
 	});
 
-	it('a sidebar panel state re-assertion (outline carrying the tracked file) does not record', () => {
+	it('侧边栏面板重新声明 state（大纲带着它所跟踪的文件）不算一次记录', () => {
 		const { leaf, inject, recordOpen } = makeHarness();
 
 		// The outline panel re-asserts its view state with the tracked file
@@ -329,7 +329,7 @@ describe('OpenPatcher open classification', () => {
 		expect(recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
 
-	it('a keyed anchor link keeps its key', () => {
+	it('带 key 的锚点链接保留它的 key', () => {
 		const { state, leaf, inject, recordOpen } = makeHarness();
 		state.pendingLinkText = 'b.md#安装步骤';
 

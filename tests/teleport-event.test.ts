@@ -110,8 +110,8 @@ function makeHarness(options?: { entries?: TestEntry[]; settings?: Partial<Plugi
 	};
 }
 
-describe('Sampler.onEditorSelection — per-event teleport detection', () => {
-	it('pushes a far jump with its landing position and refreshes the open entry with the poll read', () => {
+describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
+	it('压入一次远距离跳跃及其落点，并用轮询读数刷新那条打开记录', () => {
 		const h = makeHarness({ entries: [{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }] });
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
@@ -127,7 +127,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.leave).toHaveBeenCalledWith('a.md', 'leaf-1', pollRead);
 	});
 
-	it('never pushes for held-key small moves, but keeps the baseline rolling', () => {
+	it('按住键的小幅移动永不压入，但基线继续滚动', () => {
 		const h = makeHarness();
 
 		h.cursor.line = 5;
@@ -143,7 +143,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 20, expect.anything());
 	});
 
-	it('the reader’s threshold decides: the same move is nothing below it and a jump above it', () => {
+	it('阈值由读者定：同一个移动，低于它什么都不是、高于它就是一次跳跃', () => {
 		const h = makeHarness({ settings: { navHistoryTeleportMinLines: 30 } });
 
 		h.cursor.line = 5;
@@ -157,7 +157,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 90, expect.anything());
 	});
 
-	it('ships off: the default threshold records no inferred jump', () => {
+	it('默认值就是关掉：不记录任何推断出来的跳变', () => {
 		expect(DEFAULT_SETTINGS.navHistoryTeleportMinLines).toBe(0);
 		const h = makeHarness({
 			settings: { navHistoryTeleportMinLines: DEFAULT_SETTINGS.navHistoryTeleportMinLines },
@@ -169,7 +169,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 	});
 
-	it('a selection is not a jump, and leaves no baseline behind', () => {
+	it('有选区不算跳跃，也不留下基线', () => {
 		const h = makeHarness();
 		const editor = h.editor as unknown as { somethingSelected: () => boolean };
 
@@ -192,7 +192,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 1000, expect.anything());
 	});
 
-	it('resets the baseline on a file switch, then records jumps in the new file', () => {
+	it('换文件时重置基线，之后在新文件里记录跳跃', () => {
 		const h = makeHarness();
 
 		h.onSelection(h.editor); // baseline: line 3 in a.md
@@ -211,7 +211,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('b.md', 'leaf-1', 900, expect.anything());
 	});
 
-	it('skips the file the plugin has not loaded', () => {
+	it('跳过插件还没加载完的那个文件', () => {
 		const h = makeHarness();
 		h.state.lastLoadedFilePath = 'other.md';
 
@@ -220,7 +220,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 	});
 
-	it('search-anchored hops re-baseline silently so the post-anchor move is clean', () => {
+	it('被搜索锚住的那一跳静默重置基线，好让锚之后的这次移动是干净的', () => {
 		const h = makeHarness();
 
 		h.onSelection(h.editor); // baseline: line 3
@@ -242,7 +242,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 900, expect.anything());
 	});
 
-	it('resets the baseline on a restore re-anchor even within the same file', () => {
+	it('即便在同一文件内，恢复时的重新锚定也会重置基线', () => {
 		const h = makeHarness();
 
 		h.onSelection(h.editor); // baseline: line 3
@@ -259,7 +259,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).toHaveBeenLastCalledWith('a.md', 'leaf-1', 900, expect.anything());
 	});
 
-	it('restores in flight absorb but re-baseline for the next move', () => {
+	it('进行中的恢复被吸收，但为下一次移动重置基线', () => {
 		const h = makeHarness();
 
 		h.onSelection(h.editor); // baseline: line 3
@@ -289,7 +289,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 	});
 
-	it('lands a left entry on the viewport when its cursor sat outside it', () => {
+	it('光标当时在视口外时，把一条离开步落到视口上', () => {
 		// The user scrolled the cursor line off screen, then jumped away: the
 		// left entry must describe the viewport it actually showed, not the
 		// invisible cursor line — which is where the anchor is taken from. NO
@@ -322,7 +322,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		});
 	});
 
-	it('a rapid second jump leaves the first landing intact and pushes its own', () => {
+	it('紧接着的第二次跳跃不动第一次的落点，自己另压一条', () => {
 		const h = makeHarness();
 		// Stale poll read (both jumps happen inside one tick) — it must never
 		// touch the first jump's landing.
@@ -347,7 +347,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		});
 	});
 
-	it('replaces the landing scroll once CM applies the jump scroll after the event', () => {
+	it('事件之后 CM 才应用跳跃滚动时，替换掉落点的 scroll', () => {
 		// CM applies the jump's scrollIntoView in its measure phase, after the
 		// selection event: the push-time read still sees the origin scroll.
 		const rafCbs: FrameRequestCallback[] = [];
@@ -376,7 +376,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		}
 	});
 
-	it('the scroll correction skips an entry the user or a later jump has left', () => {
+	it('滚动校正跳过一条已经被用户或后一次跳跃离开的记录', () => {
 		const rafCbs: FrameRequestCallback[] = [];
 		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCbs.push(cb); return rafCbs.length; });
 		try {
@@ -405,7 +405,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 		}
 	});
 
-	it('degrades silently when the landing is unreadable', () => {
+	it('落点读不出来时静默降级', () => {
 		const h = makeHarness();
 		(h.view as unknown as { currentMode: unknown }).currentMode = { getScroll: () => NaN };
 
@@ -424,7 +424,7 @@ describe('Sampler.onEditorSelection — per-event teleport detection', () => {
 // mobile poll path is deleted. A touch device therefore has no teleport source
 // at all — which is what the threshold setting's own description promises the
 // reader, so the branch that keeps that promise is pinned here.
-describe('the teleport watcher is installed on desktop only', () => {
+describe('跳变监听器只在桌面安装', () => {
 	function installCount(desktop: boolean): number {
 		const wasDesktop = Platform.isDesktopApp;
 		Platform.isDesktopApp = desktop;
@@ -454,11 +454,11 @@ describe('the teleport watcher is installed on desktop only', () => {
 		}
 	}
 
-	it('desktop installs the per-event watcher', () => {
+	it('桌面安装逐事件的监听器', () => {
 		expect(installCount(true)).toBe(1);
 	});
 
-	it('mobile installs nothing — and its poll infers nothing either', () => {
+	it('手机什么都不装 —— 它的轮询也不做任何推断', () => {
 		expect(installCount(false)).toBe(0);
 	});
 });

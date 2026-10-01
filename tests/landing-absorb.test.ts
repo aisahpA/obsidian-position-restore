@@ -114,8 +114,8 @@ function setCursor(view: MarkdownView, line: number, ch: number) {
 		() => ({ line, ch });
 }
 
-describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
-	it('arms a finite absorb when a caller-target open (search match) is dispatched', () => {
+describe('OpenPatcher —— 在 setViewState 那一刻撑开落地吸收窗口', () => {
+	it('派发带 caller 目标的打开（搜索命中）时撑开一个有限吸收窗口', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
@@ -137,7 +137,7 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		expect(Number.isFinite(state.searchAnchorUntil)).toBe(true);
 	});
 
-	it('does not arm for an injected (non-overridden) open', () => {
+	it('注入式（未被覆盖）的打开不撑开', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
@@ -152,8 +152,8 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 	});
 });
 
-describe('Sampler poll — absorbs the landing while armed', () => {
-	it('re-baselines lastEphemeralState to the landing without a db write', () => {
+describe('Sampler 轮询 —— 撑开期间吸收落地', () => {
+	it('把 lastEphemeralState 的重置基准挪到落点，且不写库', () => {
 		const { sampler, state, database, view } = makePollHarness();
 
 		// Patcher armed the absorb for the open-kind jump.
@@ -179,7 +179,7 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 		expect(database.setState).toHaveBeenCalledTimes(1);
 	});
 
-	it('expires the finite absorb early once the view stops moving and captures the landing', () => {
+	it('视图一停下就提前结束这个有限吸收窗口，并抓住落点', () => {
 		const { sampler, state, settled } = makePollHarness();
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
@@ -203,7 +203,7 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 	});
 });
 
-describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', () => {
+describe('Sampler.installSearchAnchor —— 失焦宽限计时器与落地吸收之争', () => {
 	let cleanups: (() => void)[];
 
 	beforeEach(() => {
@@ -242,7 +242,7 @@ describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', (
 		input.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }));
 	}
 
-	it('does not expire a finite anchor armed for a landing', () => {
+	it('为落地撑开的有限锚不会提前过期', () => {
 		const { state } = makeAnchorHarness();
 		const input = makeSearchInput();
 
@@ -259,7 +259,7 @@ describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', (
 		expect(state.searchAnchorUntil).toBeGreaterThan(Date.now());
 	});
 
-	it('still expires a plain blur normally', () => {
+	it('普通的失焦宽限照常过期', () => {
 		const { state } = makeAnchorHarness();
 		const input = makeSearchInput();
 

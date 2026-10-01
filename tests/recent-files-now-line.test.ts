@@ -45,7 +45,7 @@ const jump = (st: NavEntryState, key?: string, keyLine?: number): NavEntry => ({
 const at = (line: number): NavEntryDescription => ({ name: 'a', line: `L${line + 1}`, lineIndex: line });
 
 describe('nowLineFor', () => {
-	it('keeps the recorded line when the file has not been written since', () => {
+	it('文件此后没被写过就沿用记下的行号', () => {
 		// The record's own clock and the file's say the same thing: nothing has been
 		// written since the words were taken, so the number is still the address.
 		const entry = jump({ scroll: 40, anchor: '正文', mtime: 7 });
@@ -55,7 +55,7 @@ describe('nowLineFor', () => {
 		expect(nowLineFor(entry, at(40), facts({ mtimeOf: () => 7, linesOf }))).toBe(40);
 	});
 
-	it('re-anchors a keyed jump by its own anchor, across any distance', () => {
+	it('带 key 的跳转靠自己的 anchor 重新定位，隔多远都行', () => {
 		// The heading the jump was made to has moved down by fifty lines — further than
 		// a text scan would ever look — and its own line is still authoritative.
 		const entry = jump({ scroll: 40, anchor: '正文' }, 'outline:## Beta', 30);
@@ -66,7 +66,7 @@ describe('nowLineFor', () => {
 		expect(got).toBe(90);
 	});
 
-	it('re-finds the anchor line in the note as it stands now', () => {
+	it('在笔记此刻的文本里重新找到 anchor 那一行', () => {
 		const lines = Array.from({ length: 60 }, (_, i) => `第 ${i} 行`);
 		lines[43] = 'the line that was there';
 		const entry = jump({ scroll: 40, anchor: 'the line that was there' });
@@ -76,7 +76,7 @@ describe('nowLineFor', () => {
 		}))).toBe(43);
 	});
 
-	it('answers with silence where the anchor text is gone', () => {
+	it('anchor 文本没了就沉默以对', () => {
 		// The note was rewritten: nothing in it is the line the record names. A number
 		// this module does not have is not a number it guesses at.
 		const entry = jump({ scroll: 40, anchor: 'the line that was there' });
@@ -86,7 +86,7 @@ describe('nowLineFor', () => {
 		}))).toBeUndefined();
 	});
 
-	it('says nothing about a file that has been written when it has no anchor to go by', () => {
+	it('文件被改过、又没有 anchor 可依时，什么都不说', () => {
 		// An old record, a file the clock says has been touched since: there is nothing
 		// here that could re-find it, and a number known to have moved is not a number
 		// worth handing to anything that opens the note.
@@ -94,14 +94,14 @@ describe('nowLineFor', () => {
 		expect(nowLineFor(entry, at(40), facts({ mtimeOf: () => 9 }))).toBeUndefined();
 	});
 
-	it('keeps the number it has when there is nothing to re-find it with', () => {
+	it('没有任何东西能重新定位时，就保留手上那个数字', () => {
 		// No anchor, and no clock that says anything has changed: the recorded number is
 		// the best thing anyone knows about the spot, and it is what the row prints.
 		const entry = jump({ scroll: 40 });
 		expect(nowLineFor(entry, at(40), facts())).toBe(40);
 	});
 
-	it('may read a file for a hover, and never for a render', () => {
+	it('为一次悬停可以去读文件，为一次重画绝不可以', () => {
 		// `prime` is the difference between one hover waiting one await and fifty rows
 		// reading fifty files (see RecentFilesReads.linesFor).
 		const seen: boolean[] = [];
@@ -117,7 +117,7 @@ describe('nowLineFor', () => {
 		expect(seen).toEqual([true, false]);
 	});
 
-	it('has no line at all to speak of for a view', () => {
+	it('视图根本没有行号可言', () => {
 		const entry: NavEntry = { kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 0 };
 		expect(nowLineFor(entry, { name: 'graph' }, facts())).toBeUndefined();
 	});

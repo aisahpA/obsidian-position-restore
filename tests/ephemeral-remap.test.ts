@@ -29,7 +29,7 @@ function viewWithScroll(scroll: unknown): MarkdownView {
 }
 
 describe('readEphemeralState', () => {
-	it('returns undefined while the preview renderer reports a null scroll', () => {
+	it('预览渲染器报告 scroll 为 null 时返回 undefined', () => {
 		// Regression: isNaN(null) is false and Math.round(null) is 0, so the
 		// old guard turned "renderer not caught up yet" into {scroll: 0} —
 		// a state the scroll capture / poll would then write over the
@@ -37,32 +37,32 @@ describe('readEphemeralState', () => {
 		expect(readEphemeralState(viewWithScroll(null))).toBeUndefined();
 	});
 
-	it('returns undefined for NaN and undefined scrolls', () => {
+	it('scroll 是 NaN 或 undefined 时返回 undefined', () => {
 		expect(readEphemeralState(viewWithScroll(Number.NaN))).toBeUndefined();
 		expect(readEphemeralState(viewWithScroll(undefined))).toBeUndefined();
 	});
 
-	it('still records a genuine top-of-file scroll of 0', () => {
+	it('真的就停在文件顶部（scroll 为 0）时照样记录', () => {
 		expect(readEphemeralState(viewWithScroll(0))).toEqual({ scroll: 0 });
 	});
 
-	it('quantizes a real scroll to whole lines', () => {
+	it('把真实的 scroll 量化成整行', () => {
 		expect(readEphemeralState(viewWithScroll(10.4))).toEqual({ scroll: 10 });
 	});
 });
 
 describe('remapAnchoredState', () => {
-	it('returns the state as-is without an anchor', () => {
+	it('没有 anchor 时原样返回', () => {
 		const st: NavEntryState = { scroll: 3 };
 		expect(remapAnchoredState(editor(BASE_LINES), st)).toBe(st);
 	});
 
-	it('returns the state as-is when the line still holds the anchor text', () => {
+	it('那一行还写着 anchor 文本时原样返回', () => {
 		const st: NavEntryState = { scroll: 2, anchor: 'charlie' };
 		expect(remapAnchoredState(editor(BASE_LINES), st)).toBe(st);
 	});
 
-	it('shifts scroll and cursor when lines were inserted above', () => {
+	it('上方插入了行时 scroll 与 cursor 一起平移', () => {
 		// anchor was line 2; two lines inserted above moved it to line 4
 		const lines = ['x1', 'x2', 'alpha', 'bravo', 'charlie', 'delta', 'echo'];
 		const st: NavEntryState = {
@@ -82,7 +82,7 @@ describe('remapAnchoredState', () => {
 		expect(out.anchor).toBeUndefined();
 	});
 
-	it('shifts cursor-only records (no scroll)', () => {
+	it('只有光标、没有 scroll 的记录也平移', () => {
 		const st: NavEntryState = {
 			cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
 			anchor: 'echo',
@@ -92,7 +92,7 @@ describe('remapAnchoredState', () => {
 		expect(out.cursor?.from.line).toBe(4);
 	});
 
-	it('clamps scroll at 0 when the shift goes negative', () => {
+	it('平移量为负时把 scroll 夹在 0', () => {
 		// anchor was line 2; lines above deleted, it moved to line 0; a
 		// cursor at line 1 would land before the file top
 		const lines = ['charlie', 'delta', 'echo'];
@@ -106,19 +106,19 @@ describe('remapAnchoredState', () => {
 		expect(out.cursor?.from.line).toBe(1);
 	});
 
-	it('finds the anchor above an out-of-range line (file shrank)', () => {
+	it('行号越界（文件变短）时往上方找 anchor', () => {
 		const lines = ['alpha', 'bravo', 'echo'];
 		const st: NavEntryState = { scroll: 4, anchor: 'echo' };
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(2);
 	});
 
-	it('keeps the stale line when the anchor text is gone', () => {
+	it('anchor 文本没了就保留旧行号', () => {
 		const lines = ['alpha', 'bravo', 'rewritten', 'delta', 'echo'];
 		const st: NavEntryState = { scroll: 2, anchor: 'charlie' };
 		expect(remapAnchoredState(editor(lines), st)).toBe(st);
 	});
 
-	it('remaps an anchor line that was lightly edited (case/whitespace/punctuation)', () => {
+	it('anchor 那一行被轻微编辑过（大小写 / 空白 / 标点）仍能重映射', () => {
 		// anchor recorded as "Bravo Line"; the line now reads "bravo line!" —
 		// normalized forms match, so the position still re-maps.
 		const lines = ['alpha', 'bravo line!', 'charlie', 'delta', 'echo'];
@@ -126,7 +126,7 @@ describe('remapAnchoredState', () => {
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(1);
 	});
 
-	it('prefers an exact copy over a nearer normalized-only candidate', () => {
+	it('精确副本优先于更近、但只是归一化后才命中的候选', () => {
 		// 'charlie!' (distance 1) only normalizes to the anchor; 'charlie'
 		// (distance 2) is an unedited copy — the plain pass wins first.
 		const lines = ['charlie', 'charlie!', 'bravo', 'x', 'echo'];
@@ -134,13 +134,13 @@ describe('remapAnchoredState', () => {
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(0);
 	});
 
-	it('keeps the stale line when the shift exceeds the scan window', () => {
+	it('位移超出扫描窗口时保留旧行号', () => {
 		const lines = ['far-away-anchor', ...Array(45).fill('filler')];
 		const st: NavEntryState = { scroll: 40, anchor: 'far-away-anchor' };
 		expect(remapAnchoredState(editor(lines), st)).toBe(st);
 	});
 
-	it('matches the nearest duplicate within the window', () => {
+	it('窗口内有重复时取最近的那个', () => {
 		// recorded line 3 holds 'b'; closer duplicate at -1 wins over -3
 		let lines = ['dup', 'a', 'dup', 'b', 'c'];
 		let st: NavEntryState = { scroll: 3, anchor: 'dup' };

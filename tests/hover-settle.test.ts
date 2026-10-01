@@ -64,7 +64,7 @@ async function paint(times = 1): Promise<void> {
 describe('PreviewSettle', () => {
 	// The reason the loop is an observer and not a wait: when the app answers is
 	// not bounded, so several frames of silence must not end it.
-	it('is still looking when the app answers late', async () => {
+	it('app 答晚了它还在看', async () => {
 		const h = harness();
 		h.settle.ask(false); // a section: it is drawn where it stands
 		await paint(3);
@@ -75,7 +75,7 @@ describe('PreviewSettle', () => {
 		expect(h.opened).toHaveLength(1);
 	});
 
-	it('reports the app replacing its popover while the hover lasts', async () => {
+	it('悬停期间 app 换了 popover 会被报告出来', async () => {
 		const h = harness();
 		h.settle.ask(false);
 		h.parent.hoverPopover = makePopover();
@@ -90,7 +90,7 @@ describe('PreviewSettle', () => {
 	// What the loop waits for is bounded by the asking: the app opens its preview
 	// off the pointer, so a pointer that has left the list means no further answer
 	// is coming — however long the card it left behind stands open.
-	it('stands down once the hover has ended, popover or no popover', async () => {
+	it('悬停一结束就撤下来，不管有没有 popover', async () => {
 		const h = harness();
 		h.settle.ask(false);
 		h.parent.hoverPopover = makePopover();
@@ -108,7 +108,7 @@ describe('PreviewSettle', () => {
 
 	// Standing down is not permanent: the next asking starts it again, and its
 	// first look is the one that notices the popover it remembered has closed.
-	it('starts again at the next asking', async () => {
+	it('下一次提问时重新开始', async () => {
 		const h = harness();
 		h.settle.ask(false);
 		h.parent.hoverPopover = makePopover();

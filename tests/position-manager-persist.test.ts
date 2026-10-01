@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 describe('PositionManager.storePositionData', () => {
-	it('writes the three in-memory stores before the db file write starts', () => {
+	it('在库文件开始写入之前，先把三个内存 store 写好', () => {
 		const h = makeHarness();
 
 		const write = h.manager.storePositionData();
@@ -74,7 +74,7 @@ describe('PositionManager.storePositionData', () => {
 		return write;
 	});
 
-	it('settles only once the file write has', async () => {
+	it('文件写入落定之后它才落定', async () => {
 		const h = makeHarness();
 		let settled = false;
 
@@ -90,7 +90,7 @@ describe('PositionManager.storePositionData', () => {
 		expect(settled).toBe(true);
 	});
 
-	it('settles even when the db write fails, and says so in the log', async () => {
+	it('即便写库失败也要落定，并在日志里说明', async () => {
 		const h = makeHarness();
 		const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 		h.database.writeDb.mockRejectedValueOnce(new Error('disk full'));

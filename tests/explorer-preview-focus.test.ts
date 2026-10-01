@@ -118,8 +118,8 @@ afterEach(() => {
 		restorers.pop()?.();
 });
 
-describe('the app file list’s hover preview', () => {
-	it('adds nothing while the note’s top is what ships', () => {
+describe('app 文件列表的悬停预览', () => {
+	it('笔记本来就该开在顶部时，什么也不加', () => {
 		const h = installed('head', { 'a.md': { scroll: 12 } }, note);
 
 		const ask = h.fileList('a.md');
@@ -128,7 +128,7 @@ describe('the app file list’s hover preview', () => {
 		expect(h.calls).toHaveLength(1);
 	});
 
-	it('names the line last recorded for the note, when asked to', () => {
+	it('被问到时说出这篇笔记最后记下的那一行', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 
 		const ask = h.fileList('a.md');
@@ -136,26 +136,26 @@ describe('the app file list’s hover preview', () => {
 		expect(ask.state).toEqual({ scroll: 12 });
 	});
 
-	it('names nothing where this plugin recorded no position', () => {
+	it('本插件没记过位置的，不说行号', () => {
 		const h = installed('line', {}, note);
 
 		expect(h.fileList('a.md').state).toBeUndefined();
 	});
 
-	it('names nothing for a note recorded at its top', () => {
+	it('记下的位置就是顶部时也不说', () => {
 		// A scroll-0 record would buy the whole wait and move nowhere.
 		const h = installed('line', { 'a.md': { scroll: 0 } }, note);
 
 		expect(h.fileList('a.md').state).toBeUndefined();
 	});
 
-	it('names nothing for a file that is not a note', () => {
+	it('不是笔记的文件不说', () => {
 		const h = installed('line', { 'scan.pdf': { scroll: 40 } }, note);
 
 		expect(h.fileList('scan.pdf').state).toBeUndefined();
 	});
 
-	it('leaves every other source’s ask alone', () => {
+	it('别的来源发出的提问一律不动', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		const ask: Ask = { source: 'search', linktext: 'a.md' };
 
@@ -164,13 +164,13 @@ describe('the app file list’s hover preview', () => {
 		expect(ask.state).toBeUndefined();
 	});
 
-	it('does not overwrite a position the ask already carried', () => {
+	it('提问已经自带位置时不覆盖它', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 
 		expect(h.fileList('a.md', { scroll: 3 }).state).toEqual({ scroll: 3 });
 	});
 
-	it('forwards every event it does not mean to change', () => {
+	it('不打算改的事件原样转发', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 
 		h.workspace.trigger('file-open', { path: 'a.md' });
@@ -178,7 +178,7 @@ describe('the app file list’s hover preview', () => {
 		expect(h.calls).toEqual([{ name: 'file-open', data: [{ path: 'a.md' }] }]);
 	});
 
-	it('hands the trigger back on unload', () => {
+	it('卸载时把 trigger 还回去', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		const patched = h.workspace.trigger;
 
@@ -193,8 +193,8 @@ describe('the app file list’s hover preview', () => {
 // Core hangs a flash on the move to a line: `applyScrollDelayed` is called with
 // `{highlight:true, center:true}` and a hover ask carries no field to say no.
 // The move this plugin's line causes is the one move that runs without it.
-describe('the flash that comes with the move', () => {
-	it('is dropped on the move this plugin’s line causes', () => {
+describe('随这次移动而来的高亮', () => {
+	it('本插件指定行号引起的那次移动，高亮被丢掉', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		h.fileList('a.md');
 
@@ -204,7 +204,7 @@ describe('the flash that comes with the move', () => {
 		});
 	});
 
-	it('stays for a move this plugin did not aim', () => {
+	it('本插件没有指定目标的移动，高亮保留', () => {
 		// The note's top is what ships, so the preview never asked for a line —
 		// and a flash on a move nobody here caused is not ours to drop.
 		const h = installed('head', { 'a.md': { scroll: 12 } }, note);
@@ -213,14 +213,14 @@ describe('the flash that comes with the move', () => {
 		expect(h.flash.to(12, { highlight: true })!.opts).toEqual({ highlight: true });
 	});
 
-	it('stays for a move to another line', () => {
+	it('移到别的行时高亮保留', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		h.fileList('a.md');
 
 		expect(h.flash.to(30, { highlight: true })!.opts).toEqual({ highlight: true });
 	});
 
-	it('is spent once, by the first move that would flash', () => {
+	it('只被第一次会闪的那次移动花掉', () => {
 		// One aim, one dropped flash: a second move to the same line is a move
 		// this plugin no longer stands behind.
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
@@ -230,7 +230,7 @@ describe('the flash that comes with the move', () => {
 		expect(h.flash.to(12, { highlight: true })!.opts!.highlight).toBe(true);
 	});
 
-	it('is left alone once another list has asked', () => {
+	it('别的列表已经问过就别再动它', () => {
 		// The last ask wins: a hover from anywhere else means the next flash
 		// belongs to that ask.
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
@@ -240,7 +240,7 @@ describe('the flash that comes with the move', () => {
 		expect(h.flash.to(12, { highlight: true })!.opts).toEqual({ highlight: true });
 	});
 
-	it('is not spent by a move that never asked to flash', () => {
+	it('一次从没要求闪的移动不会花掉它', () => {
 		// Hover Editor calls the same method on resize, with no options at all:
 		// that move wants no flash, so it must not use up the aim behind the one
 		// that does.
@@ -251,7 +251,7 @@ describe('the flash that comes with the move', () => {
 		expect(h.flash.to(12, { highlight: true })!.opts!.highlight).toBe(false);
 	});
 
-	it('hands the renderer back on unload', () => {
+	it('卸载时把渲染器还回去', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		const patched = rendererProto().applyScrollDelayed;
 

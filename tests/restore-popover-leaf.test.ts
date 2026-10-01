@@ -45,13 +45,13 @@ function makeView(inPopover: boolean) {
 	};
 }
 
-describe('a leaf a hover popover hosts', () => {
-	it('is told apart by where it lives, not by what it shows', () => {
+describe('悬停浮层托着的那个 leaf', () => {
+	it('按它住在哪儿分辨，不按它显示什么', () => {
 		expect(isPopoverLeaf(makeView(true).leaf)).toBe(true);
 		expect(isPopoverLeaf(makeView(false).leaf)).toBe(false);
 	});
 
-	it('is left where the app opened it', async () => {
+	it('就让它停在 app 打开它时的那个位置', async () => {
 		const { state, leaf, restorer } = makeView(true);
 
 		await restorer.restoreEphemeralState();

@@ -20,7 +20,7 @@ import { Restorer } from '@/position/restore/restorer';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS } from '@/types';
 
-describe('PositionState leaf-scoped restore runs', () => {
+describe('PositionState 按 leaf 划分的恢复轮次', () => {
 	it('a restore on a different leaf does not supersede this leaf\'s in-flight restore', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const runA = state.beginLeafRestore('leafA', 'a.md');
@@ -30,7 +30,7 @@ describe('PositionState leaf-scoped restore runs', () => {
 		expect(state.isCurrentLeafRestore('leafB', runB)).toBe(true);
 	});
 
-	it('a newer restore on the SAME leaf supersedes the earlier one', () => {
+	it('同一个 leaf 上更新的恢复顶掉早先的', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const run1 = state.beginLeafRestore('leafA', 'a.md');
 		const run2 = state.beginLeafRestore('leafA', 'b.md'); // rapid same-leaf switch
@@ -48,7 +48,7 @@ describe('PositionState leaf-scoped restore runs', () => {
 		expect(state.isCurrentLeafRestore('leafA', run)).toBe(false);
 	});
 
-	it('run ids are unique over the session, so a cleanup can never hit a reused id', () => {
+	it('run id 在整个会话里唯一，所以清理绝不会打到复用的 id', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const runA = state.beginLeafRestore('leafA', 'a.md');
 		const runB = state.beginLeafRestore('leafB', 'b.md');
@@ -138,8 +138,8 @@ function makeSourceView(leaf: WorkspaceLeaf, filePath = 'b.md'): MarkdownView {
 	return view;
 }
 
-describe('cross-leaf restore concurrency (stuck-cover regression)', () => {
-	it('a restore on a second leaf does not leave the first leaf stuck under its cover', async () => {
+describe('跨 leaf 的恢复并发（卡住盖布那个回归）', () => {
+	it('第二个 leaf 上的恢复不会把第一个 leaf 卡在盖布底下', async () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leafA = makeLeaf('leafA');
 		const leafB = makeLeaf('leafB');

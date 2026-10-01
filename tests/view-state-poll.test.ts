@@ -61,8 +61,8 @@ function makeHarness() {
 	};
 }
 
-describe('the poll keeps the current step state true', () => {
-	it('reads a view state that only arrives after the tab was activated', () => {
+describe('轮询让当前那一步的 state 保持真实', () => {
+	it('标签页激活之后才送到的 view state 也读得到', () => {
 		const h = makeHarness();
 		// A web viewer tab, just opened: the page has not committed, so its own
 		// state has a title and a mode but no url.
@@ -92,7 +92,7 @@ describe('the poll keeps the current step state true', () => {
 		});
 	});
 
-	it('is quiet while nothing moves, and only speaks for the current step', () => {
+	it('什么都没动时保持安静，只替当前那一步说话', () => {
 		const h = makeHarness();
 		const view = {
 			leaf: { id: 'leaf-w', containerEl: {} } as unknown as WorkspaceLeaf,
