@@ -441,9 +441,8 @@ describe('groupByFile', () => {
 });
 
 // 浏览器的过滤框：各个词按 AND 跨条目记下的一切匹配（名字、路径、落点的
-// context 块、旧式锚点、jump 的 key、链接的来源），再加上**行**印出的文本
-// （章节链和行号标签），由调用方传入。没有 DOM，也没有 describeNavEntry：
-// 这个谓词可以单独测。
+// context 块、jump 的 key），再加上**行**印出的文本（章节链和行号标签），由调用方
+// 传入。没有 DOM，也没有 describeNavEntry：这个谓词可以单独测。
 describe('matchesNavFilter', () => {
 	const visit = (path: string, st?: NavEntryState): NavEntry =>
 		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
@@ -453,16 +452,15 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(visit('notes/a.md'), '   ')).toBe(true);
 	});
 
-	it('文件名、完整路径、锚点文本都参与匹配，不分大小写', () => {
-		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
+	it('文件名与完整路径都参与匹配，不分大小写', () => {
+		const e = visit('notes/project/Alpha.md');
 		expect(matchesNavFilter(e, 'alpha')).toBe(true);
 		expect(matchesNavFilter(e, 'PROJECT')).toBe(true);
-		expect(matchesNavFilter(e, 'chapter')).toBe(true);
 		expect(matchesNavFilter(e, 'beta')).toBe(false);
 	});
 
 	it('每个用空白分开的词都得命中（AND）', () => {
-		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
+		const e = visit('notes/project/Alpha.md', { context: ['Chapter One'] });
 		expect(matchesNavFilter(e, 'alpha chapter')).toBe(true);
 		expect(matchesNavFilter(e, 'alpha missing')).toBe(false);
 	});
@@ -507,12 +505,19 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
 	});
 
-	it('visit 没有引文时，光靠锚点也能匹配', () => {
-		// 一个 visit 不记录 context（见 readNavEntryState）：它所带的笔记自己文本的
-		// 那一小块就是锚点 —— 站在视口顶的那一行。所以一个搜索他们正读的句子的读者
-		// 会找到这篇笔记，而匹配上的是一个没有任何行印出的行。
+	it('重映射锚点不进搜索面', () => {
+		// `st.anchor` 记的是采集那一刻**视口顶行**的文本：窗口高度与滚动位置一变，
+		// 同一个落点的它就换一句（换台设备更是必然不同），而且它常常落在标题**之上**、
+		// 是上一段的尾巴 ⇒ 它答的不是「这个地方叫什么」。它作为字段留着（文本变动后
+		// 靠它找回行号是恢复路径的事），但不该让一行因为它而出现在列表上。
 		const e = visit('notes/a.md', { anchor: '落点这一行' });
-		expect(matchesNavFilter(e, '落点')).toBe(true);
+		expect(matchesNavFilter(e, '落点')).toBe(false);
+		// 同一个词仍然能由它**下面**的那些行命中 —— 那才是这个落点随身带着的词。
+		const withQuote = visit('notes/a.md', {
+			anchor: '落点这一行',
+			context: ['下一段：读取死区'],
+		});
+		expect(matchesNavFilter(withQuote, '死区')).toBe(true);
 	});
 
 	it('忽略调用方传来的目标 key：那是一串时间戳，不是词', () => {
@@ -557,19 +562,18 @@ describe('matchedContextLine', () => {
 		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
 	});
 
-	it('靠锚点才匹配上的 visit，一句也不引', () => {
-		// **读者会遇到的情形**：这一行在列表上是因为查询匹配了锚点（见上面的筛选套
-		// 件），而那一块 —— 这个答案唯一读的东西 —— 正是 visit 不携带的。所以这一行
-		// 匹配了却什么都不引。按原样锁定：锚点是恢复时重新找出的那一行，不是一行显示
-		// 的行，引它就会声称一个读者从没要求过的落点。
+	it('一行不会靠锚点留在列表上、却答不出为什么在', () => {
+		// 曾经有一档是反的：anchor 进搜索面而引文不读它，于是有一行能靠一个**任何地方
+		// 都不印**的词留在列表上、却答不出为什么在（违反「命中必须能解释自己」）。
+		// anchor 退出搜索面之后这个状态消失了。
 		const e = visit('notes/a.md', { anchor: '落点这一行' });
-		expect(matchesNavFilter(e, '落点')).toBe(true);
+		expect(matchesNavFilter(e, '落点')).toBe(false);
 		expect(matchedContextLine(e, '落点')).toBeUndefined();
 	});
 
 	it('带引文的 visit 照样引：看的是有没有引文，不是这一步的类型', () => {
 		// 扣住引文的是**块缺席**，不是类型 —— 一个被给了块的 visit 会像任何落点一样
-		// 被引。这个区别就是让上面那个情形不至于硬化成「visit 从不引」的东西。
+		// 被引。
 		const e = visit('notes/a.md', { anchor: '落点这一行', ...block(['前一段：换行与量化']) });
 		expect(matchedContextLine(e, '量化')).toBe('前一段：换行与量化');
 	});

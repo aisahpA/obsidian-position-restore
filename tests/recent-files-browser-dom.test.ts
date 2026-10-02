@@ -694,19 +694,33 @@ describe('RecentFilesModal —— 当前位置', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('查询是靠记下的锚点命中的那一行，不引任何原文', () => {
-		// 这一行只是靠 `st.anchor` 活过了过滤，而一次 visit 不记 context —— 所以悬停说出
-		// 这一行是哪个文件，对它为什么在列表上什么都不说。就照现状锁住：anchor 是恢复时
-		// 重新找到的那一行，不是行会显示的一行，引它出来会声称一个读者从没要求过的落点。
+	it('重映射锚点不进搜索面：那一行不会靠它留在列表上', () => {
+		// 曾经有一档是反的：这一行只是靠 `st.anchor`（记录那一刻视口顶行的文本）活过过滤，
+		// 而引文只读 `context`、不读它 ⇒ 这一行在列表上，却没有任何地方说明为什么，
+		// 违反「命中必须能解释自己」。anchor 已退出搜索面（字段留着，重映射要用它）。
 		const h = harness([visit('a.md', NOW, { anchor: '落点这一行' })], 0, { 'a.md': '' });
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '落点';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 
-		expect(h.notes()).toHaveLength(1); // 锚点带上了那个词
+		expect(h.notes()).toHaveLength(0);
+		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.noMatch'));
+	});
+
+	it('落点下面那些行仍然参与搜索，并在悬停上指出命中的是哪一行', () => {
+		// anchor 退出之后，正文只剩一个来源：落点下方那几行（`st.context`）。它是唯一能被
+		// 指出来的正文源 —— 命中它的那一行会说明「搜到的一行」，读者于是看得见自己为什么
+		// 在列表上。
+		const h = harness([visit('a.md', NOW, { context: ['下一段：读取死区'] })], 0, { 'a.md': '' });
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '死区';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(h.notes()).toHaveLength(1);
 		const tip = h.hover(h.note('a'))!;
 		expect(tip).not.toBeNull();
-		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
+		expect(tip.textContent).toContain(t('recentFiles.matchedLine'));
+		expect(tip.textContent).toContain('下一段：读取死区');
 	});
 
 	it('某次访问恰好待在某个小节里，并不因此就被搜到', () => {

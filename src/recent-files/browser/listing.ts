@@ -179,18 +179,23 @@ export function matchesNavFilter(entry: NavEntry, query: string, extra?: string)
 	return tokens.every(tok => hay.includes(tok));
 }
 
-// 条目自己的可搜索文字：名字和 path、记录下来的 context 块，再加上重映射锚点
-// （它属于视口顶部那一行，而那个围绕着落点建起来的块并不总能覆盖到）。全部并成一个
-// 大杂烩，所以各部分之间的顺序不携带任何信息。
+// 条目自己的可搜索文字：名字和 path、记录下来的 context 块，再加上跳转自己的 key
+// （大纲点击时是标题的文字，锚点链接时是读者选的目标）。全部并成一个大杂烩，
+// 所以各部分之间的顺序不携带任何信息。
+//
+// **「重映射锚点」刻意不在这里**（`st.anchor`，见 NavEntryState.anchor）：它记的是采集
+// 那一刻**视口顶行**的文本，而顶行会随窗口高度与滚动位置变（同一个落点换台设备就
+// 换一句），且它常常落在标题**之上**、是上一段的尾巴 ⇒ 它答的不是「这个地方叫什么」。
+// 更要紧的是它命中之后说不清理由：context 命中时 hover 能指出是哪一行，anchor 不能，
+// 而「命中必须能解释自己」是这份列表一直遵守的那条。它作为**字段**照旧留着 ——
+// 文本变动后靠它把行号重新找回来是恢复路径的事（见 ephemeral.ts 的 remapAnchorLine）。
 export function navSearchText(entry: NavEntry): string {
 	if (entry.kind === 'view')
 		return `${entry.viewType} ${viewName(entry)}`;
 	const parts = [baseName(entry.path), entry.path];
 	const st = entry.st;
-	if (st) {
+	if (st)
 		parts.push(...(st.context ?? []));
-		parts.push(st.anchor ?? '');
-	}
 	// 跳转的 key：大纲点击时是标题的文字，锚点链接时是读者选的目标。caller 目标的合成 key
 	// 是一个时间戳、不是词（见 isCallerKey）。
 	if (entry.kind === 'jump' && !isCallerKey(entry.key))
