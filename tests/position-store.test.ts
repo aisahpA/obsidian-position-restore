@@ -320,7 +320,7 @@ describe('pruneDatabase', () => {
 	it('把文件层的清理镜像到标签页层', () => {
 		const db = makeDb({ 'ex.txt': { scroll: 1 }, 'ok.md': { scroll: 2 } });
 		db.pruneDb = () => {
-			delete db.db['ex.txt']; // what the exclusion rules removed
+			delete db.db['ex.txt']; // 排除规则删掉的东西
 			return 1;
 		};
 		const { store } = makeStore(db);
