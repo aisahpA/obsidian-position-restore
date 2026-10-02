@@ -62,7 +62,7 @@ describe('PreviewSettle', () => {
 	// 所以几帧的沉默不能把它结束掉。
 	it('app 答晚了它还在看', async () => {
 		const h = harness();
-		h.settle.ask(false); // a section: it is drawn where it stands
+		h.settle.ask(false); // 一段：它就画在它待的地方
 		await paint(3);
 
 		h.parent.hoverPopover = makePopover();

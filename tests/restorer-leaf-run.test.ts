@@ -31,7 +31,7 @@ describe('PositionState 按 leaf 划分的恢复轮次', () => {
 	it('同一个 leaf 上更新的恢复顶掉早先的', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const run1 = state.beginLeafRestore('leafA', 'a.md');
-		const run2 = state.beginLeafRestore('leafA', 'b.md'); // rapid same-leaf switch
+		const run2 = state.beginLeafRestore('leafA', 'b.md'); // 同 leaf 快速切换
 
 		expect(state.isCurrentLeafRestore('leafA', run1)).toBe(false);
 		expect(state.isCurrentLeafRestore('leafA', run2)).toBe(true);
@@ -164,7 +164,7 @@ describe('跨 leaf 的恢复并发（卡住盖布那个回归）', () => {
 		// A 还被盖着时 leaf B 打开了；它的恢复完整跑完。
 		activeView = viewB;
 		await restorer.restoreEphemeralState();
-		expect(state.restoreRun).toBe(2); // both restores actually ran
+		expect(state.restoreRun).toBe(2); // 两次恢复都真的跑了
 
 		// 让 A 走完它的内容就绪期限并揭幕。
 		await promiseA;

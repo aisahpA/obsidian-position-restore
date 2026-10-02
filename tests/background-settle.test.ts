@@ -205,7 +205,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(await settler.completeBackgroundRestores()).toBe(true);
 
 		expect(state.handledLeafIdMap.get('leaf-bg')).toBe('a.md');
-		expect(bg.view.currentMode.getScroll()).toBe(0); // nothing applied
+		expect(bg.view.currentMode.getScroll()).toBe(0); // 什么都没应用
 		expect(state.lastLoadedFilePath).toBeUndefined();
 	});
 
@@ -235,7 +235,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		const bg = { id: 'leaf-bg', view: makeSourceView('a.md') };
 		const { state, settler, leafObjs } = makeHarness({ leaves: [bg] });
 		markInjected(state, [leafObjs['leaf-bg']], 'a.md');
-		state.handledLeafIdMap.set('leaf-bg', 'b.md'); // leaf moved on, marker stale
+		state.handledLeafIdMap.set('leaf-bg', 'b.md'); // leaf 走了，标记陈旧
 
 		expect(await settler.completeBackgroundRestores()).toBe(true);
 
@@ -272,7 +272,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(await settler.completeBackgroundRestores()).toBe(true);
 
 		expect(state.handledLeafIdMap.get('leaf-bg')).toBeUndefined();
-		expect(bg.view.currentMode.getScroll()).toBe(0); // nothing applied
+		expect(bg.view.currentMode.getScroll()).toBe(0); // 什么都没应用
 	});
 
 	it('对 scroll 为 0（只有光标）的注入 leaf 直接揭幕，不落定', async () => {
