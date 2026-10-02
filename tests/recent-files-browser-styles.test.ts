@@ -151,9 +151,10 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(row).toMatch(/font-size: var\(--nav-item-size/);
 	});
 
-	// 行进箭头是行在屏幕上最先出现的东西，但**不是**一条网格轨：它
-	// **一行就是一个目标**：装详情控件的那条留白随着它打开的那个面板一起没了（见
-	// RecentFilesList），所以行的内边是朴素的，里面也没有绝对定位的东西能碰到行高。
+	// **一行就是一个目标**：行进箭头是行在屏幕上最先出现的东西，它坐在行的流式内容里、
+	// **不是**一条网格轨（这条规则没有 `display: grid`）；装详情控件的那条留白随着它打开的
+	// 那个面板一起没了（见 RecentFilesList），所以行的内边是朴素的，里面也没有绝对定位的
+	// 东西能碰到行高。
 	it('行只有一套朴素内边距，里面没有绝对定位的东西', () => {
 		expect(browser).toMatch(/\.position-restore-nav-row\s*\{[^}]*padding: 4px 8px;/);
 		expect(browser).not.toContain('nav-row-disclose');
