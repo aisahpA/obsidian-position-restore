@@ -112,7 +112,7 @@ describe('PathBookkeeper 删除', () => {
 		const h = makeHarness();
 
 		h.bookkeeper.deleteFile(h.file('a.md'));
-		await vi.advanceTimersByTimeAsync(A_BEAT); // a beat: deferred, not synchronous
+		await vi.advanceTimersByTimeAsync(A_BEAT); // 一拍：延后，非同步
 		expect(h.store.deleteFile).not.toHaveBeenCalled();
 
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
@@ -128,9 +128,9 @@ describe('PathBookkeeper 删除', () => {
 
 		h.bookkeeper.deleteFile(h.file('a.md'));
 		await vi.advanceTimersByTimeAsync(A_BEAT);
-		h.bookkeeper.deleteFile(h.file('a.md')); // restarts the window
+		h.bookkeeper.deleteFile(h.file('a.md')); // 重启窗口
 		await vi.advanceTimersByTimeAsync(A_BEAT);
-		expect(h.store.deleteFile).not.toHaveBeenCalled(); // neither window has closed
+		expect(h.store.deleteFile).not.toHaveBeenCalled(); // 两个窗口都还没关
 
 		// 两个窗口都很久之后：只有重启的那个可能已经触发过。
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
@@ -180,7 +180,7 @@ describe('PathBookkeeper 删除', () => {
 
 		h.bookkeeper.deleteFile(h.file('a.md'));
 		await vi.advanceTimersByTimeAsync(A_BEAT);
-		h.disk.add('a.md'); // back on disk; the index never hears about it
+		h.disk.add('a.md'); // 回到磁盘上；索引从未听说
 
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 		expect(h.store.deleteFile).not.toHaveBeenCalled();
@@ -193,10 +193,10 @@ describe('PathBookkeeper 启动扫描', () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.navStore.knownPaths.mockReturnValue(['a.md', 'b.md']);
-		h.restore('b.md'); // still there: not swept
+		h.restore('b.md'); // 还在：没被扫
 
 		h.bookkeeper.sweepMissingHistory();
-		await vi.advanceTimersByTimeAsync(A_BEAT); // a beat: deferred, like a live delete
+		await vi.advanceTimersByTimeAsync(A_BEAT); // 一拍：延后，跟实时删除一样
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
@@ -216,7 +216,7 @@ describe('PathBookkeeper 启动扫描', () => {
 		h.navStore.knownPaths.mockReturnValue(['a.md']);
 
 		h.bookkeeper.sweepMissingHistory();
-		h.restore('a.md'); // the sync plugin finished downloading
+		h.restore('a.md'); // 同步插件下载完了
 
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
