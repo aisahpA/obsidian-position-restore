@@ -1,17 +1,15 @@
-// Unit tests for CursorPositionDatabase (src/database.ts): the compact
-// on-disk codec (write → read round trip), unreadable-data hardening (an
-// unparseable file is copied aside and reported, never silently cleared),
-// empty record / tombstone dropping, setState recency bookkeeping, capacity
-// trimming with hysteresis, folder exclusions, rename/delete bookkeeping,
-// the external-sync merge rule (disk wins unless the key was touched after
-// our last flush), and switchDbFile move/adopt semantics.
+// CursorPositionDatabase（src/database.ts）的单元测试：紧凑的落盘编解码（写入 →
+// 读回一轮）、坏数据加固（解析不了的文件被复制到旁边并上报，绝不悄悄清掉）、空记录 /
+// 墓碑的淘汰、setState 的新旧记账、带滞回的容量裁剪、文件夹排除、改名/删除记账、
+// 外部同步的合并规则（盘上那份赢，除非该键在我们上次落盘之后被动过），以及
+// switchDbFile 的移动/采纳语义。
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 import { Notice, TFile } from 'obsidian';
 
-// i18n resolves the locale from window.moment at module load; provide a
-// stand-in before src/database (and its i18n import) is evaluated.
+// i18n 在模块加载时从 window.moment 解析出 locale；所以要在 src/database（以及它的
+// i18n import）被求值之前先放一个替身。
 vi.hoisted(() => {
 	(window as unknown as { moment: unknown }).moment = { locale: () => 'en' };
 });
@@ -23,12 +21,12 @@ import { DEFAULT_SETTINGS, type PluginSettings } from '@/types';
 const DB_PATH = '.obsidian/plugins/position-restore/positions.json';
 const PLUGIN_DIR = '.obsidian/plugins/position-restore';
 
-// Side copies of unreadable db content (the timestamp in the name varies).
+// 读不出来的库内容旁边的那些副本（名字里的时间戳是变的）。
 const copies = (files: Record<string, string>): string[] =>
 	Object.keys(files).filter((p) => p.startsWith(`${PLUGIN_DIR}/positions.corrupt-`)).sort();
 
-// The test stub's Notice records what the user was told and for how long; the
-// obsidian typings only declare the real constructor.
+// 测试桩的 Notice 记下用户被告知了什么、以及展示了多久；obsidian 的类型声明里只有
+// 真实的构造函数。
 type StubNotice = { message: string; duration: number | undefined };
 const notices = (): StubNotice[] =>
 	(Notice as unknown as { instances: StubNotice[] }).instances;
@@ -39,7 +37,7 @@ const POINT = (line: number, ch: number) => ({ from: { line, ch }, to: { line, c
 
 function makeHarness(files: Record<string, string> = {}, settings: Partial<PluginSettings> = {}) {
 	let mtime = 1000;
-	// Simulates another device replacing a file behind our back.
+	// 模拟另一台设备在我们背后换掉一个文件。
 	const externalWrite = (p: string, data: string) => {
 		files[p] = data;
 		mtime += 1;
@@ -67,14 +65,13 @@ function makeHarness(files: Record<string, string> = {}, settings: Partial<Plugi
 		mkdir: vi.fn(async () => undefined),
 		stat: vi.fn(async (p: string) => (p in files ? { mtime } : null)),
 	};
-	// frontmatters maps vault file paths to the frontmatter the metadata
-	// cache reports for them; a path missing from the map means "file does not
-	// exist / not parsed yet". Tests mutate the map to simulate frontmatter
-	// edits and lazy parsing.
+	// frontmatters 把 vault 里的文件路径映射到元数据缓存为它们报告的 frontmatter；映射里
+	// 缺席的路径意味着「文件不存在 / 还没解析」。测试改动这张映射，来模拟 frontmatter
+	// 被编辑和惰性解析。
 	const frontmatters: Record<string, unknown> = {};
-	// The frontmatter block's span per path, as metadataCache reports it in
-	// frontmatterPosition — set without a `frontmatter` entry, so the cursor's
-	// open-default line can be tested on its own.
+	// 每个路径的 frontmatter 块的跨度，就是 metadataCache 在 frontmatterPosition 里报告的
+	// 那个 —— 设置时**不带** `frontmatter` 条目，好让光标那个「打开时的默认行」能单独被
+	// 测到。
 	const fmPositions: Record<string, unknown> = {};
 	const known = (p: string) => p in frontmatters || p in fmPositions;
 	const app = {
@@ -123,7 +120,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { cursor: POINT(3, 7) });
 		await db.writeDb();
-		// no scroll saved → scroll slot is 0; decode treats 0 as "no scroll"
+		// 没存 scroll → scroll 槽是 0；解码把 0 当成「没有 scroll」
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[3,7,3,7],"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
@@ -137,8 +134,8 @@ describe('记录编解码（写入 → 读回）', () => {
 		await db.writeDb();
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 
-		// One already on disk (written before the rule, or by another device)
-		// reads back as the tombstone it really is, not as a position.
+		// 盘上已经有的那一个（在这条规则之前写的、或另一台设备写的），读回来时是它真正的样子
+		// —— 一条墓碑，而不是一个位置。
 		files[DB_PATH] = '{"schema":2,"positions":{"b.md":{"c":[0,0,0,0]}}}';
 		db.db = {};
 		await db.readDb();
@@ -147,8 +144,8 @@ describe('记录编解码（写入 → 读回）', () => {
 
 	it('打开后没动过的记录写成 {} —— 它的光标停在 frontmatter 的默认位置上', async () => {
 		const { db, files, fmPositions } = makeHarness();
-		// frontmatter occupies lines 0..4, so Obsidian opens with the cursor on
-		// line 5 — what "nothing happened" looks like in a vault with YAML.
+		// frontmatter 占着第 0..4 行，所以 Obsidian 打开时光标在第 5 行 —— 这就是一个带 YAML
+		// 的 vault 里「什么都没发生」的样子。
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(5, 0) });
 		await db.writeDb();
@@ -191,7 +188,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		db.setState('a.md', { scroll: 5 });
 		expect(db.db['a.md'].time).toEqual(expect.any(Number));
 
-		// Moving a record to another path is not the reader moving.
+		// 把一条记录挪到另一个路径，不是读者在动。
 		db.setState('b.md', { ...db.db['a.md'] });
 		expect(db.db['b.md'].time).toBe(db.db['a.md'].time);
 	});
@@ -206,8 +203,8 @@ describe('坏数据加固（readDb / parseDb）', () => {
 
 		expect(db.db).toEqual({});
 		expect(copies(files)).toEqual([]);
-		// The leading stat doubles as the existence check, so a first run costs
-		// a single round-trip and says nothing — there is nothing to report.
+		// 开头那次 stat 顺带兼作存在性检查，所以第一次运行只花一轮往返、而且一声不吭 ——
+		// 没有任何东西要报告。
 		expect(adapter.read).not.toHaveBeenCalled();
 		expect(consoleError).not.toHaveBeenCalled();
 	});
@@ -227,11 +224,11 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		expect(db.db).toEqual({});
 		expect(copies(files)).toHaveLength(1);
 		expect(files[copies(files)[0]]).toBe('{oops');
-		// the unreadable file itself stays put — the next flush replaces it
+		// 读不出来的那个文件本身留在原地 —— 下一次落盘会把它替换掉
 		expect(files[DB_PATH]).toBe('{oops');
 		expect(messages()).toEqual([expect.stringContaining(copies(files)[0])]);
-		// duration 0 = Obsidian keeps it on screen until the user dismisses it:
-		// the loss is not something to be missed while looking elsewhere
+		// duration 为 0 = Obsidian 会把它留在屏幕上直到用户关掉：这份损失不该在读者看向别处时
+		// 被错过
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
@@ -266,13 +263,12 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		await h.db.readDb();
 		expect(copies(h.files)).toHaveLength(1);
 
-		// the retry loop reading the same unreadable content again must not
-		// spawn a second copy — or repeat the notice
+		// 重试循环再次读到同一份读不出来的内容时，不许再生成第二份副本 —— 也不许重复那条提示
 		await h.db.mergeExternalChanges();
 		expect(copies(h.files)).toHaveLength(1);
 		expect(messages()).toHaveLength(1);
 
-		// different bytes are a different loss
+		// 不同的字节是另一次损失
 		h.externalWrite(DB_PATH, '<<<<<<< LOCAL\n{}');
 		await h.db.mergeExternalChanges();
 		expect(copies(h.files)).toHaveLength(2);
@@ -328,8 +324,7 @@ describe('坏数据加固（readDb / parseDb）', () => {
 	});
 
 	it('成员不是数字时给出空记录，而不是漏出脏数据', async () => {
-		// A schema 1 file holds arrays by contract; anything else is unreadable
-		// data and yields an empty record too.
+		// schema 1 的文件按理是一堆数组；别的东西都是读不出来的数据，也产出一条空记录。
 		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[1,"x",2],"b.md":{"s":5}}' });
 		await db.readDb();
 		expect(db.db).toEqual({ 'a.md': {}, 'b.md': {} });
@@ -492,8 +487,8 @@ describe('按 frontmatter 排除', () => {
 	it('metadata 缓存还没解析的文件（懒解析），记录留住', () => {
 		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
 		h.db.setState('a.md', { scroll: 1 });
-		// frontmatters stays empty → "not parsed" → the record survives here;
-		// the recording gate drops it on the file's next open/poll instead.
+		// frontmatters 保持为空 → 「还没解析」→ 这条记录在这儿留住了；改由记录闸门在这个文件
+		// 下次打开/轮询时把它丢掉。
 
 		expect(h.db.pruneDb()).toBe(0);
 		expect(Object.keys(h.db.db)).toEqual(['a.md']);
@@ -568,7 +563,7 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		db.setState('a.md', { scroll: 300, time: 5000 });
 		await db.writeDb();
 
-		// the other device stopped reading this note long before we did
+		// 另一台设备停止读这篇笔记的时间比我们早得多
 		externalWrite(DB_PATH, JSON.stringify({
 			schema: 2, positions: { 'a.md': { s: 0, t: 1000 } },
 		}));
@@ -583,7 +578,7 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		db.setState('b.md', { scroll: 300, time: 1000 });
 		await db.writeDb();
 
-		// a.md: the same stamp; b.md: none at all (a writer from before `t`)
+		// a.md：同一个戳；b.md：压根没有戳（一个来自 `t` 出现之前的写者）
 		externalWrite(DB_PATH, JSON.stringify({
 			schema: 2, positions: { 'a.md': { s: 9, t: 1000 }, 'b.md': { s: 9 } },
 		}));
@@ -637,12 +632,11 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
 
-		// Another device lands a new record while we run.
+		// 我们跑着的时候，另一台设备落了一条新记录。
 		externalWrite(DB_PATH, JSON.stringify({ 'a.md': [1], 'c.md': [7] }));
 
-		// Stall the first read so the sync merge and the flush's pre-write
-		// merge overlap. The flush must wait for the merge, not bail and
-		// write over the newer file.
+		// 把第一次读取拖住，好让同步合并与落盘前的那次合并重叠。落盘必须等这次合并，而不是
+		// 掉头走开、把更新的那份文件盖掉。
 		const origRead = adapter.read.getMockImplementation()!;
 		let reads = 0;
 		adapter.read.mockImplementation(async (p: string) => {
@@ -667,14 +661,12 @@ describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）'
 	it('写入进行中到来的 setState 要保持脏标记，由下一次落盘把它写下去', async () => {
 		const { db, adapter, files } = makeHarness();
 		db.setState('a.md', { scroll: 2 });
-		// Kept aside: the concurrent setState below replaces the record, and
-		// with it the stamp — this is the one the first flush carried.
+		// 先留一份：下面那个并发的 setState 会替换掉这条记录，连带替换掉它的戳 —— 而首次落盘
+		// 带下去的正是这一个。
 		const flushedStamp = db.db['a.md'].time;
 
-		// Land a concurrent setState synchronously at the start of the actual
-		// adapter write — i.e. after writeDb has already serialized its
-		// snapshot. This is exactly where the 100ms poll interleaves in real
-		// usage.
+		// 在真正写 adapter 的那一刻同步落下一个并发 setState —— 也就是 writeDb 已经序列化完
+		// 它那份快照之后。真实使用中 100ms 的轮询恰好就是插在这儿。
 		const origWrite = adapter.write.getMockImplementation()!;
 		let injected = false;
 		adapter.write.mockImplementation(async (p: string, data: string) => {
@@ -687,12 +679,12 @@ describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）'
 
 		await db.writeDb();
 
-		// The flush captured scroll 2 (its snapshot predates the setState),
-		// but the concurrent change must NOT be cleared by it.
+		// 这次落盘采到的是 scroll 2（它的快照早于那个 setState），但那次并发的改动绝不能被它
+		// 清掉。
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":2,"t":' + flushedStamp + '}}}');
 		expect(db.dbDirty).toBe(true);
 
-		// The next flush persists the newer value.
+		// 下一次落盘会把更新的那个值写下去。
 		await db.writeDb();
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":3,"t":' + db.db['a.md'].time + '}}}');
 		expect(db.dbDirty).toBe(false);
@@ -709,9 +701,8 @@ describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）'
 			adapter.write.mockImplementation(async (p: string, data: string) => {
 				if (!injected) {
 					injected = true;
-					// Real disk I/O takes longer than a millisecond; model that
-					// so the concurrent touch's stamp is strictly after the
-					// flush's snapshot moment (lastFlushTime).
+					// 真实的磁盘 I/O 不止一毫秒；照这个建模，好让那次并发触碰的戳严格晚于落盘采快照的
+					// 那一刻（lastFlushTime）。
 					vi.advanceTimersByTime(10);
 					db.setState('a.md', { scroll: 3 });
 				}
@@ -721,9 +712,8 @@ describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）'
 			await db.writeDb();
 			expect(db.dbDirty).toBe(true); // the concurrent change survived the flush
 
-			// A foreign file lands on disk. lastFlushTime reads as the flush's
-			// snapshot moment — BEFORE the concurrent touch — so the in-memory
-			// scroll 3 is treated as locally newer than the flushed disk copy.
+			// 一个外来的文件落到盘上。lastFlushTime 读出来是落盘采快照的那一刻 —— **早于**那次
+			// 并发触碰 —— 所以内存里的 scroll 3 会被当成比落盘出去的那份盘上副本更新。
 			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
 			await db.mergeExternalChanges();
 			expect(db.db['a.md']).toEqual({ scroll: 3, time: expect.any(Number) });
@@ -784,8 +774,7 @@ describe('switchDbFile', () => {
 		const { db, files, adapter } = makeHarness({
 			[DB_PATH]: '{"a.md":[5]}',
 			'package.json': '{"name":"x","deps":["a"]}',
-			// Numeric arrays pass the value check; only the outer note-path
-			// key check rejects this one.
+			// 数字数组能通过值的检查；只有外层「笔记路径」这一道键检查会把它拒掉。
 			'chart.json': '{"series":[1,2,3],"axis":[0]}',
 		});
 		await db.readDb();
@@ -829,7 +818,7 @@ describe('schema 版本与旧文件', () => {
 		expect(messages()).toEqual([t('dataStorage.legacyDb.notice')]);
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 
-		// the same old file seen again is not news
+		// 同一个旧文件再看一遍不是新闻
 		h.db.db = {};
 		await h.db.readDb();
 		expect(messages()).toHaveLength(1);
@@ -841,15 +830,15 @@ describe('schema 版本与旧文件', () => {
 		await h.db.writeDb();
 		expect(messages()).toEqual([]);
 
-		// another device still running the old plugin overwrites it
+		// 另一台还在跑旧版插件的设备把它覆盖了
 		h.externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9] }));
 		await h.db.mergeExternalChanges();
-		// A pre-`t` record is the oldest there is, so ours stands. The file
-		// still changed hands, which is what the notice is about.
+		// 一条没有 `t` 的记录是最旧的，所以我们那份站得住。但这个文件仍然易了主，而那条提示讲的
+		// 正是这件事。
 		expect(h.db.db['a.md']).toEqual({ scroll: 5, time: expect.any(Number) });
 		expect(messages()).toEqual([t('dataStorage.legacyDb.noticeOverwritten')]);
 
-		// still old afterwards: already said, do not repeat
+		// 之后仍然是旧的：已经说过了，不要再重复
 		h.externalWrite(DB_PATH, JSON.stringify({ 'a.md': [10] }));
 		await h.db.mergeExternalChanges();
 		expect(messages()).toHaveLength(1);
@@ -860,7 +849,7 @@ describe('schema 版本与旧文件', () => {
 			[DB_PATH]: '{"schema":3,"positions":{"a.md":{"s":5,"c":[1,0,1,0],"t":1695}},"extra":{}}',
 		});
 		await h.db.readDb();
-		// the fields we share are read; the one we do not know is ignored
+		// 我们共有的字段读出来；我们不认识的那个被忽略
 		expect(h.db.db['a.md']).toEqual({ scroll: 5, cursor: POINT(1, 0), time: 1695 });
 		expect(messages()).toEqual([]);
 	});
@@ -879,7 +868,7 @@ describe('schema 版本与旧文件', () => {
 describe('墓碑淘汰', () => {
 	it('超过上限时先淘汰墓碑，才轮到真位置', () => {
 		const { db } = makeHarness();
-		// 800 records, half of them tombstones
+		// 800 条记录，其中一半是墓碑
 		for (let i = 1; i <= 800; i++)
 			db.setState(`f${i}`, i % 2 === 0 ? {} : { scroll: i });
 
@@ -887,8 +876,7 @@ describe('墓碑淘汰', () => {
 		const keys = Object.keys(db.db);
 		expect(keys).toHaveLength(562);
 
-		// every real position survived; the 238 dropped all came from the
-		// tombstones (400 - 238 = 162 of them remain)
+		// 每一个真实位置都活了下来；被丢掉的 238 个全部来自墓碑（400 - 238 = 162 个留下）
 		const live = keys.filter((k) => db.db[k].scroll !== undefined);
 		const tombs = keys.filter((k) => db.db[k].scroll === undefined);
 		expect(live).toHaveLength(400);
@@ -897,8 +885,8 @@ describe('墓碑淘汰', () => {
 
 	it('打开后没动过的记录也排在真位置前面淘汰', () => {
 		const { db, fmPositions } = makeHarness();
-		// 800 records, half of them merely opened: the cursor sits on the line
-		// after the frontmatter, so they carry no position at all.
+		// 800 条记录，其中一半只是被打开过：光标停在 frontmatter 之后那一行，所以它们根本不带
+		// 任何位置。
 		for (let i = 1; i <= 800; i++) {
 			const path = `f${i}.md`;
 			fmPositions[path] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
@@ -908,24 +896,23 @@ describe('墓碑淘汰', () => {
 		db.pruneDb();
 		const keys = Object.keys(db.db);
 		expect(keys).toHaveLength(562);
-		// every real position survived; the 238 dropped all came from the
-		// untouched opens (400 - 238 = 162 of them remain)
+		// 每一个真实位置都活了下来；被丢掉的 238 个全部来自那些没动过的打开（400 - 238 = 162
+		// 个留下）
 		expect(keys.filter((k) => db.db[k].scroll !== undefined)).toHaveLength(400);
 		expect(keys.filter((k) => db.db[k].scroll === undefined)).toHaveLength(162);
 	});
 
 	it('刚滚到顶的笔记要留得比更旧的真位置更优先', () => {
 		const { db } = makeHarness();
-		// 800 records: the oldest 250 hold real positions, everything newer is
-		// a tombstone — the newest of all is the note just scrolled to the top.
+		// 800 条记录：最旧的 250 个握着真实位置，更新的全都是墓碑 —— 其中最新的那个是刚滚到
+		// 顶部的笔记。
 		for (let i = 1; i <= 800; i++)
 			db.setState(`f${i}`, i <= 250 ? { scroll: i } : {});
 
 		db.pruneDb();
 		expect(Object.keys(db.db)).toHaveLength(562);
-		// Cheapness reaches only outside the recency window, so the 238 dropped
-		// all come from the oldest tombstones: no real position is lost, and
-		// the note topped last is still there.
+		// 「廉价」只够得到新鲜窗口之外，所以被丢掉的 238 个全部来自最旧的那些墓碑：没有一个
+		// 真实位置丢失，而最后被置顶的那篇笔记还在。
 		expect(db.db['f1']).toEqual({ scroll: 1, time: expect.any(Number) });
 		expect(db.db['f250']).toEqual({ scroll: 250, time: expect.any(Number) });
 		expect(db.db['f800']).toEqual({ time: expect.any(Number) });
@@ -935,8 +922,8 @@ describe('墓碑淘汰', () => {
 describe('countDefaultPosition', () => {
 	it('只数那些没有任何位置的记录，一条不多数', () => {
 		const { db, fmPositions } = makeHarness();
-		// Same open-default line for both: frontmatter ends at line 4, so the
-		// app parks the cursor on line 5.
+		// 两者用同一个「打开时的默认行」：frontmatter 在第 4 行结束，所以 app 把光标停在
+		// 第 5 行。
 		const fm = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		for (const p of ['a.md', 'c.md'] as const)
 			fmPositions[p] = fm;
