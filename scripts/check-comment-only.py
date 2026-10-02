@@ -25,9 +25,24 @@ COMMENT_PREFIXES = ('//', '/*', '*', '*/')
 # 所以 CSS 是唯一需要这条路的面；将来若别的语言进仓，把扩展名加到这里即可。
 BLOCK_COMMENT_EXTS = {'.css'}
 
+# 整行注释以 `#` 开头的扩展名（shell / YAML）。2026-10-02 中文化 `reload.sh` 与
+# `.github/workflows/release.yml` 时引入：它们的注释全是 `#`，而 `COMMENT_PREFIXES` 只认
+# `//` 与 `/* */` ⇒ `#` 注释行会被当成代码改动judged FAIL，那两个文件只能改用
+# 「剥掉纯注释行后逐行比对」自证。加进判据后它们走标准路径。
+# ⚠️ `.json`（tsconfig.json 那种 JSONC）不在这里：它的注释是 `//`，走默认行启发式即可。
+HASH_COMMENT_EXTS = {'.sh', '.yml', '.yaml'}
 
-def is_comment(body: str) -> bool:
-	return body.startswith(COMMENT_PREFIXES) or body == '' or body.endswith('*/')
+
+def is_comment(body: str, ext: str = '') -> bool:
+	if body == '' or body.endswith('*/'):
+		return True
+	if body.startswith(('//', '/*', '*')):
+		return True
+	# `#` 注释只对 shell / YAML 认，且放过 shebang —— `#!/usr/bin/env bash` 是解释器指令，
+	# 不是会被中文化的散文。
+	if ext in HASH_COMMENT_EXTS and body.startswith('#') and not body.startswith('#!'):
+		return True
+	return False
 
 
 def is_trailing_comment_change(old: str, new: str) -> bool:
@@ -39,19 +54,47 @@ def is_trailing_comment_change(old: str, new: str) -> bool:
 	return code_part(old) == code_part(new)
 
 
-def code_part(line: str) -> str:
+def code_part(line: str, ext: str = '') -> str:
+	"""行尾注释之前的代码部分。分隔符按扩展名取：`//` 通用；shell / YAML 用 `#`。
+
+	`#` 的定位规则（三条都要）：
+	- **跳过引号内的 `#`** —— `echo "a#b" # 说明` 里那个 `a#b` 不是注释；
+	- 前面**不是空白**（前面是空白时整行由 `is_comment` 放行，那是独占行的注释）；
+	- 它后面跟点空白或行尾（`#说明` 不是一个 `#` 注释，更像路径/片段）。
+	满足任一条就不切。"""
+	if ext in HASH_COMMENT_EXTS:
+		quote = ''
+		for i, ch in enumerate(line):
+			if quote:
+				if ch == quote:
+					quote = ''
+				continue
+			if ch in ('"', "'"):
+				quote = ch
+				continue
+			if ch != '#':
+				continue
+			before = line[:i]
+			if before.strip() == '' or not line[i + 1:].startswith((' ', '\t')) \
+					and line[i + 1:] != '':
+				continue
+			return before.rstrip()
+		return line
 	return line.split('//', 1)[0].rstrip()
 
 
-def comment_only_run(olds: list[str], news: list[str]) -> bool:
+def comment_only_run(olds: list[str], news: list[str], ext: str = '') -> bool:
 	"""一整组连续的 `-` 行后面跟一整组连续的 `+` 行。git diff 会把相邻改动并成一组，组内两边行数
 	不一定相等（注释块重排会增减行）。
-	- 两边都全是纯注释行 ⇒ 通过。
-	- 否则比较两边的**代码部分多重集**：相等即证明这些改动只落在 `//` 之后。行尾注释（`code; // 说明`）
-	  就在这一类里，且天然挡住真正的代码改动（改名、增删、缩进变化都会让多重集不同）。"""
-	if all(is_comment(o.strip()) for o in olds) and all(is_comment(n.strip()) for n in news):
-		return True
-	return Counter(code_part(o) for o in olds) == Counter(code_part(n) for n in news)
+
+	**纯注释行整条跳过**，只比代码行 —— 这一条是关键：纯注释行的 `code_part` 是空串，
+	空串也会进多重集，于是「一个正在缩短的块注释」（3 行 → 2 行）会把空串记成 3 个对 2 个而误判。
+	真实的场景是块注释与**紧挨其下的行尾注释**被同一个 `-U0` hunk 并进一组
+	（2026-10-02 译 `recent-files-browser-dom.test.ts` 时踩到，7 行假 FAIL）。
+	跳过之后，纯注释的增删行数被忽略（那是本脚本要放行的那一面），行尾注释仍按其代码部分比对。"""
+	code_olds = [o for o in olds if not is_comment(o.strip(), ext)]
+	code_news = [n for n in news if not is_comment(n.strip(), ext)]
+	return Counter(code_part(o, ext) for o in code_olds) == Counter(code_part(n, ext) for n in code_news)
 
 
 def strip_block_comments(text: str) -> str:
@@ -136,6 +179,7 @@ def check_line_file(path: str) -> tuple[bool, str, list[str]]:
 	).stdout
 	skips = ('+++', '---', '@@', 'diff ', 'index ', 'old mode', 'new mode',
 		'new file', 'deleted file', 'similarity ', 'rename ', '\\ No newline')
+	ext = os.path.splitext(path)[1].lower()
 	bad: list[str] = []
 	lines = diff.split('\n')
 	i = 0
@@ -155,11 +199,11 @@ def check_line_file(path: str) -> tuple[bool, str, list[str]]:
 			news = []
 			while j < len(lines) and lines[j][:1] == '+':
 				news.append(lines[j][1:]); j += 1
-			if not comment_only_run(olds, news):
+			if not comment_only_run(olds, news, ext):
 				bad += ['-' + o for o in olds] + ['+' + n for n in news]
 			i = j
 			continue
-		if not is_comment(line.strip()):
+		if not is_comment(line.strip(), ext):
 			bad.append(line)
 		i += 1
 	if bad:
