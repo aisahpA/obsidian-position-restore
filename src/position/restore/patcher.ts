@@ -8,8 +8,8 @@ import { stripLinkAlias } from '@/nav/entry';
 import { isMainAreaLeaf, isPopoverLeaf } from '@/shared/leaf';
 import type { Sampler } from '@/position/capture/sampler';
 
-// The view/ephemeral state payloads flowing through setViewState on opens
-// are internal and untyped; declare the minimal fields this plugin reads.
+// open 时流经 setViewState 的视图 / ephemeral state 载荷是内部结构、没有类型；
+// 这里声明本插件要读的那几个最小字段。
 interface OpenViewState {
 	type: unknown;
 	state?: {
@@ -18,8 +18,8 @@ interface OpenViewState {
 	};
 }
 
-// The same argument also carries caller-submitted targets (search match,
-// outline/backlinks' is-flashing) on top of the position fields.
+// 同一个参数在位置字段之外，还会带上调用方提交的目标（搜索命中、
+// 大纲 / 反向链接的 is-flashing）。
 type OpenEphemeralState = EphemeralState & {
 	match?: unknown;
 	'is-flashing'?: unknown;
@@ -33,10 +33,9 @@ type SetViewState = (
 
 type OpenLinkText = (this: Workspace, ...args: unknown[]) => Promise<void>;
 
-// Installs the patches restore relies on — setViewState (inject the saved
-// position into the open's ephemeral state) and openLinkText (flag
-// heading/block link navigations so saved positions yield to link targets).
-// All cross-phase coordination flags live on the shared PositionState.
+// 装上恢复所依赖的那些补丁 —— setViewState（把保存的位置注入进这次 open 的
+// ephemeral state）与 openLinkText（给标题 / 块链接导航打标记，好让保存的位置
+// 让位给链接目标）。所有跨阶段协调用的标记都住在共享的 PositionState 上。
 export class OpenPatcher {
 	private app: App;
 	private settings: PluginSettings;
@@ -54,7 +53,7 @@ export class OpenPatcher {
 		this.state = state;
 	}
 
-	// registerCleanup must undo both on plugin unload.
+	// 插件卸载时 registerCleanup 必须把两个补丁都撤掉。
 	installPatches(registerCleanup: (fn: () => void) => void) {
 		this.patchSetViewState(registerCleanup);
 		this.patchOpenLinkText(registerCleanup);
@@ -67,8 +66,8 @@ export class OpenPatcher {
 		const originalSetViewState = leafProto.setViewState;
 		if (!originalSetViewState)
 			return;
-		// Arrow keeps `this` lexical; the wrapper below must stay a plain
-		// function so core's `this` (the leaf) is preserved.
+		// 箭头函数让 `this` 保持词法作用域；下面的包装器必须是个普通函数，
+		// core 传的 `this`（那个 leaf）才能保住。
 		const injectOnOpen = (leaf: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) =>
 			this.injectEphemeralStateOnOpen(leaf, viewState, eState);
 		leafProto.setViewState = function (this: WorkspaceLeaf, viewState: OpenViewState, eState?: OpenEphemeralState) {
@@ -82,21 +81,20 @@ export class OpenPatcher {
 
 	private patchOpenLinkText(registerCleanup: (fn: () => void) => void) {
 		const workspace = this.app.workspace as Workspace & { openLinkText: OpenLinkText };
-		// Captured unbound on purpose: the wrapper re-binds it per call
-		// (`apply(this, args)`) so core's chosen `this` (the workspace) wins.
-		// eslint-disable-next-line @typescript-eslint/unbound-method -- intentional capture for per-call rebinding
+		// 故意不绑定地抓下来：包装器每次调用都重新绑定（`apply(this, args)`），
+		// core 选定的 `this`（那个 workspace）才说了算。
+		// eslint-disable-next-line @typescript-eslint/unbound-method -- 故意不绑定地抓下来，好在每次调用时重新绑定
 		const originalOpenLinkText = workspace.openLinkText;
 		if (typeof originalOpenLinkText !== 'function')
 			return;
 		const state = this.state;
 		const settings = this.settings;
 		workspace.openLinkText = async function (this: Workspace, ...args: unknown[]) {
-			// Transient slot: openLinkText doesn't know the target leaf yet, so
-			// the setViewState patch in this call stack promotes it onto
-			// pendingOpenKind. 'anchorLink' = heading/block target;
-			// 'startPlainLink' = the 'start' setting (open at file start, leave
-			// the saved record untouched). Cleared first so a stale entry from an
-			// open that never reached setViewState can't leak into this one.
+			// 临时槽位：openLinkText 这时还不知道目标 leaf，所以由这次调用栈里
+			// 的 setViewState 补丁把它提升到 pendingOpenKind 上。'anchorLink' =
+			// 标题 / 块目标；'startPlainLink' = 'start' 设置（在文件开头打开，
+			// 保存的记录不动）。先清空，免得某次从未走到 setViewState 的 open
+			// 留下的过期条目漏进这一次。
 			state.pendingLinkKind = undefined;
 		state.pendingLinkText = undefined;
 		const linktext: unknown = args[0];
@@ -104,8 +102,8 @@ export class OpenPatcher {
 			&& (linktext.includes('#') || linktext.includes('^'));
 		if (hasTarget) {
 			state.pendingLinkKind = 'anchorLink';
-			// The alias comes off HERE, not where the key is read: what arrives is
-			// the whole wikilink, and its label is no part of the target.
+			// 别名在**这里**剥掉，不是在读 key 的地方：送进来的是整个 wikilink，
+			// 而它的标签并不属于目标的一部分。
 			state.pendingLinkText = stripLinkAlias(linktext);
 		} else if (settings.linkOpenPosition === 'start') {
 			state.pendingLinkKind = 'startPlainLink';
@@ -125,79 +123,71 @@ export class OpenPatcher {
 		});
 	}
 
-	// Injects the saved position into the open's ephemeral-state argument, so
-	// core applies it in the exact pipeline slot it uses for its own restore:
-	// synchronously with the content swap, before any paint. The ONLY place a
-	// source-mode restore can be flicker-free — 'file-open' is emitted through
-	// a debounced callback, i.e. after the note was painted at its default
-	// position.
+	// 把保存的位置注入进这次 open 的 ephemeral state 参数，好让 core 在它给
+	// 自己做恢复时用的那个流水线槽位里应用它：与内容交换同步，早于任何绘制。
+	// 这是源码模式的恢复唯一能不带闪烁的地方 —— 'file-open' 是经由一个防抖
+	// 回调发出的，也就是在笔记已经按默认位置画出来之后。
 	private injectEphemeralStateOnOpen(leaf: WorkspaceLeaf, viewState: OpenViewState, eState: OpenEphemeralState | undefined): OpenEphemeralState | undefined {
 		if (!viewState || typeof viewState.type !== 'string')
 			return eState;
 		const filePath = viewState.state?.file;
 		if (typeof filePath !== 'string' || !filePath)
 			return eState;
-		// A hover preview that hosts a real leaf opens where the app opens it:
-		// no position, no cover, and no entry in the navigation of the panes.
+		// 一个承载着真正 leaf 的悬停预览，就在 app 打开它的地方打开：不要位置、
+		// 不要遮罩，也不在窗格的导航里留条目。
 		if (isPopoverLeaf(leaf))
 			return eState;
 		const leafId = this.state.leafId(leaf);
 
-		// A setViewState for an already-handled leaf+file is core REPLAYING the
-		// leaf's cached view state, not a new open — the deferred rebuild of an
-		// inactive tab, or a quick-switcher re-pick of the current file.
-		// leaf.view can't detect it: at patch time the tab's view isn't
-		// installed yet. Keep the handled marker; drop a pending kind that
-		// never met its file-open.
+		// 对一个已经处理过的 leaf+file 调 setViewState，是 core 在**重放**这个
+		// leaf 缓存的视图状态，不是一次新的 open —— 未激活标签页的延迟重建，
+		// 或快速切换器重新选中当前文件。leaf.view 检测不出来：打补丁这一刻
+		// 标签页的视图还没装上。保留「已处理」标记；丢掉那个从未遇到自己
+		// file-open 的待定 kind。
 		const isReplay = this.state.handledLeafIdMap.get(leafId) === filePath;
 		if (isReplay) {
 			this.state.pendingOpenKind.delete(leaf);
 		} else {
-			// Anything else replaces this leaf's content (a different file, or
-			// the 'empty' state after closing the last tab): drop the stale
-			// bookkeeping so a later reopen of the same file restores again.
+			// 其它任何情况都会替换这个 leaf 的内容（换一个文件，或关掉最后一个
+			// 标签页后的 'empty' 状态）：把过期的账丢掉，好让之后重新打开同一个
+			// 文件时还能再恢复一次。
 			this.resetLeafOpenState(leaf);
 		}
 
-		// Every open that changes this leaf's file is a jump; a replay is one
-		// only when it carries a same-file target (outline/backlinks clicks on
-		// the open note fire no file-open). recordOpen applies its own gates.
-		// "Update on leave" first: the view being swapped away still holds the
-		// position the user jumps from — refresh the top entry so a later
-		// traversal targeting it lands there. No-op once the top moved on.
+		// 每一次改变这个 leaf 文件的 open 都是一次跳转；重放只有带上同文件目标
+		// 时才算（在当前打开的笔记上点大纲 / 反向链接不触发 file-open）。
+		// recordOpen 自己会套闸门。「离开时更新」放最前：正被换走的那个视图还
+		// 握着用户跳离时的位置 —— 刷新栈顶那一步，好让之后针对它的遍历落在这里。
+		// 栈顶一旦走开就是空操作。
 		const leavingView = leaf.view;
 		if (leavingView instanceof MarkdownView && leavingView.file) {
 			const fromSt = readNavEntryState(leavingView);
 			if (fromSt) {
 				this.funnel.leave(leavingView.file.path, leafId, fromSt);
-				// The record's regular writers lag (poll tick, debounced
-				// capture): a move + quick jump-away inside that window loses
-				// the final position. Dedup makes no-movement a no-op.
+				// 记录的常规写入方会滞后（轮询 tick、防抖采集）：在这个窗口里
+				// 挪一下又迅速跳走，就丢了最终位置。去重让「没移动」成为空操作。
 				this.sampler.flushOnLeave(leavingView, leavingView.file.path, fromSt);
 			}
 		}
 		const sameFileTarget = !!eState?.match || !!eState?.['is-flashing'];
-		// Main-area leaves only — a sidebar panel re-asserting the tracked
-		// file (outline/backlinks) is not a jump.
+		// 只算主区域里的 leaf —— 侧边栏面板重新声明它跟踪的文件
+		// （大纲 / 反向链接）不算一次跳转。
 		if (isMainAreaLeaf(this.app, leaf))
 			this.funnel.recordOpen(filePath, leafId, {
-				// Caller targets (search match, backlinks is-flashing) carry no
-				// linktext: key them uniquely so the entry takes the keyed
-				// precise-landing regime — the settle-capture backfills the
-				// landing and later leaves never overwrite it.
+				// 调用方目标（搜索命中、反向链接 is-flashing）不带 linktext：
+				// 给它们一个唯一的 key，让这一步走「带 key 的精确落点」那套 ——
+				// 落定时的采集会回填落点，之后离开时永不覆盖它。
 				key: this.state.pendingLinkText ?? (sameFileTarget ? `caller:${Date.now()}` : undefined),
 				force: sameFileTarget,
 			});
 
-		// A stack traversal (pendingHistoryNav, consumed here — single shot):
-		// inject OUR saved position over the native entry's eState, which
-		// carries only the cursor. Bypasses the callerTarget yield and the
-		// glide choice on purpose — traversal must land instantly, on the file
-		// record (or the entry's own landing when it carries one), not on the
-		// native cursor. No record → the native target stands. Non-markdown
-		// traversals fall through untouched — their positions are native.
-		// File-guarded: the flag is global, so an unrelated open that stole it
-		// must not be handed another file's position.
+		// 一次栈遍历（pendingHistoryNav，在这里消费 —— 只此一次）：把**我们**保存
+		// 的位置注入到原生条目的 eState 之上，后者只带光标。故意绕过 callerTarget
+		// 的让位与滑行的选择 —— 遍历必须瞬间落定，落在文件的记录上（或这一步
+		// 自己带的落点上），而不是原生光标上。没有记录 → 原生目标说了算。
+		// 非 markdown 的遍历原样穿过去 —— 它们的位置是原生的。
+		// 按文件把关：这个标记是全局的，所以某次偷走它的无关 open，绝不能被塞进
+		// 另一个文件的位置。
 		if (this.state.pendingHistoryNav) {
 			const navLanding = this.state.pendingHistoryNavPath === filePath
 				? this.state.pendingHistoryNavState
@@ -222,32 +212,29 @@ export class OpenPatcher {
 		}
 
 		if (this.takeOverridingOpenKind(leaf, eState, isReplay)) {
-			// A yielded open needs no file-open restore body — record the pair
-			// so later switches and re-asserts dedup into tracking-only
-			// updates, even when this open never fires 'file-open'.
+			// 一个让了位的 open 不需要 file-open 的恢复过程 —— 把这一对记下来，
+			// 好让之后的切换与重声明去重成「只跟踪」的更新，哪怕这次 open 从未
+			// 触发 'file-open'。
 			this.state.handledLeafIdMap.set(leafId, filePath);
-			// Arm the landing absorb synchronously with the open: core's target
-			// lands asynchronously, and recording must stay absorbing until it
-			// settles. MUST live here and not in the file-open handler — a
-			// same-file search click fires no 'file-open', so the restorer
-			// never runs and the jump itself would be recorded.
+			// 与 open 同步装好落点吸收：core 的目标是异步落地的，记录必须一直
+			// 吸收到它落定为止。**必须**放在这里而不是 file-open 处理器里 ——
+			// 同文件的搜索点击不触发 'file-open'，恢复器根本不会跑，那次跳转
+			// 本身就会被记下来。
 			this.state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 			return eState;
 		}
 
-		// Non-markdown FileViews (pdf, image, ...): scroll-only restore,
-		// applied by restoreFileViewScroll from the file-open handler.
+		// 非 markdown 的 FileView（pdf、图片……）：只恢复 scroll，由 file-open
+		// 处理器里的 restoreFileViewScroll 应用。
 		if (viewState.type !== 'markdown')
 			return eState;
 
-		// Reading view never injects: it renders asynchronously and the
-		// file-open handler restores from the top.
+		// 阅读视图从不注入：它异步渲染，由 file-open 处理器从顶部恢复。
 		const isSourceMode = this.isSourceModeOpen(leaf, viewState);
 		if (!isSourceMode)
 			return eState;
 
-		// the same file open in two tabs must restore each tab's own spot after
-		// a restart.
+		// 同一个文件开在两个标签页，重启后每个标签页必须恢复各自的位置。
 		const st = this.store.read(leafId, filePath);
 		if (this.shouldGlideSource(st))
 			return eState;
@@ -256,21 +243,17 @@ export class OpenPatcher {
 		if (merged.scroll === undefined && merged.cursor === undefined)
 			return eState;
 
-		// A replay re-injects (re-covering the deferred rebuild's editor gap)
-		// only when the replayed eState echoes the saved record — the signature
-		// of our own earlier injection coming back through core's leaf cache.
-		// Anything else stays native: an eState-less re-assert would cover an
-		// open that never fires 'file-open' (cover stuck until the safety
-		// timer), and a diverged position must not yank the user back.
+		// 重放只在「被重放的 eState 与保存的记录吻合」时才重新注入（重新遮住
+		// 延迟重建留下的编辑器空档）—— 那是我们自己先前注入的签名，经 core 的
+		// leaf 缓存又绕了回来。其它情况一律保持原生：没有 eState 的重声明会遮住
+		// 一次从不触发 'file-open' 的 open（遮罩卡到安全定时器为止），而一个
+		// 已经偏离的位置绝不能把用户拽回去。
 		//
-		// EXCEPTION — the startup rebuild: before layout-ready core re-asserts
-		// the active leaf through a second setViewState whose eState is EMPTY
-		// (it reopens the file fresh instead of replaying the cache). The
-		// rebuilt editor lands at the top and the injection is lost; the
-		// following file-open can't recover it, since its settle only
-		// fine-tunes an already-rendered line. Pre-layout-ready the user
-		// cannot have diverged yet, so an empty eState there is always that
-		// rebuild — re-inject.
+		// 例外 —— 启动时的重建：layout ready 之前，core 会用第二次 setViewState
+		// 重声明活动 leaf，其 eState 是**空的**（它是把文件重新打开一遍，而不是
+		// 重放缓存）。重建出来的编辑器落在顶部，注入丢了；随后的 file-open 补
+		// 不回来，因为它的落定只是微调一行已经渲染好的内容。layout ready 之前
+		// 用户不可能已经偏离，所以那里空着的 eState 永远是那次重建 —— 重新注入。
 		const replayIsEmptyRebuild = !this.app.workspace.layoutReady
 			&& !eState?.scroll && !eState?.cursor;
 		if (isReplay && !(
@@ -282,46 +265,42 @@ export class OpenPatcher {
 
 		this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
 
-		// Let the file-open handler know the restore was applied here, so it
-		// re-anchors bookkeeping without re-applying (bookkeeping ownership
-		// stays in restoreEphemeralState). Keyed by leaf id: with the same file
-		// open in two tabs, each tab's file-open must consume its own marker
-		// and run its own settle/reveal. Recording the pair now also keeps
-		// later activations deduped when this open is a background one whose
-		// file-open never fires.
+		// 让 file-open 处理器知道恢复已经在这里应用过了，于是它只重锚账本、
+		// 不再重新应用（账本的归属仍在 restoreEphemeralState 里）。按 leaf id
+		// 作键：同一个文件开在两个标签页时，每个标签页的 file-open 必须消费
+		// 自己的标记、跑自己的 settle/reveal。现在把这一对记下来，也顺带让
+		// 之后那些激活保持去重 —— 当这次 open 是后台 open、其 file-open 从不
+		// 触发时。
 		this.state.injectedOpenLeafIds.add(leafId);
 		this.state.handledLeafIdMap.set(leafId, filePath);
 
 		return { ...merged, ...eState };
 	}
 
-	// Every content change on this leaf supersedes its prior open
-	// bookkeeping, markdown and other FileViews alike. Dropping the handled
-	// entry lets a close-and-reopen of the same file restore again instead of
-	// being wrongly deduped; dropping a stale pendingOpenKind can't misdirect
-	// this open. Per-leaf only — other leaves' markers stay until their tab
-	// is activated.
+	// 这个 leaf 上每一次内容变更都会顶掉它先前那次 open 的账本，markdown 与
+	// 其它 FileView 一样。丢掉「已处理」条目，好让同一个文件关掉再打开时能
+	// 再恢复一次，而不是被错误地去重；丢掉过期的 pendingOpenKind 不会把这次
+	// open 指错。只针对单个 leaf —— 其它 leaf 的标记会一直留着，直到它们的
+	// 标签页被激活。
 	private resetLeafOpenState(leaf: WorkspaceLeaf) {
 		this.state.handledLeafIdMap.delete(this.state.leafId(leaf));
 		this.state.pendingOpenKind.delete(leaf);
 	}
 
-	// A source open with a saved scroll is handled by glideRestore, which
-	// animates from the top to the saved line, so nothing to inject. Same
-	// predicate as the source branch of restoreEphemeralState.
+	// 带保存 scroll 的源码 open 由 glideRestore 处理，它从顶部动画滚到保存的
+	// 那行，所以没什么可注入的。与 restoreEphemeralState 源码分支同一个判据。
 	private shouldGlideSource(st: EphemeralState | undefined): boolean {
 		return this.settings.sourceRestoreMethod === 'glide'
 			&& !!st && (st.scroll ?? 0) > 0;
 	}
 
-	// Consumes the overriding open kind (anchorLink/startPlainLink/
-	// callerTarget): returns it when the open should yield to a non-saved
-	// target, and sets pendingOpenKind so restoreEphemeralState can dispatch.
+	// 消费那个顶替用的 open kind（anchorLink / startPlainLink /
+	// callerTarget）：当这次 open 该让位给一个非保存的目标时返回它，并设好
+	// pendingOpenKind，好让 restoreEphemeralState 能分发。
 	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: OpenEphemeralState | undefined, isReplay: boolean): OpenKind | undefined {
-		// Promote the transient link kind onto this leaf's pending entry, then
-		// clear the slot. Link nav wins over the saved position and over a
-		// coincidental eState cursor/scroll — core's link target is
-		// authoritative. Checked before callerTarget for that reason.
+		// 把这个临时的链接 kind 提升到这个 leaf 的待定条目上，然后清空槽位。
+		// 链接导航胜过保存的位置，也胜过恰好撞上的 eState 光标 / scroll ——
+		// core 的链接目标是权威。正因为如此，它先于 callerTarget 检查。
 		const linkKind = this.state.pendingLinkKind;
 		if (linkKind) {
 			this.state.pendingOpenKind.set(leaf, linkKind);
@@ -331,12 +310,11 @@ export class OpenPatcher {
 			return linkKind;
 		}
 
-		// Caller-submitted target (search match in eState.match, or
-		// cursor/scroll/is-flashing from outline/backlinks): core put it in the
-		// ephemeral-state argument meaning "open here", so merging the saved
-		// position on top would override it. On a replay the eState is the
-		// leaf's OWN cached state, so its bare cursor/scroll is that cached
-		// position — only the distinctive markers count there.
+		// 调用方提交的目标（eState.match 里的搜索命中，或来自大纲 / 反向链接的
+		// cursor/scroll/is-flashing）：core 把它放进 ephemeral state 参数，
+		// 意思是「在这里打开」，所以在上面再叠保存的位置会把它顶掉。重放时
+		// eState 是这个 leaf **自己**缓存的状态，它裸着的光标 / scroll 就是
+		// 那个缓存位置 —— 那里只有那些有辨识度的标记才算数。
 		if (this.hasCallerTarget(eState, isReplay)) {
 			this.state.pendingOpenKind.set(leaf, 'callerTarget');
 			return 'callerTarget';
@@ -355,10 +333,8 @@ export class OpenPatcher {
 		return !!(eState.cursor || eState.scroll != null);
 	}
 
-	// Saved position wins when present; otherwise apply the configured default
-	// (only 'fileEnd' has an injection form, and only in source mode). The
-	// placeholder cursor is clamped to the last line by the editor — content
-	// length is unknown here.
+	// 保存的位置在时它说了算；否则应用配置的默认值（只有 'fileEnd' 有注入形式，
+	// 且只在源码模式下）。占位光标由编辑器夹到最后一行 —— 这里不知道内容长度。
 	private buildMergedState(st: EphemeralState | undefined, isSourceMode: boolean): Partial<EphemeralState> {
 		const merged: Partial<EphemeralState> = {};
 		if (st) {
@@ -374,31 +350,26 @@ export class OpenPatcher {
 		return merged;
 	}
 
-	// Cover opens whose first frames would otherwise paint the un-restored top
-	// or the settle's corrections. EVERY source-mode open with a scroll
-	// injection is covered, brand-new leaves and same-leaf switches alike:
-	//  - a brand-new leaf's editor is built later, measures its document, then
-	//    the injected scroll lands — the first frame shows the default top;
-	//  - a same-leaf switch rides core's staged pipeline, and its post-swap
-	//    re-measure can shift pixels after the atomic apply; the settle that
-	//    fixes this must run hidden or each correction reads as a jump.
-	// A cursor-only injection never moves the viewport, so the first frame is
-	// already the final state and covering would only add a blank period;
-	// reading opens are never covered either. The injected branch of
-	// restoreEphemeralState settles then lifts the cover; the safety timer
-	// bounds it for background opens.
+	// 遮住那些头几帧否则会画出未恢复的顶部、或落定时的纠正的 open。**每一个**
+	// 带 scroll 注入的源码 open 都要遮，全新 leaf 与同 leaf 切换一视同仁：
+	//  - 全新 leaf 的编辑器稍后才建出来，先量自己的文档，注入的 scroll 才落地
+	//    —— 第一帧显示的是默认顶部；
+	//  - 同 leaf 切换走 core 分阶段的流水线，它在交换后重新测量，可能在原子
+	//    apply 之后把像素推走；修正这一切的那次落定必须在看不见时跑，否则
+	//    每次纠正读起来都像一次跳。
+	// 只有光标的注入从不移动视口，所以第一帧就已经是最终状态，遮上只会多出
+	// 一段空白期；阅读类 open 也从不遮。restoreEphemeralState 的注入分支先
+	// 落定再揭开遮罩；后台 open 由安全定时器兜住上界。
 	private maybeCoverOpen(leaf: WorkspaceLeaf, hasScroll: boolean) {
 		if (!hasScroll)
 			return;
 		this.state.cover.cover(leaf);
 	}
 
-	// The explicit mode is usually absent from the open's view state — it's
-	// present only on view-mode toggles, where state.mode is the *target* mode
-	// (leaf.view still reports the pre-toggle mode). Otherwise fall back to the
-	// current markdown view's mode (covers same-leaf reopens); a brand-new leaf
-	// has no view yet, so fall back to Obsidian's native default-view-mode
-	// setting.
+	// 显式的 mode 通常不在这次 open 的视图状态里 —— 它只在切换视图模式时
+	// 出现，那时 state.mode 是**目标**模式（leaf.view 报的还是切换前的模式）。
+	// 否则退回当前 markdown 视图的模式（覆盖同 leaf 重新打开的情形）；全新
+	// leaf 还没有视图，就退回 Obsidian 原生的默认视图模式设置。
 	private isSourceModeOpen(leaf: WorkspaceLeaf, viewState: OpenViewState): boolean {
 		const mode = viewState.state?.mode;
 		if (mode === 'source' || mode === 'preview')
