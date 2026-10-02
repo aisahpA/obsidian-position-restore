@@ -1,26 +1,24 @@
-// Tests for PositionStore (position/storage/position-store.ts), the single
-// facade over the two position layers:
-//  - loadLeafStates: a restart reads the persisted overlay into the map;
-//    corrupt storage degrades to empty; malformed entries (no path/state) are
-//    dropped instead of trusted;
-//  - read: the leaf record wins for the file it names, falls back to the file
-//    record otherwise, is path-guarded, and never consumes;
-//  - write: updates both layers, dedups an unchanged leaf record, and seeds a
-//    first sighting without touching the file layer;
-//  - persist: writes ONLY the true divergence — leaf records whose value the
-//    file record does not already hold — so a single tab per file never
-//    reaches localStorage;
-//  - renameFile / deleteFile: the path lifecycle runs over BOTH layers (the
-//    regression this facade exists for: a per-leaf record left behind naming
-//    a deleted path would be restored again for a new file at that path);
-//  - pruneDeadLeaves: closed leaves cannot update their own record.
+// PositionStore（position/storage/position-store.ts）的测试，它是架在
+// 两个位置层之上的唯一门面：
+//  - loadLeafStates：重启时把已存的覆盖层读进那张表；存储坏了退化成
+//    空；残缺的条目（没有 path/state）直接丢掉，而不是照信；
+//  - read：对它所命名的文件，标签页记录优先，否则退回文件记录，
+//    带路径校验，且读了从不消耗；
+//  - write：两层都更新，标签页记录没变时去重，头一次见到时只播种、
+//    不碰文件层；
+//  - persist：只写**真正的分歧** —— 那些文件记录里还没持有的标签页
+//    值 —— 所以每个文件只有一个标签页时永远到不了 localStorage；
+//  - renameFile / deleteFile：路径生命周期在**两层**上跑（这个门面正是
+//    为修这个回归而生：一条记着已删路径的按标签页记录，会在该路径下
+//    新出现的文件上被再次恢复）；
+//  - pruneDeadLeaves：已关闭的标签页无法更新自己的记录。
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { App } from 'obsidian';
 import { PositionStore } from '@/position/storage/position-store';
 import { EphemeralState, TabStateRecord } from '@/types';
-// leafStates / loadLeafStates are private on the store; this is the test seam.
+// leafStates / loadLeafStates 在 store 上是私有的；这是测试接缝。
 import { leafStatesOf, loadLeafStates, setLeafStates } from './support/position-store-seam';
 
 const APP_STUB = {
@@ -30,9 +28,8 @@ const APP_STUB = {
 
 const STORAGE_KEY = 'position-restore:tabs:test-vault';
 
-// Minimal stand-in for CursorPositionDatabase: just enough of the file layer
-// for the store's two-layer logic to be observable, without pulling the real
-// class (and its i18n / Notice imports) into a storage unit test.
+// CursorPositionDatabase 的最小替身：只带够观察 store 两层逻辑的文件层，
+// 不把真类（及其 i18n / Notice 依赖）拖进一个存储单元测试里。
 interface DbStub {
 	db: Record<string, EphemeralState>;
 	setState(filePath: string, st: EphemeralState): void;
@@ -52,8 +49,8 @@ function makeDb(seed: Record<string, EphemeralState> = {}): DbStub {
 			db[newPath] = db[oldPath];
 			delete db[oldPath];
 		},
-		// The real prune owns the exclusion rules; the store only mirrors its
-		// result, so tests drive it by removing paths directly.
+		// 真正的裁剪拥有排除规则；store 只是镜像它的结果，
+		// 所以测试直接删路径来驱动它。
 		pruneDb: () => 0,
 	};
 }
@@ -104,11 +101,11 @@ describe('read', () => {
 		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 
 		expect(store.read('leaf-1', 'a.md')).toEqual({ scroll: 42 });
-		// Path guard: the leaf moved on to another file → the file record answers.
+		// 路径校验：标签页已经挪到另一个文件 → 由文件记录作答。
 		expect(store.read('leaf-1', 'b.md')).toBeUndefined();
-		// Unknown leaf → the file record answers.
+		// 未知标签页 → 由文件记录作答。
 		expect(store.read('leaf-x', 'a.md')).toEqual({ scroll: 1 });
-		// Read never consumes.
+		// 读取从不消耗。
 		expect(leafStatesOf(store).has('leaf-1')).toBe(true);
 		expect(db.db['a.md']).toEqual({ scroll: 1 });
 	});
@@ -165,7 +162,7 @@ describe('persist —— 覆盖层只放真正的分歧', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 10 });
 		store.write('leaf-2', 'a.md', { scroll: 100 });
-		// The file record holds 100, so only leaf-1 diverges.
+		// 文件记录里是 100，所以只有 leaf-1 有分歧。
 		store.persist();
 		expect(persisted()).toEqual({ 'leaf-1': rec('a.md', 10) });
 	});
@@ -177,8 +174,8 @@ describe('persist —— 覆盖层只放真正的分歧', () => {
 		store.persist();
 		expect(persisted()).toEqual({ 'leaf-1': rec('a.md', 10) });
 
-		// leaf-2 moves to leaf-1's position: the file record now holds 10, so
-		// neither leaf diverges any more.
+		// leaf-2 挪到了 leaf-1 的位置：文件记录里现在也是 10，
+		// 于是两个标签页都不再有分歧。
 		store.write('leaf-2', 'a.md', { scroll: 10 });
 		store.persist();
 		expect(persisted()).toEqual({});
@@ -211,9 +208,9 @@ describe('renameFile', () => {
 
 		expect(db.db['b.md']).toEqual({ scroll: 1 });
 		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('b.md', 42));
-		// The re-keyed leaf still answers for the new path...
+		// 换过键的标签页对新路径依然作答……
 		expect(store.read('leaf-1', 'b.md')).toEqual({ scroll: 42 });
-		// ...and the old path is gone from both layers.
+		// ……而旧路径已从两层里消失。
 		expect(store.read('leaf-1', 'a.md')).toBeUndefined();
 	});
 
@@ -242,7 +239,7 @@ describe('deleteFile', () => {
 		expect(db.db['a.md']).toBeUndefined();
 		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
 		expect(leafStatesOf(store).has('leaf-2')).toBe(false);
-		// Other paths are untouched.
+		// 其它路径原封未动。
 		expect(leafStatesOf(store).get('leaf-3')).toEqual(rec('b.md', 7));
 	});
 
@@ -251,7 +248,7 @@ describe('deleteFile', () => {
 		store.write('leaf-1', 'a.md', { scroll: 42 });
 		store.deleteFile('a.md');
 
-		// The file is re-created at the same path and opened in the same leaf.
+		// 文件在同一路径下被重新创建，并在同一个标签页里打开。
 		expect(store.read('leaf-1', 'a.md')).toBeUndefined();
 		store.write('leaf-1', 'a.md', { scroll: 3 });
 		expect(store.read('leaf-1', 'a.md')).toEqual({ scroll: 3 });
@@ -271,8 +268,8 @@ describe('deleteFile', () => {
 });
 
 describe('dropExcluded', () => {
-	// The file is still there — only the recording rules reject it. Same act as a delete
-	// all the same, so a tab that is not the one being polled loses its record too.
+	// 文件还在 —— 只是记录规则拒绝它。这跟一次删除本质上是同一个动作，
+	// 所以那个不在被轮询的标签页也会丢掉它的记录。
 	it('丢掉与删除相同的那两层', () => {
 		const { store, db } = makeStore(makeDb({ 'a.md': { scroll: 1 }, 'b.md': { scroll: 2 } }));
 		setLeafStates(store, [
@@ -289,14 +286,14 @@ describe('dropExcluded', () => {
 		expect(leafStatesOf(store).get('leaf-3')).toEqual(rec('b.md', 7));
 	});
 
-	// What is dropped is reached through the path → leaf index rather than by
-	// walking the layer, so the index has to travel with a record that does.
+	// 丢掉的东西是经「路径 → 标签页索引」找到的，而不是遍历这一层，
+	// 所以索引必须跟着记录一起搬家。
 	it('按标签页当前所在的文件丢，而不是它已经离开的那个', () => {
 		const { store } = makeStore();
 		store.write('leaf-1', 'a.md', { scroll: 42 });
 		store.write('leaf-1', 'b.md', { scroll: 7 });
 
-		// The file the leaf left has no leaf on it any more.
+		// 标签页离开的那个文件上已经没有标签页了。
 		store.dropExcluded('a.md');
 		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('b.md', 7));
 
@@ -309,11 +306,11 @@ describe('dropExcluded', () => {
 		setLeafStates(store, [['leaf-1', rec('a.md', 42)]]);
 		store.renameFile('b.md', 'a.md');
 
-		// The old path has nothing on it now...
+		// 旧路径上现在什么都没有……
 		store.dropExcluded('a.md');
 		expect(leafStatesOf(store).get('leaf-1')).toEqual(rec('b.md', 42));
 
-		// ...and the new one does.
+		// ……新路径上则有。
 		store.dropExcluded('b.md');
 		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
 	});
@@ -334,7 +331,7 @@ describe('pruneDatabase', () => {
 
 		expect(store.pruneDatabase()).toBe(1);
 
-		// The excluded path is gone from both layers; the other one is intact.
+		// 被排除的路径已从两层里消失；另一个完好无损。
 		expect(leafStatesOf(store).has('leaf-1')).toBe(false);
 		expect(leafStatesOf(store).get('leaf-2')).toEqual(rec('ok.md', 7));
 		expect(store.read('leaf-1', 'ex.txt')).toBeUndefined();
@@ -347,8 +344,8 @@ describe('pruneDatabase', () => {
 			return 1;
 		};
 		const { store } = makeStore(db);
-		// No file record ever existed for new.md: "absent from the db" must not
-		// be read as "just pruned".
+		// new.md 从来就没有过文件记录：「不在 db 里」不能
+		// 被读成「刚被裁剪掉」。
 		setLeafStates(store, [['leaf-1', rec('new.md', 42)]]);
 
 		store.pruneDatabase();
@@ -382,7 +379,7 @@ describe('pruneDeadLeaves', () => {
 		expect(store.pruneDeadLeaves(new Set(['leaf-live']))).toBe(true);
 		expect(leafStatesOf(store).has('leaf-closed')).toBe(false);
 		expect(leafStatesOf(store).get('leaf-live')).toEqual(rec('a.md', 1));
-		// Nothing to drop → false, so callers can skip the persist.
+		// 无可丢弃 → 返回 false，好让调用方能跳过落盘。
 		expect(store.pruneDeadLeaves(new Set(['leaf-live']))).toBe(false);
 	});
 });
