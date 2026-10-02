@@ -4431,10 +4431,9 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 			'other/b.md': cacheWith({ title: '周会' }),
 		}, false, {}, named('title'));
 
-		// Two rows reading 周会 are two rows a reader cannot choose between, so a path
-		// is printed — exactly as it is for two files of one name. It is the FILE'S OWN
-		// path rather than the folder alone: these names were borrowed, so the folder
-		// is not the wrong answer so much as a half of one.
+		// 两行都读作 周会，是读者无从挑选的两行，所以会印出一个路径 —— 和两个同名文件的情形
+		// 一模一样。印的是**文件自己的**路径，而不是光文件夹：这些名字是借来的，所以文件夹不是
+		// 错答案，只是个答了一半的答案。
 		expect(names(h)).toEqual(['周会', '周会']);
 		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
 			.toEqual(['other/b.md', 'notes/a.md']);

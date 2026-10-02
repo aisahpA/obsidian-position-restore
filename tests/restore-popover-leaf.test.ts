@@ -1,8 +1,7 @@
-// Unit tests for the one place a pane is not a pane: a real leaf hosted inside
-// a hover popover — what a plugin that makes the app's preview editable puts
-// there. 'file-open' fires for it like any other, and restoring it lands the
-// card on a line nobody pointed at, behind a cover that holds it blank for as
-// long as the settle takes. The preview opens where the app opens one.
+// 关于「窗格不是窗格」的唯一那个地方的单元测试：一个被托在悬停浮层里面的真 leaf ——
+// 让 app 的预览变得可编辑的那个插件会往里放的东西。'file-open' 会像对任何别的 leaf 一样
+// 为它触发，而恢复它会把卡片落到没人指过的行上，还盖着一张让它空着的遮罩，直到落定为
+// 止。预览在 app 打开预览的地方打开。
 
 import { describe, it, expect } from 'vitest';
 import { MarkdownView, type WorkspaceLeaf } from 'obsidian';
@@ -13,7 +12,7 @@ import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 import { isPopoverLeaf } from '@/shared/leaf';
 
-// The only thing separating "a preview" from "a pane" is where the leaf lives.
+// 分隔「一个预览」与「一个窗格」的唯一东西，就是这个 leaf 住在哪儿。
 function makeView(inPopover: boolean) {
 	const root = document.createElement('div');
 	const host = document.createElement('div');
@@ -30,8 +29,8 @@ function makeView(inPopover: boolean) {
 		file: { path: 'a.md' },
 		leaf,
 	}) as MarkdownView;
-	// The store names its overlay per vault on construction; without it the
-	// store logs a read failure into every run of these tests.
+	// store 在构造时按 vault 给自己的遮罩命名；没有它，store 会在这些测试的每一轮里记一次
+	// 读取失败。
 	const app = {
 		workspace: { getActiveViewOfType: () => view },
 		vault: { getName: () => 'vault' },
@@ -56,9 +55,8 @@ describe('悬停浮层托着的那个 leaf', () => {
 
 		await restorer.restoreEphemeralState();
 
-		// No pair recorded and no cover: the restore never began, so the card
-		// shows what the app drew rather than a blank held until a settle that
-		// was never going to arrive for a reader who only hovered.
+		// 没有记下这一对、也没有盖布：这次恢复压根没开始，所以卡片显示的是 app 画出来的东西，
+		// 而不是空着等一次对一个只是悬停的读者永远不会到来的落定。
 		expect(state.handledLeafIdMap.get('leaf-1')).toBeUndefined();
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});

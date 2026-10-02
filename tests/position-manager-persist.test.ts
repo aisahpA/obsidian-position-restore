@@ -1,9 +1,8 @@
-// The contract behind main.ts's 'quit' handler. Obsidian waits on the promises handed
-// to Tasks before it exits, so storePositionData() has to hand the db write back
-// instead of dropping it on the floor. Three things hold and are pinned here: the three
-// localStorage stores are written synchronously, before the file write even starts,
-// the returned promise does not settle until the file write has, and it settles even
-// when a write fails — a rejection would leave the app stuck on "Saving...".
+// main.ts 那个 'quit' 处理程序背后的契约。Obsidian 退出前会等交给 Tasks 的那些 promise，
+// 所以 storePositionData() 必须把那次写库交回去，而不是随手扔掉。这里钉住三件成立的
+// 事：三个 localStorage store 是同步写下的、甚至在文件写入开始之前；返回的 promise 在
+// 文件写入完成之前不落定；而即使写入失败它也会落定 —— 一个 reject 会让 app 卡在
+// 「Saving...」。
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { App } from 'obsidian';
@@ -32,7 +31,7 @@ function makeHarness() {
 			getMostRecentLeaf: () => null,
 		},
 	};
-	// The db write is on a leash: the test says when the disk is done.
+	// 那次写库被牵着绳：什么时候算磁盘写完，由测试说。
 	let release = () => {};
 	const onDisk = new Promise<void>(resolve => {
 		release = resolve;
@@ -63,9 +62,8 @@ describe('PositionManager.storePositionData', () => {
 
 		const write = h.manager.storePositionData();
 
-		// The prefix of an async body runs synchronously, so by the time the promise
-		// is in hand every localStore write has already happened — a quit that is
-		// killed mid-file-write still keeps the per-tab snapshot.
+		// async 函数体开头那段是同步跑的，所以拿到那个 promise 时，每一次 localStore 写入都已
+		// 经发生了 —— 一个在写文件中途被杀掉的退出，仍然保住了那份每标签页快照。
 		expect(h.store.persist).toHaveBeenCalled();
 		expect(h.stack.persist).toHaveBeenCalled();
 		expect(h.places.persist).toHaveBeenCalled();
@@ -95,8 +93,8 @@ describe('PositionManager.storePositionData', () => {
 		const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 		h.database.writeDb.mockRejectedValueOnce(new Error('disk full'));
 
-		// A quit hands this promise to Tasks, and Obsidian awaits every one of those
-		// with Promise.all before it closes the window.
+		// 一次退出把这个 promise 交给 Tasks，而 Obsidian 会在关窗之前用 Promise.all 等它们
+		// 每一个。
 		await expect(h.manager.storePositionData()).resolves.toBeUndefined();
 		expect(logged).toHaveBeenCalled();
 		logged.mockRestore();

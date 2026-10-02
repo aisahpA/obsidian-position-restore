@@ -1,7 +1,6 @@
-// Tests for shared/frontmatter.ts: what one `prop[: value]` entry means. The
-// form is shared by the position recording rules and the recent-files list, so
-// a rule typed on either settings page has to mean the same thing — and a rule
-// that matches more than it says silently stops positions being recorded.
+// shared/frontmatter.ts 的测试：一条 `prop[: value]` 条目意味着什么。这个写法由位置记录
+// 规则和最近文件列表共用，所以在哪个设置页上敲下的规则都必须含义相同 —— 而一条命中得
+// 比它说的还多的规则，会悄悄让位置记不下来。
 
 import { describe, it, expect } from 'vitest';
 import { frontmatterRuleMatches } from '@/shared/frontmatter';
@@ -49,7 +48,7 @@ describe('frontmatterRuleMatches', () => {
 	it('两边的布尔别名都接受', () => {
 		expect(matches('publish: true', 'publish: yes', 'publish: on')).toBe(true);
 		expect(matches('draft: false', 'draft: no', 'draft: off')).toBe(true);
-		// a boolean property does not match the other spelling
+		// 一个布尔属性不会匹配另一种写法
 		expect(matches('publish: false')).toBe(false);
 	});
 
@@ -58,9 +57,8 @@ describe('frontmatterRuleMatches', () => {
 		expect(matches('tags: c')).toBe(false);
 	});
 
-	// The bug this file was written for: `in` walks the prototype chain, and a
-	// name-only entry never looks at the value, so every one of these matched
-	// every note carrying any frontmatter at all.
+	// 这个文件就是为这个 bug 写的：`in` 会走原型链，而一条只有名字的条目从不看值，所以下面
+	// 每一个都能命中每篇带着任何 frontmatter 的笔记。
 	it('笔记只是继承来的名字永不命中', () => {
 		for (const inherited of ['toString', 'valueOf', 'constructor', 'hasOwnProperty', '__proto__'])
 			expect(matches(inherited)).toBe(false);

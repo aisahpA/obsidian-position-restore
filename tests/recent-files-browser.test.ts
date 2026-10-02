@@ -782,10 +782,9 @@ describe('headingsFromText', () => {
 	});
 
 	it('标签、注释、属性值里读不出标题', () => {
-		// `#标签` is one of the app's TAGS; a `#` inside a fence is a line of somebody's
-		// shell; `title: # 1` is a frontmatter VALUE. All three were sections to a
-		// reading that split on `#`, and the row would have named a section that is not
-		// there — worse than naming none.
+		// `#标签` 是 app 的**标签**之一；围栏里的一个 `#` 是某人 shell 脚本里的一行；`title: # 1`
+		// 是一个 frontmatter 的**值**。对一个按 `#` 切分的读法来说，这三者都成了小节，而那一行
+		// 就会指认一个并不存在的小节 —— 比一个都不指认更糟。
 		expect(headingsFromText('#标签\n')).toEqual([]);
 		expect(headingsFromText('```bash\n# 安装\n```\n')).toEqual([]);
 		expect(headingsFromText('---\ntitle: # 1\n---\n# 真的标题\n'))
@@ -824,8 +823,8 @@ describe('dropsOuterLevel', () => {
 	});
 
 	it('连一半都没剩下的那层丢掉', () => {
-		// "新插件 Positi…" names no section, and the level beside it takes the width it
-		// needs whether this one is on the row or not (see styles.css)
+		// "新插件 Positi…" 指认不出任何小节，而它旁边那一层的宽度它自己需要多少就拿多少，不管
+		// 这一个在不在行上（见 styles.css）
 		expect(dropsOuterLevel(39, 80)).toBe(true);
 		// ……以及一个已被坍缩挤到零的层
 		expect(dropsOuterLevel(0, 80)).toBe(true);
