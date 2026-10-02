@@ -1,10 +1,9 @@
 import { MarkdownView } from 'obsidian';
 import { EphemeralState, NavEntryState } from '@/types';
 
-// Hot read: the 100ms poll (Sampler), the scroll capture, and the restore verification / reland
-// loops run this every tick and every frame. Position only — no doc-string reads, no layout. Nav
-// display fields live in readNavEntryState / withNavDisplay, which run only when a nav entry is
-// actually saved.
+// 热读：100ms 轮询（Sampler）、滚动采集，以及恢复的校验 / 重落循环每 tick、每帧都会跑它。
+// 只管位置 —— 不读文档字符串、不动布局。导航显示字段住在 readNavEntryState / withNavDisplay 里，
+// 只有真要保存一条导航记录时才跑。
 export function readEphemeralState(view: MarkdownView): EphemeralState | undefined {
 	const scroll = liveScroll(view);
 	if (scroll === undefined)
@@ -18,30 +17,26 @@ export function readEphemeralState(view: MarkdownView): EphemeralState | undefin
 
 function liveScroll(view: MarkdownView): number | undefined {
 	const scroll = view.currentMode?.getScroll();
-	// getScroll() reports null (not undefined) while the preview renderer has not caught up —
-	// isNaN(null) is false, so it would pass the old guard and Math.round(null) would read as "top
-	// of file".
+	// 预览渲染器还没跟上时 getScroll() 报的是 null（不是 undefined）—— isNaN(null) 为 false，
+	// 所以它会绕过旧守卫，而 Math.round(null) 会被读成「文件顶部」。
 	if (scroll == null || !Number.isFinite(scroll))
 		return undefined;
 
-	// getScroll() returns a 0-based top visible line number plus a fraction of how far that line is
-	// scrolled through (42.37 = the viewport top sits 37% into line 43), quantized to whole lines:
+	// getScroll() 返回 0-based 的顶行行号，外加这一行已被滚过的比例（42.37 = 视口顶端落在第 43 行
+	// 的 37% 处），这里量化到整行：
 	//
-	// 1. Reading continuity: the saved fraction points into the middle of a line the reader had
-	//    already half-read, and re-creating that state forces the eye to re-scan a broken line. For
-	//    tall blocks (images, embeds) a fractional restore yields half an image.
-	// 2. Round-trip stability: applyScroll(n) lands exactly on a line top, so the residual landing
-	//    error (~0.04 line) stays inside Math.round's ±0.5 dead zone — save 42, read back 42, never
-	//    a db write. Finer quantization shrinks the dead zone below that error, and the drifted
-	//    readback then ratchets the saved scroll by one step on every open.
-	// 3. Must be Math.round, not Math.floor: floor's dead zone is asymmetric ([n-1, n)), so any
-	//    landing slightly below the saved value re-introduces one-way downward drift. Only a
-	//    symmetric dead zone absorbs noise in both directions.
+	// 1. 阅读连续性：存下小数，落点就指进读者已经读了一半的那一行中间，重建这种状态逼着眼睛重扫
+	//    一个断行。对高块（图片、嵌入）来说，带小数的恢复会得到半张图。
+	// 2. 往返稳定：applyScroll(n) 正好落在行顶，落点的残余误差（约 0.04 行）因此留在 Math.round
+	//    的 ±0.5 死区之内 —— 存 42、读回 42，永远不会写库。量化得更细会把死区缩到那个误差之下，
+	//    漂移的回读就会每次打开都把存的 scroll 棘轮式地推一格。
+	// 3. 必须是 Math.round 而不是 Math.floor：floor 的死区不对称（[n-1, n)），任何略低于存值的
+	//    落点都会重新引入单向向下的漂移。只有对称的死区才能两个方向都吸收噪音。
 	return Math.round(scroll);
 }
 
-// The cursor half, shared by every read. A collapsed cursor at (0,0) is where the editor opens
-// anyway — omitted so such records stay minimal ([0] tombstones / scroll-only records).
+// 光标那一半，每次读取共用。收在 (0,0) 的光标本来也是编辑器打开时的位置 —— 略去不记，
+// 好让这类记录保持最小（[0] 墓碑 / 只有 scroll 的记录）。
 function hotCursor(view: MarkdownView): EphemeralState['cursor'] | undefined {
 	const editor = view.editor;
 	if (!editor)
@@ -53,10 +48,9 @@ function hotCursor(view: MarkdownView): EphemeralState['cursor'] | undefined {
 	return { from: { ch: from.ch, line: from.line }, to: { ch: to.ch, line: to.line } };
 }
 
-// Minimal CM6 surface for the cursor-visibility check. Same cast family as CmLike
-// (restore/pixels.ts) / Cm6EditorView (ui/cue.ts) — (editor).cm is runtime-only, absent from the
-// public typings. A local interface: the pixel corrector imports this module, so its CmLike cannot
-// be borrowed without a cycle.
+// 供光标可见性检查用的最小 CM6 表面。与 CmLike（restore/pixels.ts）/ Cm6EditorView（ui/cue.ts）
+// 同一族转换 —— (editor).cm 是运行时的，公开类型里没有。在这里自己声明一个接口：像素校正器
+// import 了本模块，直接借它的 CmLike 会成环。
 interface CmView {
 	state: { doc: { lines: number; line(n: number): { from: number } } };
 	viewport: { from: number; to: number };
@@ -65,12 +59,11 @@ interface CmView {
 	defaultLineHeight: number;
 }
 
-// Whether the cursor line is actually on screen. Pixel geometry through (editor).cm — never
-// currentMode.getScroll(), which ECHOES the requested value while the pixels sit elsewhere
-// (pixels.ts:99-102). An unrendered line (outside cm.viewport, CM's render margin included) is off
-// screen by definition; a rendered line's coordsAtPos is a real client rect, compared against the
-// scroller's box. Every undecidable step (no editor view, line beyond EOF, coords not yet measured)
-// returns true — assume visible, keep today's display; never lose the label to a geometry hiccup.
+// 光标那一行是否真在屏幕上。走 (editor).cm 的像素几何 —— 绝不用 currentMode.getScroll()，后者
+// 会在像素其实在别处时把请求值**回声**回来（pixels.ts:99-102）。未渲染的行（在 cm.viewport 之外、
+// 含 CM 的渲染边距）按定义就不在屏幕上；已渲染的行的 coordsAtPos 是真实的客户端矩形，拿去跟
+// 滚动容器的框比。每一步无法判断的情形（没有编辑器视图、行超出 EOF、坐标还没量到）都返回 true
+// —— 当作可见，维持当前显示；绝不让几何上的一个磕碰把标签弄丢。
 function cursorOnScreen(view: MarkdownView, line: number): boolean {
 	const cm = (view.editor as unknown as { cm?: CmView }).cm;
 	if (!cm?.scrollDOM)
@@ -88,33 +81,29 @@ function cursorOnScreen(view: MarkdownView, line: number): boolean {
 	return coords.top >= rect.top - lineHeight && coords.top < rect.bottom;
 }
 
-// How many lines a landing's context holds, counted in NON-BLANK lines: a note written one sentence
-// per line with blank separators would spend a raw four on two lines of actual text. It buys one
-// thing — the search box matching a row by the words that stood below the jump (see listing.ts's
-// navSearchText) — so it says how far into the section a reader can still search, and nothing about
-// where anything is.
+// 一个落点的上下文记几行，按**非空行**计：一篇每行一句话、用空行分隔的笔记，按原始行数算四行
+// 只会得到两行正文。它只买一件事 —— 搜索框靠跳转下方站过的那些词匹配到某一行（见 listing.ts 的
+// navSearchText）—— 所以它说的是读者还能往里搜多深，与任何东西在哪无关。
 export const NAV_CONTEXT_LINES = 4;
 
-// Per-line cap of a recorded context line, in characters. Longer than the anchor's 80 on purpose:
-// they do different jobs. The anchor (below) is matched EXACTLY to re-find a line after edits,
-// where a longer string is a brittler key, while a context line is only searched.
+// 一条记录下来的上下文行的单行上限，按字符计。故意比锚点的 80 长：两者职责不同。锚点（见下）要用
+// **精确**匹配在编辑后重新找回一行，那里更长的字符串是更脆的键；而上下文行只被搜索。
 const CONTEXT_LINE_CAP = 120;
 
-// How many RAW lines the block looks through per side, as a multiple of that side's radius. Without
-// a bound, a landing at the foot of a note with a long blank stretch would walk to line 0.
+// 这段逻辑每侧最多扫多少**原始**行，取该侧半径的倍数。不设上界的话，一个落在笔记末尾、下方有
+// 一长串空行的落点会一直走到第 0 行。
 const CONTEXT_SCAN_FACTOR = 4;
 
-// One line as the block stores it: trimmed (the panel prints the text, and leading indentation is
-// noise in a one-line-per-record box) and capped.
+// 这一段存储一行时的样子：trim 过（面板要把文本打出来，一行一条记录的框里，前导缩进是噪音）
+// 并截到上限。
 function contextText(raw: string | undefined): string {
 	return (raw ?? '').trim().slice(0, CONTEXT_LINE_CAP);
 }
 
-// The `count` non-blank lines BELOW the landing, trimmed and capped, in document order. Nothing from
-// above it: every landing is a heading jump, so the section starts on the landing's own line and the
-// words before it belong to the section above — letting them in is what once made a search for that
-// section's words pull this row up. Blank lines are skipped rather than stored (an empty string
-// matches every query and prints as a gap a reader has to explain).
+// 落点**下方**的 `count` 条非空行，trim 并截断，按文档顺序。上方的一概不要：每个落点都是一次
+// 标题跳转，所以一节从落点自己那一行开始，它前面的词属于上一节 —— 把那些词放进来，正是当初
+// 「搜这一节的词却把本行捞出来」的原因。空行跳过而不存储（空字符串匹配任何查询，还会在面板上
+// 印成一个读者得去解释的空档）。
 function contextBelow(
 	editor: { getLine(line: number): string; lastLine(): number },
 	landing: number,
@@ -132,16 +121,14 @@ function contextBelow(
 	return out.length ? out : undefined;
 }
 
-// A thematic break ("---", "***", "___") names a place no better than a blank line does: the remap
-// scan searches outward from the recorded line for the recorded text, and one rule is
-// indistinguishable from the next, so a record anchored on a rule can re-find itself on a rule the
-// reader was never on. No anchor beats that.
+// 分割线（"---"、"***"、"___"）指认一个地方的本事不比空行强：重映射扫描从记录行向外找那段记录
+// 文本，而一条分割线与下一条毫无区别，所以一个锚在分割线上的记录可能在读者从未到过的另一条
+// 分割线上找回自己。没有锚胜过那样。
 const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})$/;
 
-// The nav-display fields around a position: the viewport-top anchor (functional —
-// remapAnchoredState re-finds the line after later edits) and the file's mtime. Nothing here forces
-// layout: the landing's WORDS are the one part of a nav state the stepping side never reads, and
-// they are read only when a place records them (see landingContext below).
+// 一个位置周围的导航显示字段：视口顶锚点（有功能 —— remapAnchoredState 在后续编辑后靠它找回那一行）
+// 与文件的 mtime。这里不强制布局：落点的**词**是导航状态里记步那一侧从不读的唯一一部分，
+// 只有当某个地点要记录它们时才读（见下面的 landingContext）。
 function navDisplayFields(
 	view: MarkdownView,
 	topLine: number,
@@ -150,28 +137,25 @@ function navDisplayFields(
 	const editor = view.editor;
 	if (!editor || typeof editor.getLine !== 'function')
 		return display;
-	// Anchor: the primary line's trimmed text at capture time. A recorded position goes stale when
-	// the file is edited afterwards (inserts and deletes above shift every line below) —
-	// remapAnchoredState uses this text to re-find the line before the position is applied. Blank
-	// lines carry no anchor (an empty match would match every blank line); nor does a rule.
+	// 锚点：采集时主行的 trim 文本。文件之后被编辑时记录的位置就会过期（上方的插入与删除会移动
+	// 下面每一行）—— remapAnchoredState 在应用位置之前用这段文本找回那一行。空行不带锚
+	// （空匹配会命中每一个空行）；分割线也不带。
 	if (topLine >= 0 && topLine <= (editor.lastLine?.() ?? -1)) {
 		const text = editor.getLine(topLine).trim().slice(0, 80);
 		if (text && !THEMATIC_BREAK.test(text))
 			display.anchor = text;
 	}
-	// The file's mtime at capture time — the record's own stamp, what the file WAS when the step was
-	// taken. It does NOT drive the restore (which works against a live editor buffer, whose unsaved
-	// text can differ from the file on disk regardless of its mtime).
+	// 采集时文件的 mtime —— 记录自己的时间戳，是这一步发生那一刻文件的样子。它**不**驱动恢复
+	// （恢复是对着一个活的编辑器缓冲区做的，后者未保存的文本可能与磁盘上的文件不同，mtime 管不着）。
 	const mtime = view.file && typeof view.file.stat?.mtime === 'number' ? view.file.stat.mtime : undefined;
 	if (mtime !== undefined)
 		display.mtime = mtime;
 	return display;
 }
 
-// The WORDS a landing sits in, and WHICH of them the landing is. Read separately from the fields
-// above because only the place list ever reads them — the stack's steps carry no words — so a step
-// must not pay for them: not the doc reads, and not the layout the cursor-visibility check forces.
-// The place list asks at the ONE moment it records a landing (see recent-files/places.ts).
+// 一个落点身处其中的那些**词**，以及落点到底是其中哪一个。与上面的字段分开读，因为只有地点列表
+// 会读它们 —— 栈的步不带词 —— 所以一步不该为它们付费：既不为那几次文档读取，也不为光标可见性
+// 检查逼出来的那次布局。地点列表只在记录一个落点的那**一个**时刻来问（见 recent-files/places.ts）。
 export function landingContext(
 	view: MarkdownView,
 	st: NavEntryState,
@@ -179,14 +163,13 @@ export function landingContext(
 	const editor = view.editor;
 	if (!editor || typeof editor.getLine !== 'function')
 		return undefined;
-	// Which line the landing IS: the cursor line for a source capture whose cursor is on screen,
-	// the viewport top otherwise (a reading capture's cursor is the stale pre-preview one; a source
-	// capture's cursor may have been scrolled out of sight). It decides only where the window below
-	// starts — which line it took the reader to is the jump's own key to say (see landedLine), so an
-	// answer a few lines off costs a few lines of words and no precision anywhere else.
+	// 落点是哪一行：源码采集且光标在屏幕上时取光标行，否则取视口顶（阅读模式采集的光标是预览前
+	// 留下的陈旧光标；源码采集的光标可能已被滚出视野）。它只决定下面那个窗口从哪开始 —— 这次把
+	// 读者带到了哪一行，是跳转自己的键该说的（见 landedLine），所以答偏几行只损失几行词，
+	// 别的精度全不受影响。
 	//
-	// The view mode is read here and nowhere else. Optional-called: the read must never crash the
-	// recording path on a view-like object that lacks getMode.
+	// 视图模式只在这里读、别处不读。用可选调用：读取绝不能在录制的路径上，因为一个像视图、却没有
+	// getMode 的对象而崩掉。
 	const mode = view.getMode?.();
 	const cursor = st.cursor;
 	const cursorVisible = !!cursor && mode !== 'preview' && cursorOnScreen(view, cursor.from.line);
@@ -195,27 +178,26 @@ export function landingContext(
 	return below ? { context: below } : undefined;
 }
 
-// A caret at the head of `line` — where the app leaves it when its own outline takes the
-// reader to a heading, and all a line number can promise about a place.
+// 光标落在 `line` 的行首 —— app 自己的大纲把读者带到某个标题时留下的就是这个样子，
+// 也是一个行号对一个地方所能承诺的全部。
 export function caretAtLine(st: EphemeralState, line: number): EphemeralState {
 	return { ...st, cursor: { from: { line, ch: 0 }, to: { line, ch: 0 } } };
 }
 
-// Obsidian's own per-tab scroll cache — runtime-only, absent from the public typings. A plain field
-// on the view, null until something fills it: syncScroll writes it on every scroll,
-// setEphemeralState on every apply, clear/setViewData on a reload or a mode switch.
+// Obsidian 自带的逐标签滚动缓存 —— 运行时的，公开类型里没有。视图上的一个普通字段，没人填就是
+// null：syncScroll 每次滚动都写它，setEphemeralState 每次应用也写，clear/setViewData 在重载或
+// 切模式时写。
 interface ScrollCaching { scroll?: number | null }
 
-// Quantized like the live read: the cache carries the unrounded value.
+// 量化方式与实时读一致：缓存里存的是没取整的值。
 function cachedScroll(view: MarkdownView): number | undefined {
 	const cached = (view as unknown as ScrollCaching).scroll;
 	return cached != null && Number.isFinite(cached) ? Math.round(cached) : undefined;
 }
 
-// The LAST-POSITION read behind the scroll capture: the cache instead of a live measure. The scroll
-// that fills it (app's syncScroll) has already run by the time the listener fires, so on desktop it
-// is current — and it is the only source left when the pane is out of layout. Live read on a tab
-// with no cache yet (never scrolled, mode switch, just cleared): a number beats nothing.
+// 滚动采集背后的**最后位置**读取：用缓存而不是实时测量。填它的那次滚动（app 的 syncScroll）在
+// 监听器触发时已经跑完，所以桌面端它是当前的 —— 而当窗格不在布局里时，它是唯一剩下的来源。
+// 对还没有缓存的标签（从没滚过、刚切过模式、刚被清过）就实时读一遍：一个数字总比没有强。
 export function readSampledState(view: MarkdownView): EphemeralState | undefined {
 	const scroll = cachedScroll(view) ?? liveScroll(view);
 	if (scroll === undefined)
@@ -227,11 +209,10 @@ export function readSampledState(view: MarkdownView): EphemeralState | undefined
 	return state;
 }
 
-// A hidden tab's scroller is out of layout (a stacked tab group keeps only its active tab
-// visible), so its scrollTop reads 0 and the live read answers "top of file" however far the
-// reader had scrolled — the leave-refresh then stores the top as their position. The cache
-// survives that. Live wins everywhere else: an applied restore writes the REQUESTED value into
-// the cache (pixels.ts), so trusting it on a visible view would echo the request back.
+// 隐藏标签的滚动容器不在布局里（堆叠的标签组只让活动标签可见），它的 scrollTop 因此读成 0，
+// 无论读者滚了多远，实时读都会答「文件顶部」—— 离开时那次刷新就会把顶部存成他的位置。缓存能
+// 扛住这一点。别处都是实时值赢：一次施行的恢复会把**请求值**写进缓存（pixels.ts），所以在一个
+// 可见视图上信缓存等于把请求回声回来。
 function trustedScroll(view: MarkdownView, live: number | undefined): number | undefined {
 	const dom = (view.editor as unknown as { cm?: { scrollDOM?: HTMLElement } })?.cm?.scrollDOM;
 	if (!dom || dom.offsetParent !== null)
@@ -239,28 +220,25 @@ function trustedScroll(view: MarkdownView, live: number | undefined): number | u
 	return cachedScroll(view) ?? live;
 }
 
-// Nav read — LOW frequency only (the leave-refresh on a file switch, the outline pre-click read, the
-// leave-refresh before back/forward, the landing settle-capture, the teleport landing): the hot read
-// plus the display fields a nav entry carries. Never a drop-in for readEphemeralState on hot paths:
-// it reads the document.
+// 导航读 —— 只低频用（切换文件时离开前的刷新、大纲点击前的读、前进后退之前离开前的刷新、
+// 落点的落定采集、遥测跳变的落点）：热读加上一条导航记录要带的显示字段。绝不能当
+// readEphemeralState 在热路径上的平替：它会读文档。
 export function readNavEntryState(view: MarkdownView): NavEntryState | undefined {
 	const st = readEphemeralState(view);
 	if (!st)
 		return undefined;
-	// One scroll for both the position and the anchor: they are one place.
+	// 位置和锚点用同一个 scroll：它们是一个地方。
 	const scroll = trustedScroll(view, st.scroll);
 	return { ...st, scroll, ...navDisplayFields(view, scroll ?? -1) };
 }
 
-// The ONE read that records a landing: what a step carries, plus the words the landing sits in.
-// The words belong to this moment and to no other — a step is restored by POSITION and stores none
-// (see nav-history/store.ts) — so this is the only read that pays the doc reads and the one layout
-// the cursor-visibility check forces.
+// **唯一**会记录落点的读取：一步带的东西，加上落点身处其中的那些词。那些词只属于这一刻、
+// 不属于别处 —— 一步是**按位置**恢复的，一个字都不存（见 nav-history/store.ts）—— 所以这是
+// 唯一付了那几次文档读取、以及光标可见性检查逼出来的那次布局的读取。
 //
-// The caret it carries is NOT the caret restoring this spot puts down: a jump lands on the heading
-// it names, caret at its head (see caretAtLine), and a visit keeps what it recorded. What rides
-// along here is the caret the JUMP left behind — a record of where the reader came from, which
-// nothing downstream reads.
+// 它带的光标**不是**恢复到这里时会落下的那个光标：跳转落在它点名的标题上、光标在行首
+// （见 caretAtLine），而一次 visit 保留它记下的。这里顺带带的是**跳转**留下的光标 —— 一份
+// 读者从哪来的记录，下游没人读它。
 export function readLandingState(view: MarkdownView): NavEntryState | undefined {
 	const st = readEphemeralState(view);
 	if (!st)
@@ -268,40 +246,34 @@ export function readLandingState(view: MarkdownView): NavEntryState | undefined 
 	return { ...st, ...navDisplayFields(view, st.scroll ?? -1), ...landingContext(view, st) };
 }
 
-// Rebuild the nav-display fields around an ALREADY-READ position — the poll baseline handed to
-// refreshTop at a teleport. The pre-jump state cannot be re-read (the cursor has already jumped; the
-// scroll may already have landed on mobile), so the display fields are reconstructed from the
-// current view against the recorded position: at most one poll tick stale. Shallow copy — never
-// mutate the shared baseline (or any entry sharing it) in place.
+// 围绕一个**已经读出的**位置重建导航显示字段 —— 遥测跳变时交给 refreshTop 的那个轮询基线。
+// 跳转前的状态没法重读（光标已经跳了；移动端 scroll 可能也已落地），所以显示字段是拿当前视图
+// 对着记录的位置重建出来的：最多陈旧一个轮询 tick。浅拷贝 —— 绝不就地改那个共享基线
+// （或任何共享它的条目）。
 export function withNavDisplay(view: MarkdownView, st: EphemeralState): NavEntryState {
 	return { ...st, ...navDisplayFields(view, st.scroll ?? -1) };
 }
 
-// Nearest-match heuristic: an edited anchor line or a fully rewritten region finds no match and
-// keeps the stale line (native-history behavior); heavily duplicated lines resolve to the nearest
-// copy. Upgrade path: live CM change deltas on top of the anchors.
+// 就近匹配的启发式：锚点行被改过、或整块被重写时找不到匹配，就留着那个陈旧的行号（原生历史的
+// 行为）；重复得极多的行就解析到最近的那一份。升级路径：在锚点之上再叠 CM 的实时变更增量。
 const REMAP_WINDOW = 30;
 
-// Normalize text for anchor matching: fold case and strip whitespace and punctuation so a
-// lightly-edited anchor line still matches its recorded text. CJK needs no case fold but benefits
-// from the strip ("我的 标题" vs "我的标题"). Comparison stays an exact match on the normalized
-// forms — never a substring — so heavily-duplicated lines still resolve nearest, and an unrelated
-// edit never falsely matches.
+// 为锚点匹配归一文本：折叠大小写、去掉空白与标点，好让一条被轻改过的锚点行仍能匹配上它记录的
+// 文本。CJK 不需要折叠大小写，但去掉空白有好处（「我的 标题」对「我的标题」）。比较仍是归一形式
+// 上的精确匹配 —— 绝不用子串 —— 所以重复极多的行仍解析到最近的，一处无关的改动也不会假匹配。
 export function normAnchor(text: string): string {
 	return text.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
 }
 
-// Anywhere lines can be read out of by number: an editor's buffer, or a file's lines read off disk.
-// The whole shape the scan below needs and nothing more — which is what lets ONE scan serve a note
-// that is open (its buffer, ahead of the file on disk by however much the reader has typed and not
-// saved) and one that is not.
+// 任何能按行号读出行的东西：一个编辑器的缓冲区，或者从磁盘读出的文件的行。下面那个扫描需要的
+// 全部形状，一分不多 —— 正是这一点让同一个扫描既能服务打开的笔记（它的缓冲区，比磁盘上的文件
+// 领先读者已敲未存的那么多），也能服务没打开的。
 export interface LineSource {
 	getLine(line: number): string;
 	lastLine(): number;
 }
 
-// A file's lines as that shape: what the scan is handed for a note that is not open. Split once,
-// kept by whoever asked for it.
+// 一个文件的行按那个形状包一下：笔记没打开时交给扫描的就是它。切一次，谁要谁留着。
 export function linesSource(lines: string[]): LineSource {
 	return {
 		getLine: (line: number) => lines[line] ?? '',
@@ -309,18 +281,14 @@ export function linesSource(lines: string[]): LineSource {
 	};
 }
 
-// WHERE THE ANCHOR'S LINE IS NOW: the one scan, over any line source. A record names a line NUMBER
-// and the text that stood on it; the file has moved since — inserts and deletes above shift every
-// line below — so the number is a stale address and the text is the only thing left that knows the
-// place. Nearest-first outwards from the recorded line, because an edit shifts lines by a few, not
-// by a relocation; an exact hit outranks a nearer normalized one, because an unedited copy of the
-// recorded line is more credible than an edited lookalike.
+// 锚点那一行**现在在哪**：唯一的那个扫描，对任何行来源都适用。一条记录点名一个行**号**，以及曾
+// 站在那一行上的文本；文件从那以后动过 —— 上方的插入与删除会移动下面每一行 —— 所以那个行号是个
+// 过期的地址，文本是唯一还记得那个地方的东西。从记录行起就近向外找，因为一次编辑只是把行挪几行、
+// 不是搬迁；精确命中的优先级高于更近的归一命中，因为记录行的未编辑副本比一个改过的相似货更可信。
 //
-// UNDEFINED MEANS UNKNOWN, NOT UNCHANGED, and that is the whole reason this scan answers in a line
-// rather than in a shift: a note rewritten past recognition has no answer to give, and a caller that
-// read undefined as "it is where it was" would go on quoting a number it knows nothing about. Two
-// passes, plain text first: the common unedited case costs nothing but string compares, and only a
-// miss pays for normalization.
+// UNDEFINED 意味着**不知道**、不是**没变**，这正是这个扫描回答一个行号而不是一个位移的全部原因：
+// 一篇被改到认不出来的笔记没有答案可给，而一个把 undefined 读成「它还在原地」的调用方，会继续
+// 引用一个它一无所知的数字。两遍，先纯文本：常见的未编辑情形只花字符串比较，只有落空才为归一付钱。
 export function remapAnchorLine(
 	anchor: string | undefined,
 	recorded: number | undefined,
@@ -348,11 +316,9 @@ export function remapAnchorLine(
 	return undefined;
 }
 
-// Re-map a stale recorded position to the file's current lines: the entry text anchor (see
-// readNavEntryState) locates the line that used to sit at the recorded line number. Returns a
-// shifted copy — callers' entries stay immutable (keyed-entry semantics), the original anchor stays
-// with the entry for the next apply. No anchor, no scan, no change: the position is applied exactly
-// as it was recorded.
+// 把一个过期的记录位置重映射到文件当前的行上：条目的文本锚点（见 readNavEntryState）定位到过去
+// 坐在记录行号上的那一行。返回一份平移过的副本 —— 调用方的条目保持不可变（带键条目的语义），
+// 原锚点留在条目上供下次应用。没有锚就没有扫描、也没有改动：位置完全按记录的样子应用。
 export function remapAnchoredState(editor: LineSource, st: NavEntryState): NavEntryState {
 	const base = st.scroll ?? st.cursor?.from.line;
 	if (base === undefined || base < 0)
@@ -361,16 +327,14 @@ export function remapAnchoredState(editor: LineSource, st: NavEntryState): NavEn
 	return at === undefined || at === base ? st : shiftNavState(st, at - base);
 }
 
-// Shift a recorded position by `delta` lines — the structural anchor's drift: its CURRENT line minus
-// its RECORD-TIME line, both resolved by the caller through metadataCache. Same mechanics as the
-// remap above (immutable copy, scroll clamps at 0, cursor lines clamp too), but driven by an
-// authoritative structural line instead of a ±REMAP_WINDOW text scan, so a shift beyond any window
-// still lands. The text anchor is dropped: it belongs to the record-time line, and the caller has
-// already re-located the position structurally.
+// 把一个记录位置平移 `delta` 行 —— 结构锚点的漂移：它**当前**的行减去**记录时**的行，两者都由
+// 调用方经 metadataCache 求出。机制同上一个重映射（不可变副本、scroll 在 0 处夹住、光标行也夹），
+// 但由一条权威的结构行驱动，而不是 ±REMAP_WINDOW 的文本扫描，所以超出任何窗口的位移也照样落得下。
+// 文本锚点被丢掉：它属于记录时那一行，而调用方已经按结构重新定位过位置了。
 //
-// Shared on purpose by the two consumers that must agree on the shift: an in-file history jump
-// (RestoreModes.historyJumpApply) and the landing a cross-file traversal hands to the open pipeline
-// (NavStack.landingFor, which cannot run the text remap — the target editor does not exist yet).
+// 有意让两个消费者共用，它们必须对平移达成一致：一次文件内历史跳转
+// （RestoreModes.historyJumpApply），以及跨文件遍历交给 open 流水线的那次落点
+// （NavStack.landingFor，它跑不了文本重映射 —— 目标编辑器还不存在）。
 export function shiftNavState(st: NavEntryState, delta: number): NavEntryState {
 	if (delta === 0)
 		return st;
