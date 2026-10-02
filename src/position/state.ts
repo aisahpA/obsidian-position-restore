@@ -6,34 +6,30 @@ import { RestoreCue } from './ui/cue';
 
 export type OpenKind = 'anchorLink' | 'startPlainLink' | 'callerTarget';
 
-// How long recording stays in absorb mode after an open-kind jump is dispatched at
-// setViewState time: the jump lands asynchronously, and during this window the poll
-// re-baselines without writing, so the landing is never recorded as user movement. A
-// ceiling, not a hard delay — the sampler expires it early once the view stops moving.
+// setViewState 时派发一次 open-kind 跳转之后，记录会在吸收模式里停留多久：跳转是异步落地的，
+// 这段窗口里轮询只重设基线、不写入，落地因此永远不会被记成用户移动。这是上限不是硬延时 ——
+// 视图一停稳，采样器就提前让它失效。
 export const LANDING_ABSORB_MS = 3000;
 
-// Single owner of the cross-phase coordination state shared by recording, restore and
-// the open patches: fragmenting it would let recording observe a half-applied restore.
+// 记录、恢复与各个 open 补丁共用的跨阶段协调状态，只此一份所有者：拆开就会让记录观察到一个
+// 只恢复了一半的状态。
 export class PositionState {
-	// Leaves whose saved position was injected into the open's ephemeral state and
-	// therefore must not be restored a second time. Keyed by LEAF ID, not path: with one
-	// file in two tabs each tab injects its own per-tab position. A background open
-	// produces no file-open, so its entry stays until that tab is activated.
+	// 保存的位置已被注入进这次 open 的 ephemeral state、因此不能恢复第二遍的那些 leaf。
+	// 按 LEAF ID 而不是 path 作键：同一个文件开在两个标签页时，每个标签页注入各自的位置。
+	// 后台 open 不产生 file-open，所以它的条目会一直留到那个标签页被激活。
 	injectedOpenLeafIds = new Set<string>();
 
-	// The path active before the last 'active-leaf-change'. The event fires with only the
-	// NEW leaf, so completeInjectedRestore needs this track to tell a same-file activation
-	// from a genuine file switch.
+	// 上一次 'active-leaf-change' 之前处于活动的那个 path。事件只带新 leaf，所以
+	// completeInjectedRestore 要靠这条记录区分「激活了同一个文件」与「真的换了文件」。
 	lastActiveFilePath: string | undefined = undefined;
 
-	// ===== Restore run tracking =====
+	// ===== 恢复轮次跟踪 =====
 	restoreRun = 0;
-	// A counter, so the flag stays up while superseded restores unwind.
+	// 用计数器，好让被顶掉的恢复慢慢退场期间这个标记仍然立着。
 	private activeRestores = 0;
 
-	// Leaf id -> { filePath, run } of the restore in flight for that leaf. Lets a
-	// duplicate re-assert for the same leaf+file skip instead of superseding — a second
-	// entry would take the non-injected path and reveal the first-paint cover mid-settle.
+	// leaf id -> 该 leaf 正在进行的恢复的 { filePath, run }。让同一个 leaf+file 的重复重申跳过
+	// 而不是顶掉前一个 —— 第二条一旦入表就会走非注入路径，把首绘遮罩在落定途中揭开。
 	inFlightRestoreLeafRuns: Map<string, { filePath: string; run: number }> = new Map();
 
 	beginLeafRestore(leafId: string, filePath: string): number {
@@ -42,16 +38,14 @@ export class PositionState {
 		return run;
 	}
 
-	// Scoped per leaf on purpose: only a newer restore on the SAME leaf makes a run
-	// stale. A restore on a DIFFERENT leaf must never supersede it — that would leave
-	// this leaf's cover up forever.
+	// 故意按 leaf 划分作用域：只有同一个 leaf 上更新的恢复才会让一个 run 变陈旧。
+	// 另一个 leaf 上的恢复绝不能顶掉它 —— 那会让这个 leaf 的遮罩永远揭不掉。
 	isCurrentLeafRestore(leafId: string, run: number): boolean {
 		const cur = this.inFlightRestoreLeafRuns.get(leafId);
 		return !!cur && cur.run === run;
 	}
 
-	// Recording skips while this holds: restore's own glide fires scroll events that
-	// would otherwise overwrite the saved position.
+	// 这个成立期间记录让路：恢复自己的滑动会甩出 scroll 事件，否则会盖掉保存的位置。
 	isRestoringFile(): boolean {
 		return this.activeRestores > 0;
 	}
@@ -64,101 +58,89 @@ export class PositionState {
 		this.activeRestores--;
 	}
 
-	// Whose restore must skip the anchor (background restores: the recording baseline
-	// belongs to the active leaf only). Set by BackgroundSettler, cleared in its finally.
+	// 哪些 leaf 的恢复必须跳过锚定（后台恢复：记录基线只属于活动 leaf）。由 BackgroundSettler
+	// 设置，在它的 finally 里清掉。
 	noAnchorLeafIds = new Set<string>();
 
-	// ===== Recording baseline: written by restore, read by polling =====
+	// ===== 记录基线：恢复写、轮询读 =====
 	lastEphemeralState: EphemeralState | undefined;
 	lastLoadedFilePath: string | undefined;
 
-	// When the last restore anchored recording — the epoch the desktop teleport
-	// baseline bumps on to tell a restore's own cursor placement from a jump the
-	// reader made. It no longer times any reflow window: the sampler asks
-	// whether the reader did something RECENTLY (see its hasUserIntent).
+	// 上一次恢复锚定记录的时刻 —— 桌面端推断跳变基线据此抬高纪元，以便把「恢复自己放的光标」与
+	// 「读者做的一次跳转」区分开。它不再给任何重排窗口计时：采样器问的是读者**最近**动过没有
+	// （见它的 hasUserIntent）。
 	lastAnchorAt = 0;
 
-	// Last user touch (mobile only), and last user input (desktop: wheel / pointerdown /
-	// keydown) — each the signal its platform's scroll guard reads.
+	// 最后一次用户触摸（仅移动端）与最后一次用户输入（桌面端：wheel / pointerdown /
+	// keydown）—— 各自是所在平台滚动守卫读的信号。
 	lastTouchAt = 0;
 	lastUserInputAt = 0;
 
-	// leaf.id -> filePath whose open is fully handled. Written by the file-open dedup path
-	// AND by the setViewState patch, so pairs whose open never fires 'file-open'
-	// (background opens, startup restore) still dedup later switches.
+	// leaf.id -> 已完整处理过 open 的 filePath。file-open 去重路径与 setViewState 补丁都会写它，
+	// 所以那些 open 从不触发 'file-open' 的组合（后台打开、启动时恢复）仍能对后来的切换去重。
 	handledLeafIdMap: Map<string, string> = new Map();
 
-	// ===== Open-kind tracking (transient flags passed between patches) =====
+	// ===== open-kind 跟踪（补丁之间传递的临时标记） =====
 
-	// Per-leaf pending open kind. Per-leaf because a caller-target open that never fires
-	// 'file-open' must not leak onto another leaf's restore.
+	// 每个 leaf 待处理的 open kind。按 leaf 分是因为：一次从不触发 'file-open' 的 caller-target
+	// 打开，不能泄漏到另一个 leaf 的恢复上。
 	pendingOpenKind: Map<WorkspaceLeaf, OpenKind> = new Map();
 
-	// Written by the openLinkText patch (which does not know the target leaf yet) and
-	// promoted onto pendingOpenKind by injectEphemeralStateOnOpen, synchronously inside
-	// the same call stack. The timeout is a safety net for calls that never reach
-	// setViewState.
+	// 由 openLinkText 补丁写入（它还不知目标 leaf），再由 injectEphemeralStateOnOpen 在同一个
+	// 调用栈里同步提升到 pendingOpenKind 上。那个定时器是安全网，兜那些从未走到 setViewState
+	// 的调用。
 	pendingLinkKind: OpenKind | undefined;
 	pendingLinkKindTimeout = 0;
 
-	// The raw linktext, stashed alongside: the nav-history dedup key for same-file anchor
-	// jumps. Cleared together with pendingLinkKind.
+	// 顺带存下的原始 linktext：同文件锚点跳转在 nav-history 里的去重键。与 pendingLinkKind 一起清。
 	pendingLinkText: string | undefined;
 
-	// Armed by NavStack right before it invokes app:go-back / app:go-forward: the
-	// resulting setViewState must inject THIS plugin's saved position over the native
-	// entry's eState, which carries only the cursor.
+	// NavStack 在调用 app:go-back / app:go-forward 之前立刻装好：随之而来的 setViewState
+	// 必须把**本插件**保存的位置注入覆盖掉原生条目的 eState —— 后者只带光标。
 	pendingHistoryNav = false;
 	pendingHistoryNavTimeout = 0;
 
-	// The landing the pending traversal's open must be given, when the target entry carries
-	// its own recorded position. undefined = the file record stands. Cleared together with
-	// the flag — a landing left behind would be injected into an unrelated later open.
+	// 当目标条目自带记录位置时，待处理的那次遍历的 open 应当被给予的落点。undefined = 文件记录
+	// 说了算。与那个标记一起清 —— 落下的落点会被注入进一次无关的后来的 open。
 	pendingHistoryNavState: EphemeralState | undefined;
 
-	// The file that landing belongs to: the flag is global, so a landing applies only to
-	// the open it was armed for.
+	// 那个落点所属的文件：标记是全局的，所以落点只对当年为它装好的那次 open 生效。
 	pendingHistoryNavPath: string | undefined;
 
-	// The line a travelling landing must mark once it has landed, the note it belongs to,
-	// and when it was asked for (see NavStack.armLandingMark). One-shot and path-bound for
-	// the reason the flag above is, and short-lived for one more: the note asked for here
-	// may reach this line by some other route, and that is nobody's heading to mark.
+	// 一个在途落点落地后要标记的那一行、它所属的笔记，以及它是何时被要求的（见
+	// NavStack.armLandingMark）。一次性、绑定 path，理由同上一个标记；另外还更短命，因为：
+	// 这里点名的那篇笔记可能循别的路径走到这一行，那就没有谁的标题该被标上。
 	pendingLineFlash: { path: string; line: number; at: number } | undefined;
 
-	// leafId -> the landing the last injected open on that leaf was handed. The
-	// restorer's injected-source settle must verify the SAME line core was given — after
-	// a cross-file history jump the two deliberately differ.
+	// leafId -> 该 leaf 上最近一次注入式 open 被给予的落点。恢复器对注入来源的落定必须核对
+	// core 拿到的是同一行 —— 跨文件历史跳转之后，两者是有意不同的。
 	injectedLeafStates: Map<string, EphemeralState> = new Map();
 
-	// Until when a restore's landing cue is suppressed: NavStack arms it whenever a
-	// traversal triggers a restore, so back/forward hops land without the chip — the
-	// reader chose the destination. Deadline-based because the cross-file restore runs
-	// from the debounced 'file-open' handler, AFTER the traversal's bracket closed.
+	// 在此之前抑制恢复的落点提示：只要一次遍历触发了恢复，NavStack 就装它，好让前进后退的落点
+	// 不带那个小标签 —— 目的地是读者自己选的。用截止时刻而不是布尔，是因为跨文件恢复跑在防抖后的
+	// 'file-open' 处理器里，晚于这次遍历的括号合上。
 	cueSuppressUntil = 0;
 
-	// ===== Search anchor (search-driven jump guard) =====
-	// Until when recording treats view movement as not the reader's: Infinity while a
-	// search input holds focus, then a short grace after it blurs. The patcher also sets a
-	// finite value (LANDING_ABSORB_MS) when an open-kind jump is dispatched.
+	// ===== 搜索锚定（搜索引发的跳转守卫） =====
+	// 在此之前记录把视图移动当成不是读者动的：搜索框持焦期间是 Infinity，失焦后还有一小段
+	// 宽限。派发 open-kind 跳转时，补丁也会设一个有限值（LANDING_ABSORB_MS）。
 	searchAnchorUntil = 0;
 
 	isSearchAnchored(): boolean {
 		return Date.now() < this.searchAnchorUntil;
 	}
 
-	// ===== Cover (pre-first-paint mask) =====
+	// ===== 遮罩（首绘之前的蒙版） =====
 	cover = new OpenCover();
 
-	// ===== Post-restore orientation cue =====
+	// ===== 恢复后的方位提示 =====
 	cue: RestoreCue;
 
 	constructor(settings: PluginSettings) {
 		this.cue = new RestoreCue(settings);
 	}
 
-	// leaf.id is runtime API absent from the public typings; the cast collapses the
-	// per-site @ts-ignore noise.
+	// leaf.id 是运行时 API，公开类型里没有；这层转换收掉了各处 @ts-ignore 的噪音。
 	leafId(leaf: WorkspaceLeaf): string {
 		return leafIdOf(leaf);
 	}

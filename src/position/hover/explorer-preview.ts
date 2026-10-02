@@ -2,19 +2,16 @@ import { App, MarkdownPreviewRenderer } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from '../storage/database';
 
-// The id the app's own file list reports as the source of its hover ask. Every
-// source funnels through the same workspace trigger, so this is what keeps the
-// change to that one list.
+// app 自己的文件列表在悬停询问里报告的 source id。所有来源都汇入同一个 workspace trigger，
+// 靠它把改动限定在那一个列表上。
 const FILE_EXPLORER_SOURCE = 'file-explorer';
 
-// How core is told to move a preview to a line. It bakes `highlight: true` into
-// that call, and a hover ask has no field saying "move without flagging it", so
-// a flash that ships with the move can only be dropped at the call itself.
+// core 收到的「把预览移到某一行」长什么样。它会在那次调用里写死 `highlight: true`，
+// 而悬停询问没有字段能说「移动但不标亮」，所以随移动一起发的那下闪只能在调用处丢掉。
 type ScrollOpts = { highlight?: boolean; center?: boolean };
 type ApplyScrollDelayed = (line: number, opts?: ScrollOpts) => void;
 
-// The parts of a hover ask this module reads or writes — the event, the parent
-// and the target element belong to the app.
+// 本模块读写的那几部分悬停询问 —— 事件本身、父级与目标元素都归 app。
 interface HoverAsk {
 	source?: string;
 	linktext?: string;
@@ -23,18 +20,14 @@ interface HoverAsk {
 
 type Trigger = (name: string, ...data: unknown[]) => void;
 
-// WHERE THE APP'S OWN FILE LIST OPENS ITS HOVER PREVIEW. Left alone it asks for
-// the note and no position, so the card draws at the note's top — the app's own
-// answer, and the default (see PluginSettings.fileExplorerPreviewFocus). Asked
-// for the line, it is given the position this plugin last recorded for that
-// FILE: not a landing out of the recent-files list, and not the line as it
-// stands today, which is a re-derivation needing an async read this ask cannot
-// wait for. A file changed elsewhere since may therefore open a line off from
-// the one the reader left — the cost of answering synchronously.
+// APP 自己的文件列表在哪里打开它的悬停预览。不动它的话，它只要笔记、不要位置，卡片就画在笔记
+// 顶部 —— 那是 app 自己的答案，也是默认值（见 PluginSettings.fileExplorerPreviewFocus）。要行号
+// 时，给它的是本插件为该**文件**最后记录的位置：不是最近文件列表里的某个落点，也不是今天这一行
+// 现在的样子 —— 那需要一次异步读取来重新推导，而这次询问等不起。因此一个在别处改过的文件，
+// 可能开在与读者离开时不同的一行上 —— 这就是同步作答的代价。
 export class ExplorerPreviewFocus {
-	// The line this module last put into a hover ask, waiting for the move that
-	// ask causes. One aim may drop one flash, and a preview that never drew
-	// cannot spend it later — see patchScrollFlash.
+	// 本模块最近放进一次悬停询问的那一行，等着那次询问引发的移动。一次瞄准只抵一次闪，
+	// 一个从未画出来的预览也不能把它留到以后用 —— 见 patchScrollFlash。
 	private aimedLine: number | undefined;
 
 	constructor(
@@ -48,11 +41,9 @@ export class ExplorerPreviewFocus {
 		const original = workspace.trigger;
 		if (typeof original !== 'function')
 			return;
-		// A PATCH AND NOT A LISTENER: core's page-preview is itself only a
-		// 'hover-link' listener, and it copies linktext and state out of the
-		// payload before any listener of ours would run, so a payload edited
-		// afterwards reaches nobody. The trigger is the one point ahead of that
-		// copy, and it forwards untouched everything it does not mean to change.
+		// 是补丁而不是监听器：core 的 page-preview 本身只是个 'hover-link' 监听器，它会在我们的
+		// 任何监听器跑之前就把 linktext 和 state 从载荷里复制走，所以事后改载荷谁都收不到。trigger
+		// 是那次复制之前的唯一一个点，它原样转发一切它不打算改的东西。
 		workspace.trigger = (name: string, ...data: unknown[]) => {
 			if (name === 'hover-link')
 				this.aim(data[0]);
@@ -64,11 +55,9 @@ export class ExplorerPreviewFocus {
 		this.patchScrollFlash(registerCleanup);
 	}
 
-	// A flash is core's answer to "here is the thing you searched for". The line
-	// this module hands over is not a find: it is where the reader already was,
-	// and a card lighting it up tells them nothing they did not bring. So the
-	// move our aim causes runs without it, while every other move keeps the
-	// flash it was asked for.
+	// 闪一下是 core 对「你要找的东西在这儿」的回答。本模块交出去的那一行不是一次查找结果：
+	// 那是读者本来就在的地方，卡片把它点亮，说不出任何他带不来的信息。所以由我们瞄准引发的那次
+	// 移动不带闪，而其它每一次移动都保留它被要求的闪。
 	private patchScrollFlash(registerCleanup: (fn: () => void) => void) {
 		const proto = MarkdownPreviewRenderer.prototype as unknown as {
 			applyScrollDelayed?: ApplyScrollDelayed;
@@ -76,8 +65,8 @@ export class ExplorerPreviewFocus {
 		const original = proto.applyScrollDelayed;
 		if (typeof original !== 'function')
 			return;
-		// Arrow keeps `this` lexical; the wrapper below must stay a plain
-		// function so core's `this` (the renderer) is preserved.
+		// 箭头函数保住 `this` 的词法指向；下面的包装必须是普通函数，
+		// 好让 core 的 `this`（渲染器）得以保留。
 		const withoutOwnFlash = (line: number, opts?: ScrollOpts) =>
 			this.withoutOwnFlash(line, opts);
 		proto.applyScrollDelayed = function (line: number, opts?: ScrollOpts) {
@@ -88,9 +77,8 @@ export class ExplorerPreviewFocus {
 		});
 	}
 
-	// Only a call that WOULD flash may spend the token: Hover Editor's own resize
-	// handler calls this asking for no flash, and must not use up the aim
-	// standing behind the one that does.
+	// 只有一次**本来会闪**的调用才配花掉这个令牌：Hover Editor 自己的 resize 处理器会调它、
+	// 且不要闪，不能把那个真正要闪的调用背后的瞄准消耗掉。
 	private withoutOwnFlash(line: number, opts?: ScrollOpts): ScrollOpts | undefined {
 		if (!opts?.highlight || line !== this.aimedLine)
 			return opts;
@@ -98,12 +86,10 @@ export class ExplorerPreviewFocus {
 		return { ...opts, highlight: false };
 	}
 
-	// Only a markdown note with a recorded position off the top is worth
-	// pointing; everything else is left exactly as the app asked for it.
+	// 只有一篇记录了不在顶部的 markdown 笔记才值得指向；其它一律按 app 本来的要求原样不动。
 	private aim(payload: unknown): void {
-		// Every hover ask clears the token first: one from anywhere else — this
-		// plugin's own list, the app's search — means the next flash is that
-		// ask's to make, not ours to swallow.
+		// 每一次悬停询问都先清掉令牌：来自别处的询问 —— 本插件自己的列表、app 的搜索 ——
+		// 意味着下一次闪归那次询问发，不该被我们吞掉。
 		this.aimedLine = undefined;
 		if (this.settings.fileExplorerPreviewFocus !== 'line')
 			return;

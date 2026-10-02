@@ -2,40 +2,35 @@ import { App, TFile } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { frontmatterRuleMatches } from '@/shared/frontmatter';
 
-// Frontmatter-driven recording control, shared by the recording gate (ExclusionChecker) and the db
-// cleaner (CursorPositionDatabase.pruneDb) so a file excluded via frontmatter is treated identically
-// everywhere. Both mechanisms read Obsidian's in-memory metadata cache — never the file text — so
-// the hot path (100ms poll, scroll capture) costs one Map lookup.
+// frontmatter 驱动的记录开关，记录门（ExclusionChecker）与 db 清理器
+// （CursorPositionDatabase.pruneDb）共用，好让一个被 frontmatter 排除的文件在各处得到同样的对待。
+// 两处都读 Obsidian 的内存 metadata 缓存 —— 从不读文件正文 —— 所以热路径（100ms 轮询、滚动采集）
+// 只花一次 Map 取。
 //
-// A (escape hatch): a property this plugin reserves — `position-restore` — with a strict boolean
-// meaning. `false` never records the file (absolute, beats every other rule); `true` always records
-// it (beats excluded folders, the minimum-length filter and the B rule below). The string forms
-// "true"/"false" count as well — Obsidian's properties UI stores text-typed values quoted, so a
-// strict-boolean-only check would silently miss a UI-entered marker. Any other value is ignored, so
-// YAML noise can't silently flip recording.
+// A（逃生口）：本插件保留的属性 —— `position-restore` —— 语义是严格布尔。`false` 永不记录该文件
+// （绝对，压过其它一切规则）；`true` 永远记录（压过排除文件夹、最小长度过滤和下面的 B 规则）。
+// 字符串形式 "true"/"false" 也算 —— Obsidian 的属性 UI 把文本型的值加引号存，只认严格布尔的检查
+// 会静默漏掉 UI 里填的标记。别的值一律无视，YAML 噪音就没法悄悄翻转记录与否。
 //
-// B (rule): a configurable list of `prop[: value]` entries (frontmatterExcludeProperties). With just
-// a name — `publish` — any file whose frontmatter CONTAINS the property is never recorded (values
-// ignored); with a value — `publish: true` — only when the property matches it. Both forms can mix
-// in one list. Empty list = disabled. The entry form itself lives in shared/frontmatter.ts, so the
-// two pages cannot drift apart in what an entry says.
+// B（规则）：一份可配置的 `prop[: value]` 条目列表（frontmatterExcludeProperties）。只写名字 ——
+// `publish` —— 则任何 frontmatter **含有**该属性的文件都不记录（值无视）；写成「名: 值」——
+// `publish: true` —— 则只有属性匹配它时才不记录。两种形式可以混在同一份列表里。空列表 = 关闭。
+// 条目本身的形态住在 shared/frontmatter.ts，所以两个使用方不会对同一条目给出不同解读。
 //
-// The recent-files list deliberately does NOT read the escape hatch back: `position-restore` answers
-// whether a POSITION is recorded, and a note the reader opted out of position recording is still a
-// place they navigate to (see recent-files/places.ts).
+// 最近文件列表故意**不**回读这个逃生口：`position-restore` 回答的是「位置」记不记，而读者主动放弃
+// 记录位置的一篇笔记，仍然是他会导航过去的一个地点（见 recent-files/places.ts）。
 
 export const ESCAPE_HATCH_PROPERTY = 'position-restore';
 
 export interface FrontmatterDecision {
-	// `position-restore: true`: record regardless of every rule below.
+	// `position-restore: true`：无视下面每一条规则照记。
 	forceRecord: boolean;
-	// `position-restore: false` or any configured B rule matched: never record.
+	// `position-restore: false` 或者匹配上任何一条配置的 B 规则：永不记录。
 	skip: boolean;
 }
 
-// Normalizes the escape-hatch marker to a strict boolean: booleans pass through, the string forms
-// "true"/"false" (case-insensitive, trimmed) are accepted because Obsidian's properties UI stores
-// text-typed values quoted. Anything else returns undefined = "no marker".
+// 把逃生口标记归一到严格布尔：布尔值直接过；字符串 "true"/"false"（忽略大小写、先 trim）也接受，
+// 因为 Obsidian 的属性 UI 把文本型的值加引号存。其它一律返回 undefined =「没有标记」。
 function markerValue(v: unknown): boolean | undefined {
 	if (typeof v === 'boolean')
 		return v;
@@ -49,29 +44,28 @@ function markerValue(v: unknown): boolean | undefined {
 	return undefined;
 }
 
-// Pure decision over raw frontmatter — unit-testable without an App.
+// 对原始 frontmatter 的纯决策 —— 不需要 App 就能单测。
 export function evaluateFrontmatter(frontmatter: unknown, settings: PluginSettings): FrontmatterDecision {
 	const decision: FrontmatterDecision = { forceRecord: false, skip: false };
 	if (!frontmatter || typeof frontmatter !== 'object')
 		return decision;
 	const obj = frontmatter as Record<string, unknown>;
 
-	// Escape hatch first: an explicit per-file marker beats every bulk rule.
+	// 先看逃生口：逐文件的显式标记压过一切批量规则。
 	const marker = markerValue(obj[ESCAPE_HATCH_PROPERTY]);
 	if (marker === true) {
 		decision.forceRecord = true;
 	} else if (marker === false) {
 		decision.skip = true;
 	} else if (frontmatterRuleMatches(frontmatter, settings.frontmatterExcludeProperties ?? [])) {
-		// B rule: an entry matched (see shared/frontmatter.ts).
+		// B 规则：有一条条目匹配上了（见 shared/frontmatter.ts）。
 		decision.skip = true;
 	}
 	return decision;
 }
 
-// Reads the decision from the metadata cache. Returns undefined while the file has not been parsed
-// yet (the cache fills lazily) — callers treat that as "no decision" and re-check on the next
-// metadata-cache-changed event or poll tick, instead of caching a wrong answer.
+// 从 metadata 缓存里读这个决策。文件还没被解析时返回 undefined（缓存是懒填的）—— 调用方把它当
+// 「没有决策」，等下一次 metadata-cache-changed 事件或轮询 tick 再查，而不是缓存一个错的答案。
 export function frontmatterDecisionFor(app: App, file: TFile | null, settings: PluginSettings): FrontmatterDecision | undefined {
 	if (!file)
 		return undefined;
