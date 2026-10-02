@@ -1,56 +1,48 @@
-// The recent-files browser's tuning numbers.
+// 最近文件浏览器的调参数字。
 
-// The id this panel answers by in Obsidian's hover-preview system — the same
-// string for the dialog and the resident leaf, because either way the reader is
-// looking at ONE panel. Must stay the panel view's type (see view.ts): that is
-// what the app tells its sources apart by.
+// 这个面板在 Obsidian 悬停预览体系里应答用的 id —— 对话框和常驻 leaf 用的是同一个字符串，
+// 因为无论哪种，读者看的都是同一块面板。它必须与面板视图的类型一致（见 view.ts）：
+// app 就是靠它来区分自己的各个来源的。
 export const NAV_SOURCE_ID = 'position-restore-recent-files';
 
-// Above this many entries the modal pins its height and scrolls: filtering must
-// not resize and re-center the dialog.
+// 条目超过这个数，模态框就固定高度并滚动：筛选不能改变对话框大小、也不能让它重新居中。
 export const FIXED_HEIGHT_MIN_ENTRIES = 12;
 
-// How often an IDLE panel re-derives the ages on its rows. Any real use of the
-// app moves the places, and that redraw re-derives them on the way.
+// 空闲面板多久重新推算一次各行上的「多久之前」。app 的任何真实使用都会移动地点，
+// 而那次重画顺路就把它们重推一遍。
 export const TIME_REFRESH_MS = 5 * 60_000;
 
-// How long the pointer rests before a row says what is on it. The list is
-// crossed as often as it is read, and a tooltip answering every row passed over
-// would be a band of text flashing down it.
+// 指针停留多久后，才有一行说出它上面是什么。这份列表被划过的次数和读它的次数一样多，
+// 而一个对经过的每一行都应答的提示框，会是顺着列表一路闪下来的一条文字带。
 export const TIP_DELAY_MS = 1000;
 
-// How far the tooltip stands off the row it is about, in pixels.
+// 提示框离它所讲的那一行多远，以像素计。
 export const TIP_GAP_PX = 6;
 
-// How long a finger rests before its row is armed. Too short and a drag arms
-// the row it started on; too long and the gesture stops answering at all. 500ms
-// is what the platform's own long press waits.
+// 手指停多久后，它所在的行被武装。太短，一次拖动会让它起始的那一行被武装；
+// 太长，这个手势干脆不再应答。500ms 正是平台自己的长按所等待的时长。
 export const LONG_PRESS_MS = 500;
 
-// How far the finger may drift and still be resting on its row, in pixels. A
-// finger rolls, so a still press reports a pixel or two.
+// 手指可以漂移多少、而仍算作停在它那一行上，以像素计。手指会滚，
+// 所以一次静止的按压也会报出一两个像素。
 export const LONG_PRESS_SLOP_PX = 10;
 
-// How long the row a finger PRESSED keeps the mark saying so. Held past the
-// finger because a phone has no hover and the travel folds the drawer away
-// behind it — a mark that went with the finger is a mark never seen. A number
-// rather than the lift, because a press is also the beginning of a scroll.
+// 手指**按过**的那一行保留这个「按住了」标记多久。它比手指多留一会儿，因为手机没有悬停，
+// 而一次行进会把抽屉在它背后合起来 —— 一个随手指一起走的标记就是个永远看不见的标记。
+// 用固定时长而不是抬起事件，因为一次按压也可能是一次滚动的开始。
 export const ROW_PRESS_MARK_MS = 320;
 
-// The CEILING on that mark while the finger is still down. The lift that ends a
-// press is not always delivered (a drawer may take the gesture, a second finger
-// may land), and a row left lit has to have a latest moment of its own — but
-// one that outlasts a finger resting all the way through a long press.
+// 手指仍按着时那个标记的**上限**。结束一次按压的抬起事件并不总会送达
+// （抽屉可能接管这个手势、第二根手指可能落下），而一个被留在亮着状态的行必须
+// 有属于自己的最后时刻 —— 但这个时刻要长过一根手指全程停满一次长按。
 export const ROW_PRESS_HOLD_MAX_MS = LONG_PRESS_MS + ROW_PRESS_MARK_MS;
 
-// How long the RESIDENT panel holds its redraws after a travel on a PHONE. On a
-// phone the panel is a drawer that folds away while the travel re-orders the
-// list, so without this the reader watches the row they aimed at climb to the
-// top of a list that is leaving. A desktop panel stays put and that re-ordering
-// IS the answer, so nothing is held back there.
+// **常驻**面板在一次行进之后（手机上）压住重画多久。手机上这个面板是个抽屉，
+// 在行进重排列表的同时它会合起来，所以没有这个延迟，读者就会看着自己瞄准的那一行
+// 爬上一份正在离开的列表的顶部。桌面上的面板待着不动，那次重排**就是**答案，
+// 所以那边什么都不压。
 export const PANEL_EXIT_GRACE_MS = 300;
 
-// How long the panel waits before redrawing for a section chain that arrived
-// LATE: a list the cache knows nothing about asks for every note at once and
-// they land in one burst, so one redraw at the end of it replaces one apiece.
+// 对于**迟到**到达的标题链，面板等多久才重画：一份缓存一无所知的列表会一次问遍每篇笔记，
+// 它们成批一起落地，所以在末尾重画一次就能替掉一行一次的重画。
 export const LATE_READ_REDRAW_MS = 60;
