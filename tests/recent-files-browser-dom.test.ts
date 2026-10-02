@@ -1,15 +1,12 @@
-// DOM-level tests for the recent-files browser's interaction semantics — the parts
-// a reader cannot verify by reading a pure function: what a bare Enter does,
-// which rows are selectable at all, the landing panel that describes a row, and
-// the search box that is now the toolbar's only control.
-// The pure pieces (describe/group/merge/filter/time) are covered in
-// recent-files-browser.test.ts.
+// 最近文件浏览器交互语义的 DOM 级测试 —— 那些读者光读一个纯函数验证不了的部分：
+// 一个光秃秃的回车做什么、哪些行压根可选、描述一行的那个落点面板，以及那个如今
+// 是工具条唯一控件的搜索框。
+// 纯的那些部分（describe/group/merge/filter/time）由 recent-files-browser.test.ts 覆盖。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, MarkdownView, Platform, TFile } from 'obsidian';
-// …and the menu's stand-in itself, which is reached by its own path rather than
-// through 'obsidian' because the registry a test reads (Menu.shown) is the
-// stub's and not the app's (see support/obsidian-stub).
+// ……以及菜单那个替身本身，它走自己的路径而不是经由 'obsidian'，因为测试读的那本
+// 登记簿（Menu.shown）是桩的、不是 app 的（见 support/obsidian-stub）。
 import { Menu } from './support/obsidian-stub';
 import type { HoverParent } from 'obsidian';
 
@@ -37,16 +34,14 @@ import {
 	TIP_DELAY_MS,
 } from '@/recent-files/browser/constants';
 
-// jsdom has no PointerEvent, and `pointerType` is the one field the panel reads to tell a
-// mouse from a finger: a MouseEvent stands in for it, with the kind written on afterwards.
-// Shared by every suite that has to say WHICH pointer it is, because the panel answers the
-// two differently on purpose (see body.ts's hover rules, RecentFilesList.hoverAt and
-// tip.ts): a mouse hovering is a mouse reading, and a finger is about to tap.
-// …and WHERE it is, which is the other half of what the panel reads: it asks the app for
-// a page only when the pointer has MOVED, so two events at one place are one resting
-// hand (a panel that came up under it), and an event a test does not place is put
-// somewhere new. `held` says the hand did NOT move — the one case the panel has to tell
-// apart from a move (see RecentFilesList.hoverAt).
+// jsdom 没有 PointerEvent，而 `pointerType` 是面板用来分辨鼠标与手指的那一个字段：
+// 用一个 MouseEvent 顶替它，种类随后写上去。凡是必须说出「是哪一种指针」的套件都共用
+// 它，因为面板对这两者**故意**给不同的答案（见 body.ts 的悬停规则、
+// RecentFilesList.hoverAt 与 tip.ts）：鼠标悬停是鼠标在读，手指则将要点击。
+// ……以及它在**哪儿**，这是面板所读的另一半：只有当指针**移动过**，它才会向 app 要
+// 一页，所以在同一处的两个事件是一只手没动过（面板在它底下冒出来），而测试没有指定
+// 位置的事件被放到一个新地方。`held` 说这只手**没有**动 —— 那是面板必须与「移动」
+// 区分开来的唯一情形（见 RecentFilesList.hoverAt）。
 let cursor = { x: 0, y: 0 };
 const pointer = (type: string, kind: 'mouse' | 'touch' = 'mouse', held = false) => {
 	if (!held)
@@ -55,25 +50,22 @@ const pointer = (type: string, kind: 'mouse' | 'touch' = 'mouse', held = false) 
 	Object.defineProperty(ev, 'pointerType', { value: kind });
 	return ev;
 };
-// A reader MOVING ONTO a row: the pointer was somewhere else — the list's edge, another
-// row, wherever the hand was — and is now over this element. Two events, because what the
-// panel hears is the MOVE and not the arrival: the first is the pointer as the panel first
-// saw it (coming up under a hand that has not moved, which asks for nothing), the second
-// is the hand moving onto the row.
+// 读者**移动到**一行上：指针本来在别处 —— 列表边缘、另一行、手原来在哪就是哪 ——
+// 现在落在这个元素上。两个事件，因为面板听到的是那次**移动**而不是到达：第一个是
+// 面板最初看见的那个指针（在一只没有动过的手底下冒出来，什么也不问），第二个是那只手
+// 移到这一行上。
 const movedOnto = (el: HTMLElement, kind: 'mouse' | 'touch' = 'mouse') => {
 	el.dispatchEvent(pointer('pointermove', kind));
 	el.dispatchEvent(pointer('pointermove', kind));
 };
 
-// jsdom implements no layout at all, so this is missing rather than broken.
+// jsdom 根本不实现 layout，所以这是**缺**的，不是**坏**的。
 Element.prototype.scrollIntoView = () => {};
 
-// 'obsidian' resolves to tests/support/obsidian-stub.ts for the RUN TIME of this suite
-// (see vitest.config.mts), but tsc reads its types from the real, typings-only
-// package — which declares the two questions the plugin asks (isModEvent /
-// isModifier) and nothing else. The stub's answers are INPUTS a test sets, so
-// they are reached through one honest cast rather than pretended onto the app's
-// class.
+// 在本套件**运行时**，'obsidian' 解析到 tests/support/obsidian-stub.ts（见
+// vitest.config.mts），但 tsc 从真正那个只有类型的包里读它的类型 —— 那个包只声明了
+// 插件要问的两个问题（isModEvent / isModifier），别的一概没有。桩的答案是测试设定的
+// **输入**，所以通过一次诚实的类型断言抵达它们，而不是假扮到 app 自己的类上。
 const KeymapKnobs = Keymap as unknown as {
 	reset(): void;
 	modEvent: unknown;
@@ -83,22 +75,20 @@ const KeymapKnobs = Keymap as unknown as {
 const MINUTE = 60_000;
 const NOW = Date.now();
 
-// A preference set for one harness (or for two, when a test wants to show that a
-// choice made in the settings tab is the choice the next dialog opens on). The
-// panel only READS them (see RecentFilesBrowserPrefs) — the values are the plugin's, and
-// what changes them is the settings tab — so the fixture is a set of live readers
-// over values a test can write, exactly as the settings tab writes them.
+// 为一个 harness 准备的一套偏好（有时是两套，当测试想展示在设置页做出的选择就是下一个
+// 对话框打开时所遵照的选择）。面板只**读**它们（见 RecentFilesBrowserPrefs）—— 那些值
+// 是插件的，改它们的是设置页 —— 所以这个 fixture 是一组对测试可写的值的**实时读者**，
+// 正如设置页写它们那样。
 function prefs(start: {
 	landings?: LandingsMode;
 	path?: PathDisplayMode;
 	time?: boolean;
-	// The frontmatter property a row prints as the note's name, empty for none
-	// (see PluginSettings.recentFilesTitleProperty).
+	// 行拿去当作笔记名打印的那个 frontmatter 属性，没有就是空
+	// （见 PluginSettings.recentFilesTitleProperty）。
 	title?: string;
-	// Where a hover preview opens the note (see PreviewFocusMode). 'head' is the
-	// fixture's own default because it is the app's — a test that wants the note
-	// opened at a line asks for it, which is also the honest reading of the four
-	// tests below that assert a line was named.
+	// 悬停预览把笔记开在哪儿（见 PreviewFocusMode）。'head' 是这个 fixture 自己的默认，
+	// 因为它也是 app 的默认 —— 想让笔记开在某一行上的测试自己要求，这也是下面四个断言
+	// 「点出了某一行」的测试的诚实读法。
 	focus?: PreviewFocusMode;
 } = {}) {
 	const state = {
@@ -114,35 +104,32 @@ function prefs(start: {
 		state,
 		browser: {
 			landings: () => state.landings,
-			// How far back the list reaches (see PluginSettings.recentFilesCap).
+			// 列表往回够多远（见 PluginSettings.recentFilesCap）。
 			placesCap: () => state.cap,
-			// How much of a row's path is printed, and on which side of the name (see
-			// PathDisplayMode).
+			// 一行的路径印出多少，以及印在名字的哪一侧（见 PathDisplayMode）。
 			pathDisplay: () => state.path,
-			// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime).
+			// 每一行是否带时间（见 RecentFilesBrowserPrefs.rowTime）。
 			rowTime: () => state.time,
-			// What a row calls the note (see reads.ts's titleOf): a test that wants
-			// one named `title` passes it here and puts it in the files' cache.
+			// 行怎么称呼这篇笔记（见 reads.ts 的 titleOf）：想让某一行叫 `title` 的测试把
+			// 它传在这里，并放进那些文件的缓存里。
 			titleProperty: () => state.title,
-			// Where a hover opens the note (see PreviewFocusMode): nothing here is
-			// drawn from it, so a test passes it per hover rather than per panel.
+			// 悬停把笔记开在哪儿（见 PreviewFocusMode）：这里没有任何东西从它画出来，
+			// 所以测试是按每一次悬停传它，而不是按面板传。
 			previewFocus: () => state.focus,
 		} satisfies RecentFilesBrowserPrefs,
 	};
 }
 
-// The plain set a harness gets when a test says nothing: one row per note, with the
-// details column on (see prefs).
+// 测试什么都不说时 harness 拿到的那套普通值：一篇笔记一行，详情那一列打开（见 prefs）。
 function defaultPrefs(): RecentFilesBrowserPrefs {
 	return prefs().browser;
 }
 
-// THE FOUR ARROWS, as the plugin hands them to a shell (see RecentFilesBrowserArrows):
-// the acts are the plugin's commands, so what a test wants of them is WHICH ONE was
-// pressed — and the answers the body greys them by are inputs a test sets, exactly as
-// the preferences above are. (An act may be async — a step opens a note and waits for
-// it — and the panel asks its four again once it lands; that timing is the SIDEBAR
-// suite's to cover, since a dialog closes on the press.)
+// 那四个箭头，按插件把它们交给一个 shell 的样子（见 RecentFilesBrowserArrows）：那几个
+// 动作是插件的命令，所以测试想从它们身上要的是「按下了**哪一个**」—— 而 body 据以把它
+// 们置灰的那些答案是测试设定的输入，正如上面那些偏好一样。（一个动作可以是异步的 ——
+// 一步会打开一篇笔记并等它 —— 而面板在它落定后会再问一遍那四个；那段时序归侧边栏套件
+// 覆盖，因为对话框在按下时就关了。）
 function defaultArrows(): RecentFilesBrowserArrows & {
 	pressed: string[];
 	set(on: Partial<{ back: boolean; forward: boolean; edge: boolean }>): void;
@@ -167,12 +154,10 @@ function defaultArrows(): RecentFilesBrowserArrows & {
 	};
 }
 
-// …and the set a test asks for when it is about the ROWS: 'all' prints each note's
-// distinct spots under its name, which is the only setting that puts them on screen
-// (a landing row, a pane marker on one, the drawer walking a note one landing at a
-// time). Spelled as a harness of its own because the preference is the LAST of the
-// positional arguments and the row tests otherwise repeat six empty defaults to
-// reach it.
+// ……以及测试在**关于行**时点名要的那套：'all' 把每篇笔记各自的落点印在它的名字下面，
+// 那是唯一会把它们放上屏幕的设置（一个落点行、其中一行上的窗格标记、抽屉一次一个落点地
+// 走一篇笔记）。单独写成一个 harness，是因为那条偏好在位置参数里排在**最后**，不然那些
+// 行的测试为了够到它得重复六个空默认值。
 function harnessAll(
 	entries: NavEntry[],
 	index: number,
@@ -182,22 +167,20 @@ function harnessAll(
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
 	mobile = false,
 	mtimes: Record<string, number> = {},
-	// The saved positions the note rows are read from (see harness's own `saved`).
+	// 笔记行据以读取的那些保存过的位置（见 harness 自己的 `saved`）。
 	saved: ((path: string) => EphemeralState | undefined) | undefined = undefined,
-	// Where a hover opens the note (see PreviewFocusMode), for the suite whose rows
-	// are places but whose SECTION comes from the headings above them.
+	// 悬停把笔记开在哪儿（见 PreviewFocusMode），给那个「行是地点、但**小节**来自它们上面
+	// 的标题」的套件用。
 	focus: PreviewFocusMode = 'head',
 ): ReturnType<typeof harness> {
 	return harness(entries, index, files, deleted, live, headingMap, mobile, mtimes,
 		prefs({ landings: 'all', focus }).browser, saved);
 }
 
-// A PLACE of the recent-files list, in the two shapes the store really produces
-// (see places.ts): a step that carries a position is a JUMP the reader made — the
-// only record that owns a landing — while a step without one is the FILE's own
-// record, which is the note's row rather than a landing under it. A file record
-// with a position is a shape the list never holds (the position database owns
-// "where I left this file"), which is why this helper splits them.
+// 最近文件列表的一个**地点**，按 store 真正产出的两种形状（见 places.ts）：带位置的一步
+// 是读者做过的一次 **jump** —— 唯一一种拥有落点的记录 —— 而不带位置的一步是**文件**自己
+// 的记录，那是笔记那一行，而不是它底下的一个落点。带位置的文件记录是列表从不持有的形状
+// （位置库拥有「我把这个文件留在哪儿」），所以这个 helper 把它们分开。
 const visit = (path: string, stamp: number, st?: NavEntryState): NavEntry => st
 	? {
 		kind: 'jump', path, leafId: 'leaf-1', t: stamp, st,
@@ -205,10 +188,9 @@ const visit = (path: string, stamp: number, st?: NavEntryState): NavEntry => st
 	} as NavEntry
 	: { kind: 'visit', path, leafId: 'leaf-1', t: stamp };
 
-// A capture as the plugin records one now: the NON-BLANK lines that stood BELOW the
-// landing (see NavEntryState.context). Mirrors contextBelow in capture/ephemeral.ts
-// with the same budget, so a fixture's panel content is the production shape instead
-// of a hand-built one.
+// 一次采集，按插件如今记录的样子：站在落点**下面**的那些**非空**行（见
+// NavEntryState.context）。镜像 capture/ephemeral.ts 里的 contextBelow，预算相同，所以
+// fixture 的面板内容是生产形状，而不是手搭的。
 function captured(doc: string[], landing: number): NavEntryState {
 	const context: string[] = [];
 	const limit = NAV_CONTEXT_LINES * 4;
@@ -225,8 +207,8 @@ function captured(doc: string[], landing: number): NavEntryState {
 	};
 }
 
-// Parsed headings for the fixture note below, in the shape the metadata cache
-// hands them over (1-based levels, positions in the file).
+// 下面那个 fixture 笔记的解析后标题，按 metadata cache 交出它们的形状（层级从 1 起、
+// 位置是文件里的位置）。
 const A_DOC = '# 面板设计\n\n## 呈现方案\n\n### 预览\n\n预览条：悬停显示上下文三行\n\n尾巴\n';
 const A_HEADINGS = {
 	'a.md': [
@@ -236,13 +218,11 @@ const A_HEADINGS = {
 	],
 };
 
-// A note long enough for its places to be MORE than the two headings a few lines
-// apart cannot be. Every distinct line is a row of its own now (see NavFileGroup),
-// but a landing row is only printed at all when the note holds more than one (see
-// RecentFilesList.printsLandings) — so a fixture with two heads three lines apart
-// still says something different from one with two heads a section apart: the
-// filler is what puts a second section far enough down the note for the suite's
-// second place to be a place of its own, under a heading of its own.
+// 一篇足够长的笔记，长到它的地点可以**多于**两个只隔几行的标题所能有的。如今每一条不同
+// 的行都是它自己的一行（见 NavFileGroup），但落点行只有在这篇笔记持有超过一个落点时才印
+// 得出来（见 RecentFilesList.printsLandings）—— 所以「两个标题只隔三行」的 fixture 与
+// 「两个标题隔着一整节」的 fixture 说的仍是不同的事：填充文字的作用就是把第二节推到笔记
+// 足够靠下的地方，好让本套件的第二个地点成为一个有自己的标题的、自己的地点。
 const SPREAD_LINES = Array.from({ length: 24 }, (_, i) => `正文第 ${i + 1} 行`);
 const SPREAD_DOC = [
 	'# 面板设计', '', '## 呈现方案', '', '### 预览', '',
@@ -262,75 +242,64 @@ const SPREAD_HEADINGS = {
 function harness(
 	entries: NavEntry[],
 	index: number,
-	// The vault as the fake app reports it. Only EXISTENCE is asked of it now — a path
-	// absent here is a place the list will not draw — because the browser reads no file
-	// at all (see RecentFilesReads). The text is kept for the fake `cachedRead`, which
-	// nothing calls.
+	// vault，按那个假 app 报告的样子。如今只问它**在不在** —— 这里没有的路径就是列表
+	// 不会画的地点 —— 因为浏览器根本不读文件（见 RecentFilesReads）。文本留着是给那个假
+	// 的 `cachedRead` 的，而没人调它。
 	files: Record<string, string> = {},
-	// Paths the fixture wants to be RECORDED AND GONE: a place in the history whose file
-	// the vault no longer has (see the "a file that is gone" suite). It wins over
-	// `files`, so a test can say "this was there, and is not any more".
+	// fixture 想要**记了却没了**的那些路径：历史里的一个地点，而 vault 已经没有它的文件
+	// 了（见「已经没了的文件」那个套件）。它压过 `files`，所以测试可以说「它本来在那里，
+	// 现在不在了」。
 	deleted: string[] = [],
-	// paths held open in an editor. The panel's ROWS are drawn from the entries and
-	// from nothing else — but a row's line number is re-found in the note as it stands
-	// TODAY (see recent-files/browser/now-line.ts), and an open note's own buffer is the
-	// best answer to that there is: it is ahead of the file on disk by whatever the
-	// reader has typed and not saved. So the fake app hands these out through
-	// `getLeavesOfType`, and a test that wants a note edited since the record was taken
-	// says so here — which need not be the same text `files` holds for that path.
+	// 在编辑器里开着的那些路径。面板的**行**是从 entries 画的、别的什么都不取自 —— 但一行
+	// 的行号要按笔记**今天**的样子重新找（见 recent-files/browser/now-line.ts），而一篇
+	// 开着的笔记自己的缓冲区对此给出的答案最好：它比磁盘上的文件多出读者打了却还没保存的
+	// 那些字。所以假 app 通过 `getLeavesOfType` 交出它们，而想要「笔记自记录取来之后被改
+	// 过」的测试就在这里说 —— 那不必与 `files` 为该路径持有的文本相同。
 	live: Record<string, string> = {},
-	// parsed headings per path, as metadataCache would report them
+	// 每个路径的解析后标题，按 metadataCache 会报告的样子
 	headingMap: Record<string, unknown[] | Record<string, unknown>> = {},
-	// a touch device. The list answers a click either way (see RecentFilesList), so
-	// what this flag decides here is the PRESENTATION — jsdom has no matchMedia to
-	// ask, so a touch device is the inline one (see RecentFilesModal.inline) — plus the
-	// touch ergonomics: the ×'s target under a finger, and the filter box left
-	// unfocused.
+	// 触屏设备。列表两种情况下都应答点击（见 RecentFilesList），所以这个标志在这里决定的
+	// 是**呈现** —— jsdom 没有 matchMedia 可问，所以触屏设备就是内联那一种（见
+	// RecentFilesModal.inline）—— 外加触屏的那些人体工学：手指下 × 的点击目标、以及让
+	// 过滤框不被聚焦。
 	mobile = false,
-	// mtimes for the files above, as the vault would report them now: the
-	// browser compares them with the mtime an entry recorded.
+	// 上面那些文件的 mtime，按 vault 现在会报告的样子：浏览器拿它们与 entry 记下的 mtime
+	// 相比。
 	mtimes: Record<string, number> = {},
-	// The browser's own preferences, as the plugin hands them to a shell (see
-	// RecentFilesBrowserPrefs). A test that wants a dialog to open with every landing
-	// printed passes its own set here — the same object twice, to show that the
-	// choice is not the dialog's — and the default is a fresh one per harness, so
-	// tests cannot leak a preference into each other through the settings file.
+	// 浏览器自己的偏好，按插件把它们交给一个外壳的样子（见 RecentFilesBrowserPrefs）。
+	// 想让对话框带着「每个落点都印出来」打开的测试在这里传自己那一套 —— 同一个对象传两次，
+	// 以表明这个选择不是对话框的 —— 而默认是每个 harness 一套全新的，这样测试之间没法通过
+	// 设置文件把偏好泄给彼此。
 	browserPrefs: RecentFilesBrowserPrefs = defaultPrefs(),
-	// The position database's answer for a note (see RecentFilesBrowserOptions.
-	// savedPosition): the line a plain open lands on, which is the line the note's OWN
-	// row asks a preview for. Undefined by default, and deliberately so — a fixture
-	// without one is a panel whose every note has no spot at all, which is what most of
-	// this suite is about.
+	// 位置库对一篇笔记的答案（见 RecentFilesBrowserOptions.savedPosition）：普通打开落在
+	// 哪一行，也就是这篇笔记**自己**那一行向预览要的那一行。默认 undefined，且是刻意的 ——
+	// 没有它的 fixture 就是一个每篇笔记都没有落点的面板，而本套件大半讲的就是这个。
 	saved: (path: string) => EphemeralState | undefined = () => undefined,
-	// The rows the reader PINNED, as the store hands them over (see
-	// NavPlaces.pinned): group keys, in the reader's own order. The array is
-	// handed back to the test, so a test can pin a row the way the menu does
-	// and then ask the panel to redraw (see `changed`).
+	// 读者**钉住**的那些行，按 store 交出它们的样子（见 NavPlaces.pinned）：group key，
+	// 按读者自己的次序。这个数组会交回给测试，所以测试可以照菜单那样钉住一行，然后请面板
+	// 重画（见 `changed`）。
 	pinned: string[] = [],
-	// The four arrows, and whether this shell draws them: LAST of the arguments, so the
-	// suite above keeps saying what it has always said. A fresh set per harness, for the
-	// same reason the preferences are.
+	// 那四个箭头，以及这个外壳画不画它们：参数里的**最后一个**，这样上面的套件照旧说着它
+	// 一直说的话。每个 harness 一套全新的，理由同那些偏好。
 	arrows: ReturnType<typeof defaultArrows> = defaultArrows(),
 ) {
-	// The place list's travel: the panel hands it a place index and the list
-	// decides how to go there (a file opens the plain way, a jump lands — see
-	// places.ts). The spy keeps its old name so every assertion below reads as
-	// what it always asked: "this is the place the row took the reader to".
+	// 地点列表的行进：面板交给它一个地点下标，由列表决定怎么去那儿（文件按普通方式打开，
+	// jump 则落地 —— 见 places.ts）。这个 spy 保留它原来的名字，好让下面每一条断言读起来
+	// 仍是它一直在问的：「这就是那一行把读者带到的地方」。
 	const jumpTo = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
-	// The main root split, with one element per leaf inside it. Nothing walks it
-	// any more — the badge that named which live tab held a landing is gone — but
-	// the leaves are still where the editors below stand, so the fake app keeps
-	// the shape it has always had.
+	// 主根分栏，里面每个 leaf 一个元素。如今没有东西再遍历它 —— 那个说出是哪个活标签页
+	// 持有落点的徽标已经没了 —— 但那些 leaf 仍是下面那些编辑器立足的地方，所以假 app 保留
+	// 它一直有的那个形状。
 	const rootEl = document.createElement('div');
 	document.body.appendChild(rootEl);
-	// The metadata reads this harness has answered, and the listeners a `changed`
-	// event will reach (see the fake metadataCache below).
+	// 这个 harness 应答过的那些元数据读取，以及一个 `changed` 事件会抵达的那些监听者
+	// （见下面那个假的 metadataCache）。
 	let cacheReads = 0;
 	const metaListeners = new Set<(file: { path: string }) => void>();
-	// The vault's file events, and who is listening for them: whether a row's note exists
-	// is the vault's answer at draw time, and a change in that answer carries no redraw of
-	// its own — a sync takes a note away and puts it back (see body.ts's watchExistence).
+	// vault 的文件事件，以及谁在听它们：一行的笔记存不存在是**绘制时** vault 的答案，而
+	// 这个答案变了并不自带重画 —— 一次同步会把一篇笔记拿走再放回来（见 body.ts 的
+	// watchExistence）。
 	const vaultListeners: Record<string, ((...args: unknown[]) => void)[]> = {};
 	const tabs = Object.keys(live).map((path) => ({ leafId: `open:${path}`, path }));
 	const app = {
@@ -339,14 +308,13 @@ function harness(
 				if (deleted.includes(path) || !(path in files))
 					return null;
 				const file = Object.assign(new TFile(), { path });
-				// A stat, as every TFile has one: the mtime is what a section chain read
-				// out of the file's own text is remembered against (see reads.ts).
+				// 一个 stat，每个 TFile 都有的那个：从文件自己的文本里读出的节链，就是对着
+				// 这个 mtime 记住的（见 reads.ts）。
 				file.stat = { ctime: 0, mtime: mtimes[path] ?? 0, size: 0 };
 				return file;
 			},
 			cachedRead,
-			// `on` hands back the callback itself as the handle `offref` takes, which is
-			// all the browser does with it.
+			// `on` 把回调本身当作 `offref` 要的把手交回来，而浏览器对它做的就这么多。
 			on: (name: string, cb: (...args: unknown[]) => void) => {
 				(vaultListeners[name] ??= []).push(cb);
 				return cb;
@@ -360,14 +328,12 @@ function harness(
 			},
 		},
 		metadataCache: {
-			// A path maps either to its parsed headings (the common case) or to the
-			// whole cache record, for the tests that need the frontmatter range the
-			// drawer uses to keep a block out of the properties — and, since the
-			// browser also searches a file's aliases, for the frontmatter itself.
+			// 一个路径要么映射到它解析后的标题（常见情形），要么映射到整条 cache 记录 ——
+			// 给那些需要 frontmatter 范围的测试用，抽屉靠它把一个块挡在 properties
+			// 之外 —— 以及，既然浏览器也会搜一个文件的别名，还给它 frontmatter 本身。
 			//
-			// The reads are COUNTED: the browser memoizes one record per path for the
-			// life of a body (see RecentFilesReads), and the count is how a test sees
-			// that the memory is doing its job.
+			// 这些读取是**计数**的：浏览器为一个 body 的一生按 path 记一条记录（见
+			// RecentFilesReads），而这个计数就是测试看出这份记忆在干活的方式。
 			getFileCache: (file: { path: string }) => {
 				cacheReads++;
 				const cache = headingMap[file.path];
@@ -375,10 +341,9 @@ function harness(
 					return null;
 				return Array.isArray(cache) ? { headings: cache } : cache;
 			},
-			// The one metadataCache event the browser listens for (see
-			// RecentFilesReads): a file's frontmatter changed, so its record — and with
-			// it its aliases — is stale. `on` hands back the callback itself as the
-			// handle `offref` takes, which is all the browser does with it.
+			// 浏览器唯一听的那个 metadataCache 事件（见 RecentFilesReads）：一个文件的
+			// frontmatter 变了，所以它的记录 —— 以及随之而来的别名 —— 过期了。`on` 把回调
+			// 本身当作 `offref` 要的把手交回来，而浏览器对它做的就这么多。
 			on: (name: string, cb: (file: { path: string }) => void) => {
 				if (name === 'changed')
 					metaListeners.add(cb);
@@ -390,9 +355,9 @@ function harness(
 		},
 		workspace: {
 			rootSplit: { containerEl: rootEl },
-			// The app's own menu event: the browser asks the APP to fill the menu in (see
-			// RecentFilesBrowser.contextRow), so what a test can see is the menu object it
-			// was handed — which is the whole of what this plugin contributes.
+			// app 自己的菜单事件：浏览器请 **app** 去填这个菜单（见
+			// RecentFilesBrowser.contextRow），所以测试能看见的就是它被交到的那个 menu
+			// 对象 —— 那正是这个插件贡献的全部。
 			trigger: vi.fn(),
 			iterateAllLeaves: (cb: (leaf: unknown) => void) => {
 				for (const tab of tabs) {
@@ -408,9 +373,9 @@ function harness(
 					});
 				}
 			},
-			// The leaves showing a markdown view: where a note's lines are read from when
-			// it is OPEN (see shared/leaf.ts's markdownViewFor). The same tabs the walk
-			// above sees, each with an editor that answers line by line.
+			// 那些显示 markdown 视图的 leaf：笔记**开着**时它的行从哪里读（见
+			// shared/leaf.ts 的 markdownViewFor）。与上面那次遍历看到的是同一批标签页，
+			// 每一个都带一个逐行应答的编辑器。
 			getLeavesOfType: (type: string) => type !== 'markdown' ? [] : tabs.map((tab) => {
 				const lines = (live[tab.path] ?? '').split('\n');
 				return {
@@ -427,18 +392,16 @@ function harness(
 			}),
 		},
 	};
-	// The modal reads Platform once, at construction: flip it for exactly that
-	// long, so the tap semantics are decided the way a real device would.
+	// 模态框在构造时读一次 Platform：就翻转那么久，好让点击语义按真实设备的方式定下来。
 	const previous = Platform.isMobile;
 	Platform.isMobile = mobile;
-	// The list's own removal (see body.ts's forgetRow): the panel hands the store a ROW's
-	// identity and nothing else — the group key, which is a note's path or a view's type
-	// (see nav/entry.ts's navGroupKey). The fixture answers it the way the store does —
-	// every record the row was drawn from goes together, and the pointer is re-found
-	// rather than left naming a slot that moved (see NavPlaces.forget / dropPlaces) — so
-	// that a test can watch the row leave the screen rather than only the call being made.
-	// The list is a fixture here (see above); the store's own rules are pinned in
-	// recent-files-places.test.ts, and what this suite watches is the panel.
+	// 列表自己的移除（见 body.ts 的 forgetRow）：面板交给 store 的是**一行**的身份，别的
+	// 什么都不给 —— group key，也就是一篇笔记的 path 或一个视图的 type（见 nav/entry.ts
+	// 的 navGroupKey）。这个 fixture 照 store 的方式应答 —— 一行据以画出的每一条记录一起
+	// 走，指针被重新找到，而不是留在一个已经挪走的槽位上（见 NavPlaces.forget /
+	// dropPlaces）—— 好让测试看着这一行离开屏幕，而不只是看着这次调用发生。这里列表是个
+	// fixture（见上）；store 自己的规则钉在 recent-files-places.test.ts 里，而本套件看的
+	// 是面板。
 	const forget = vi.fn((key: string) => {
 		const current = entries[index];
 		for (let i = entries.length - 1; i >= 0; i--) {
@@ -447,19 +410,19 @@ function harness(
 		}
 		places.index = current && entries.includes(current) ? entries.indexOf(current) : -1;
 	});
-	// …and the same act on a LANDING's own row (see body.ts's forgetLanding): what goes
-	// is ONE SPOT, named by the identity of every place that row stands for (see
-	// RecentFilesList.landingKeys) — a row is a line, and two records that land on it
-	// are one row, so a removal that named one of them would put the row straight back.
+	// ……以及同样的动作落在一个**落点**自己那一行上（见 body.ts 的 forgetLanding）：走掉
+	// 的是**一处地点**，由那一行所代表的每一个地点的身份来命名（见
+	// RecentFilesList.landingKeys）—— 一行就是一条线，而落在它上面的两条记录是一行，所以
+	// 只点出其中一条的移除会立刻把这一行放回来。
 	const forgetLanding = vi.fn((keys: string[]) => {
 		for (let i = entries.length - 1; i >= 0; i--) {
 			if (keys.includes(placeKey(entries[i])))
 				entries.splice(i, 1);
 		}
 	});
-	// …and the PIN, which the right-click menu writes (see body.ts's pinItems). The
-	// fixture answers it the way the store does — the array IS the block, in the
-	// reader's order — so a test can watch the row move rather than only the call.
+	// ……以及**钉住**，那是右键菜单写下的（见 body.ts 的 pinItems）。这个 fixture 照 store
+	// 的方式应答 —— 那个数组**就是**置顶块，按读者的次序 —— 好让测试看着这一行挪动，而不
+	// 只是看着这次调用。
 	const pin = vi.fn((key: string) => {
 		if (!pinned.includes(key))
 			pinned.push(key);
@@ -469,8 +432,8 @@ function harness(
 		if (at >= 0)
 			pinned.splice(at, 1);
 	});
-	// A move of ANY number of steps, the way the store answers one (see
-	// NavPlaces.movePinned): a move past an end lands on it.
+	// 任意步数的挪动，按 store 应答它的方式（见 NavPlaces.movePinned）：挪过一端就停在那一
+	// 端上。
 	const movePinned = vi.fn((key: string, delta: number) => {
 		const at = pinned.indexOf(key);
 		if (at < 0)
@@ -481,10 +444,9 @@ function harness(
 		pinned.splice(at, 1);
 		pinned.splice(to, 0, key);
 	});
-	// …and a LANDING PUT BACK where the heading it names stands now (see places.ts's
-	// reland). The store keeps no vault, so this is what it would have written — the
-	// line it was handed, and the clock the answer was taken at, both readable from
-	// `entries` afterwards, which is how a test sees the panel having done it.
+	// ……以及把**一个落点放回**它命名的那个标题现在所在的地方（见 places.ts 的 reland）。
+	// store 不持有 vault，所以这就是它本会写下的 —— 交给它的那一行、以及取这个答案时的
+	// 那个时钟，事后都能从 `entries` 读出，测试就是这样看出面板做过了。
 	const reland = vi.fn((lines: readonly ReclaimedLine[]) => {
 		for (const r of lines) {
 			const entry = entries.find(e => placeKey(e) === r.key);
@@ -505,10 +467,9 @@ function harness(
 		Platform.isMobile = previous;
 	}
 	modal.open();
-	// The list is ONE ROW PER NOTE, and a landing row only where the setting prints
-	// them (see LandingsMode). Three selectors, because the tests say three different
-	// things — which notes exist, which landing rows are on screen (none by default),
-	// and where a note's own header is.
+	// 列表是**一篇笔记一行**，而落点行只在设置要求印它们的地方才有（见 LandingsMode）。
+	// 三个选择器，因为测试说的是三件不同的事 —— 哪些笔记存在、哪些落点行在屏幕上
+	// （默认没有）、以及笔记自己那个头部在哪儿。
 	const rows = () =>
 		Array.from(modal.contentEl.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'));
 	const notes = () =>
@@ -517,27 +478,21 @@ function harness(
 		notes().find(r => r.querySelector('.nav-row-name')?.textContent === name)!;
 	const place = (line: string) =>
 		rows().find(r => r.querySelector('.nav-row-line')?.textContent === line)!;
-	// ONE click on the ROW: the panel is a navigator, so this OPENS the file the row
-	// stands for — the note's own newest landing, or the landing itself (see
-	// RecentFilesList.onClick). The place the reader is
-	// already in is not exempt: the open re-lands it. Only a deleted note goes nowhere.
+	// 在**行**上的一次点击：面板是个导航器，所以这会**打开**该行代表的文件 —— 笔记自己最新
+	// 的那个落点，或那个落点本身（见 RecentFilesList.onClick）。读者已经在的那个地点并不
+	// 豁免：这次打开会重新落到它上面。只有一篇已删的笔记哪儿都不去。
 	const clickRow = (row: HTMLElement) =>
 		row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	// …and the press that a real click is the SECOND half of (see
-	// RecentFilesList.onPress). A test drives the two apart only to move the list in
-	// between; an ordinary click is a press followed immediately by a click, and the
-	// tests that dispatch the click alone are the ones about a programmatic activation
-	// (or an assistive technology's), which has no press to remember.
+	// ……以及一次真实点击的**后半**那一次按下（见 RecentFilesList.onPress）。测试把两者
+	// 拆开只是为了在中间挪一下列表；一次普通点击就是一次按下紧接着一次点击，而那些只派发
+	// 点击的测试讲的是程序化激活（或辅助技术的），它没有按下可记。
 	const pressRow = (row: HTMLElement) =>
 		row.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
-	// The places moved under the panel. What the store does is re-order them IN
-	// PLACE — the array the browser reads is the same array, spliced and pushed (see
-	// places.remember) — and then tell its listeners. The dialog has no subscription
-	// to tell (it is a snapshot that closes on the first travel, see modal.ts), so a
-	// test does the move itself and then asks the panel for the redraw the SIDEBAR
-	// would have been handed: one `input` event on the filter box, which is the
-	// dialog's own way to rebuild its list. The box stays EMPTY, so the list is
-	// rebuilt rather than narrowed.
+	// 那些地点在面板底下挪动。store 做的是**就地**重排它们 —— 浏览器读的数组还是同一个
+	// 数组，被 splice 与 push（见 places.remember）—— 然后告诉它的那些监听者。对话框没有
+	// 订阅可告诉（它是一张快照，第一次行进就关，见 modal.ts），所以测试自己完成这次挪动，
+	// 然后向面板要那次**侧边栏**本会收到的重画：在过滤框上发一个 `input` 事件，那是对话框
+	// 自己重建列表的方式。框保持**空**，所以列表是被重建，而不是被收窄。
 	const filterInput = modal.contentEl.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 	const changed = (rep?: number) => {
 		if (rep !== undefined) {
@@ -546,30 +501,26 @@ function harness(
 		}
 		filterInput.dispatchEvent(new Event('input', { bubbles: true }));
 	};
-	// …and the muted gestures: a right-click, and a finger's lingering press (a
-	// WebView raises the same `contextmenu` for both — see RecentFilesList.onContextMenu).
-	// Neither goes anywhere any more; what matters is that neither OPENS anything, and
-	// that both are still refused.
+	// ……以及那些被压下去的手势：一次右键，和一根手指的久久按住（WebView 为两者都抛同一个
+	// `contextmenu` —— 见 RecentFilesList.onContextMenu）。两者如今哪儿都不去了；要紧的是
+	// 两者都**不打开**任何东西，而且两者仍被拒绝。
 	const rightClick = (row: HTMLElement) => {
 		const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
 		row.dispatchEvent(ev);
 		return ev;
 	};
-	// …and the same event from a press that was merely held: a WebView raises
-	// `contextmenu` for a long touch too, with the LEFT button's number on it, and an
-	// open taken on that turned an ordinary slow tap into a jump. It answers with
-	// the event, because whether it was refused is half of what it says.
+	// ……以及同一个事件从一次仅仅是按住不放的按下里来：WebView 为一次长按触也抛
+	// `contextmenu`，上面带着**左**键的编号，而据此去打开会把一次普通的慢点击变成一次跳转。
+	// 它带回那个事件，因为「有没有被拒绝」是它所说内容的一半。
 	const longPress = (row: HTMLElement) => {
 		const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
 		row.dispatchEvent(ev);
 		return ev;
 	};
-	// A real pointer move over a row. Nothing in the list listens for it — the panel
-	// is click-only (see RecentFilesList), so a mouse crossing a row chooses nothing,
-	// opens nothing and moves no position — and this is how the tests that say so
-	// deliver the report. The handler used to hit-test by event TARGET; the
-	// coordinates advance per call so that even a list that counted movement as a
-	// choice could not read two of these as one.
+	// 一次真实的指针移动落在一行上。列表里没有东西听它 —— 面板只认点击（见
+	// RecentFilesList），所以鼠标划过一行不选中任何东西、不打开任何东西、也不挪任何位置 ——
+	// 而说这件事的那些测试就是这样递交报告的。这个处理程序从前按事件 **target** 做命中
+	// 测试；坐标每次调用都前进，好让哪怕一个把移动当成选择的列表也没法把其中两个读成一个。
 	let pointer = 0;
 	const movePointer = (row: HTMLElement, at?: { x: number; y: number }) =>
 		row.dispatchEvent(new MouseEvent('mousemove', {
@@ -578,48 +529,45 @@ function harness(
 			clientY: at?.y ?? pointer,
 		}));
 	const key = (k: string) => modal.contentEl.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
-	// The listbox itself — what a row's click bubbles through, and what the browser
-	// hands a click to when the row the reader pressed has been rebuilt away.
+	// listbox 本身 —— 一行的点击经它冒泡上去，以及读者按下的那一行被重建掉之后浏览器把
+	// 点击交给的那个东西。
 	const list = () => modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-list')!;
-	// WHAT A ROW SAYS ON HOVER. The tooltip is the panel's own element now, drawn on the
-	// document rather than in the list (see tip.ts), so a test reads it out of the body
-	// — and only after the pointer has RESTED there for the delay, which is what the
-	// fake clock below is for. `hover` answers with the element or null, so the
-	// assertions read as "hovering this row says…".
+	// 一行在悬停上说什么。tooltip 如今是面板自己的元素，画在 document 上而不是列表里
+	// （见 tip.ts），所以测试从 body 里把它读出来 —— 而且只在指针在那儿**停住**够那段延迟
+	// 之后，下面那个假时钟就是为此而设。`hover` 返回那个元素或 null，所以断言读起来就是
+	// 「悬停这一行会说……」。
 	const hover = (el: HTMLElement): HTMLElement | null => {
 		el.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
 		vi.advanceTimersByTime(TIP_DELAY_MS);
 		return document.querySelector<HTMLElement>('.position-restore-nav-tip');
 	};
-	// …and leaving: the pointer was on the row and is now somewhere else.
+	// ……以及离开：指针本来在这一行上，现在在别处了。
 	const unhover = (el: HTMLElement) => {
 		el.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
 		return document.querySelector<HTMLElement>('.position-restore-nav-tip');
 	};
-	// A metadata change in the vault: what the app fires when a file's frontmatter is
-	// rewritten, and what the browser drops its memory of that path for.
+	// vault 里的一次元数据变更：一个文件的 frontmatter 被重写时 app 抛的东西，也是浏览器
+	// 据以丢掉那个 path 的记忆的东西。
 	const changeFile = (path: string) => {
 		for (const cb of [...metaListeners])
 			cb({ path });
 	};
-	// …and the vault's own word that a file APPEARED, went away or moved: what a sync
-	// does to a note the list is standing on, and the one event that says the row the
-	// list stopped drawing can be drawn again.
+	// ……以及 vault 自己那句「一个文件**出现**了、走了或挪了」：一次同步对列表所站着的那
+	// 篇笔记做了什么，以及那个说出「列表不再画的那一行可以再画出来」的唯一事件。
 	const fileEvent = (name: string, file: { path: string }, oldPath?: string) => {
 		for (const cb of [...(vaultListeners[name] ?? [])])
 			cb(file, oldPath);
 	};
-	// The × at the end of the filter box (see RecentFilesBrowser.toolbar). It is in the
-	// DOM whether or not the box has anything in it — the stylesheet is what hides it
-	// while the box is empty (asserted in the styles suite, since jsdom loads no
-	// stylesheet) — so a test clicks it the way a reader does.
+	// 过滤框末尾那个 ×（见 RecentFilesBrowser.toolbar）。无论框里有没有东西它都在 DOM
+	// 里 —— 框空时把它藏起来的是样式表（这条在样式套件里断言，因为 jsdom 不加载样式
+	// 表）—— 所以测试照读者的方式点它。
 	const clearButton = () =>
 		modal.contentEl.querySelector<HTMLElement>('.position-restore-nav-clear')!;
 	const clearFilter = () => clickRow(clearButton());
-	// THE × A ROW CARRIES (see RecentFilesList.fileRow): the one control the list draws,
-	// and the only way a reader takes a row off it. It is laid out OF the row's flow, so a
-	// test finds it by its own class rather than by where it stands — jsdom lays nothing
-	// out, and where it stands is the stylesheet's business (asserted in the styles suite).
+	// 一行自己带的那个 ×（见 RecentFilesList.fileRow）：列表所画的唯一一个控件，也是
+	// 读者把一行从列表上拿掉的唯一办法。它**脱离**那一行的流来排布，所以测试按它自己的
+	// class 找它，而不是按它站的地方 —— jsdom 不排布任何东西，而它站在哪儿是样式表的
+	// 事（在样式套件里断言）。
 	const forgetButton = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
@@ -632,26 +580,23 @@ function harness(
 }
 
 beforeEach(() => {
-	// The app's answers to "where should this open" and "is the modifier down" are
-	// inputs a test sets per case (see the stub): one left over from the last case
-	// would decide this one.
+	// app 对「这个该开在哪儿」与「修饰键按着吗」的答案是测试按用例设定的输入（见那个
+	// 桩）：上一个用例留下来的那个会替这个用例做决定。
 	KeymapKnobs.reset();
 	document.body.innerHTML = '';
-	// Children (and any class a test left on the body), or one test's DOM leaks
-	// into the next.
+	// 子节点（以及测试留在 body 上的任何 class），否则一个测试的 DOM 会漏进下一个。
 	document.body.className = '';
-	// The tooltip's own clock (see tip.ts): the delay is the one thing a test has to be
-	// able to step over, and only the two timer functions are faked — `Date` is left
-	// alone, so the ages the fixtures were built with are the ages the rows print.
+	// tooltip 自己的时钟（见 tip.ts）：那段延迟是测试唯一必须能跨过去的东西，而只假造
+	// 那两个定时器函数 —— `Date` 放着不动，所以各个 fixture 用到的年纪就是各行印出来的
+	// 年纪。
 	vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 });
 
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
-	// The width query is the one global a test installs (see widthQuery): jsdom has none
-	// of its own, and one left behind would decide the panel's presentation for every
-	// test after it.
+	// 宽度查询是测试安装的唯一一个全局（见 widthQuery）：jsdom 自己一个都没有，而漏在
+	// 那儿的一个会替它之后每个测试决定面板的呈现。
 	delete (window as { matchMedia?: unknown }).matchMedia;
 	document.body.innerHTML = '';
 	document.body.className = '';
@@ -659,10 +604,9 @@ afterEach(() => {
 
 describe('RecentFilesModal —— 被丢掉的步那条脚注', () => {
 	it('已经撤掉：平时栈总停在上限处，它从来没挣到过一行', () => {
-		// It reported what the ceiling had discarded, from the foot of the list —
-		// which is below the fold exactly when entries HAVE been dropped (a stack
-		// at the cap is what overflows the dialog), so nobody ever saw it. The
-		// list has no such footnote left to render.
+		// 它从列表末尾报告上限丢掉过什么 —— 而列表末尾恰好在**真的**丢过 entry 时才落到
+		// 折叠线以下（把对话框撑出滚动条的正是一个停在上限处的栈），所以从没有人看见过
+		// 它。列表如今不再渲染这样一条脚注。
 		const entries = [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' });
 
@@ -675,21 +619,20 @@ describe('RecentFilesModal —— 当前位置', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
-		// There is no second "you are here" anywhere: the card that used to stand
-		// above the list said the same thing in a second place and a second layout,
-		// and the row below is the authoritative one (see RecentFilesModal.render).
+		// 别处再没有第二个「你在这里」：从前立在列表上方的那张卡片在第二个地方、用第二套
+		// 排布说着同样的话，而下面那一行才是权威的那个（见 RecentFilesModal.render）。
 		expect(h.el.querySelector('.position-restore-nav-here')).toBeNull();
 
-		// The current note is a row in the list like any other, and it leads because it
-		// is the newest place here — and it carries no ●: the dot marks the LANDING that
-		// holds the current entry (see RecentFilesList.placeRow), and a note's own
-		// record is not a landing at all, nor does any note row here print landings.
+		// 当前笔记就是列表里普普通通的一行，它排在最前是因为它是这里最新的地点 —— 而它
+		// 不带 ●：那个圆点标的是持有当前 entry 的那个**落点**（见
+		// RecentFilesList.placeRow），而一篇笔记自己的记录压根不是落点，这里的笔记行也
+		// 都不印落点。
 		const notes = h.notes();
 		expect(notes).toHaveLength(3);
 		expect(notes[0].textContent).toContain('c');
 		expect(notes[0].querySelector('.nav-row-here')).toBeNull();
-		// One spot is not a count either: the "+N" went with the expansion, and the
-		// caret that used to lead a name was gone even before that.
+		// 一个地点也不是个计数：那个「+N」随展开一起走了，而从前引在一个名字前面的插入符
+		// 更早就不在了。
 		expect(notes[0].querySelector('.nav-row-count')).toBeNull();
 		expect(notes[0].querySelector('.nav-file-caret')).toBeNull();
 		expect(notes[1].querySelector('.nav-row-here')).toBeNull();
@@ -703,26 +646,25 @@ describe('RecentFilesModal —— 当前位置', () => {
 		];
 		const h = harness(entries, 2, { 'a.md': '', 'c.md': '' });
 
-		// Two spots in c.md, and the DEFAULT list prints neither: one row per note is
-		// the whole of what it is (see LandingsMode), and the row stands for the LAST
-		// spot the reader was at in that note (see RecentFilesList.activeRep).
+		// c.md 里有两处地点，而**默认的**列表两处都不印：一篇笔记一行就是它的全部（见
+		// LandingsMode），而这一行代表的是读者在那篇笔记里待过的**最后**一处（见
+		// RecentFilesList.activeRep）。
 		expect(h.rows()).toHaveLength(0);
 		expect(h.note('c').querySelector('.nav-row-here')).toBeNull();
 
-		// …and the row is a destination all the same: a click opens c.md at that very
-		// place, because the open re-lands it rather than pushing it again — which is
-		// what a reader whose tab was closed is asking for (see RecentFilesList.targetOf).
+		// ……而这一行仍是个目的地：点击会把 c.md 开在正是那一处，因为这次打开是重新落到
+		// 它上面、而不是再推它一次 —— 那正是标签页被关掉的读者所要的（见
+		// RecentFilesList.targetOf）。
 		h.clickRow(h.note('c'));
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
 	it('只有一步的历史就是只有一行的列表，那一行照样能打开', () => {
-		// The list used to call itself empty when the current entry's note was the only
-		// place left on it, and that row answered nothing: the one list a reader with
-		// every tab closed ever sees was the one list with no way back in. The row is a
-		// destination now (see RecentFilesList.targetOf), so the sentence about having
-		// nowhere to go belongs to a query that matched nothing, or to a history whose
-		// notes are genuinely gone — never to the spot the reader is standing in.
+		// 从前，当当前 entry 的笔记是列表上仅剩的那一个地点时，列表会自称是空的，而那一行
+		// 谁也不应答：读者把所有标签页都关掉后唯一会看见的那份列表，恰恰是唯一一份没有路
+		// 回去的列表。如今那一行是个目的地（见 RecentFilesList.targetOf），所以「无处
+		// 可去」那句话属于一个什么都没匹配到的查询，或属于一段笔记真的都没了的历史 ——
+		// 永远不属于读者正站着的那个地点。
 		const h = harness([visit('only.md', NOW)], 0, { 'only.md': '' });
 
 		expect(h.notes()).toHaveLength(1);
@@ -733,10 +675,9 @@ describe('RecentFilesModal —— 当前位置', () => {
 	});
 
 	it('只有当查询真的把列表清空时，才说「没有匹配」', () => {
-		// The sentence is the QUERY's answer and not a verdict on the place the reader
-		// is standing in: a filter that matches nothing empties the list, while a filter
-		// that keeps only the current note leaves a row that opens like any other (see
-		// RecentFilesList.render's refs.some(targetOf) branch).
+		// 那句话是**查询**的答案，而不是对读者所站地点的判决：什么都没匹配到的过滤会把
+		// 列表清空，而只留下当前笔记的过滤留下的是一行与别行一样能打开的行（见
+		// RecentFilesList.render 里 refs.some(targetOf) 那个分支）。
 		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' });
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		const search = (q: string) => {
@@ -754,10 +695,9 @@ describe('RecentFilesModal —— 当前位置', () => {
 	});
 
 	it('查询是靠记下的锚点命中的那一行，不引任何原文', () => {
-		// The row survived the filter on `st.anchor` alone, and a visit records no context
-		// — so the hover says which file the row is and nothing about why it is on the
-		// list. Locked as it stands: the anchor is the line a restore re-finds, not a line
-		// a row shows, and quoting it would claim a landing the reader never asked for.
+		// 这一行只是靠 `st.anchor` 活过了过滤，而一次 visit 不记 context —— 所以悬停说出
+		// 这一行是哪个文件，对它为什么在列表上什么都不说。就照现状锁住：anchor 是恢复时
+		// 重新找到的那一行，不是行会显示的一行，引它出来会声称一个读者从没要求过的落点。
 		const h = harness([visit('a.md', NOW, { anchor: '落点这一行' })], 0, { 'a.md': '' });
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '落点';
@@ -770,30 +710,25 @@ describe('RecentFilesModal —— 当前位置', () => {
 	});
 
 	it('某次访问恰好待在某个小节里，并不因此就被搜到', () => {
-		// A VISIT IS NOT A PLACE. The line it carries is the note's as the position
-		// database last saw it, which moves while the note is being read — so the
-		// chain read off that line is a fact about the minute and not about the
-		// record. A query that answers "yes" now and "no" after the reader has
-		// scrolled is a search box that cannot be trusted, so the chain is neither
-		// searched nor said: what this row is about is the NOTE, whose click opens
-		// it the plain way and lets the position database decide where it lands.
-		// `saved` is that database's answer — the only reason a visit has a line.
+		// **一次 visit 不是一个地点**。它带的那一行是位置库上次看见笔记时的样子，而笔记
+		// 被读着的时候它会动 —— 所以从那一行读出的链是关于这一分钟的事实，而不是关于这条
+		// 记录的事实。一个现在答「是」、读者滚动后答「不」的查询是不可信的搜索框，所以
+		// 这条链既不搜也不说：这一行讲的是那篇**笔记**，点它会按普通方式打开，并让位置库
+		// 决定它落在哪里。`saved` 就是那个库的答案 —— 也是 visit 之所以有一行的唯一原因。
 		const h = harness(
 			[visit('a.md', NOW), visit('plain.md', NOW - MINUTE)], 0,
 			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS, false, {}, undefined,
 			path => (path === 'a.md' ? { scroll: 6 } : undefined),
 		);
-		// The row prints no chain, and its hover names no section: the note is what
-		// the row stands for, and a chain on it would promise a landing its click
-		// does not make.
+		// 这一行不印链，它的悬停也不点出小节：这一行代表的是那篇笔记，而它上面的一条链
+		// 会许下一个它的点击并不兑现的落点。
 		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
 		const tip = h.hover(h.note('a'))!;
 		expect(tip).not.toBeNull();
 		expect(tip.textContent).not.toContain('预览');
 		h.unhover(h.note('a'));
 
-		// …and the heading this row does sit under is not a way in: the query finds
-		// nothing at all.
+		// ……而这一行确实身处其下的那个标题也不是一条进路：查询什么都找不到。
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '预览';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
@@ -801,10 +736,9 @@ describe('RecentFilesModal —— 当前位置', () => {
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
 			.toBe(t('recentFiles.noMatch'));
 
-		// A JUMP IS FOUND BY ITS SECTION ALL THE SAME — the narrowing is about a
-		// visit and only about a visit. A jump named the heading it went to: that is
-		// a fact about the record, it is what the landing's row prints, and under
-		// 'last' it is the invisible index a note is found through (see LandingsMode).
+		// **一个 jump 照样靠它的小节被找到** —— 那个收窄只针对 visit、且只针对 visit。
+		// 一个 jump 命名了它所去往的标题：那是关于这条记录的事实，是落点行所印的东西，
+		// 而在 'last' 下它就是一篇笔记据以被找到的那个看不见的索引（见 LandingsMode）。
 		const jump = harness([visit('a.md', NOW, { scroll: 6 })], 0, { 'a.md': A_DOC },
 			[], {}, A_HEADINGS);
 		const jbox = jump.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
@@ -814,10 +748,9 @@ describe('RecentFilesModal —— 当前位置', () => {
 	});
 
 	it('行上印着的坐标本身不参与搜索', () => {
-		// "L7" IS A READING, NOT A NAME: where the reader left the note, which the
-		// position database rewrites while it is being read. It is on the row to be
-		// looked at and not to be typed, and a number that answers a query one minute
-		// and not the next is worse than one that never answers at all.
+		// **「L7」是一处读数，不是一个名字**：读者把笔记留在哪儿，而笔记被读着的时候
+		// 位置库会改写它。它在行上是给人看、不是给人打的，而一个这一分钟答、下一分钟不答
+		// 的数字，比一个压根从不作答的数字更糟。
 		const entries = [
 			visit('a.md', NOW - MINUTE, { scroll: 6 }),
 			visit('a.md', NOW, { scroll: 20 }),
@@ -844,22 +777,22 @@ describe('RecentFilesModal —— 当前位置', () => {
 		];
 		const h = harnessAll(entries, 2, { 'a.md': '', 'c.md': '' });
 
-		// Both of the note's landings, down the note by line, one of them the current
-		// one — marked where it is, not first.
+		// 这篇笔记的两个落点，按行沿笔记往下排，其中一个是当前的 —— 标在它所在的地方，
+		// 而不是排在最前。
 		const places = h.rows();
 		expect(places).toHaveLength(2);
 		expect(places.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L21', 'L91']);
 		expect(places[0].querySelector('.nav-row-here')).toBeNull();
 		expect(places[1].querySelector('.nav-row-here')).not.toBeNull();
-		// …in front of the coordinate it marks, and not laid out inside the box: the
-		// dot's place in the DOM is where the eye finds it, and the stylesheet keeps it
-		// out of the track so the number itself does not move (see .nav-row-here).
+		// ……在它所标的那个坐标前面，而不是排布在盒子里：那个圆点在 DOM 里的位置就是眼睛
+		// 找到它的地方，而样式表把它挡在轨道之外，好让那个数字本身不动（见
+		// .nav-row-here）。
 		expect([...places[1].querySelector('.nav-row-pos')!.children].map(el => el.className))
 			.toEqual(['nav-row-here', 'nav-row-line']);
 
-		// BOTH are destinations, the one the reader is standing in included: the list
-		// does not hold back the place they are already in (see RecentFilesList.targetOf),
-		// so a note's sub-list under its own row opens like any other note's.
+		// **两个**都是目的地，读者正站着的那个也包括在内：列表不会把读者已经在的那个地点
+		// 扣下来（见 RecentFilesList.targetOf），所以一篇笔记在自己那一行底下的子列表与
+		// 别的笔记的一样能打开。
 		h.clickRow(places[0]);
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 		h.clickRow(places[1]);
@@ -867,14 +800,13 @@ describe('RecentFilesModal —— 当前位置', () => {
 	});
 });
 
-// A click whose row the list has rebuilt away from under it: the reader pressed one
-// note and the release arrives at an element that is no longer ON the list, or is on
-// it at a different place. The row's index is a fact about ONE render (the places move
-// under the list on every visit), so a click that reads it after a rebuild opens
-// whatever slid into that slot — the wrong note. What the click is answered with
-// instead is the place the reader PRESSED (see RecentFilesList.onPress / onClick).
+// 一次点击，而它的行已经被列表在它底下重建掉了：读者按的是一篇笔记，而松开时到达的
+// 元素已经不在列表上、或在列表上但换了地方。一行的下标是关于**某一次渲染**的事实
+// （每次 visit 地点都会在列表底下动），所以在重建之后去读它的点击会打开滑进那个槽位的
+// 东西 —— 打开错的那篇笔记。点击改用的答案，是读者**按下**时的那个地点（见
+// RecentFilesList.onPress / onClick）。
 describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
-	// a is the OLDEST here, so recency puts it LAST: three rows, a.md third.
+	// 这里 a 是**最旧**的，所以按新鲜度它排**最后**：三行，a.md 第三。
 	const three = () => [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 
@@ -884,19 +816,18 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 		const row = h.note('a');
 		expect(h.notes().map(r => r.textContent)).toEqual(['c', 'b', 'a']);
 
-		// Press the row, then let the places move the way the reader's own click is
-		// about to move them (a.md to the end, which by recency puts it FIRST), and
-		// let the list be rebuilt. The element in hand is now detached, and the group
-		// index it carries (2) names b.md.
+		// 按下这一行，然后让那些地点照读者自己那次点击即将挪动它们的方式挪动（a.md 挪到
+		// 末尾，按新鲜度它就到**最前**），再让列表重建。手里那个元素现在是脱离的，而它带
+		// 的那个 group 下标（2）指的是 b.md。
 		h.pressRow(row);
 		h.changed(0);
 
 		expect(h.notes().map(r => r.textContent)).toEqual(['a', 'c', 'b']);
 		h.clickRow(row);
 
-		// a.md was entries[2] before the move, and is entries[2] after it; the index
-		// the stale element carried (the third GROUP) now names b.md, which is
-		// entries[0] — so the wrong answer here is 0 and not 2.
+		// a.md 挪之前是 entries[2]，挪之后也是 entries[2]；那个过期元素带的下标（第三个
+		// **group**）现在指的是 b.md，而 b.md 是 entries[0] —— 所以这里错的答案是 0，
+		// 不是 2。
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
@@ -906,22 +837,20 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 		const row = h.note('a');
 
 		h.pressRow(row);
-		// The place is gone: the file was deleted, the cap trimmed it, the query
-		// stopped matching. There is no row left that stands for it.
+		// 那个地点没了：文件被删了、上限把它裁掉了、查询不再匹配它。没有一行还代表它。
 		entries.splice(0, 1);
 		h.changed();
 
 		h.clickRow(row);
 
-		// Opening nothing is the one failure this list can afford. Opening the note
-		// that took the slot is the one it cannot.
+		// 什么都不打开是这份列表唯一赔得起的失误。打开占了那个槽位的那篇笔记，是它赔不起
+		// 的那个。
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
 	it('前面没有按下时，仍然打开点击落着的那一行', () => {
-		// A programmatic activation, or an assistive technology's: there is no press
-		// to remember, so the event's own row is the answer — and it is the right one,
-		// because such a click can only ever land on an element that IS on the list.
+		// 一次程序化激活，或辅助技术的：没有按下可记，所以事件自己那一行就是答案 —— 而且
+		// 是正确的那个，因为这样的点击只可能落在**确实在**列表上的元素上。
 		const entries = three();
 		const h = harness(entries, 2, files);
 
@@ -931,9 +860,8 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 	});
 
 	it('列表没有重建时，打开点击落着的那一行', () => {
-		// The ordinary click, in two halves: press and release with nothing in
-		// between. The element in hand is still the one the list drew, so its own
-		// index is the exact answer and no lookup is needed.
+		// 一次普通的点击，分两半：按下与松开，中间什么都没有。手里那个元素仍是列表画的
+		// 那个，所以它自己的下标就是准确答案，不需要查找。
 		const entries = three();
 		const h = harness(entries, 2, files);
 		const row = h.note('b');
@@ -945,10 +873,9 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 	});
 
 	it('被按下的那一行已经没了、浏览器把点击交给了列表时，也照样应答', () => {
-		// A press whose element is removed before the release does not always come
-		// back to that element: the browser resolves the click on the nearest
-		// ancestor still in the document, so no row sees it at all. That is the
-		// click that used to do nothing whatever (see RecentFilesList.onUnansweredClick).
+		// 一次元素在松开前被移除的按下，并不总会回到那个元素上：浏览器会把这次点击解析到
+		// document 里仍在的最近祖先上，所以没有任何一行看见它。那就是从前什么都不做的
+		// 那次点击（见 RecentFilesList.onUnansweredClick）。
 		const entries = three();
 		const h = harness(entries, 2, files);
 		const row = h.note('a');
@@ -961,8 +888,8 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 	});
 
 	it('没有先按下的、落在列表上的点击，什么都不做', () => {
-		// The list's own background — the gap under the last row. It is not a row,
-		// and it stands for no place: nothing was pressed and nothing may be opened.
+		// 列表自己的背景 —— 最后一行底下的那片空。它不是一行，也不代表任何地点：什么都
+		// 没被按下，也就什么都不可以打开。
 		const entries = three();
 		const h = harness(entries, 2, files);
 
@@ -972,11 +899,10 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 	});
 
 	it('按下的是另一行的、那一次还悬着时，按这次点击落着的地方来答', () => {
-		// A press the reader abandons — the pointer dragged off the row, or a
-		// right-click that raised the row's menu instead — must not lie in wait and
-		// open the row it names later on. An element still on the list answers for
-		// itself (see onClick), so what is opened is what was clicked: here c.md
-		// (entries[2]) and not a.md (entries[0]), which is what was pressed.
+		// 一次被读者放弃的按下 —— 指针拖离了这一行，或是一次右键把这一行的菜单调了出来
+		// —— 不许埋伏在那里、稍后去打开它点名的那一行。仍在列表上的元素自己应答（见
+		// onClick），所以打开的是被点击的那个：这里是 c.md（entries[2]），而不是
+		// a.md（entries[0]）——按下的那个。
 		const entries = three();
 		const h = harness(entries, 2, files);
 
@@ -990,10 +916,8 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 
 describe('RecentFilesModal —— 键盘', () => {
 	it('还没指到任何一行之前，回车什么都不做', () => {
-		// Enter used to fall back to "go back one step", which meant the same key
-		// did two different things depending on whether the pointer had crossed a
-		// row — and duplicated the app's own back command. Going back one step
-		// needs no panel at all.
+		// 从前回车会退回去做「后退一步」，那意味着同一个键视指针有没有划过某一行而做两件
+		// 不同的事 —— 还复制了 app 自己的后退命令。后退一步压根不需要面板。
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
@@ -1014,19 +938,17 @@ describe('RecentFilesModal —— 键盘', () => {
 	});
 
 	it('每按一次挪一行，并让挪到的那一行留在视野里', () => {
-		// One position, moved one row at a time, and the list follows it — so the
-		// reader can see where they are instead of a highlight moving off-screen.
-		// (jsdom lays nothing out, so what this sees is the browser's own minimal
-		// scroll; the list's real rule is revealDelta's, and the next test hands it a
-		// layout.)
+		// 一个位置，一次挪一行，而列表跟着它 —— 这样读者能看见自己在哪儿，而不是一个高亮
+		// 移出屏幕。（jsdom 不排布任何东西，所以这里看到的是浏览器自己那点最小的滚动；
+		// 列表真正的规则是 revealDelta 的，下一个测试给它一套 layout。）
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
 		const selected = () => Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-selected'))
 			.map(r => r.querySelector('.nav-row-name')?.textContent);
 
-		// c.md, b.md, a.md — the newest first: the list is the places' recency, the
-		// current note included (see groupByFile).
+		// c.md、b.md、a.md —— 最新的在前：列表就是那些地点的新鲜度，当前笔记也包括在
+		// 内（见 groupByFile）。
 		h.key('ArrowDown');
 		expect(selected()).toEqual(['c']);
 		expect(spy).toHaveBeenCalled();
@@ -1039,29 +961,26 @@ describe('RecentFilesModal —— 键盘', () => {
 	});
 
 	it('挪列表是为了走位、不是为了一次点击；走出视野的行会被拉到正中间', () => {
-		// The list is the reader's viewport too, and this is the bug that taught it:
-		// the position walks ONE row per key, so scrolling it the minimum distance back
-		// into sight moves the list exactly as far as the row moved. The row then sits
-		// flush against the edge, and every further step scrolls the note names under a
-		// mark that never moves — the reader at the foot of the list presses ↓ and
-		// watches the scrollbar run while the selection stands still (see revealDelta).
+		// 列表也是读者的视口，而这就是教会它这件事的那个 bug：位置每按一次键走**一行**，
+		// 所以把它滚回视野所需的最小距离，会让列表挪动的距离与那一行挪动的完全一样。于是
+		// 那一行紧贴着边缘，而此后每一步都在一个从不移动的标记底下滚着那些笔记名 —— 站在
+		// 列表末尾的读者按 ↓，看着滚动条跑而选中项站着不动（见 revealDelta）。
 		const entries = [
 			visit('d.md', NOW - 7 * MINUTE), visit('a.md', NOW - 5 * MINUTE),
 			visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW),
 		];
 		const h = harness(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' });
 		const listEl = h.el.querySelector<HTMLElement>('.position-restore-nav-list')!;
-		// jsdom has no layout: hand the list a 60px box starting at 100, and every row a
-		// 20px height one below the next (the fourth row is then out of sight, flush).
+		// jsdom 没有 layout：给列表一个从 100 开始的 60px 盒子，给每一行 20px 高、一行
+		// 接一行（第四行于是出了视野，紧贴着）。
 		const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
 		vi.spyOn(listEl, 'getBoundingClientRect').mockReturnValue(rect(100, 60));
 		Array.from(listEl.querySelectorAll<HTMLElement>('.position-restore-nav-row'))
 			.forEach((row, i) => vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(100 + i * 20, 20)));
 		const spy = vi.spyOn(Element.prototype, 'scrollIntoView');
 
-		// A CLICK moves nothing: it opens the row it landed on, and the list is the
-		// reader's own viewport — being legible is all that is owed to a row someone
-		// pointed at, and the walk's jump to the middle is not.
+		// **一次点击什么都不挪**：它打开它落着的那一行，而列表是读者自己的视口 ——
+		// 对一个别人指过的行，只要可读就够了，而那次走动跳到正中间的不是。
 		h.clickRow(h.notes()[3]); // d.md, below the box
 		expect(listEl.scrollTop).toBe(0);
 		h.clickRow(h.notes()[0]); // c.md, in sight
@@ -1081,12 +1000,10 @@ describe('RecentFilesModal —— 键盘', () => {
 	});
 
 	it('只有按键会挪位置，指针光是划过什么都不挪', () => {
-		// THE RULE OF THE LIST (see RecentFilesList): a pointer that passes over a row
-		// chooses nothing. It used to move THE position — the row Enter travels to —
-		// which meant a mouse crossing the list selected a row nobody chose and could
-		// undo the keyboard's walk. Every report here is a real one, at a coordinate of
-		// its own, so what the list is doing is ignoring a pointer rather than never
-		// hearing from one.
+		// **列表的规则**（见 RecentFilesList）：划过一行的指针什么都不选中。它从前会挪
+		// **那个**位置 —— 回车所去往的那一行 —— 那意味着鼠标划过列表就选中了一行没人选过
+		// 的行，还可能把键盘的走动撤掉。这里每一份报告都是真报告、各有各的坐标，所以列表
+		// 做的是**无视**指针，而不是压根收不到指针的报告。
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 		const selected = () => Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-selected'))
@@ -1099,23 +1016,22 @@ describe('RecentFilesModal —— 键盘', () => {
 		h.movePointer(a, { x: 120, y: 40 });
 		expect(selected()).toEqual([]);
 
-		// …and the keyboard's own position is left exactly where it was: no pointer
-		// report, over the row it walked to or over any other, takes it away.
+		// ……而键盘自己那个位置被原样留在原处：无论是指向它走到的那一行的指针报告，还是
+		// 指向任何别处的，都拿不走它。
 		h.key('ArrowDown'); // c.md — the newest note, and the one the reader is in
 		expect(selected()).toEqual(['c']);
 		h.movePointer(b, { x: 44, y: 41 });
 		h.movePointer(h.el.querySelector<HTMLElement>('.position-restore-nav-list')!, { x: 200, y: 90 });
 		expect(selected()).toEqual(['c']);
 
-		// …and a click does not move it either: a click OPENS the row (the travel below),
-		// which is the whole of what the list does with a pointer.
+		// ……点击也不挪它：点击**打开**那一行（下面的行进），而这就是列表对指针做的全部。
 		h.clickRow(b);
 		expect(h.jumpTo).toHaveBeenCalled();
 		expect(selected()).toEqual(['c']);
 	});
 
 	it('只在笔记行之间走；←→ 什么都不打开，因为行上什么都没显示', () => {
-		// Two landings in b.md, and the cursor walks onto its row.
+		// b.md 里有两个落点，而光标走到了它那一行上。
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
 			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavEntry,
@@ -1129,17 +1045,16 @@ describe('RecentFilesModal —— 键盘', () => {
 		expect(h.rows()).toHaveLength(0);
 		expect(h.note('b').classList.contains('is-selected')).toBe(true);
 
-		// Enter travels to the spot that row stands for — the note's NEWEST landing,
-		// where the reader left it (see RecentFilesList.activeRep) — and ↓ walks on to
-		// the next NOTE, because there is no landing row in between to step into.
+		// 回车行进到那一行代表的那处地点 —— 笔记**最新**的那个落点，读者把它留在的地方
+		// （见 RecentFilesList.activeRep）—— 而 ↓ 继续走到下一篇**笔记**，因为中间没有
+		// 落点行可以走进去。
 		h.key('Enter');
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 		h.key('ArrowDown');
 		expect(h.note('a').classList.contains('is-selected')).toBe(true);
 
-		// ←→ is not consumed by anything here: there is no tree left to open or close
-		// (see RecentFilesBrowser.onKeyDown), so both keys keep their ordinary meaning
-		// in the search box.
+		// ←→ 在这里不被任何东西消费：已经没有树可开可关（见
+		// RecentFilesBrowser.onKeyDown），所以两个键在搜索框里保留它们平常的含义。
 		const right = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
 		h.modal.contentEl.dispatchEvent(right);
 		expect(right.defaultPrevented).toBe(false);
@@ -1147,10 +1062,9 @@ describe('RecentFilesModal —— 键盘', () => {
 	});
 
 	it('列出这篇笔记里的各个跳转，绝不列笔记自己那条记录', () => {
-		// The file's own record is the note's ROW (see listing.ts's `anchor`). A
-		// landing row standing for it would open the file the reader is already in —
-		// a plain open of the note on screen, i.e. a row that visibly does nothing,
-		// on the note at the TOP where it is clicked most.
+		// 文件自己的记录就是笔记那一**行**（见 listing.ts 的 `anchor`）。用一个落点行
+		// 来代表它会打开读者已经在的那个文件 —— 对屏幕上这篇笔记的一次普通打开，也就是
+		// 一行明显什么都不做，还偏偏在排最**前**、被点得最多的那篇笔记上。
 		const entries = [
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 40 }),
@@ -1159,18 +1073,18 @@ describe('RecentFilesModal —— 键盘', () => {
 		];
 		const h = harnessAll(entries, 3, { 'a.md': '', 'b.md': '' });
 
-		// The two jumps, and no third row for the record.
+		// 那两个 jump，没有第三条记录行。
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L11', 'L41']);
-		// …and a click on one of them travels to THAT JUMP — never to the record,
-		// whose travel is a plain open (see places.travel).
+		// ……点在其中一个上的点击行进到**那个 jump** —— 绝不行进到那条记录，它的行进
+		// 是一次普通打开（见 places.travel）。
 		h.clickRow(h.rows()[0]);
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 		expect(h.jumpTo).not.toHaveBeenCalledWith(2);
 	});
 
 	it('设置要求显示落点行时，也走进那些落点行', () => {
-		// The same list under 'all': the note's spots are rows of their own, so ↓ steps
-		// into them and Enter travels to the one it is on (see RecentFilesList.move).
+		// 'all' 下的同一份列表：笔记的那些地点是各自的行，所以 ↓ 走进它们，而回车行进到
+		// 它所在的那一个（见 RecentFilesList.move）。
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
 			{ kind: 'jump', path: 'b.md', leafId: 'leaf-2', key: 'outline:One', t: NOW - 3 * MINUTE, st: { scroll: 40 } } as NavEntry,
@@ -1190,14 +1104,11 @@ describe('RecentFilesModal —— 键盘', () => {
 });
 
 describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
-	// What stood here was two controls carrying one state: an "only this note"
-	// switch and a chip opening a menu of every note the history had been in.
-	// Both answered "where else in this note was I", and the search box already
-	// answers it — a note's name is text its own steps are searchable by — so the
-	// toolbar keeps the box and nothing beside it, and the list keeps the width and
-	// the row the hint used to stand on. What the list PRINTS is not a question the
-	// toolbar answers either: those four choices are rows of the plugin's settings
-	// tab now (see RecentFilesBrowserPrefs).
+	// 这里从前立着的是两个控件、共用一个状态：一个「只限这篇笔记」的开关，以及一个打开
+	// 「历史去过的每篇笔记」菜单的提示条。两者回答的都是「我在笔记里还去过哪儿」，而搜索框
+	// 已经回答了 —— 笔记的名字就是它自己的那些步可以被搜到的文本 —— 所以工具条留下那个框、
+	// 旁边什么都不留，而列表留下那份宽度与提示从前站的那一行。列表**印**什么也不是工具条
+	// 回答的问题：那四个选择如今是插件设置页里的几行（见 RecentFilesBrowserPrefs）。
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 	const entries = () => [
 		visit('a.md', NOW - 5 * MINUTE),
@@ -1212,12 +1123,11 @@ describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 		expect(h.el.querySelector('.position-restore-nav-toggle')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-scope-menu')).toBeNull();
-		// The box, and nothing else: the gear that used to stand at the strip's far end
-		// is gone with the four choices it carried (see RecentFilesBrowserPrefs), and so is the
-		// hint that used to say "click a row to open it" — a row in a list answers a
-		// click everywhere else in the app, and the sentence cost the list its line. The
-		// box's × is not a second thing in the strip: it is INSIDE the box's own element,
-		// hung on the line the reader typed on.
+		// 那个框，别的什么都没有：从前站在这一条带子远端的那个齿轮随它载着的四个选择一起
+		// 走了（见 RecentFilesBrowserPrefs），那句从前写着「点一行就能打开它」的提示也
+		// 走了 —— 列表里的一行在 app 别处哪里都应答点击，而那句话让列表赔上了一行。框上
+		// 那个 × 不是带子上的第二样东西：它在框自己的元素**里面**，挂在读者打字的那一行
+		// 上。
 		const strip = Array.from(h.el.querySelectorAll<HTMLElement>('.position-restore-nav-toolbar > *'));
 		expect(strip.map(el => el.className.split(' ')[0])).toEqual(['position-restore-nav-search']);
 		expect(h.el.querySelector('.position-restore-nav-hint')).toBeNull();
@@ -1226,17 +1136,16 @@ describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 	});
 
 	it('用行尾那个 × 清空输入框', () => {
-		// The app's own gesture, copied from its quick switcher (see RecentFilesBrowser
-		// .toolbar): the press is REFUSED so the caret never leaves the box, and the click
-		// clears the box and re-reads the list from it. It is in the DOM whether or not
-		// the box has anything in it; the STYLESHEET is what hides it while the box is
-		// empty (asserted in the styles suite — jsdom loads no stylesheet) — except in a
-		// dialog, where an empty box is exactly when the glyph has its OTHER job (below).
+		// app 自己的手势，抄自它的快速切换器（见 RecentFilesBrowser.toolbar）：这次按下
+		// 被**拒绝**，好让插入符从不离开那个框，而点击把框清空、并据它重新读一遍列表。
+		// 无论框里有没有东西它都在 DOM 里；框空时把它藏起来的是**样式表**（这条在样式
+		// 套件里断言 —— jsdom 不加载样式表）—— 除了在对话框里，那里框空恰恰是这个字形
+		// 干它**另一份**活的时候（见下）。
 		const h = harness(entries(), 3, files);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
 		expect(h.clearButton().querySelector('svg')?.getAttribute('data-icon')).toBe('x');
-		// A press on it is refused, so the focus stays where the reader's typing is.
+		// 在它上面的一次按下被拒绝，所以焦点留在读者正在打字的地方。
 		const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
 		h.clearButton().dispatchEvent(press);
 		expect(press.defaultPrevented).toBe(true);
@@ -1244,15 +1153,15 @@ describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 		box.value = 'b';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(h.notes()).toHaveLength(1);
-		// …and with something to clear, CLEARING is what the glyph says it does — the name
-		// is read off the box rather than kept, so the two acts cannot drift apart.
+		// ……而有东西可清时，**清空**就是这个字形自称在做的事 —— 名字是从框上读出来的、
+		// 而不是存起来的，所以这两个动作没法彼此漂开。
 		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
 		expect(h.clearButton().getAttribute('title')).toBe(t('recentFiles.clearFilter'));
 
 		h.clearFilter();
 
-		// The box is empty, the list is the whole list again, and the caret is back in
-		// the box — which is what makes the × a faster way to type the next query.
+		// 框空了、列表重新是整份列表、插入符也回到了框里 —— 正是这一点让那个 × 成为更快
+		// 打出下一个查询的方式。
 		expect(box.value).toBe('');
 		expect(h.notes()).toHaveLength(3);
 		expect(document.activeElement).toBe(box);
@@ -1260,10 +1169,10 @@ describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 	});
 
 	it('什么都没输入时，同一个 × 用来关掉这个对话框', () => {
-		// ONE GLYPH, TWO ACTS, at the spot the app's own prompt puts them at: anything typed
-		// is emptied (above), and nothing typed is the way OUT. A dialog whose top is its box
-		// has no other closing the pointer can reach — the header's × went the way of the
-		// name it stood beside — and keeping both would have been two glyphs for one thought.
+		// **一个字形，两个动作**，就在 app 自己那个 prompt 把它们放的位置上：打了字的
+		// 清空（见上），没打字的则是**出去**的路。一个顶上就是自己那个框的对话框，没有
+		// 别的指针够得到的关闭方式 —— 头部那个 × 随它旁边的名字一起走了 —— 而两个都留着
+		// 会是一个念头用两个字形。
 		const h = harness(entries(), 3, files);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		const close = vi.spyOn(h.modal, 'close');
@@ -1272,12 +1181,12 @@ describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 		h.clearFilter();
 
 		expect(close).toHaveBeenCalledTimes(1);
-		// …and only that: nothing was filtered away, nothing travelled.
+		// ……而且仅此而已：什么都没被过滤掉、什么都没行进。
 		expect(box.value).toBe('');
 		expect(h.notes()).toHaveLength(3);
 
-		// Typing hands the glyph its first job back — with no state to keep in step beyond
-		// the box's own text, exactly as the clearing takes the way out off it again.
+		// 打字把这个字形的第一份活交回给它 —— 除了框自己的文本之外没有别的状态要同步，
+		// 正如清空又把那条出去的路从它身上拿走一样。
 		box.value = 'b';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.clearFilter'));
@@ -1300,13 +1209,12 @@ describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 	});
 });
 
-// The OTHER NAMES a file goes by (see RecentFilesReads.otherNamesFor): searchable, and
-// printed nowhere on the row but its own tooltip. They are the fourth thing a query
-// can hit that is not literally on the row, and the first one that is deliberately
-// about the reader's memory rather than about the visit.
+// 一个文件所**另外**叫的那些名字（见 RecentFilesReads.otherNamesFor）：可搜索，而在
+// 行上除了它自己的 tooltip 外哪儿都不印。它们是查询能命中的、字面上不在行上的第四样
+// 东西，也是第一个刻意关于读者的记忆、而不是关于那次 visit 的东西。
 describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
-	// The window opens with the note's `visit` (the file's own record) and one jump
-	// into it, so a query's hits can be counted as rows AND as landing rows.
+	// 这个窗口打开时带着笔记的 `visit`（文件自己的记录）与一个进入它的 jump，所以一个
+	// 查询的命中可以按行**和**按落点行来数。
 	const entries = (): NavEntry[] => [
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 400 }),
 		visit('b.md', NOW - 2 * MINUTE),
@@ -1327,8 +1235,8 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	};
 	const names = (h: ReturnType<typeof harness>) =>
 		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
-	// The tooltip's name lines, in the order they are drawn: what the note calls
-	// itself, then what it answers to (see TipContent).
+	// tooltip 里那几行名字，按绘制的次序：笔记自称什么，然后它还应答什么（见
+	// TipContent）。
 	const namesOn = (tip: HTMLElement) =>
 		Array.from(tip.querySelectorAll('.nav-tip-text')).map(l => l.textContent);
 
@@ -1337,13 +1245,13 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 
 		search(h, '周会');
 		expect(names(h)).toEqual(['a']);
-		// The `title` is read too — a community convention and not a native property
-		// (see readMeta) — and a hit inside it is a hit, token by token.
+		// `title` 也读 —— 那是社区惯例、不是原生属性（见 readMeta）—— 而它里面命中就是
+		// 命中，一个 token 一个 token 地算。
 		search(h, 'weekly');
 		expect(names(h)).toEqual(['a']);
 		search(h, 'sync');
 		expect(names(h)).toEqual(['a']);
-		// Case-insensitive like every other part of the query.
+		// 与查询的其它部分一样不分大小写。
 		search(h, 'STANDUP');
 		expect(names(h)).toEqual(['a']);
 
@@ -1352,8 +1260,8 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	});
 
 	it('别名写成单个字符串也认，不只有列表形式', () => {
-		// `aliases: solo` is as valid a frontmatter line as the usual block list, and
-		// Obsidian's own matching takes both (see readMeta).
+		// `aliases: solo` 与常见的块列表一样是合法的 frontmatter 行，而 Obsidian 自己的
+		// 匹配两种都认（见 readMeta）。
 		const h = harness(entries(), 2, files, [], {}, cache);
 
 		search(h, 'solo');
@@ -1364,21 +1272,20 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	it('名字可能来自两处，两处的词按「与」一起判', () => {
 		const h = harness(entries(), 2, files, [], {}, cache);
 
-		// One token from the title, one from the aliases: both must be somewhere in
-		// what the row stands for, and they are.
+		// 一个 token 来自 title、一个来自别名：两者都必须在这一行所代表的东西里某处，而
+		// 它们确实在。
 		search(h, 'weekly 周会');
 		expect(names(h)).toEqual(['a']);
 
-		// …but a token nothing holds sinks the match, whichever half held the other.
+		// ……但一个哪儿都不持有的 token 会让这次匹配沉掉，无论另一半持有的是谁。
 		search(h, 'weekly b.md');
 		expect(names(h)).toEqual([]);
 	});
 
 	it('不重新排序：靠别名命中的也仍然按最近用过的次序排', () => {
-		// The order is "where have I been", and a name the reader half-remembers says
-		// nothing about when they were there. Two notes carry the same alias and the
-		// note the reader is IN does not, so what is left is the plain MRU order of the
-		// two that match: b was visited later than a, so b leads.
+		// 这个次序是「我去过哪儿」，而一个读者只记得一半的名字，对他们何时去过那儿什么
+		// 都没说。两篇笔记带同一个别名，而读者**正在**的那篇不带，所以剩下就是两者匹配的
+		// 那两篇的普通 MRU 次序：b 比 a 后访问，所以 b 在前。
 		const h = harness([
 			visit('a.md', NOW - 3 * MINUTE),
 			visit('b.md', NOW - 2 * MINUTE),
@@ -1394,16 +1301,15 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	});
 
 	it('把别的名字印在这一行的提示条上，排在路径之后', () => {
-		// A note WITH names and one without, so the second half of the rule is visible
-		// beside the first: the names are an addition to the tooltip, not a replacement.
+		// 一篇**有**名字的笔记与一篇没有的，好让这条规则的后一半立在前一半旁边：那些名字
+		// 是对 tooltip 的**补充**，不是替换。
 		const h = harness([visit('a.md', NOW - MINUTE), visit('plain.md', NOW)], 1,
 			{ 'a.md': '', 'plain.md': '' }, [], {}, cache);
 
-		// The path first, then the name the note gives ITSELF on a line of its own, then
-		// the aliases (see readMeta): the row prints neither the extension nor the folder,
-		// so this is where a reader can still see them; and the path is drawn SEGMENT BY
-		// SEGMENT, so the separators are elements of their own (see tip.ts) — the string
-		// a reader copies is the same one either way.
+		// 先是路径，然后是笔记**自称**的名字（单独一行），再是别名（见 readMeta）：行既不
+		// 印扩展名也不印文件夹，所以这里是读者还看得见它们的地方；而路径是**一段一段**画
+		// 出来的，所以那些分隔符是各自的元素（见 tip.ts）—— 读者复制到的字符串两种画法
+		// 都一样。
 		const withNames = h.hover(h.note('a'))!;
 		expect(withNames.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
 		expect(Array.from(withNames.querySelectorAll('.nav-tip-sep')).map(s => s.textContent)).toEqual([]);
@@ -1412,7 +1318,7 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 			`${t('recentFiles.aliases')} 周会 · standup`,
 		]);
 
-		// …and a note with no other names says the path and nothing else.
+		// ……而没有别的名字的笔记只说路径，别的什么都不说。
 		h.unhover(h.note('a'));
 		const plain = h.hover(h.note('plain'))!;
 		expect(plain.querySelector('.nav-tip-path')?.textContent).toBe('plain.md');
@@ -1420,10 +1326,9 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	});
 
 	it('行上已经印着的那个名字，不再重复说', () => {
-		// The reader made `title` the property a row prints, so the note's own name is
-		// on the row: the tooltip owes it nothing, and what is left to say is the
-		// aliases. A `title` that IS the file's own name is the same case with the
-		// setting off — the row prints it either way, so it goes unsaid there too.
+		// 读者把 `title` 设成了行所印的那个属性，所以笔记自己的名字已经在行上了：tooltip
+		// 不欠它什么，剩下要说的就是别名。一个**就是**文件自己名字的 `title` 是同一个情形
+		// 的「设置关掉」版 —— 行两种情况下都印它，所以那里也不说。
 		const h = harness([visit('a.md', NOW - MINUTE), visit('same.md', NOW)], 1,
 			{ 'a.md': '', 'same.md': '' }, [], {}, {
 				...cache,
@@ -1437,10 +1342,9 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	});
 
 	it('文件夹路径按各段画出来，分隔符画在段与段之间', () => {
-		// The one reason the panel draws its own tooltip: a `/` between two long segments
-		// is the least visible character in the string, so it is a span of its own for
-		// the stylesheet to weight (see styles.css), and the folder segments step back so
-		// it has something to stand against.
+		// 面板之所以自己画 tooltip 的唯一理由：两个长段之间的一个 `/` 是整串里最不显眼的
+		// 字符，所以要让它成为自己的一个 span，好让样式表给它加权重（见 styles.css），而
+		// 那些文件夹段向后退一步，好让它有东西可作对照。
 		const h = harness([visit('deep/folder/note.md', NOW)], 0, { 'deep/folder/note.md': '' });
 
 		const tip = h.hover(h.note('note'))!;
@@ -1449,17 +1353,15 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 		expect(Array.from(tip.querySelectorAll('.nav-tip-seg')).map(s => s.textContent))
 			.toEqual(['deep', 'folder']);
 		expect(tip.querySelector('.nav-tip-name')?.textContent).toBe('note.md');
-		// The whole thing still reads as the path it is.
+		// 整串读起来仍是一条路径。
 		expect(tip.querySelector('.nav-tip-path')?.textContent).toBe('deep/folder/note.md');
 	});
 
 	it('落点行的提示条不动', () => {
-		// A landing row says nothing of the FILE: a spot is placed by the coordinate and
-		// the section it prints, and the note's other names belong to the note rather than
-		// to one spot in it (see placeRow / fileRow). It says nothing of the SECTION
-		// either here, because this fixture's note has no headings at all — a row whose
-		// chain is deeper than the two levels it prints says the whole chain on hover
-		// (see the landing row suite).
+		// 落点行对**文件**什么都不说：一处地点靠它印的坐标与小节来定位，而笔记的别的名字
+		// 属于那篇笔记，不属于它其中的某一处（见 placeRow / fileRow）。它在这里对**小节**
+		// 也什么都不说，因为这个 fixture 的笔记压根没有标题 —— 一条链比它所印的两级更深的
+		// 行，会在悬停上说出整条链（见落点行那个套件）。
 		const h = harness([
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 400 }),
@@ -1468,16 +1370,15 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 
 		const place = h.rows().find(r => r.querySelector('.nav-row-line')?.textContent === 'L401')!;
 		expect(place).toBeDefined();
-		// …so it says nothing on hover, and the file's other names are asked of the note's
-		// own row instead.
+		// ……所以它在悬停上什么都不说，而文件的别的名字改向笔记自己那一行去问。
 		expect(h.hover(place)).toBeNull();
 		expect(h.hover(h.note('a'))!.textContent).toContain('周会');
 	});
 
 	it('每个路径只读一次，只有文件变了才再读一次', () => {
-		// Two notes, one read each: the record is memoized per PATH for the life of the
-		// body (see RecentFilesReads), so filtering, re-ordering and every later render
-		// are answered from memory — and a frontmatter change drops exactly one path.
+		// 两篇笔记，各读一次：这条记录在一个 body 的一生里按 **PATH** 记忆（见
+		// RecentFilesReads），所以过滤、重排以及此后每一次渲染都从记忆里应答 —— 而一次
+		// frontmatter 变更恰好丢掉一个 path。
 		const h = harness(entries(), 2, files, [], {}, cache);
 		expect(h.cacheReads()).toBe(2);
 
@@ -1492,13 +1393,11 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	});
 
 	it('缓存还没回答过的文件会再问一次', () => {
-		// A sync replaces a note by removing the file and renaming the download over
-		// it (see position/path-bookkeeping.ts), and the app fires NO 'changed' for a
-		// rename — so a body that remembered the emptiness it saw in that moment went
-		// on drawing a landing with no section chain at all until the body itself was
-		// thrown away: a restart, or the dialog's next opening. Only ANSWERS are kept
-		// now, so the very next render asks again — one map lookup — and the chain
-		// comes back with no event behind it.
+		// 一次同步是这样替换一篇笔记的：把文件删掉，再把下载下来的重命名到它上面（见
+		// position/path-bookkeeping.ts），而 app 对一次重命名**不**抛 'changed' —— 所以
+		// 一个记住了它那一刻所见的空无的 body，会继续画着一个压根没有节链的落点，直到
+		// 这个 body 自己被扔掉：一次重启，或对话框下一次打开。如今只留**答案**，所以紧接
+		// 着的那次渲染会再问一遍 —— 一次 map 查找 —— 而那条链没有任何事件在背后就回来了。
 		const headings: Record<string, unknown[] | Record<string, unknown>> = {};
 		const h = harnessAll([
 			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
@@ -1516,12 +1415,11 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	});
 
 	it('缓存里什么都没有时，直接从笔记本身读那条链', async () => {
-		// The other half of the same sync, and the half that does not end: on a phone the
-		// cache does not merely answer late, it may never answer at all — the note was
-		// replaced under the app, and OPENING it does not make the app parse it either
-		// (the editor reads the text, the cache does not). A body asked again every five
-		// minutes and heard nothing every time, so the row stayed its line alone. The
-		// text is right there, though: the chain is read out of it, one render late.
+		// 同一次同步的另一半，也是不会结束的那一半：在手机上缓存不只是答得晚，它可能压根
+		// 从不作答 —— 笔记是在 app 底下被替换掉的，而**打开**它也不会让 app 去解析它
+		// （编辑器读文本，缓存不读）。一个 body 每五分钟问一次、每一次都听不到任何东西，
+		// 于是那一行就只剩它自己那一条线。可是文本就在那儿：那条链是从它里面读出来的，
+		// 晚一次渲染。
 		const h = harnessAll([
 			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
 			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -1532,26 +1430,24 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 
 		expect(trail()).toBe(''); // the cache says nothing, and the row is drawn anyway
 
-		// The read lands, and the redraw it owes the list comes with it (see
-		// LATE_READ_REDRAW_MS).
+		// 这次读取落地，而它欠列表的那次重画随之而来（见 LATE_READ_REDRAW_MS）。
 		for (let i = 0; i < 10; i++)
 			await Promise.resolve();
 		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
 
 		expect(trail()).toBe('呈现方案›预览');
-		// ONCE, and not again: the reading is remembered against the mtime it was taken
-		// at, which is the only clock an EXTERNAL change keeps — no event announces it.
+		// **一次**，不再来第二次：这次读取是对着取它时的那个 mtime 记住的，而那是
+		// **外部**变更唯一保有的时钟 —— 没有事件宣告它。
 		expect(reads('a.md')).toHaveLength(1);
 		h.changed();
 		expect(reads('a.md')).toHaveLength(1);
 	});
 
 	it('悬停要的那一行，用这次重画已经取过的那份读取来回答', async () => {
-		// ONE reading serves BOTH records — a note's lines are the lines its headings sit on
-		// (see RecentFilesReads) — so the reading a row's CHAIN starts is the same reading the
-		// LINE in a hover comes back out of. A spot whose record carries no key can be placed
-		// by nothing but the note's own text, and that text was already in hand: the question
-		// the chain paid for is not paid for a second time.
+		// **一次**读取同时服务**两条**记录 —— 一篇笔记的行就是它的标题所在的行（见
+		// RecentFilesReads）—— 所以一行的**链**所起的那次读取，就是悬停里那个**行号**
+		// 回来时用的同一次读取。一处记录不带 key 的地点，除了笔记自己的文本什么都定位
+		// 不了，而那份文本已经在手上了：链已经付过钱的那个问题不用再付一次。
 		const h = harnessAll([
 			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
 			visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -1559,15 +1455,14 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, {});
 		const reads = (path: string) => h.cachedRead.mock.calls.filter(c => c[0].path === path);
 
-		// The cache says nothing about a.md, so the chain starts a reading…
+		// 缓存对 a.md 什么都不说，所以链起了一次读取……
 		expect(reads('a.md')).toHaveLength(1);
 		for (let i = 0; i < 10; i++)
 			await Promise.resolve();
 		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
 
-		// …and the hover that needs the note's OWN LINES is answered out of it. The hover is
-		// the ONE asker allowed to start a reading (see linesFor), so a note read again here
-		// would be the two records having come apart.
+		// ……而那个需要笔记**自己的行**的悬停由它应答。悬停是**唯一**被允许起一次读取的
+		// 询问者（见 linesFor），所以在这里再读一遍这篇笔记就意味着两条记录已经分家了。
 		movedOnto(h.place('L7'));
 		expect(h.trigger).toHaveBeenCalled();
 		expect(reads('a.md')).toHaveLength(1);
@@ -1575,11 +1470,9 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 });
 
 describe('RecentFilesModal —— 列表的长相归设置页管', () => {
-	// What the list PRINTS is no longer chosen in the panel: the four choices the
-	// toolbar's gear used to carry are rows of the plugin's settings tab now (see
-	// RecentFilesBrowserPrefs), so the strip is the box alone, and a dialog that lives a
-	// second has nothing in it worth changing anyway. Two spots in a.md and
-	// b.md current, so 'all' has something to print.
+	// 列表**印**什么不再由面板选择：工具条那个齿轮从前载着的四个选择如今是插件设置页里的
+	// 几行（见 RecentFilesBrowserPrefs），所以这条带子只剩那个框，而一个只活一秒钟的对话框
+	// 里反正也没有值得改的东西。a.md 里有两处地点、b.md 是当前的，所以 'all' 有东西可印。
 	const entries = () => [
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 100 }),
 		visit('a.md', NOW - 2 * MINUTE, { scroll: 412 }),
@@ -1591,42 +1484,39 @@ describe('RecentFilesModal —— 列表的长相归设置页管', () => {
 		const h = harness(entries(), 2, files, [], {}, {}, false, {},
 			prefs({ landings: 'all' }).browser);
 
-		// No gear in the strip, no menu hanging off it — and no key of its own to put
-		// away: Escape is the app's (it closes the dialog), and with nothing of ours up
-		// nothing here may consume it.
+		// 带子上没有齿轮，也就没有挂在它下面的菜单 —— 也没有自己的键要收回：Escape 是
+		// app 的（它关掉对话框），而我们没有任何东西立着时，这里什么都不得消费它。
 		expect(h.el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-settings-menu')).toBeNull();
 		const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
 		h.modal.contentEl.dispatchEvent(escape);
 		expect(escape.defaultPrevented).toBe(false);
 
-		// What the list prints is what the plugin's value says, read live: a.md's two
-		// spots, in line order (see the row tests for the whole of that).
+		// 列表印什么就是插件那个值所说的，实时读的：a.md 的两处地点，按行的次序（整件事见
+		// 那些行的测试）。
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
 			.toEqual(['L101', 'L413']);
 	});
 });
 
 describe('RecentFilesModal —— 已经没了的文件', () => {
-	// A place whose file no longer exists is not listed at all: no row, no landing,
-	// no "you are here" — not even for the note the reader is standing in. The
-	// recent-files store prunes such a place on the vault's own delete event (see
-	// places.ts); the list agrees with it on the spot, which is also what covers the
-	// moment before that prune lands (see RecentFilesList.render).
+	// 文件已经不在了的地点压根不会被列出：没有行、没有落点、没有「你在这里」—— 连读者正
+	// 站着的那篇笔记也没有。最近文件 store 在 vault 自己的删除事件上修剪掉这样的地点（见
+	// places.ts）；列表在当场就与它一致，而这也就是覆盖那次修剪落地之前那一刻的东西（见
+	// RecentFilesList.render）。
 	it('已经删掉的笔记整个不进列表', () => {
 		const entries = [visit('gone.md', NOW - 2 * MINUTE), visit('b.md', NOW)];
 		const h = harness(entries, 1, { 'b.md': '' }, ['gone.md']);
 
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['b']);
-		// nothing about it is on screen, in any shape the list knows how to draw
+		// 关于它没有任何东西在屏幕上，无论列表会画的哪种形状
 		expect(h.el.querySelector('.is-missing')).toBeNull();
 		expect(h.el.textContent).not.toContain('gone.md');
 	});
 
 	it('当前笔记的文件已经没了时，不给它画行', () => {
-		// The reader may well be STANDING in the file that was just deleted (the tab is
-		// still open in the app). The list still has no row for it: it lists what it can
-		// open, and nothing claims to be "here".
+		// 读者很可能正**站在**那个刚被删掉的文件里（标签页在 app 里还开着）。列表照旧
+		// 没有它的行：它列的是它能打开的东西，而没有东西声称自己是「这里」。
 		const entries = [visit('a.md', NOW - MINUTE), visit('gone.md', NOW)];
 		const h = harness(entries, 1, { 'a.md': '' }, ['gone.md']);
 
@@ -1642,17 +1532,15 @@ describe('RecentFilesModal —— 已经没了的文件', () => {
 		];
 		const h = harnessAll(entries, 2, { 'b.md': '' }, ['gone.md']);
 
-		// The setting prints a note's places under its name; a note that is not listed
-		// has no name to print them under.
+		// 那条设置把一篇笔记的地点印在它的名字下面；一篇没被列出的笔记没有名字可印它们。
 		expect(h.rows()).toHaveLength(0);
 		expect(h.notes()).toHaveLength(1);
 	});
 
 	it('它记着的每个地点都没了时，说历史是空的', () => {
-		// The one case the filtering creates: a history whose places all name missing
-		// files reads as an empty one. That is the honest answer — there is nowhere in
-		// this list to go — and it is the SAME message as an empty history, because it
-		// is the same situation for the reader.
+		// 过滤造出来的那一种情形：一段地点全都点着已没了文件的历史，读起来像空的一样。
+		// 那是诚实的答案 —— 这份列表里无处可去 —— 而且它与一段空的历史是**同一条**消息，
+		// 因为对读者来说那是同一种处境。
 		const entries = [visit('gone.md', NOW - 2 * MINUTE), visit('also-gone.md', NOW)];
 		const h = harness(entries, 1, {}, ['gone.md', 'also-gone.md']);
 
@@ -1661,16 +1549,15 @@ describe('RecentFilesModal —— 已经没了的文件', () => {
 	});
 
 	it('仓库里又有了这篇笔记时，把这一行重新画出来', () => {
-		// A sync takes the note away and delivers it a moment later. The place is still
-		// in the list — the store drops one only after a grace window long enough to
-		// tell a replacement from a delete (see PathBookkeeper) — so what is missing is
-		// the DRAW, and nothing in the vault's own answer carries one.
+		// 一次同步把笔记拿走、过一会儿又送回来。那个地点仍在列表里 —— store 只有在一个
+		// 足够分辨「替换」与「删除」的宽限窗口之后才会丢掉一个（见 PathBookkeeper）——
+		// 所以缺的是那次**绘制**，而 vault 自己那个答案里没有任何东西带着一次绘制。
 		const entries = [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 		const gone = ['b.md'];
 		const h = harness(entries, 1, { 'a.md': '', 'b.md': '' }, gone);
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['a']);
 
-		// The replacement lands: the vault says the file is there again.
+		// 替换落地了：vault 说那个文件又在那儿了。
 		gone.length = 0;
 		h.fileEvent('create', { path: 'b.md' });
 		vi.advanceTimersByTime(LATE_READ_REDRAW_MS);
@@ -1680,10 +1567,9 @@ describe('RecentFilesModal —— 已经没了的文件', () => {
 });
 
 describe('RecentFilesModal —— 键盘的无障碍声明', () => {
-	// The focus never leaves the filter box (typing narrows the list from the
-	// same keys that walk it), so the box is an ARIA combobox over the list and
-	// the current option is named by aria-activedescendant. Without that
-	// attribute the arrow keys move a highlight a screen reader cannot see.
+	// 焦点从不离开过滤框（打字与走动用的是同一批键，列表就靠它们收窄），所以那个框是压在
+	// 列表上的一个 ARIA combobox，而当前 option 由 aria-activedescendant 指明。没有那个
+	// 属性，方向键挪动的是一个屏幕阅读器看不见的高亮。
 	it('把筛选框接到列表上，并让方向键能走', () => {
 		const entries = [visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
@@ -1692,10 +1578,9 @@ describe('RecentFilesModal —— 键盘的无障碍声明', () => {
 		const list = h.el.querySelector('.position-restore-nav-list');
 		expect(input?.getAttribute('role')).toBe('combobox');
 		expect(input?.getAttribute('aria-expanded')).toBe('true');
-		// The list's own id, whatever the browser numbered it: the two ends only
-		// have to agree.
+		// 列表自己的 id，无论浏览器把它编成几号：两头只要一致就行。
 		expect(input?.getAttribute('aria-controls')).toBe(list?.id);
-		// Nothing is selected on open, so there is nothing to announce yet.
+		// 打开时什么都没选中，所以还没有东西可宣告。
 		expect(input?.hasAttribute('aria-activedescendant')).toBe(false);
 
 		h.key('ArrowDown'); // the first row: the newest note, which is the one the reader is in
@@ -1707,37 +1592,35 @@ describe('RecentFilesModal —— 键盘的无障碍声明', () => {
 		const second = h.notes()[1];
 		expect(input?.getAttribute('aria-activedescendant')).toBe(second.id);
 		expect(second.getAttribute('aria-selected')).toBe('true');
-		// The row left behind stops claiming to be current.
+		// 被落下的那一行不再声称自己是当前的。
 		expect(first.getAttribute('aria-selected')).toBe('false');
 	});
 });
 
 describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
-	// A reading capture lands on a viewport line: every landing of one note is a
-	// row under that note, and two DIFFERENT lines stay two rows.
+	// 一次阅读采集落在一个视口行上：一篇笔记的每个落点都是那篇笔记底下的行，而两条
+	// **不同**的行仍是两行。
 	const at = (path: string, line: number, agoMin: number): NavEntry =>
 		visit(path, NOW - agoMin * MINUTE, { scroll: line });
 	const files = { 'x.md': '', 'y.md': '', 'z.md': '' };
 
 	it('反复访问同一个落点，合并成一处', () => {
-		// Bouncing between the note being written and its reference: every return
-		// to x.md L412 was the same PLACE, however it was reached and however many
-		// times. What the list prints of a note is the places in it the reader can
-		// go back to, so the three steps are one row — a list of three identical
-		// "L413" rows is three ways to say one destination, and the reader has to
-		// read all three to find that out. How OFTEN each was visited is
-		// chronology, which is not what this panel answers.
+		// 在被写的笔记与它的参考之间来回跳：每一次回到 x.md L412 都是**同一个**地点，
+		// 无论怎么到的、到过多少次。列表对一篇笔记所印的是其中读者能回去的那些地点，所以
+		// 那三步是一行 —— 一份三行一模一样的「L413」是用三种说法说一个目的地，而读者得把
+		// 三行都读完才知道这一点。每一处**被访问过多少次**是编年史，那不是这个面板回答的
+		// 东西。
 		const entries = [
 			at('x.md', 100, 30), at('x.md', 412, 25), at('x.md', 412, 20), at('x.md', 412, 10),
 			visit('y.md', NOW),
 		];
 
-		// The default list says it with ONE row for the note: nothing is printed
-		// under it (see LandingsMode), so a note visited ten times is one line.
+		// 默认的列表用**一行**说它：它底下什么都不印（见 LandingsMode），所以一篇被访问
+		// 十次的笔记是一行。
 		expect(harness(entries, 4, files).rows()).toHaveLength(0);
 
-		// …and asked for, the note's spots come out down the note, not by when it
-		// was visited: L101 (step 0) before L413 (the three later steps, one place).
+		// ……而按要求，这篇笔记的地点沿笔记往下出，不是按被访问的时间：L101（第 0 步）
+		// 在 L413（后面那三步，一个地点）之前。
 		const h = harnessAll(entries, 4, files);
 		expect(h.notes()).toHaveLength(2); // x.md, then y.md
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L101', 'L413']);
@@ -1745,30 +1628,28 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 	});
 
 	it('只有一个落点的笔记就是一行：没有计数、没有插入符、没有落点子行', () => {
-		// Most notes in a real history were visited once, and there is no choice to make
-		// in those: the row is the note AND the spot, and a "1" plus a caret would be two
-		// cells spent saying there is nothing under them.
+		// 真实历史里大多数笔记只被访问过一次，而那些没什么可选的：这一行**既是**笔记
+		// **也是**那处地点，而一个「1」加一个插入符会是花掉两个格子来说它们底下没有东西。
 		const h = harnessAll([at('x.md', 100, 30), visit('y.md', NOW)], 1, files);
 
 		const row = h.note('x');
 		expect(row.querySelector('.nav-row-count')).toBeNull();
 		expect(row.querySelector('.nav-file-caret')).toBeNull();
 
-		// ONE spot is not a list, so not even 'all' prints a row for it (see
-		// RecentFilesList.printsLandings): the note's own row stands for it.
+		// **一处**地点不是一份列表，所以连 'all' 也不为它印一行（见
+		// RecentFilesList.printsLandings）：笔记自己那一行代表它。
 		expect(h.rows()).toHaveLength(0);
 
-		// …and the row is a destination: a click on it opens its one place.
+		// ……而这一行是个目的地：点它会打开它那唯一一处地点。
 		h.clickRow(h.note('x'));
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 	});
 
 	it('没有坐标的文件只占一个落点，开过多少次都一样', () => {
-		// A `.base` view, a PDF, an image: a file with nowhere in it to BE. Every visit
-		// is the same place, so the note holds one landing — and, having one, it is a
-		// single row that prints nothing under it. What it did instead was print one
-		// identical "—" row per visit, because a step that recorded no line was left
-		// unkeyed (see landingKey).
+		// 一个 `.base` 视图、一份 PDF、一张图：一个里面没地方可**待**的文件。每一次
+		// visit 都是同一个地点，所以这篇笔记持有一个落点 —— 而既然只有一个，它就是印
+		// 什么都不在底下的一行。它从前做的却是每次 visit 都印一行一模一样的「—」，因为
+		// 一步没记下行号就被留成了没有 key 的（见 landingKey）。
 		const h = harness([
 			visit('board.base', NOW - 3 * MINUTE, {}),
 			visit('board.base', NOW - 2 * MINUTE, {}),
@@ -1777,8 +1658,8 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 		], 3, { 'board.base': '', 'b.md': '' });
 
 		const row = h.note('board');
-		// One spot, so nothing under the row — not even under 'all': one place is not
-		// a list (see RecentFilesList.printsLandings).
+		// 一处地点，所以那一行底下什么都没有 —— 连 'all' 下也没有：一处地点不是一份列表
+		// （见 RecentFilesList.printsLandings）。
 		expect(row.querySelector('.nav-row-count')).toBeNull();
 		expect(h.rows()).toHaveLength(0);
 		expect(harnessAll([
@@ -1788,16 +1669,14 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 			visit('b.md', NOW),
 		], 3, { 'board.base': '', 'b.md': '' }).rows()).toHaveLength(0);
 
-		// …and it is still a destination: a click on the row goes to the place the row
-		// stands for, which is the newest of them.
+		// ……而它仍是个目的地：点这一行会去它代表的那处地点，也就是其中最新的那个。
 		h.clickRow(row);
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
 	it('设置要求全显示时，每个落点都印出来', () => {
-		// The other side of the setting (see LandingsMode): every distinct spot under
-		// the note, in the note's own order — and no count anywhere, because the list
-		// no longer has anything to hide behind one.
+		// 这条设置的另一面（见 LandingsMode）：笔记底下每一处不同的地点，按笔记自己的
+		// 次序 —— 而且哪儿都没有计数，因为列表已经没有东西可以躲在一个计数后面了。
 		const all = prefs({ landings: 'all' });
 		const h = harness([
 			at('x.md', 100, 30), at('x.md', 412, 25), at('x.md', 412, 10), visit('y.md', NOW),
@@ -1808,9 +1687,8 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 	});
 
 	it('两篇笔记绝不合并，哪怕它们的步再像', () => {
-		// ONE tab walks from x.md to z.md and both were captured at the same
-		// line — the ordinary way to read two notes side by side. Different notes
-		// are different rows, always.
+		// **一个**标签页从 x.md 走到 z.md，而两者都被采集在同一条行上 —— 并排读两篇
+		// 笔记的普通方式。不同的笔记永远是不同的行。
 		const h = harness([
 			at('x.md', 100, 20), at('z.md', 100, 10), visit('y.md', NOW),
 		], 2, files);
@@ -1820,8 +1698,8 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 	});
 
 	it('按最新的那个落点排各篇笔记', () => {
-		// x.md was opened three times, but its last one is older than y.md's, so
-		// it comes second: the row is the note, the order is still recency.
+		// x.md 被打开过三次，但它最后一次比 y.md 的那次更旧，所以它排第二：行是那篇
+		// 笔记，次序仍然是新鲜度。
 		const h = harness([
 			at('x.md', 10, 40), at('x.md', 412, 30), at('y.md', 20, 5), visit('z.md', NOW),
 		], 3, files);
@@ -1831,16 +1709,14 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 	});
 });
 
-// jsdom lays nothing out, so the two questions the fit asks of a row — how wide the
-// list is, and how much of a section level survived it — have to be answered for it
-// (see RecentFilesList.fitTrails). Answered on the PROTOTYPE and not on the elements,
-// because the rows the fit measures are the ones the render is drawing: an element a
-// test could stub first does not exist yet. `answer` is asked on every read, so one
-// test can render the same list at two widths.
+// jsdom 不排布任何东西，所以 fit 向一行问的那两个问题 —— 列表有多宽、一个节级在它上面
+// 活下来多少 —— 得替它回答（见 RecentFilesList.fitTrails）。答在**原型**上而不是元素
+// 上，因为 fit 所量的行正是渲染正在画的那些：测试能先打桩的元素还不存在。`answer` 每次
+// 读取时都被问，所以一个测试可以把同一份列表按两个宽度渲染。
 function fakeLayout(answer: () => {
 	list: number;
-	// What the layout left of one level, by the text it prints: `whole` is the width
-	// the level asks for, `shown` what the row could give it.
+	// 布局给一个节级留下了什么，按它印的文本：`whole` 是那一级要的宽度，`shown` 是那一行
+	// 给得起它的。
 	level: (text: string) => { shown: number; whole: number };
 }): () => void {
 	const proto = Element.prototype;
@@ -1869,11 +1745,10 @@ function fakeLayout(answer: () => {
 }
 
 describe('RecentFilesModal —— 落点行', () => {
-	// The landings a note holds are rows of their own under 'all', so these tests ask
-	// for them: the note here holds TWO places — L7 under "预览" and L36 under
-	// "尾巴" — far enough apart that they are two rows at all (see SPREAD_DOC), and a
-	// note with ONE prints none either way — a single place is not a list (see
-	// RecentFilesList.printsLandings).
+	// 一篇笔记持有的落点在 'all' 下是各自的行，所以这些测试点名要它们：这里的笔记持有
+	// **两处**地点 —— L7 在「预览」下、L36 在「尾巴」下 —— 隔得够远、确实是两行（见
+	// SPREAD_DOC），而只有**一处**的笔记两种情况下都不印 —— 一处地点不是一份列表（见
+	// RecentFilesList.printsLandings）。
 	const body = () => [
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 6)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -1884,8 +1759,8 @@ describe('RecentFilesModal —— 落点行', () => {
 	it('落点前面按最深的层级加上小节', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
-		// the deepest two levels, straight off the heading cache — the ROWS never read
-		// the vault (the one read on mount is the drawer's own, see the drawer suite)
+		// 最深的两级，直接从标题缓存来 —— **行**从不读 vault（挂载时那一次读取是抽屉
+		// 自己的，见抽屉套件）
 		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
 		expect(h.rows()[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
 	});
@@ -1893,21 +1768,19 @@ describe('RecentFilesModal —— 落点行', () => {
 	it('显示坐标和小节，绝不显示落点那段引文', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
-		// Down the note: L7 first, then L36.
+		// 沿笔记往下：先 L7，然后 L36。
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L7', 'L36']);
 		const row = h.rows()[1];
 		expect(row.querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
-		// the words live in the preview (and the filter), not in the list
+		// 那些词住在预览里（以及过滤器里），不在列表里
 		expect(row.textContent).not.toContain('最后一段');
 	});
 
 	it('每个落点都用它将要打开的那一行来标注', () => {
-		// The list used to fold landings close enough together into one row, which printed
-		// the NEWEST member's line while covering the rest: a click could reach only that
-		// line, and the range the row covered survived as its tooltip. Every spot is a row
-		// of its own now (see NavFileGroup), so the label IS the destination — and what a
-		// row says on hover is the section chain it could not print, never the line (see
-		// the tooltip's own test below).
+		// 从前列表会把靠得够近的落点折成一行，那会印出**最新**那一个的行号却盖住其余的：
+		// 点击只够得到那一行，而这一行盖住的那个范围就以它的 tooltip 存活着。如今每一处
+		// 地点都是自己的一行（见 NavFileGroup），所以那个标注**就是**目的地 —— 而一行在
+		// 悬停上说的是它印不出来的那条节链，绝不是行号（见下面 tooltip 自己那个测试）。
 		const entries = [
 			visit('a.md', NOW - 3 * MINUTE, captured(SPREAD_DOC, 6)),
 			visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 12)),
@@ -1916,21 +1789,19 @@ describe('RecentFilesModal —— 落点行', () => {
 		];
 		const h = harnessAll(entries, 3, files, [], {}, SPREAD_HEADINGS);
 
-		// Down the note: L7 and L13 are two spots, so they are two rows — whatever the
-		// distance between them — and L36 follows.
+		// 沿笔记往下：L7 与 L13 是两处地点，所以它们是两行 —— 无论它们之间距离多少 ——
+		// 然后跟着 L36。
 		const rows = h.rows();
 		expect(rows.map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L7', 'L13', 'L36']);
-		// …and a row opens the line it prints: the second one lands on the step behind
-		// it. (The click is the last thing here for a reason: a travel closes the
-		// dialog, and a row hovered after that answers nothing at all.)
+		// ……而一行会打开它印的那条行：第二个落在它背后那一步上。（点击放在这里是最后
+		// 一件事有它的理由：一次行进会关掉对话框，而此后悬停的行压根什么都不应答。）
 		h.clickRow(rows[1]);
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
 	it('落点行自己带的那个标题算作最深的一级', () => {
-		// an outline jump lands ON "### 预览". A row prints no landing text, so that
-		// heading is the row's LAST level — the one a reader places the spot by — and it
-		// stays in the chain.
+		// 一次大纲 jump 落在「### 预览」**上**。行不印落点文本，所以那个标题是这一行的
+		// **最后**一级 —— 读者据以定位那处地点的那一级 —— 而它留在链里。
 		const jump = { kind: 'jump', path: 'a.md', leafId: 'leaf-1', key: 'outline:预览', t: NOW - MINUTE,
 			st: captured(SPREAD_DOC, 4) } as NavEntry;
 		const entries = [jump, visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)), visit('b.md', NOW)];
@@ -1939,36 +1810,32 @@ describe('RecentFilesModal —— 落点行', () => {
 		expect(h.rows()[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
 	});
 
-	// WHAT A LANDING ROW SAYS ON HOVER (see RecentFilesList.placeRow): the row holds
-	// the deepest two levels of the chain because it has one line of width, so a
-	// landing three sections deep names the section and its parent and never the
-	// chapter above them — and the chapter is the first thing a reader looking for a
-	// place asks about. The chain is whole on hover, outermost first, the way the
-	// note runs.
+	// 落点行在悬停上说什么（见 RecentFilesList.placeRow）：它只有一行的宽度，所以只装得下
+	// 一条链最深的两级，于是一个深三节的落点只点出那一节与它的父节，绝不点出它们上面那一
+	// 章 —— 而那一章恰是找一个地点的读者最先问的东西。悬停上整条链是完整的，最外层在前，
+	// 照笔记行进的次序。
 	it('悬停时说整条链，而且只在行上印不全的时候', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 		const rows = h.rows();
 
-		// L7 sits under 面板设计 › 呈现方案 › 预览, and the row prints the last two.
+		// L7 坐在 面板设计 › 呈现方案 › 预览 之下，而这一行印的是最后两级。
 		expect(rows[0].querySelector('.nav-row-trail')?.textContent).toBe('呈现方案›预览');
 		const tip = h.hover(rows[0])!;
 		expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
-		// …and the tooltip is the chain and nothing else: the coordinate is on the row
-		// and the note's name is on the row above it.
+		// ……而 tooltip 就是那条链、别的什么都没有：坐标在行上，笔记的名字在它上面那一行
+		// 上。
 		expect(tip.querySelector('.nav-tip-path')).toBeNull();
 
-	// L36 is the other half of the rule: its chain IS two levels, the row prints
-	// both, so hover has nothing to add ABOUT THE CHAIN — and nothing at all was
-	// recorded below a landing taken at the foot of the note.
+	// L36 是这条规则的另一半：它的链**就是**两级，行两级都印，所以悬停没有关于**链**的
+	// 东西可补充 —— 而在笔记末尾取的落点底下压根没有记下任何东西。
 	h.unhover(rows[0]);
 	expect(rows[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
 	expect(h.hover(rows[1])).toBeFalsy();
 });
 
 it('本来就没记下可引的东西，就不再说什么', () => {
-	// A place recorded before the block was captured carries a position and no
-	// words (see NavEntryState.context): a tooltip is not a place to put a blank
-	// line, so the row answers exactly as it did before.
+	// 在一个块能被采集之前记下的地点带着一个位置、没有词（见 NavEntryState.context）：
+	// tooltip 不是放空行的地方，所以这一行照旧应答得与从前一模一样。
 	const entries = [
 		visit('a.md', NOW - 2 * MINUTE, { scroll: 6 }),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -1979,18 +1846,16 @@ it('本来就没记下可引的东西，就不再说什么', () => {
 	const tip = h.hover(h.place('L7'))!;
 	expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 呈现方案 › 预览');
 	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
-	// …and the other landing, whose row prints the whole of its two-level chain, has
-	// nothing below it to say either: it was taken at the foot of the note.
+	// ……而另一个落点，它的行印出了整条两级链，底下也没什么可说：它是在笔记末尾取的。
 	h.unhover(h.place('L7'));
 	expect(h.hover(h.place('L36'))).toBeFalsy();
 });
 
 it('没有查询在跑时，落点一句都不多说 —— 行上已经说全了', () => {
-	// Every landing IS a heading jump, so recording the words below it buys search
-	// and nothing else: with nothing typed, quoting one of them would put the same
-	// words on screen twice — once as a line the row explains, once as a line it
-	// quotes. (The capture takes nothing from above the landing for the same reason
-	// — see ephemeral.ts's landingContext.)
+	// 每个落点**都**是一次标题 jump，所以把它底下的词记下来买到的是搜索、别无所获：
+	// 什么都没打时，引出其中一个会把同样的话在屏幕上放两遍 —— 一遍是行所解释的那一行，
+	// 一遍是它引用的那一行。（出于同样的理由，采集不从落点上方取任何东西 —— 见
+	// ephemeral.ts 的 landingContext。）
 	const entries = [
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -2004,9 +1869,8 @@ it('没有查询在跑时，落点一句都不多说 —— 行上已经说全�
 });
 
 it('点出查询命中的那一行', () => {
-	// Two landings one line apart, so both of them answer a query either of their
-	// blocks carries: a note left with a single landing prints no landing rows at
-	// all (see RecentFilesList.printsLandings), and there would be no row to ask.
+	// 两个只隔一行的落点，所以它们俩都应答它们任一方的块所带的查询：一篇只留下单个落点的
+	// 笔记压根不印落点行（见 RecentFilesList.printsLandings），也就没有行可问。
 	const entries = [
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 4)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 6)),
@@ -2018,19 +1882,19 @@ it('点出查询命中的那一行', () => {
 		document.querySelectorAll('.position-restore-nav-tip .nav-tip-quote'),
 	).map(q => q.textContent);
 
-	// A line neither landing sits on: why this row survived a query that says
-	// nothing about its name, its path or its section.
+	// 一条两个落点都不在的行：这一行为什么活过了一个对它的名字、路径、小节都什么都不说的
+	// 查询。
 	box.value = '正文第 1 行';
 	box.dispatchEvent(new Event('input', { bubbles: true }));
 	h.hover(h.place('L5'));
 	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
-	// …and the row beside it, which shares every word below it, says the same line —
-	// what the two answers differ by is which place each one opens.
+	// ……而它旁边那一行，底下每个词都相同，说的是同一行 —— 两个答案的区别在于各自打开的
+	// 是哪个地点。
 	h.unhover(h.place('L5'));
 	h.hover(h.place('L7'));
 	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 1 行`]);
 
-	// A query the recorded lines never carried — this row matched on its own name.
+	// 一个那些记下的行从没带过的查询 —— 这一行是靠它自己的名字匹配上的。
 	h.unhover(h.place('L7'));
 	box.value = 'a.md';
 	box.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2038,10 +1902,9 @@ it('点出查询命中的那一行', () => {
 	expect(quotes()).toEqual([]);
 });
 
-// A JUMP WHOSE LANDING THE VAULT CAN STILL FIND — the two things a panel needs to put
-// a moved line back (see browser/now-line.ts), and neither of which `visit` above
-// carries: a KEY naming a heading (`marks` included, which is how an outline key says
-// its level), and the line that heading stood on when the record last looked.
+// 一个 vault 仍找得到它落点的 JUMP —— 面板把一条挪走了的行放回去所需的这两样东西（见
+// browser/now-line.ts），而上面那个 `visit` 两样都不带：一个命名标题的 **key**（包括
+// `marks`，大纲 key 就是靠它说出自己的层级），以及这条记录上次看时那个标题所站的行。
 const landing = (
 	path: string, stamp: number, marks: string, line: number, mtime: number,
 ): NavEntry => ({
@@ -2050,17 +1913,17 @@ const landing = (
 	st: { ...captured(SPREAD_DOC, line), mtime },
 });
 
-// One entry as the JUMP it is: everything a test says about where a landing was put
-// back is said about fields only that shape carries.
+// 一个 entry 按它作为 **JUMP** 的样子：测试关于一个落点被放回哪儿所说的一切，都只针对
+// 那种形状才带的字段。
 const jumpAt = (entries: NavEntry[], i: number) => entries[i] as NavJump;
 
 it('把落点放回它那个标题现在所在的位置，且对此一言不发', () => {
-	// An edit that moves a heading does not move the READER, and this panel can answer
-	// where the spot went — so nothing is owed its row, and the coordinate is corrected
-	// before the row exists, which is the whole of why no warning is.
+	// 一次把标题挪走的编辑并没有把**读者**挪走，而这个面板答得出那处地点去了哪儿 ——
+	// 所以不欠它那一行什么，而这个坐标在这一行存在之前就被订正了，这就是为什么没有警告
+	// 的全部原因。
 	const taken = 1_000;
 	const written = 5_000;
-	// 呈现方案 stands where it was recorded; 预览 has moved ten lines down the note.
+	// 呈现方案 站在它被记下的地方；预览 沿笔记下移了十行。
 	const headings = {
 		'a.md': [
 			{ heading: '面板设计', level: 1, position: { start: { line: 0 } } },
@@ -2080,34 +1943,32 @@ it('把落点放回它那个标题现在所在的位置，且对此一言不发'
 		h.rows().map(r => r.querySelector('.nav-row-line')?.textContent);
 
 	const h = harnessAll(entries, 2, files, [], {}, headings, false, { 'a.md': written });
-	// …and the row prints that answer, which is the coordinate a click travels to.
+	// ……而这一行印出那个答案，也就是点击所行进到的那个坐标。
 	expect(lines(h)).toEqual(['L3', 'L15']);
 	h.hover(h.place('L15'));
 	expect(notes()).toEqual([]);
 	h.unhover(h.place('L15'));
-	// One landing moved and one did not, and only the one that moved was written: the
-	// other was ASKED and answered with the line it already had.
+	// 一个落点挪了、一个没挪，而只有挪了的那个被写了：另一个是**被问了**、并用它本来就有
+	// 的那一行作答的。
 	expect(h.reland).toHaveBeenCalledTimes(1);
 	expect(jumpAt(h.entries, 1).keyLine).toBe(14);
 	expect(jumpAt(h.entries, 1).st?.mtime).toBe(written);
 	expect(jumpAt(h.entries, 0).keyLine).toBe(2);
 	expect(jumpAt(h.entries, 0).st?.mtime).toBe(taken);
-	// …and the row prints that answer, which is the coordinate a click travels to.
+	// ……而这一行印出那个答案，也就是点击所行进到的那个坐标。
 	expect(lines(h)).toEqual(['L3', 'L15']);
 
-	// DRAWN AGAIN: nothing left to put back — the record now carries the note's own
-	// clock, which is the cheapest answer this panel has, so the pass writes nothing
-	// and finds nothing.
+	// **被重画了**：没有东西要放回去了 —— 这条记录如今带着笔记自己的时钟，那是这个面板
+	// 最便宜的答案，所以这一趟什么都不写、也什么都不找。
 	h.changed();
 	expect(h.reland).toHaveBeenCalledTimes(1);
 	expect(lines(h)).toEqual(['L3', 'L15']);
 });
 
 it('落点点名的那个标题已经不在笔记里时，明说出来', () => {
-	// What is LEFT after the pass above has put back what it can: the one case nobody
-	// can fix. Every other row whose note was written since is silent now — including
-	// one whose heading merely moved — so this line only ever stands for a landing the
-	// note has lost, and a warning that showed on half the list would say nothing.
+	// 上面那一趟把它能放回的放回之后**剩下**的：那个谁也修不好的情形。此后被写过的笔记的
+	// 每一行别的行现在都沉默了 —— 包括一个标题只是挪了挪的行 —— 所以这一条行号只会代表
+	// 一个笔记已经失去了的落点，而在半份列表上都亮起的警告等于什么都没说。
 	const taken = 1_000;
 	const headings = {
 		'a.md': [
@@ -2129,22 +1990,21 @@ it('落点点名的那个标题已经不在笔记里时，明说出来', () => {
 
 	const h = harnessAll(entries, 2, files, [], {}, headings, false, { 'a.md': taken + 5_000 });
 
-	// THE ROW KEEPS THE WORDS IT WAS RECORDED WITH. With 预览 gone, its recorded line
-	// falls under 呈现方案, and printing THAT left the row standing for a section the
-	// reader never went to — while its own tooltip was saying the heading was gone, and
-	// while a click took the reader to a line under some other heading. The words it
-	// keeps are what the row is ABOUT, and the last thing that names the spot.
+	// **这一行留着它被记下时的那些词**。预览 没了之后，它记下的行号落到了 呈现方案 底下，
+	// 而印**那个**会让这一行代表一个读者从没去过的节 —— 同时它自己的 tooltip 还在说那个
+	// 标题没了，而点击把读者带到某个别的标题底下的一行。它留着的那些词才是这一行**关于**
+	// 的东西，也是最后点出那处地点的东西。
 	expect(trail(h.place('L5'))).toBe('预览');
 	expect(struck(h.place('L5'))).toBe(true);
-	// …and the row beside it, whose heading the note still carries, is read off the note
-	// and prints no mark: one row kept its section, the other kept only its record.
+	// ……而它旁边那一行、标题笔记还带着的，是从笔记上读出来的、不印任何标记：一行留住了
+	// 它的小节，另一行只留住了它的记录。
 	expect(trail(h.place('L3'))).toBe('面板设计›呈现方案');
 	expect(struck(h.place('L3'))).toBe(false);
 
 	h.hover(h.place('L5'));
 	expect(notes()).toEqual([t('recentFiles.lostLanding')]);
-	// …and it stands UNDER the words it is about, and not among them: a quoted line
-	// is the note's, this one is the panel's.
+	// ……而它站在它所关于的那些词**下面**，不在它们之中：被引的那一行是笔记的，这一行是
+	// 面板的。
 	const kinds = Array.from(
 		document.querySelector('.position-restore-nav-tip')!.children,
 	).map(c => c.className);
@@ -2152,12 +2012,12 @@ it('落点点名的那个标题已经不在笔记里时，明说出来', () => {
 	expect(kinds.indexOf('nav-tip-note')).toBeGreaterThan(kinds.lastIndexOf('nav-tip-quote'));
 	h.unhover(h.place('L5'));
 
-	// NOR IS ITS PREVIEW POINTED AT A SECTION: the app opens `note#heading` by taking the
-	// first heading answering to that name, and the one this line now sits under belongs
-	// to another row. What this panel hands over for one is the note alone.
-	// The pointer has to have MOVED onto the row: an arrival whose coordinates nobody left is
-	// nobody left is a panel drawing itself around a hand that was already there (see
-	// RecentFilesList.hoverAt), which is why a hover of this row is two events.
+	// 它的预览也**不**被指向某个小节：app 打开 `note#heading` 时取的是应答那个名字的第一
+	// 个标题，而这一行如今身处的那个属于另一行。这个面板为一个落点交出去的，只是那篇
+	// 笔记。
+	// 指针必须是**移**到这一行上的：一次坐标没人离开过的到达，就是一个面板在围着一只本来
+	// 就在那儿的手画自己（见 RecentFilesList.hoverAt），这就是为什么这一行的悬停是两个
+	// 事件。
 	const row = h.place('L5');
 	for (const clientX of [10, 30])
 		row.dispatchEvent(new MouseEvent('pointerover', { bubbles: true, clientX, clientY: clientX }));
@@ -2166,18 +2026,17 @@ it('落点点名的那个标题已经不在笔记里时，明说出来', () => {
 	) as { linktext?: string } | undefined;
 	expect(asked?.linktext).toBe('a.md');
 
-	// NOTHING WAS WRITTEN: a landing whose line cannot be found keeps the clock it had,
-	// so its row goes on saying so rather than being quietly marked as checked.
+	// **什么都没写**：一个行号找不回来的落点保留它本来就有的那个时钟，所以它的行继续
+	// 这么说，而不是被悄悄标成「查过了」。
 	expect(h.reland).not.toHaveBeenCalled();
 	expect(jumpAt(h.entries, 1).keyLine).toBe(4);
 	expect(jumpAt(h.entries, 1).st?.mtime).toBe(taken);
 });
 
 it('仓库还没解析过的笔记，什么都不说', () => {
-	// The answer "that heading is not in the note" belongs to something that has READ the
-	// note. A note a sync has just put back has no parsed headings for as long as the app
-	// takes to re-read it — and on a phone it may never be re-read at all — and a row that
-	// borrowed that silence as a verdict would be blaming the note for the vault's hurry.
+	// 「那个标题不在笔记里」这个答案属于**读过**这篇笔记的东西。一次同步刚放回来的笔记，
+	// 在 app 重读它所需的这段时间里没有解析后的标题 —— 而在手机上它可能压根不会被重读
+	// —— 一行若把这份沉默借来当判决，就是拿 vault 的匆忙去怪那篇笔记。
 	const taken = 1_000;
 	const entries = [
 		landing('a.md', NOW - 2 * MINUTE, '## 呈现方案', 2, taken),
@@ -2188,16 +2047,14 @@ it('仓库还没解析过的笔记，什么都不说', () => {
 	h.hover(h.place('L5'));
 	expect(document.querySelectorAll('.position-restore-nav-tip .nav-tip-note')).toHaveLength(0);
 	h.unhover(h.place('L5'));
-	// Nothing was put back either: without the parsed headings there is nothing to put
-	// anything back WITH.
+	// 也什么都没放回去：没有解析后的标题，就没有东西可以拿**来**放回任何东西。
 	expect(h.reland).not.toHaveBeenCalled();
 });
 
 it('这条记录自己没有留下时间时，关于这篇笔记什么都不说', () => {
-	// A record taken before the field existed, or by a read that had no file to stamp:
-	// "unknown" is not "untouched", and a line claiming the note has been written has
-	// nothing to stand on then. What is missing is that one line — the words it would
-	// have spoken about are still there.
+	// 一条在这个字段存在之前取的记录，或由一次没有文件可盖章的读取取的：「未知」不是
+	// 「没动过」，而那时一条声称笔记被写过的行没有东西可立足。缺的就是那一条行号 ——
+	// 它本会说起的那些词还在。
 	const entries = [
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 9)),
@@ -2214,13 +2071,12 @@ it('这条记录自己没有留下时间时，关于这篇笔记什么都不说'
 });
 
 it('笔记行本身就代表那个地点时，在这一行上说出查询命中的那一行', () => {
-	// A note's landings are printed under it only from two of them up (see
-	// printsLandings): a note left with ONE place has no landing row at all, and its
-	// own row is what stands for the place — the click goes there (see activeRep). That
-	// is the case every filtered list is made of: a query that hit a sentence in a note
-	// leaves one landing of one note on screen, and the words it matched were printed
-	// nowhere. A row that opens a spot has to be able to say why the spot is here,
-	// which is the whole of what a landing's own row does.
+	// 一篇笔记的落点只有从两个起才印在它下面（见 printsLandings）：只留下一**处**地点的
+	// 笔记压根没有落点行，而它自己那一行就是代表那处地点的东西 —— 点击就去那儿（见
+	// activeRep）。每一份被过滤过的列表都是由这个情形组成的：一个命中了笔记里某句话的
+	// 查询，在屏幕上只留下一篇笔记的一个落点，而它匹配到的那些词哪儿都没印出来。一行
+	// 既然打开一处地点，就得说得出那处地点为什么在这儿，而这就是落点行自己那一行所做的
+	// 全部。
 	const entries = [
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 8)),
 		visit('b.md', NOW),
@@ -2240,11 +2096,10 @@ it('笔记行本身就代表那个地点时，在这一行上说出查询命中�
 });
 
 it('笔记行代表的是文件本身时，这一行什么都不说', () => {
-	// The other half of the rule, and the reason the one above is a rule about the
-	// row rather than about the note: a note whose own record is on the list is opened
-	// the plain way by its row, and a plain open has no words recorded about it — the
-	// record that carries them is the landing beside it, whose row is not on screen
-	// because one place is not a list. The row says what it can say about the file.
+	// 这条规则的另一半，也是上面那条之所以是一条**关于行**而非关于笔记的规则的原因：
+	// 一篇自己的记录在列表上的笔记，由它那一行按普通方式打开，而一次普通打开没有任何词
+	// 被记在它身上 —— 带着那些词的那条记录是它旁边的落点，而那个落点的行不在屏幕上，
+	// 因为一处地点不是一份列表。这一行说出它能说的关于那个文件的话。
 	const entries = [
 		visit('a.md', NOW - MINUTE),
 		visit('a.md', NOW - 2 * MINUTE, captured(SPREAD_DOC, 8)),
@@ -2260,12 +2115,10 @@ it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
 });
 
-	// THE SEPARATOR HANGS OFF THE LEVEL IT FOLLOWS rather than standing between the
-	// two as a cell of its own: a cell keeps its width after the level in front of it
-	// has been squeezed to nothing, and a row that had given up its outer level went
-	// on printing a "›" with nothing to its left — standing where the deepest level,
-	// the one the row is for, could have had the room (see styles.css's collapse
-	// order). The row still READS the same, so nothing a reader looks at changed.
+	// **分隔符跟在它所跟随的那一级后面**，而不是自己成为一个格子立在两级之间：一个格子
+	// 在它前面那一级被挤到没有之后仍占着宽度，而一个已经放弃外层级的行会继续印一个左边
+	// 什么都没有的「›」—— 站在本该给最深那一级（这一行所为之而存在的那一级）腾出的地方
+	// 上（见 styles.css 的收缩次序）。这一行**读**起来还是一样，所以读者看到的什么都没变。
 	it('分隔符挂在它跟着的那一级上，而不是挂在两级之间', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 		const crumb = h.rows()[0].querySelector('.nav-row-trail')!;
@@ -2277,24 +2130,21 @@ it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 			.toBe('nav-trail-seg');
 	});
 
-	// THE LEVEL A ROW COULD NOT PRINT (see RecentFilesList.fitTrails). A row is drawn
-	// before anything has been measured, so the stylesheet can only SQUEEZE the outer
-	// level of a chain — and what a squeeze leaves is a FRAGMENT: it names no section,
-	// and the level beside it reads on regardless (the deepest level takes the width
-	// its own text needs, however narrow the row gets). Past half of it, the fragment
-	// is not worth the room it reads in; the pass reads the layout back and takes it
-	// off the row, and what the row let go of is one hover away.
+	// **一行印不出来的那一级**（见 RecentFilesList.fitTrails）。一行是在任何东西被测量
+	// 之前就画出来的，所以样式表只能把一个链的外层级**挤**掉 —— 而挤过之后留下的是一个
+	// **残片**：它不点名任何小节，而旁边那一级照读不误（最深那一级拿走它自己的文本所需
+	// 的宽度，无论这一行被挤得多窄）。过了它的一半，这个残片就不值它所占的那点位置了；
+	// 这一趟把布局读回来、把它从行上拿走，而这一行放掉的东西离悬停只有一步。
 	//
-	// (With no layout at all — every test above — nothing is dropped: a row that has
-	// not been measured keeps both of its levels, which is what the rows above print.)
+	// （压根没有布局时 —— 上面每一个测试 —— 什么都不丢：一行没有被测量过就保留它的两
+	// 级，上面那些行印的就是这个。）
 	it('行上印不出来的最外那一级去掉，改用悬停说出来', () => {
-		// L36's chain IS two levels, so its row prints both until the layout says
-		// otherwise — the only row that can show what the pass lends a row, since L7's
-		// three-level chain already has the whole chain on its hover.
+		// L36 的链**就是**两级，所以它的行把两级都印出来，直到布局另有说法 —— 它是唯一
+		// 能展示这一趟借给一行什么的行，因为 L7 那个三级链的悬停上已经有整条链了。
 		let squeezed = true;
 		const restore = fakeLayout(() => ({
 			list: 300,
-			// a third of the level survived: "面板…" where the row needs "面板设计"
+			// 那一级活下来三分之一：行需要「面板设计」，而这里是「面板…」
 			level: (text) => (squeezed && text === '面板设计›'
 				? { shown: 26, whole: 80 }
 				: { shown: 80, whole: 80 }),
@@ -2302,22 +2152,21 @@ it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 		try {
 			const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
-			// The level is off the row — the row is its deepest level alone, which is
-			// what the stylesheet does with the class (see the styles suite).
+			// 那一级从行上下来了 —— 这一行只剩它最深的那一级，而这是样式表拿那个 class
+			// 做的事（见样式套件）。
 			expect(h.rows()[1].classList.contains('is-deep-only')).toBe(true);
 			const tip = h.hover(h.rows()[1])!;
 			expect(tip.querySelector('.nav-tip-text')?.textContent).toBe('面板设计 › 尾巴');
 
-			// A row whose level fits keeps it, and hover says what it always said.
+			// 一级放得下的行留着它，而悬停照旧说着它一直说的话。
 			h.unhover(h.rows()[1]);
 			expect(h.rows()[0].classList.contains('is-deep-only')).toBe(false);
 			expect(h.hover(h.rows()[0])!.querySelector('.nav-tip-text')?.textContent)
 				.toBe('面板设计 › 呈现方案 › 预览');
 
-			// …and a pane that GREW: the next render prints the level again, and the
-			// words the pass lent the row are the row's own once more — a tooltip left
-			// behind would repeat the row it is standing over, and there is nothing
-			// else for it to say.
+			// ……而一个**变宽**了的窗格：下一次渲染又把那一级印出来，而这一趟借给这一行的
+			// 那些话又重新是这一行自己的 —— 一个被落下的 tooltip 会重复它正站着的那一行，
+			// 而它没有别的话可说。
 			h.unhover(h.rows()[0]);
 			squeezed = false;
 			h.changed();
@@ -2329,26 +2178,24 @@ it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 	});
 
 	it('坐标排在小节前面，这一行自己的控件排在之后', () => {
-		// The row used to be name | section | small print (pane, coordinate, age) with
-		// the age in a measured column of its own. The note is the row now, so a landing
-		// is coordinate | section | controls — and the controls are last and out of the
-		// flow (see .nav-row-actions), because a landing carries the same × a note does.
+		// 从前这一行是 名字 | 小节 | 小字（窗格、坐标、年纪），年纪在自己那条量出来的列
+		// 里。如今笔记就是这一行，所以一个落点是 坐标 | 小节 | 控件 —— 而控件排在最后、
+		// 脱离流（见 .nav-row-actions），因为一个落点带着与笔记一样的那个 ×。
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		const row = h.rows()[1];
 		expect([...row.children].map(el => el.className))
 			.toEqual(['nav-row-pos', 'nav-row-trail', 'nav-row-actions']);
-		// …and no time while the reader has not asked for one: the setting is off in
-		// this harness, and nothing in the list prints a time of its own accord.
+		// ……而读者没有要求时就没有时间：这条设置在这个 harness 里是关的，而列表里没有
+		// 任何东西自作主张地印一个时间。
 		expect(row.querySelector('.nav-row-time')).toBeNull();
 		expect(h.el.querySelector('.position-restore-nav-list .nav-row-time')).toBeNull();
 	});
 
 	it('落点有它自己的时间 —— 最后一次访问那一处，而不是访问这篇笔记', () => {
-		// A note's row is stamped with the NEWEST of its places (see fileRow), which
-		// answers "when was I in this file" and not "when was I here": a spot the
-		// reader has not been back to keeps the time it earned, and that is the moment
-		// the words its row quotes were captured at.
+		// 一篇笔记的行盖的是它那些地点中**最新**的那个（见 fileRow），那回答的是「我什么
+		// 时候在这个文件里」而不是「我什么时候在这儿」：读者没再回去过的那处地点保留它
+		// 挣来的时间，而那就是它的行所引的那些词被采集到的那一刻。
 		const spots = [
 			visit('x.md', NOW - 30 * MINUTE, captured(SPREAD_DOC, 6)),
 			visit('x.md', NOW - 10 * MINUTE, captured(SPREAD_DOC, 35)),
@@ -2358,15 +2205,15 @@ it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 			false, {}, prefs({ landings: 'all', time: true }).browser);
 		const time = (row: HTMLElement) => row.querySelector<HTMLElement>('.nav-row-time');
 
-		// The note says the newest of the two spots; each spot says its own visit.
+		// 笔记说两处地点中最新那个；每一处地点说它自己的那次 visit。
 		expect(time(h.note('x'))?.textContent).toBe(ageLabel(NOW - 10 * MINUTE, Date.now()));
 		expect(time(h.place('L7'))?.textContent).toBe(ageLabel(NOW - 30 * MINUTE, Date.now()));
 		expect(time(h.place('L36'))?.textContent).toBe(ageLabel(NOW - 10 * MINUTE, Date.now()));
-		// …and the row's shape follows the label it was built with, as a note's does.
+		// ……而这一行的形状跟着它构建时所带的那个标注走，正如笔记行一样。
 		expect(h.place('L7').classList.contains('is-timed')).toBe(true);
 
-		// The exact moment is one hover away, ON THE LABEL: hovering anywhere else on
-		// the row says what the place was (see placeRow).
+		// 确切的时刻离悬停只有一步，且在**那个标注上**：悬停在这一行别处说的是那处地点
+		// 是什么（见 placeRow）。
 		h.unhover(h.place('L7'));
 		expect(h.hover(time(h.place('L7'))!)?.textContent)
 			.toBe(new Date(NOW - 30 * MINUTE).toLocaleString());
@@ -2374,9 +2221,8 @@ it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 });
 
 
-// WHAT A ROW SAYS about the FILE behind it: the name without its extension, the type
-// badge where the type is worth saying, the folder on the side the setting asks for,
-// and the full path on hover (see displayName / badgeOf / PathDisplayMode).
+// 一行对背后那个**文件**说什么：不带扩展名的名字、值得说类型时的类型**徽标**、按设置
+// 要求那一侧的文件夹，以及悬停上的完整路径（见 displayName / badgeOf / PathDisplayMode）。
 describe('RecentFilesModal —— 名字、类型和路径', () => {
 	const files = {
 		'a/index.md': '', 'b/index.md': '', 'notes.md': '',
@@ -2390,12 +2236,11 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 		visit('LICENSE', NOW - 2 * MINUTE),
 		visit('board.canvas', NOW),
 	];
-	// A row found by the FILE it stands for, out of what the row PRINTS: the two index
-	// notes print the same name, so the name alone cannot be the lookup, and the folder
-	// is what tells them apart — 'smart' prints exactly the folders a collision needs
-	// and the two "always" modes print all of them, so the pair is unique under every
-	// setting. The tooltip is NOT a lookup key any more: it belongs to the panel and
-	// exists in the document only while the pointer rests on a row (see tip.ts).
+	// 一行按它所代表的**文件**来找到，依据的是这一行**印**出来的东西：两篇 index 笔记印
+	// 同一个名字，所以单靠名字不成其为查找依据，而区分它们的是文件夹 —— 'smart' 恰好印
+	// 冲突所需的那些文件夹，两个「always」模式则把它们全印出来，所以那个「名字 + 文件
+	// 夹」的组合在每种设置下都是唯一的。tooltip 如今**不再**是查找依据：它属于面板，只在
+	// 指针停在某一行上时才存在于 document 里（见 tip.ts）。
 	const rowFor = (h: ReturnType<typeof harness>, path: string) => {
 		const cut = path.lastIndexOf('/');
 		const folder = cut < 0 ? '/' : path.slice(0, cut + 1);
@@ -2411,11 +2256,10 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 		badge: row.querySelector('.nav-file-tag')?.textContent,
 		path: row.querySelector('.nav-row-path')?.textContent,
 	});
-	// What one file's row says on hover, found by the path the fixture named it with.
+	// 一个文件的行在悬停上说什么，按 fixture 给它起的那个路径找到它。
 	const hoverOf = (h: ReturnType<typeof harness>, path: string) => h.hover(rowFor(h, path));
-	// The metadata of ONE note in this stack: it goes by other names, which are printed
-	// nowhere on the row and are the one thing a hover can still add to a row that
-	// already prints its path (see the aliases suite and fileRow).
+	// 这个栈里**一篇**笔记的元数据：它另有名字，那些名字在行上哪儿都不印，而它们是一行
+	// 已经印了路径时悬停还唯一能补充的东西（见别名套件与 fileRow）。
 	const cache = {
 		'a/index.md': { headings: [], frontmatter: { title: 'Weekly sync', aliases: ['周会', 'standup'] } },
 	};
@@ -2425,12 +2269,12 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 
 		expect(attr(rowFor(h, 'notes.md')))
 			.toEqual({ name: 'notes', badge: undefined, path: undefined });
-		// A PDF says so, in capitals — the extension is not part of the name it is
-		// printed under, so the badge is the only place the type is said at all.
+		// 一份 PDF 会大写地说出这件事 —— 扩展名不是它印在下面的那个名字的一部分，所以
+		// 徽标是唯一说出类型的地方。
 		expect(attr(rowFor(h, 'report.pdf')))
 			.toEqual({ name: 'report', badge: 'PDF', path: undefined });
-		// …and a file with NO extension gets one too, or "no badge" would mean both
-		// "markdown" and "no type known" (see badgeOf).
+		// ……而没有扩展名的文件也拿到一个，否则「没有徽标」会同时意味着「markdown」与
+		// 「类型未知」（见 badgeOf）。
 		expect(attr(rowFor(h, 'LICENSE')))
 			.toEqual({ name: 'LICENSE', badge: 'FILE', path: undefined });
 		expect(attr(rowFor(h, 'board.canvas')))
@@ -2438,11 +2282,10 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 	});
 
 	it('行上没印路径的地方，提示条带上文件的完整路径，连扩展名一起', () => {
-		// The row prints neither the extension nor (by default) the folder, so the
-		// tooltip is the last place either is still said. It is the PANEL's tooltip and
-		// not the native `title` it used to be (see tip.ts): a browser tooltip cannot be
-		// styled, and this one has to be legible — and it is not written as an
-		// `aria-label`, which would REPLACE the option's accessible name (see fileRow).
+		// 行既不印扩展名、也不（默认）印文件夹，所以 tooltip 是两者还能被说出的最后地方。
+		// 它是**面板的** tooltip、不是它从前那个原生的 `title`（见 tip.ts）：浏览器原生
+		// tooltip 没法被样式化，而这个是必须可读的 —— 它也不是写成 `aria-label`，那会
+		// **替换**掉这个 option 的无障碍名称（见 fileRow）。
 		const h = harness(stack(), 5, files);
 
 		expect(h.hover(rowFor(h, 'notes.md'))!.querySelector('.nav-tip-path')?.textContent)
@@ -2453,17 +2296,16 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 	});
 
 	it('行上已经印了路径的地方，悬停时不再说', () => {
-		// The reader asked for the paths by turning them on (see PathDisplayMode), so the
-		// hover has nothing left to add: a row that prints its folder is a row that says
-		// nothing on hover — the extension alone is not worth a tooltip (see fileRow).
-		// This is the whole of the rule, told in both of its halves.
+		// 读者把路径打开，就是要它们（见 PathDisplayMode），所以悬停没有东西可补了：一个
+		// 印出自己文件夹的行，就是一个在悬停上什么都不说的行 —— 光一个扩展名不值一个
+		// tooltip（见 fileRow）。这就是这条规则的全部，它两半都说了。
 		const always = harness(stack(), 5, files, [], {}, {}, false, {}, prefs({ path: 'before' }).browser);
 		for (const path of ['a/index.md', 'notes.md', 'report.pdf', 'LICENSE', 'board.canvas'])
 			expect(hoverOf(always, path), path).toBeNull();
 
-		// …and under 'smart' the same rule picks out the rows that print a folder: the two
-		// index notes collide and print theirs, so they say nothing on hover, while a row
-		// whose folder is NOT printed still says the whole path.
+		// ……而在 'smart' 下同一条规则挑出那些印文件夹的行：两篇 index 笔记撞名、印了
+		// 自己的文件夹，所以它们在悬停上什么都不说，而一个文件夹**没被**印出的行仍会说
+		// 出整条路径。
 		const smart = harness(stack(), 5, files);
 		expect(hoverOf(smart, 'a/index.md')).toBeNull();
 		expect(hoverOf(smart, 'b/index.md')).toBeNull();
@@ -2471,9 +2313,8 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 	});
 
 	it('行上印了路径的地方，照样说别的名字', () => {
-		// The names are printed NOWHERE on a row and are searchable, so they are the one
-		// thing a hover still owes a reader whose paths are on screen — the path line goes
-		// and the names' line stays (see fileRow).
+		// 那些名字在行上哪儿都不印、且可搜索，所以它们是悬停还欠一个把路径显示在屏幕上的
+		// 读者的唯一一样东西 —— 路径那一行走了，名字那一行留着（见 fileRow）。
 		const h = harness(stack(), 5, files, [], {}, cache, false, {}, prefs({ path: 'after' }).browser);
 
 		const tip = h.hover(rowFor(h, 'a/index.md'))!;
@@ -2486,11 +2327,10 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 	});
 
 	it('无路径视图带个标记，此外不再说它什么', () => {
-		// The graph is a view and not a file: it has no type to mark and no path to
-		// print or to hover — its name is the view's own label, or this list's wording
-		// for a view that has none (see model.ts's viewName). What the row DOES print
-		// is the mark that tells a view from a note (see list.ts's fileRow), and a view
-		// that named no icon is marked with a WORD rather than a stand-in glyph.
+		// 图谱是一个视图、不是一个文件：它没有类型可标、也没有路径可印或可悬停 —— 它的
+		// 名字是视图自己的标签，或本列表给一个没有标签的视图的措辞（见 model.ts 的
+		// viewName）。这一行**确实**印的是那个把视图与笔记区分开的标记（见 list.ts 的
+		// fileRow），而一个没起图标名的视图用一个**词**来标，而不是一个替身字形。
 		const h = harness([
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
 			...stack(),
@@ -2504,10 +2344,9 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 	});
 
 	it('画出视图自己起的那个图标，代替文字', () => {
-		// A view is asked for its icon the way it is asked for its name (see
-		// shared/leaf.ts's viewIcon): the row then wears the same mark the reader saw
-		// on that view's tab, without this plugin knowing which plugin it was. The
-		// word is what that mark REPLACES — the two never stand together.
+		// 问一个视图要它的图标，与问它要名字的方式一样（见 shared/leaf.ts 的 viewIcon）：
+		// 于是这一行戴上读者在那个视图的标签页上见过的同一个标记，而本插件无需知道那是
+		// 哪个插件。那个词是这个标记所**替换**的东西 —— 两者从不并立。
 		const h = harness([
 			{ kind: 'view', viewType: 'thino_view', label: 'Thino', icon: 'git-fork', leafId: 'leaf-1', t: NOW } as NavEntry,
 			...stack(),
@@ -2518,61 +2357,56 @@ describe('RecentFilesModal —— 名字、类型和路径', () => {
 		expect(attr(row).badge).toBeUndefined();
 		const mark = row.querySelector('.nav-row-view-icon')!;
 		expect(mark.querySelector('svg')?.getAttribute('data-icon')).toBe('git-fork');
-		// Named for the reader who cannot see the glyph: the icon stands for the same
-		// word the fallback would have printed.
+		// 是为看不见那个字形的读者命名的：这个图标代表的正是回退方案本会印出的那个词。
 		expect(mark.getAttribute('aria-label')).toBe(t('recentFiles.viewBadge'));
 	});
 
 	it('每一行都印上文件夹，按设置要求的那一侧', () => {
 		const ctx = (path: 'before' | 'after') =>
 			harness(stack(), 5, files, [], {}, {}, false, {}, prefs({ path }).browser);
-		// 'before' is the quick switcher's shape: the whole path laid out in front of
-		// the name, and the NAME is what drops when the row runs out (see styles.css).
+		// 'before' 是快速切换器的形状：整条路径铺在名字前面，而这一行排不下时**名字**是
+		// 被丢掉的那个（见 styles.css）。
 		const before = ctx('before');
 		expect(attr(rowFor(before, 'a/index.md')).path).toBe('a/');
 		expect(attr(rowFor(before, 'notes.md')).path).toBe('/');
 		expect(before.notes().every(r => r.classList.contains('is-path-before'))).toBe(true);
 
-		// 'after' prints the same folders, and drops the PATH instead: the names stay
-		// in the left column, which is the whole reason to choose it.
+		// 'after' 印同样的那些文件夹，丢掉的却是**路径**：名字留在左列，而那就是选它的
+		// 全部理由。
 		const after = ctx('after');
 		expect(attr(rowFor(after, 'a/index.md')).path).toBe('a/');
 		expect(after.notes().some(r => r.classList.contains('is-path-before'))).toBe(false);
-		// The vault ROOT prints "/" and not nothing, in every mode: a blank cell is
-		// what a note with no folder to print looks like, and the two are different
-		// facts (see fileRow).
+		// **仓库根**在每种模式下都印「/」而不是什么都不印：一个空格子是「没有文件夹可印
+		// 的笔记」的样子，而这是两件不同的事实（见 fileRow）。
 		expect(attr(rowFor(after, 'notes.md')).path).toBe('/');
 	});
 
 	it('默认只在名字撞车的那几行印文件夹', () => {
-		// 'smart' is the default, and it is the setting that says the least: the
-		// folder is a disambiguator, so it appears exactly where there is something to
-		// disambiguate — and nowhere else.
+		// 'smart' 是默认，也是说得最少的那个设置：文件夹是消歧用的，所以它恰好出现在有
+		// 东西要消歧的地方 —— 别处一概不出现。
 		const h = harness(stack(), 5, files);
 
 		expect(rowFor(h, 'a/index.md').querySelector('.nav-row-path')?.textContent).toBe('a/');
 		expect(rowFor(h, 'b/index.md').querySelector('.nav-row-path')?.textContent).toBe('b/');
 		expect(rowFor(h, 'notes.md').querySelector('.nav-row-path')).toBeNull();
 		expect(rowFor(h, 'report.pdf').querySelector('.nav-row-path')).toBeNull();
-		// …and it lays those rows out like 'before', because the folder in front of the
-		// name is what the disambiguating rows are for.
+		// ……而它把那些行排得像 'before'，因为名字前面的那个文件夹正是那些消歧行所要的。
 		expect(rowFor(h, 'a/index.md').classList.contains('is-path-before')).toBe(true);
 	});
 });
 
-// THE ROW'S TOOLTIP AS A THING THAT COMES AND GOES (see tip.ts). It is the panel's own
-// element now, drawn on the document rather than by the browser, so WHEN it is there is
-// the panel's decision: a pointer crossing the list says nothing, a pointer that rests
-// gets an answer, and the answer goes the moment the thing it describes is no longer
-// what the pointer is on — or is no longer on screen at all.
+// 行的 tooltip 作为一个来而复去的东西（见 tip.ts）。它如今是面板自己的元素，画在
+// document 上而不是由浏览器画，所以它**何时**在那儿是面板的决定：划过列表的指针什么都
+// 不说，停住的指针拿到一个答案，而它描述的东西一旦不再是指针所在的那个、或干脆不再在
+// 屏幕上，答案就走。
 describe('RecentFilesModal —— 行的提示条', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
 
 	it('只有在行上停住的指针才应答', () => {
-		// A tooltip that appeared the instant the pointer touched a row would be a band
-		// of text flashing down the list at the speed of the mouse (see TIP_DELAY_MS).
+		// 一个在指针碰到行的瞬间就出现的 tooltip，会是一条以鼠标速度沿列表闪下的文字带
+		// （见 TIP_DELAY_MS）。
 		const h = harness(entries(), 1, files);
 		const row = h.note('a');
 
@@ -2595,8 +2429,8 @@ describe('RecentFilesModal —— 行的提示条', () => {
 	});
 
 	it('指针离开这一行就把答案收走', () => {
-		// The row is one target: the tooltip belongs to what the pointer is ON, and the
-		// pointer moving off it — even onto another row that says nothing — takes it away.
+		// 一行就是一个目标：tooltip 属于指针**所在**的东西，而指针移开它 —— 哪怕是移到
+		// 另一个什么都不说的行上 —— 就把它带走。
 		const h = harness(entries(), 1, files);
 
 		expect(h.hover(h.note('a'))).not.toBeNull();
@@ -2604,9 +2438,8 @@ describe('RecentFilesModal —— 行的提示条', () => {
 	});
 
 	it('底下的列表重建时把它收走', () => {
-		// Every keystroke redraws the rows, so a tooltip left standing would be pointing
-		// at a row that no longer exists — and describing a list the reader has just
-		// filtered (see RecentFilesList.render).
+		// 每一次按键都会重画那些行，所以一个被留下的 tooltip 会指着一条已经不存在的行
+		// —— 并在描述一份读者刚刚过滤过的列表（见 RecentFilesList.render）。
 		const h = harness(entries(), 1, files);
 		expect(h.hover(h.note('a'))).not.toBeNull();
 
@@ -2618,9 +2451,9 @@ describe('RecentFilesModal —— 行的提示条', () => {
 	});
 
 	it('滚动时收走，即将前往的那一次按下也收走', () => {
-		// A tooltip is pinned to the row's own box and does not move with it: a scroll
-		// leaves it hanging over whatever slid underneath. A press is the same fact one
-		// moment later — the row is about to open, or the list to be rebuilt.
+		// tooltip 是钉在行自己那个盒子上的、不随它动：一次滚动会把它挂在滑到它底下的
+		// 任何东西上方。一次按下是同一件事实晚一刻的样子 —— 这一行即将打开，或列表即将
+		// 被重建。
 		const h = harness(entries(), 1, files);
 		expect(h.hover(h.note('a'))).not.toBeNull();
 		h.list().dispatchEvent(new Event('scroll'));
@@ -2632,8 +2465,8 @@ describe('RecentFilesModal —— 行的提示条', () => {
 	});
 
 	it('把它画在 document 上，在面板自己的元素之外', () => {
-		// It has to be able to hang BELOW the list — the rows near the foot are the ones
-		// a reader needs it for — and the list scrolls and clips its own content.
+		// 它必须能挂在列表**下面** —— 靠近末尾的那些行正是读者最需要它的 —— 而列表会
+		// 滚动并裁掉自己的内容。
 		const h = harness(entries(), 1, files);
 		const shown = h.hover(h.note('a'))!;
 
@@ -2642,8 +2475,8 @@ describe('RecentFilesModal —— 行的提示条', () => {
 	});
 
 	it('面板关掉时把它的元素一起带走', () => {
-		// The tooltip is the one thing the body put OUTSIDE its own element, so nothing
-		// that removes the panel removes it (see RecentFilesBrowser.destroy).
+		// tooltip 是 body 放在它自己元素**外面**的唯一一样东西，所以移除面板的东西都
+		// 移除不了它（见 RecentFilesBrowser.destroy）。
 		const h = harness(entries(), 1, files);
 		expect(h.hover(h.note('a'))).not.toBeNull();
 
@@ -2653,17 +2486,15 @@ describe('RecentFilesModal —— 行的提示条', () => {
 	});
 });
 
-// HOW LONG AGO each row's note was last visited (see model.ts's ageLabel). It is a
-// switch and not a scale: off, the rows are exactly the rows that were there before
-// the label existed, and on, every row carries one — including the ones with no file
-// behind them at all.
+// 每一行的笔记上次被访问是**多久以前**（见 model.ts 的 ageLabel）。它是个开关、不是
+// 一个刻度：关掉时，那些行与这个标注存在之前一模一样；打开时，每一行都带一个 —— 包括
+// 背后压根没有文件的行。
 describe('RecentFilesModal —— 行上的时间', () => {
 	const DAY = 24 * 60 * MINUTE;
 	const HOUR = 60 * MINUTE;
 	const on = () => prefs({ time: true }).browser;
-	// OLDEST FIRST, as the store really keeps them (see places.remember): the list's
-	// own order is the reverse scan of this array, so a fixture that shuffles it would
-	// be testing an order the panel never sees.
+	// **最旧的在前**，照 store 真正保存它们的样子（见 places.remember）：列表自己的
+	// 次序是倒着扫这个数组，所以一个把它打乱的 fixture 测的会是面板从没见过的次序。
 	const stack = (): NavEntry[] => [
 		visit('notes.md', NOW - 3 * DAY),
 		{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW - 2 * HOUR } as NavEntry,
@@ -2674,32 +2505,30 @@ describe('RecentFilesModal —— 行上的时间', () => {
 		h.notes().map(r => r.querySelector('.nav-row-time')?.textContent);
 
 	it('默认关闭，行上一点痕迹都不留', () => {
-		// Not hidden but ABSENT: the setting is the only reason the element exists, and
-		// a span kept in the DOM to be styled away would still be a cell the row's own
-		// grid has to lay out.
+		// 不是藏起来而是**不在**：那条设置是这个元素存在的唯一理由，而一个留在 DOM 里
+		// 等着被样式化掉的 span 仍会是一个行自己的网格要排布的格子。
 		const h = harness(stack(), 2, files);
 
 		expect(h.notes().length).toBeGreaterThan(0);
 		expect(h.el.querySelectorAll('.nav-row-time')).toHaveLength(0);
-		// …and no row claims the far track either: the row's SHAPE follows its label
-		// (see is-timed), so a list with the labels switched off spends no second
-		// column on them.
+		// ……而没有行认领那条远端轨道：一行的**形状**跟着它的标注走（见 is-timed），
+		// 所以一份把标注关掉的列表不会为它们花掉第二列。
 		expect(h.el.querySelectorAll('.is-timed')).toHaveLength(0);
 	});
 
 	it('说出每篇笔记有多旧，按它最新那一步算', () => {
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 
-		// The order is the rows' own ages: a/index.md (5m), then the graph (2h), then
-		// notes.md (3d). A view is a place with a time like any other, so it stands
-		// where that time puts it — not at the foot of the list (see groupByFile).
+		// 次序是各行自己的年纪：a/index.md（5m），然后是图谱（2h），再是 notes.md
+		// （3d）。一个视图与别的地点一样是个带时间的地点，所以它站在那个时间把它放的
+		// 位置 —— 不是列表的末尾（见 groupByFile）。
 		expect(h.notes()).toHaveLength(3);
 		expect(times(h)).toEqual(['5m ago', '2h ago', '3d ago']);
 	});
 
 	it('无路径视图也标时间，每一行都同一个算法', () => {
-		// The graph is a row like any other and it was visited like any other: what it
-		// has no answer for is a FILE (no path, no type — see badgeOf), not a time.
+		// 图谱与别行一样是一行、也与别行一样被访问过：它答不出的东西是**文件**（没有
+		// 路径、没有类型 —— 见 badgeOf），不是时间。
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 		const graph = h.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 
@@ -2709,10 +2538,9 @@ describe('RecentFilesModal —— 行上的时间', () => {
 	});
 
 	it('精确时刻放在这个标签自己的提示里', () => {
-		// The label is abbreviated ("5m ago"), so the moment is one hover away — and it
-		// is the TIME's tooltip, so the row's own still says which file. The
-		// time is INSIDE the row, so this is the one place the pointer's nearest subject
-		// is not the row itself (see NavRowTip.subject).
+		// 那个标注是缩写的（「5m 前」），所以那个时刻离悬停只有一步 —— 而它是**时间**
+		// 的 tooltip，所以这一行自己的那个仍说着是哪个文件。时间在这个行**里面**，所以
+		// 这里是指针最近的标的不是这一行本身的唯一地方（见 NavRowTip.subject）。
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 		const label = h.note('notes').querySelector<HTMLElement>('.nav-row-time')!;
 
@@ -2722,25 +2550,24 @@ describe('RecentFilesModal —— 行上的时间', () => {
 	});
 
 	it('每个带时间的行都给一条容下它的远侧轨道，有没有文件夹都一样', () => {
-		// The age is a cell of the ROW and not of the name (see
-		// RecentFilesList.fileRow): that is what puts every label at the same x down the
-		// list, whatever the row prints beside it. The class the stylesheet reads is
-		// written WITH the label, so a row cannot claim a track it has nothing to put
-		// in — and the label is a child of the row, because inside the name cell it
-		// would be part of what wraps, which is the column the track exists to keep.
+		// 年纪是**行**的格子、不是名字的格子（见 RecentFilesList.fileRow）：正是这一点
+		// 把每一行的标注放在列表里同一个 x 上，无论这一行旁边印什么。样式表所读的那个
+		// class 是**随**标注一起写上的，所以一行没法认领一条它没东西可放的轨道 —— 而那
+		// 个标注是这一行的子节点，因为放在名字格子里它会成为参与换行的一部分，而那条轨道
+		// 存在的意义正是保住那一列。
 		const smart = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 		const graph = smart.notes().find(r => r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 		expect(smart.note('notes').classList.contains('is-timed')).toBe(true);
 		expect(graph.classList.contains('is-timed')).toBe(true);
-		// A 'smart' row whose name nothing collides with prints no folder at all…
+		// 一个 'smart' 下名字没有冲突的行压根不印文件夹……
 		expect(smart.note('notes').querySelector('.nav-row-path')).toBeNull();
 		expect(graph.querySelector('.nav-row-path')).toBeNull();
-		// …and the label is the row's own child, not the name cell's.
+		// ……而那个标注是这一行自己的子节点，不是名字格子的。
 		expect(smart.note('notes').querySelector('.nav-row-time')!.parentElement)
 			.toBe(smart.note('notes'));
 
-		// Under 'always' the root note prints "/", which is a folder on the row like any
-		// other — and it keeps the same far track its age stands in.
+		// 在 'always' 下根笔记印「/」，那是行上一个与别个一样的文件夹 —— 而它保留它的
+		// 年纪所处的那同一条远端轨道。
 		const always = harness(stack(), 2, files, [], {}, {}, false, {}, prefs({ time: true, path: 'before' }).browser);
 		expect(always.note('notes').querySelector('.nav-row-path')?.textContent).toBe('/');
 		expect(always.note('notes').classList.contains('is-timed')).toBe(true);
@@ -2749,24 +2576,22 @@ describe('RecentFilesModal —— 行上的时间', () => {
 	});
 });
 
-// WHERE a row opens, when the reader says so: the modifier keys, the middle button,
-// the keyboard's own equivalent, and the app's menu on a right-click. Which of these
-// the app decides rather than this plugin is the point of most of them (see
-// Keymap / PaneTarget).
+// 当读者发话时，一行开在**哪儿**：修饰键、中键、键盘自己的等价键，以及右键时 app 的
+// 菜单。它们中大多数讲的是其中哪些由 app 决定、而不是由本插件决定（见
+// Keymap / PaneTarget）。
 describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () => {
-	// a.md is the OLDER note, so recency puts it SECOND: two rows, b.md first.
+	// a.md 是**更旧**的那篇笔记，所以按新鲜度它排**第二**：两行，b.md 在前。
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
-	// A note with a LANDING and no file record — the shape a note has once its `visit`
-	// has been evicted while the jumps made inside it survive (see places.ts). Its row
-	// still opens the landing (see activeRep), so it is the row that can promise a
-	// SPOT rather than a file.
+	// 一篇有**落点**、却没有文件记录的笔记 —— 一篇笔记在它的 `visit` 被挤出、而它内部
+	// 做过的那些 jump 仍活着时所具有的形状（见 places.ts）。它那一行仍打开那个落点（见
+	// activeRep），所以它是能许诺一处**地点**而非一个文件的行。
 	const jumped = (): NavEntry[] => [
 		visit('a.md', NOW - MINUTE, { scroll: 30 }),
 		visit('b.md', NOW),
 	];
-	// The menu the browser handed the app: the app's event carries it as its second
-	// argument, and that is where the plugin's own contribution is visible.
+	// 浏览器交给 app 的那个菜单：app 的事件把它作为第二个参数带着，而插件的贡献就显现在
+	// 那里。
 	const menuOf = (trigger: unknown) => {
 		const calls = (trigger as { mock: { calls: unknown[][] } }).mock.calls;
 		expect(calls).toHaveLength(1);
@@ -2774,15 +2599,14 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	};
 
 	it('问 app 该开到哪儿，就在那儿打开', () => {
-		// A plain click: the app says "where it already is" (its `false`), which this
-		// plugin normalises to no target at all (see RecentFilesList.onClick).
+		// 一次普通点击：app 说「它本来就在的地方」（它的 `false`），而本插件把它归成
+		// 压根没有目标（见 RecentFilesList.onClick）。
 		const h = harness(entries(), 1, files);
 		h.clickRow(h.note('a'));
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 
-		// …and with a modifier down, the row opens where the APP said — the plugin never
-		// reads ctrlKey/metaKey itself, so a platform the plugin knows nothing about is
-		// still the app's answer.
+		// ……而按着修饰键时，这一行开在**app** 说的那个地方 —— 插件自己从不读
+		// ctrlKey/metaKey，所以一个插件一无所知的平台也仍是 app 的答案。
 		const held = harness(entries(), 1, files);
 		KeymapKnobs.modEvent = 'tab';
 		held.clickRow(held.note('a'));
@@ -2790,9 +2614,9 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	});
 
 	it('中键点击在新标签页里打开，从按下那一刻就开始', () => {
-		// The middle button raises `auxclick` and not `click`, so a handler waiting for
-		// the click would never run; and preventDefault on the press is what keeps the
-		// WebView's middle-click autoscroll out of the list (see RecentFilesList.onPress).
+		// 中键抛的是 `auxclick`、不是 `click`，所以一个等点击的处理程序永远跑不到；而在
+		// 按下时 preventDefault 正是把 WebView 的中键自动滚动挡在列表之外的东西（见
+		// RecentFilesList.onPress）。
 		const h = harness(entries(), 1, files);
 		const press = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 1 });
 		h.note('a').dispatchEvent(press);
@@ -2802,25 +2626,22 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	});
 
 	it('其它按键的按下不理会', () => {
-		// The right button raises the row's menu and never a click (see the suite
-		// below); anything else — a fourth button, a hover-reporting pointer — opens
-		// nothing and claims nothing.
+		// 右键抛出这一行的菜单、从不抛出点击（见下面那个套件）；别的任何东西 —— 第四个
+		// 键、一个汇报悬停的指针 —— 不打开任何东西，也不声称任何东西。
 		const h = harness(entries(), 1, files);
 		for (const button of [2, 3, 4])
 			h.note('a').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button }));
 		h.clickRow(h.note('a'));
 
-		// The click is answered by the row it landed on, and not by an identity a stray
-		// press left behind: a.md is the second row, and its place index is 0 while
-		// b.md's is 1.
+		// 这次点击由它落着的那一行来应答，而不是由一个走岔的按下留下的身份来应答：a.md
+		// 是第二行，它的地点下标是 0，而 b.md 的是 1。
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 		expect(h.trigger).not.toHaveBeenCalled();
 	});
 
 	it('Cmd/Ctrl+Enter 把一行开在新标签页里', () => {
-		// The focus never leaves the filter box, so a row's modifier-click is out of
-		// reach: the keyboard's own answer is the gesture every list in the app takes.
-		// Whether the modifier is down is the app's call (see Keymap.isModifier).
+		// 焦点从不离开过滤框，所以一行的修饰键点击够不到：键盘自己的那个答案才是 app 里
+		// 每份列表都接受的手势。修饰键按没按着由 app 说了算（见 Keymap.isModifier）。
 		const h = harness(entries(), 1, files);
 		h.key('ArrowDown'); // b.md, the current note — and, being the newest, the first row
 		h.key('ArrowDown'); // a.md
@@ -2831,12 +2652,11 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	});
 
 	it('给文件行交给 app 一份菜单，自己的几项排在最上面', () => {
-		// The menu is the app's — what a reader can do with a file is not this plugin's
-		// business — and what is added is what the app cannot know: this row stands for a
-		// PLACE, so "open in a new tab" here means this note, at the spot the row stands
-		// for; and whether the note is pinned, which is this list's own answer and nobody
-		// else's. Taking the row off the list is no longer in here: that is the × the row
-		// carries, which needs no file to be about (see the two tests below).
+		// 那个菜单是 app 的 —— 读者能对一个文件做什么不是本插件的事 —— 而加进去的是 app
+		// 无法知道的东西：这一行代表一个**地点**，所以这里的「开在新标签页里」意味着这
+		// 篇笔记、在那一行代表的那处地点上；以及这篇笔记有没有被钉住，那是本列表自己、
+		// 不是别人的答案。把这一行拿掉已经不在里面了：那是这一行自己带的那个 ×，它不需要
+		// 有文件可关于（见下面两个测试）。
 		const h = harness(entries(), 1, files);
 		const ev = h.rightClick(h.note('a'));
 
@@ -2846,47 +2666,45 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
 		expect(menu.items[0].section).toBe('action');
-		// …and it carries the app's own glyph for a new tab, so the item reads as the
-		// app's own promise one row up rather than as a second kind of opening.
+		// ……而它带着 app 自己的新标签页字形，所以这一项读起来像是上面那一行里 app 自己
+		// 的承诺，而不是第二种打开方式。
 		expect(menu.items[0].icon).toBe('file-plus');
-		// The context asked for is a LINK's, not the file explorer's: the app decides
-		// what belongs there, and the file-managing actions do not (see contextRow).
+		// 要的 context 是**链接**的，不是文件管理器的：那里该有什么由 app 决定，而文件
+		// 管理类的动作不在其内（见 contextRow）。
 		expect(h.trigger).toHaveBeenCalledWith(
 			'file-menu', menu, expect.objectContaining({ path: 'a.md' }), 'link-context-menu',
 		);
 
-		// …and clicking that item opens the row's own place, one tab over — the same
-		// place a plain click opens.
+		// ……而点那一项会把这一行自己的地点开在隔壁标签页里 —— 与普通点击打开的是同一个
+		// 地点。
 		menu.items[0].click!();
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
 	it('用它上面的 × 把这一行从列表里拿掉', () => {
-		// The one write the panel makes (see body.ts's forgetRow), and it goes to the list
-		// and no further: the file itself, and the position database, are untouched (see
-		// NavPlaces.forget). The row has to leave the screen as it goes — a × that left it
-		// standing would read as having done nothing.
+		// 面板所做的唯一一次写（见 body.ts 的 forgetRow），而它只写到列表、不再往前：
+		// 文件本身与位置库都没被碰（见 NavPlaces.forget）。这一行必须随它一起离开屏幕
+		// —— 一个让它立着的 × 会读起来像什么都没做。
 		const h = harness(entries(), 1, files);
 		const names = () => h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
 		expect(names()).toContain('a');
 
 		h.clickRow(h.forgetButton(h.note('a')));
 
-		// …and that click OPENED nothing: the × answers it and the row does not (see
-		// RecentFilesList.fileRow — the two gestures are one row apart).
+		// ……而那一次点击**没有打开**任何东西：应答它的是那个 ×，不是这一行（见
+		// RecentFilesList.fileRow —— 两个手势只隔一行）。
 		expect(h.jumpTo).not.toHaveBeenCalled();
 		expect(h.forget).toHaveBeenCalledWith('a.md');
-		// …and only that row: the note removed is the one that was NOT current, so the list
-		// is one note shorter and the position is still on b.md.
+		// ……而且只有那一行：被移除的笔记不是当前那篇，所以列表少了一篇笔记，而位置仍在
+		// b.md 上。
 		expect(names()).not.toContain('a');
 		expect(names()).toEqual(['b']);
 	});
 
 	it('读者伸手去点 × 时不打开笔记', () => {
-		// The press and the click are stopped AT the × rather than left to bubble (see
-		// RecentFilesList.fileRow): with the press let through, the row would be recorded as
-		// pressed and the release would open the file the reader was trying to drop — the
-		// one outcome the × exists to be told apart from.
+		// 按下与点击都在 × **处**被拦住，而不是放任它冒泡（见 RecentFilesList.fileRow）：
+		// 若让按下穿过去，这一行就会被记成按下过，而松开就会打开读者正想丢掉的那个文件
+		// —— 那正是 × 存在的意义所要区分开的结果。
 		const h = harness(entries(), 1, files);
 		const button = h.forgetButton(h.note('a'));
 
@@ -2898,9 +2716,8 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	});
 
 	it('行代表的是一个落点时，自己那一项会说明它打开的是哪一处', () => {
-		// A row whose note has no file record of its own opens the LANDING it stands for
-		// (see activeRep), so "open in a new tab" would be a promise the row does not
-		// keep: it is opened HERE, at that spot.
+		// 一篇笔记没有自己的文件记录的行打开的是它所代表的那个**落点**（见 activeRep），
+		// 所以「开在新标签页里」会是一个这一行兑不了的承诺：它开在**这里**，就是那一处。
 		const h = harness(jumped(), 1, files);
 		h.rightClick(h.note('a'));
 
@@ -2911,9 +2728,8 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	});
 
 	it('无路径视图用自己那份菜单，什么都不去问 app', () => {
-		// The graph is not a file, so there is no file menu for it to be about: what
-		// comes up is this list's own two items, and NO `file-menu` event is sent —
-		// the app would be asked to speak about a file that does not exist.
+		// 图谱不是一个文件，所以没有可关于它的文件菜单：出来的是本列表自己的那两项，而且
+		// **没有** `file-menu` 事件被发出 —— 那会请 app 去说一个并不存在的文件。
 		const h = harness([
 			visit('a.md', NOW - MINUTE),
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
@@ -2923,8 +2739,8 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 
 		expect(ev.defaultPrevented).toBe(true);
 		expect(h.trigger).not.toHaveBeenCalled();
-		// …and it was put on the screen, which is the only way to read a menu no
-		// event was raised for (see obsidian-stub's Menu.shown).
+		// ……而它被放上了屏幕，这是读一个没有任何事件为它抛出过的菜单的唯一办法（见
+		// obsidian-stub 的 Menu.shown）。
 		const menu = Menu.shown.at(-1)!;
 		expect(menu.shownAt).toBeDefined();
 		expect(menu.items.map(i => i.title))
@@ -2932,9 +2748,9 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 	});
 
 	it('无路径视图也配上和笔记一样的 ×，它那一行反正也是一行', () => {
-		// The graph is refused a FILE menu — there is no file for one to be about — and
-		// while the removal lived in that menu, the refusal left it no way off the list at
-		// all. The × needs no file, so every row carries one (see RecentFilesList.fileRow).
+		// 图谱被拒绝一个**文件**菜单 —— 没有文件可给一个菜单去关于 —— 而当年移除就住在
+		// 那个菜单里的时候，这次拒绝让它压根没有离开列表的路。× 不需要文件，所以每一行都
+		// 带一个（见 RecentFilesList.fileRow）。
 		const h = harness([
 			visit('a.md', NOW - MINUTE),
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
@@ -2943,16 +2759,15 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 
 		h.clickRow(h.forgetButton(graph));
 
-		// The store hears the row's own identity: a view is named by its TYPE, which is
-		// exactly what a path cannot say (see nav/entry.ts's navGroupKey).
+		// store 听到的是这一行自己的身份：一个视图由它的 **TYPE** 来命名，而那恰恰是
+		// path 说不出的东西（见 nav/entry.ts 的 navGroupKey）。
 		expect(h.forget).toHaveBeenCalledWith('view:graph');
 	});
 
 	it('行背后的文件已经没了时，不弹菜单', () => {
-		// A place whose file the list cannot open is not DRAWN at all (see
-		// RecentFilesList.render), so the only way here is a file that went between the
-		// render and the right-click — a sync removing it, a delete landing a moment
-		// ago. There is then nothing to ask the app about.
+		// 列表打不开其文件的地点压根**不被绘制**（见 RecentFilesList.render），所以这里
+		// 唯一的可能是那个文件走掉在渲染与右键之间 —— 一次同步把它删了、一次删除刚落定。
+		// 那时就没有东西可向 app 询问了。
 		const deleted: string[] = [];
 		const h = harness(entries(), 1, files, deleted);
 		const row = h.note('a');
@@ -2966,10 +2781,9 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 });
 
 describe('RecentFilesModal —— 同名的笔记', () => {
-	// The panel is used in a vault, not a code repo: "index.md" exists in five
-	// folders, and a row that printed only its last path segment named all five
-	// the same. The folder is printed exactly where the name collides, and
-	// nowhere else — a row whose name is unique prints the name alone.
+	// 这个面板用在仓库里，不是代码仓库里：「index.md」在五个文件夹里都有，而一个只印它最后
+	// 一段路径的行会把五个都叫成同一个名字。文件夹恰好印在名字撞车的地方、别处一概不印 ——
+	// 一个名字唯一的行只印名字。
 	const files = { 'a/index.md': '', 'b/index.md': '', 'notes.md': '' };
 
 	it('两篇笔记同名时印上文件夹，别的地方不印', () => {
@@ -2982,16 +2796,14 @@ describe('RecentFilesModal —— 同名的笔记', () => {
 		const folders = h.notes().map(r => r.querySelector('.nav-row-path')?.textContent ?? '');
 		expect(folders).toEqual(['', 'b/', 'a/']); // notes.md (current) first, then the two index.md, newest first
 		expect(h.note('notes').querySelector('.nav-row-path')).toBeNull();
-		// The folder comes BEFORE the name it disambiguates — as a CLASS and not as
-		// an insertion order: the row is built name-first so that it READS the same
-		// however it is drawn, and the stylesheet's `order` is what puts the path in
-		// front (see styles.css, and the `after` mode, where it is not applied).
+		// 文件夹排在它所消歧的名字**前面** —— 靠一个 **class**，不是靠插入次序：这一行
+		// 是名字先建的，好让它无论怎么画都**读**得一样，而把路径放到前面的是样式表的
+		// `order`（见 styles.css，以及没有应用它的 `after` 模式）。
 		const index = h.note('index');
 		expect(index.classList.contains('is-path-before')).toBe(true);
-		// …and THE NAME AND ITS MARK are one piece: two siblings would let the cell
-		// wrap between them, printing the type on a line of its own under the name it
-		// belongs to (see styles.css's .nav-row-head). The folder is the cell's other
-		// half.
+		// ……而**名字与它的标记**是一整块：两个兄弟节点会让那个格子从它们之间换行，把
+		// 类型印在它所归属的名字下面单独一行（见 styles.css 的 .nav-row-head）。文件夹
+		// 是这个格子的另一半。
 		expect([...index.querySelector('.nav-row-file')!.children].map(el => el.className))
 			.toEqual(['nav-row-head', 'nav-row-path']);
 		expect([...index.querySelector('.nav-row-head')!.children].map(el => el.className))
@@ -2999,22 +2811,21 @@ describe('RecentFilesModal —— 同名的笔记', () => {
 	});
 
 	it('位于仓库根目录的同名笔记也给它一个文件夹可显示', () => {
-		// "/" and "a/" are the two answers, and neither is blank: a blank cell is
-		// what the /-note used to render, which read as "no folder" rather than
-		// as "the root".
+		// 「/」与「a/」是两个答案，而两者都不是空白：一个空格子是 /-笔记从前渲染出来的
+		// 样子，那读起来像「没有文件夹」，而不是「根」。
 		const root = harness([
 			visit('index.md', NOW - 3 * MINUTE),
 			visit('a/index.md', NOW),
 		], 1, { 'index.md': '', 'a/index.md': '' });
 
-		// a/index.md is the current entry, so it leads; the root note follows.
+		// a/index.md 是当前 entry，所以它在前；根笔记跟着。
 		const folders = root.notes().map(r => r.querySelector('.nav-row-path')?.textContent);
 		expect(folders).toEqual(['a/', '/']);
 	});
 
 	it('撞名一消失就把文件夹去掉', () => {
-		// A collision the query removed is not on screen to be
-		// confused with anything, so the surviving row stops paying for it.
+		// 一个被查询移除掉的冲突不在屏幕上、没什么可混淆的，所以活下来的那一行不再为它
+		// 付代价。
 		const h = harness([
 			visit('a/index.md', NOW - 3 * MINUTE),
 			visit('b/index.md', NOW),
@@ -3033,12 +2844,10 @@ describe('RecentFilesModal —— 同名的笔记', () => {
 
 
 describe('RecentFilesModal —— 记下来的那块落点', () => {
-	// An entry carries the lines that stood below its landing (see
-	// NavEntryState.context). The SEARCH BOX is their one reader: "the words I saw
-	// when I left" is how a reader finds an old spot, and a phrase from anywhere in
-	// the recorded lines has to hit the note. (The details panel that rendered those
-	// lines is gone — see body.ts — which is why search is the only reader pinned
-	// here.)
+	// 一个 entry 带着站在它落点下面的那些行（见 NavEntryState.context）。**搜索框**是它们
+	// 唯一的读者：「我离开时看到的那些词」就是读者找到一处旧地点的方式，而记下的那些行里
+	// 任何地方的短语都得能命中这篇笔记。（渲染那些行的详情面板已经没了 —— 见 body.ts ——
+	// 所以搜索是这里唯一被钉住的读者。）
 	const blockState = (extra: NavEntryState = {}): NavEntryState => ({
 		scroll: 11,
 		context: ['下一段：到哪里去'],
@@ -3064,8 +2873,8 @@ describe('RecentFilesModal —— 记下来的那块落点', () => {
 	});
 
 	it('落点行上印着的那一小节也能搜到这篇笔记', () => {
-		// The section chain is derived from the heading cache, not recorded on the
-		// entry — and it is a column the reader reads, so a query must be able to hit it.
+		// 节链是从标题缓存推导出来的、不是记在 entry 上的 —— 而它是读者会读的一列，所以
+		// 查询必须能命中它。
 		const headings = { 'a.md': [{ heading: '架构设计', level: 1, position: { start: { line: 0 } } }] };
 		const h = harness(
 			[visit('a.md', NOW - MINUTE, captured(files['a.md'].split('\n'), 2)), visit('b.md', NOW)],
@@ -3080,19 +2889,17 @@ describe('RecentFilesModal —— 记下来的那块落点', () => {
 });
 
 describe('RecentFilesModal —— 触屏', () => {
-	// Three notes, sitting on c.md. Each earlier step carries a landing line, so
-	// the row it stands for has a coordinate of its own to describe — and each
-	// note holds exactly one place, which is the ordinary shape of a vault's history
-	// and keeps every test here about one row per note.
+	// 三篇笔记，停在 c.md 上。每一步更早的步都带一条落点行号，所以它代表的那一行有一个自己
+	// 的坐标可描述 —— 而每篇笔记恰好持有一处地点，那是一个仓库历史的普通形状，也让这里每个
+	// 测试都关于「一篇笔记一行」。
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 	const entries = () => [
 		visit('a.md', NOW - 5 * MINUTE, { scroll: 40 }),
 		visit('b.md', NOW - 2 * MINUTE, { scroll: 80 }),
 		visit('c.md', NOW, { scroll: 120 }),
 	];
-	// Two PLACES of one note, far enough apart to sit under two different headings
-	// (see SPREAD_DOC): every distinct line is a row of its own, but a note prints its
-	// landings at all only while it holds more than one.
+	// 一篇笔记的**两处**地点，隔得够远、坐在两个不同的标题下（见 SPREAD_DOC）：每一条不同
+	// 的行都是自己的一行，但一篇笔记只有持有超过一个落点时才印它的落点。
 	const SPREAD = () => [
 		visit('a.md', NOW - 3 * MINUTE, captured(SPREAD_DOC, 6)),
 		visit('a.md', NOW - MINUTE, captured(SPREAD_DOC, 35)),
@@ -3101,9 +2908,8 @@ describe('RecentFilesModal —— 触屏', () => {
 	const SPREAD_FILES = { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' };
 
 	it('用 × 清空输入框，不把键盘叫出来', () => {
-		// The panel deliberately leaves the box unfocused on touch — the on-screen
-		// keyboard covers half a phone (see body.ts's mount) — so the × must not put the
-		// focus there either: a finger that taps it is clearing, not typing.
+		// 面板在触屏上刻意让那个框不被聚焦 —— 屏幕键盘盖住半个手机（见 body.ts 的
+		// mount）—— 所以那个 × 也不得把焦点放到那儿：点它的手指是在清空，不是打字。
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
@@ -3119,10 +2925,9 @@ describe('RecentFilesModal —— 触屏', () => {
 	});
 
 	it('点在行内任何一个格子上都算点在行上', () => {
-		// A touch WebView sends mousemove before the click. Nothing about the cell
-		// under the finger may change what happens: the note's own name cell and the
-		// row's padding both act on the row — and what the row does is OPEN the file
-		// it stands for (see RecentFilesList.onClick).
+		// 触屏 WebView 在点击前发 mousemove。手指底下是哪一格不改变发生的事：笔记自己的
+		// 名字格子与这一行的内边都作用在这一行上 —— 而这一行做的是**打开**它代表的那个
+		// 文件（见 RecentFilesList.onClick）。
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		h.note('b').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 0 }));
 		const target = h.note('b').querySelector<HTMLElement>('.nav-row-file')!;
@@ -3134,11 +2939,10 @@ describe('RecentFilesModal —— 触屏', () => {
 	});
 
 	it('无视点按合成出来的那次 mousemove，好让随后的点击仍然打开笔记', () => {
-		// A touch WebView sends mouseover/mousemove before the click. The list has no
-		// mousemove handler to take that for a hover any more (see RecentFilesList), so
-		// the pointer report selects nothing — and the click that follows is the row's
-		// own, which opens the file rather than being read as a second press on an
-		// already-open row.
+		// 触屏 WebView 在点击前发 mouseover/mousemove。列表已经没有 mousemove 处理程序
+		// 把那个当成悬停（见 RecentFilesList），所以那份指针报告什么都不选中 —— 而后面
+		// 的点击是这一行自己的，它打开文件，而不是被读成对一行已经打开过的行的第二次
+		// 按下。
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		const row = h.note('b');
 
@@ -3150,9 +2954,8 @@ describe('RecentFilesModal —— 触屏', () => {
 	});
 
 	it('带指针的设备一次点击就能从行本身打开文件', () => {
-		// The row is not a touch affordance: a mouse gets the same one click, and it is
-		// the whole journey — one press, one destination, and the panel has nothing to
-		// do with it (see RecentFilesList.onClick).
+		// 这一行不是触屏专属的交互：鼠标得到的是同一次点击，而它就是整段行程 —— 一次按
+		// 下、一个目的地，面板与它毫无关系（见 RecentFilesList.onClick）。
 		const h = harness(entries(), 2, files);
 
 		h.clickRow(h.note('b'));
@@ -3164,12 +2967,12 @@ describe('RecentFilesModal —— 触屏', () => {
 
 		const ev = h.rightClick(h.note('b'));
 
-		// A row is opened by clicking it. The right button used to travel as well — a
-		// shortcut for a hand already resting on it — and that is gone: one gesture per
-		// meaning, and the visible one is the click (see RecentFilesList.onContextMenu).
+		// 一行靠点它来打开。右键从前也会行进 —— 那是给一只已经停在上面的手准备的快捷
+		// 方式 —— 而那已经没了：一个含义一个手势，而看得见的那个是点击（见
+		// RecentFilesList.onContextMenu）。
 		expect(h.jumpTo).not.toHaveBeenCalled();
-		// …and it is still refused rather than handed to the app: a row has no text to
-		// copy, nothing to inspect, and a long press must raise no callout over the list.
+		// ……而它仍被拒绝，而不是交给 app：一行没有文本可复制、没有东西可检查，而长按
+		// 不得在列表上方拉起任何 callout。
 		expect(ev.defaultPrevented).toBe(true);
 	});
 
@@ -3177,42 +2980,35 @@ describe('RecentFilesModal —— 触屏', () => {
 		const h = harness(entries(), 2, files);
 		const row = h.note('b');
 
-		// A WebView raises `contextmenu` for a long touch as well as for a right
-		// click, and the two are told apart by the BUTTON the event carries: a real
-		// right press has 2, a lingering finger's has the left button's 0. Taking
-		// the second for the first is what made a slow tap jump — the tablet report
-		// was "tapping the file name jumps too".
+		// WebView 为一次长按触、也为一次右键抛 `contextmenu`，而两者靠事件带的那个
+		// **button** 分辨：真实的右键按下是 2，一根逗留的手指所带的是左键的 0。把后一个
+		// 当成前一个，就是让一次慢点击跳起来的原因 —— 平板上的报告是「点文件名也会跳」。
 		const held = h.longPress(row);
 		expect(h.jumpTo).not.toHaveBeenCalled();
-		// …and the press is still refused: a long press on a row has no menu, no
-		// callout and no text selection to offer — it just goes nowhere.
+		// ……而按下仍被拒绝：在一行上的长按没有菜单、没有 callout、没有文本选择可提供
+		// —— 它就是哪儿都不去。
 		expect(held.defaultPrevented).toBe(true);
 
-		// …and neither does the right button, from the same row: the gesture is
-		// refused whichever way it arrives.
+		// ……右键也不，就在同一行上：这个手势无论从哪条路来都被拒绝。
 		h.rightClick(row);
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
 	it('打开时不弹出软键盘', () => {
-		// Focusing the search box is what unfolds a phone's keyboard across the
-		// bottom half of the panel, over the list the panel exists for. The box
-		// is one tap away when the user does mean to type.
+		// 聚焦搜索框正是在手机屏幕下半部把键盘展开、盖住面板所为之而存在的那个列表的
+		// 原因。用户真想打字时，那个框离一次点击只有一步。
 		const touch = harness(entries(), 2, files, [], {}, {}, true);
 		expect(touch.el.querySelector('.position-restore-nav-filter')).not.toBe(document.activeElement);
 
-		// A pointing device has no keyboard to raise, and typing narrows the list
-		// faster than tapping does, so it keeps the focus.
+		// 指针设备没有键盘可展开，而打字比点击更快地收窄列表，所以它保留焦点。
 		const desktop = harness(entries(), 2, files);
 		expect(desktop.el.querySelector('.position-restore-nav-filter')).toBe(document.activeElement);
 	});
 
 	it('点 × 时键盘保持收着', () => {
-		// The × is the one control in the strip a finger reaches for, and putting the
-		// caret back in the box afterwards would unfold the on-screen keyboard over
-		// the list — the opposite of what the tap asked for (see
-		// RecentFilesBrowser.toolbar). The box still empties; only the focus stays
-		// where the reader left it.
+		// × 是带子上手指唯一会去够的控件，而之后把插入符放回框里会在列表上方展开屏幕
+		// 键盘 —— 与这次点击所要的正好相反（见 RecentFilesBrowser.toolbar）。框照样
+		// 清空；只有焦点留在读者把它留在的地方。
 		const h = harness(entries(), 2, files, [], {}, {}, true);
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = 'b';
@@ -3222,21 +3018,18 @@ describe('RecentFilesModal —— 触屏', () => {
 
 		expect(box.value).toBe('');
 		expect(document.activeElement).not.toBe(box);
-		// …and there is no hint beside the box to say what a tap does: a row in a list
-		// answers a tap everywhere else in the app.
+		// ……而框旁边没有提示说一次点击做什么：列表里的一行在 app 别处哪里都应答点击。
 		expect(h.el.querySelector('.position-restore-nav-hint')).toBeNull();
 	});
 
 });
 
-// A FINGER IN THE LIST (see body.ts and tip.ts). Touch delivers the SAME pointer
-// events a mouse does — an over with the press, and an out/leave the moment the
-// browser decides the finger is panning or the app is dragging something — but the
-// leave arrives while the finger is STILL DOWN. A mouse's leave is a fact about
-// attention ("nobody is reading this list any more"); a finger's is a fact about
-// the gesture, and answering it as if it were the mouse's rebuilds every row
-// underneath a touch that is in the middle of becoming a scroll — which is what a
-// phone's list could not be scrolled by, and what left a folded drawer half-open.
+// **列表里的一根手指**（见 body.ts 与 tip.ts）。触摸送来与鼠标**一样的**指针事件 ——
+// 按下时一个 over，浏览器判定手指在平移、或 app 在拖东西的那一刻一个 out/leave —— 但
+// 那个 leave 到达时手指**还按着**。鼠标的 leave 是关于注意力的事实（「没人在读这份列表
+// 了」）；手指的则是关于那个手势的事实，把它当成鼠标的来应答，会在一次正在变成滚动的
+// 触摸底下重建每一行 —— 那正是手机的列表滚不动的原因，也是把一个折起的抽屉留成半开的
+// 原因。
 describe('RecentFilesModal —— 手指落在列表上', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
@@ -3248,15 +3041,14 @@ describe('RecentFilesModal —— 手指落在列表上', () => {
 		h.list().dispatchEvent(pointer('pointerover', 'touch'));
 		h.list().dispatchEvent(pointer('pointerleave', 'touch'));
 
-		// The rows are the SAME ELEMENTS as before the finger arrived: nothing was
-		// rebuilt under the touch (see RecentFilesBrowser.thawOrder).
+		// 那些行与手指到达之前是**同一批元素**：触摸底下什么都没被重建（见
+		// RecentFilesBrowser.thawOrder）。
 		expect(h.note('a')).toBe(row);
 	});
 
 	it('鼠标离开时才重画，那个次序就是为此留着的', () => {
-		// The same two events from a pointing device are the panel's whole answer to
-		// "is anybody reading this list?" — the order is taken on the way in and the
-		// list catches up on the way out.
+		// 同样这两个事件从指针设备来，就是面板对「有人在读这份列表吗」的全部答案 ——
+		// 进来时接下那个次序，出去时列表补上。
 		const h = harness(entries(), 1, files);
 		const row = h.note('a');
 
@@ -3268,9 +3060,8 @@ describe('RecentFilesModal —— 手指落在列表上', () => {
 	});
 
 	it('手指不触发悬停说话', () => {
-		// A finger does not hover: it presses, and the press takes the answer away
-		// (see tip.ts). A tooltip raised by a touch's over would appear 400ms after a
-		// finger that has already moved on, over a row the list may have redrawn.
+		// 手指不悬停：它按下，而按下把答案拿走（见 tip.ts）。一次触摸的 over 所抬起的
+		// tooltip 会在手指早已挪走之后的 400ms 出现，还压在一行列表可能已经重画过的行上。
 		const h = harness(entries(), 1, files);
 
 		h.note('a').dispatchEvent(pointer('pointerover', 'touch'));
@@ -3280,11 +3071,10 @@ describe('RecentFilesModal —— 手指落在列表上', () => {
 	});
 });
 
-// A FINGER THAT STOPPED ON A ROW — what a hover is on a device that has none (see
-// long-press.ts). The row answers for itself: the words it cannot print, and the two
-// things THIS panel knows about it that the app cannot. Everything below is heard from
-// a TOUCH harness, because a desktop's hover already answers all of it and needs none
-// of this — which is what the last-but-one test here says.
+// **停在一行上的手指** —— 在一个没有悬停的设备上，悬停就是它（见 long-press.ts）。
+// 这一行自己应答：它印不出来的那些话，以及**本**面板知道、app 不知道的那两件事。下面的
+// 一切都是从**触摸** harness 听来的，因为桌面的悬停已经应答了全部这些、压根不需要这一套
+// —— 这里倒数第二个测试说的就是这个。
 describe('RecentFilesModal —— 手指停在某一行上', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
@@ -3292,21 +3082,20 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	const phone = () => harness(entries(), 1, files, [], {}, {}, true);
 	const timed = () =>
 		harness(entries(), 1, files, [], {}, {}, true, {}, prefs({ time: true }).browser);
-	// The three events a long press is made of, placed by hand: the gesture is judged by
-	// WHERE the finger came down and whether it stayed there (see long-press.ts), so a
-	// test cannot borrow the pointer helper that walks the cursor along.
+	// 一次长按由哪三个事件构成，手工摆放的：这个手势靠手指**落在哪儿**、以及它有没有留在
+	// 那儿来判定（见 long-press.ts），所以测试没法借用那个一路挪动光标的 pointer
+	// helper。
 	const finger = (el: HTMLElement, type: string, at = { x: 40, y: 40 }) =>
 		el.dispatchEvent(
 			new MouseEvent(type, { bubbles: true, button: 0, clientX: at.x, clientY: at.y }),
 		);
 	const down = (el: HTMLElement) => finger(el, 'pointerdown');
 	const lift = (el: HTMLElement) => finger(el, 'pointerup');
-	// …and the clock, which is the whole of what makes a press a long one rather than a
-	// tap or the beginning of a scroll.
+	// ……以及那个时钟，而正是它使一次按下成为长按，而不是一次点击或一次滚动的开始。
 	const rest = () => vi.advanceTimersByTime(LONG_PRESS_MS);
-	// The menu the panel handed the app, as the app's own event carries it (see
-	// RecentFilesBrowser.contextRow): the armed row's second control is the only door a
-	// phone has to it, the long press having become the row's own gesture.
+	// 面板交给 app 的那个菜单，按 app 自己的事件带着它的样子（见
+	// RecentFilesBrowser.contextRow）：被武装那一行的第二个控件是手机通向它的唯一一扇
+	// 门，因为长按已经成了这一行自己的手势。
 	const menuOf = (trigger: unknown) => {
 		const calls = (trigger as { mock: { calls: unknown[][] } }).mock.calls;
 		expect(calls).toHaveLength(1);
@@ -3318,10 +3107,9 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 			hide(): void;
 		};
 	};
-	// A FINGER HAS NO HOVER TO GO BY: between the finger coming down and the travel
-	// going through, nothing on the row changes at all — and the travel is not the end
-	// of it either, because on a phone the drawer folds away behind it. So the press
-	// itself is what the row answers with (see list.ts's markPressed).
+	// **手指没有悬停可依靠**：从手指落下到行进走完之间，这一行上什么都不变 —— 而那次
+	// 行进也不是它的终点，因为在手机上抽屉会在它背后折走。所以这一行用来应答的就是那次
+	// 按下本身（见 list.ts 的 markPressed）。
 	it('手指按过的那一行留个标记，只要读者还看得见它', () => {
 		const h = phone();
 		const row = h.note('b');
@@ -3329,64 +3117,60 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		down(row);
 
 		expect(row.classList.contains('is-pressed')).toBe(true);
-		// …and NOT the row beside it: one finger, one press, one mark.
+		// ……而**不是**它旁边那一行：一根手指、一次按下、一个标记。
 		expect(h.note('a').classList.contains('is-pressed')).toBe(false);
 
-		// The finger comes up and the travel goes through, and the mark is STILL there
-		// while the drawer folds away behind it (see PANEL_EXIT_GRACE_MS) — that is the
-		// whole of the time the reader has to see which line they hit.
+		// 手指抬起来、行进走完，而标记在抽屉于它背后折走时**仍在**（见
+		// PANEL_EXIT_GRACE_MS）—— 那就是读者能看清自己打中了哪一行的全部时间。
 		lift(row);
 		vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
 		expect(row.classList.contains('is-pressed')).toBe(true);
 
-		// …and then it goes BY ITSELF rather than waiting for anything else: a mark
-		// that stayed would be a mark on a row the reader is no longer pointing at.
+		// ……然后它**自己**走掉，而不是等别的什么：留下来的标记会是一个落在读者已经不再
+		// 指着的行上的标记。
 		vi.advanceTimersByTime(ROW_PRESS_MARK_MS);
 		expect(row.classList.contains('is-pressed')).toBe(false);
 
-		// …and a gesture the platform took AWAY is not one the reader finished, so it
-		// takes the mark with it at once rather than leaving the row lit for a beat it
-		// did not earn.
+		// ……而被平台**抢走**的手势不是读者做完的手势，所以它立刻把标记一起带走，而不是
+		// 让那一行亮着它没挣到的那一拍。
 		down(row);
 		finger(row, 'pointercancel');
 		expect(row.classList.contains('is-pressed')).toBe(false);
 	});
 
-	// The mark is ended by the LIFT and not by a moment fixed when the finger went
-	// down: a finger that is still resting on its way to becoming a long press is a
-	// finger the reader is still pointing with, and a mark that blinked out halfway
-	// through would say the row had stopped answering (see list.ts's releaseMark).
+	// 标记由**抬起**来结束，而不是由手指落下时定下的某个时刻：一根仍在停着、正走向长按
+	// 的手指，是读者仍在用来指着的手指，而一个中途灭掉的标记会说明这一行已经停止应答
+	// （见 list.ts 的 releaseMark）。
 	it('整个长按过程里标记一直亮着', () => {
 		const h = phone();
 		const row = h.note('b');
 
 		down(row);
-		// The beat a TAP's mark is given, and not the end of this one: the finger is
-		// still down.
+		// **点击**的标记所分到的那一拍，不是这一个的结束：手指还按着。
 		vi.advanceTimersByTime(ROW_PRESS_MARK_MS);
 		expect(row.classList.contains('is-pressed')).toBe(true);
 
-		// …and then the press becomes an arm, with the mark still on the row.
+		// ……然后这次按下变成一次武装，标记仍留在那一行上。
 		rest();
 		expect(row.classList.contains('is-armed')).toBe(true);
 		expect(row.classList.contains('is-pressed')).toBe(true);
 
-		// …and the finger coming UP does not take it: the reader lifted it to reach for
-		// what the arm put on the row, so the mark lasts as long as the arm does.
+		// ……而手指**抬起**也带不走它：读者抬起来是为了够武装放到这一行上的东西，所以
+		// 标记与武装一样久。
 		lift(row);
 		vi.advanceTimersByTime(ROW_PRESS_MARK_MS * 2);
 		expect(row.classList.contains('is-pressed')).toBe(true);
 	});
 
-	// …while a finger the platform never reported coming up does not leave a row lit
-	// for good: the mark has a latest moment of its own (see ROW_PRESS_HOLD_MAX_MS).
+	// ……而一个平台从没报告抬起的手指不会把一行永久点亮：标记有它自己的最晚时刻（见
+	// ROW_PRESS_HOLD_MAX_MS）。
 	it('手指始终没抬起来时，标记放开', () => {
 		const h = phone();
 		const row = h.note('b');
 
 		down(row);
-		// Not a long press after all: the finger left the spot it came down on (see
-		// LONG_PRESS_SLOP_PX), so nothing arms the row and nothing holds the mark.
+		// 终究不是一次长按：手指离开了它落下的那一点（见 LONG_PRESS_SLOP_PX），所以没有
+		// 东西武装这一行，也没有东西留住那个标记。
 		finger(row, 'pointermove', { x: 240, y: 240 });
 		vi.advanceTimersByTime(ROW_PRESS_HOLD_MAX_MS);
 
@@ -3394,9 +3178,8 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		expect(row.classList.contains('is-pressed')).toBe(false);
 	});
 
-	// …and it belongs to the ROW and not to the list, so it does not outlive one: the
-	// travel the press asked for redraws the list, and the row drawn in its place is a
-	// row the reader never pressed.
+	// ……而它属于**行**、不属于列表，所以它不会活得比一行久：那次按下所要求的行进重画了
+	// 列表，而取代它画出来的那一行是读者从没按过的一行。
 	it('标记跟着它所在的那一行一起消失', () => {
 		const h = phone();
 		down(h.note('b'));
@@ -3408,8 +3191,8 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		expect(h.note('b').classList.contains('is-pressed')).toBe(false);
 	});
 
-	// …and a press does not stop being a press when it becomes an arm: the finger is
-	// still on the row the whole time the arm is standing.
+	// ……而一次按下在变成武装时并没有不再是按下：武装立着的整段时间里，手指都还在那一行
+	// 上。
 	it('手指停住时标记留着，随触发一起放开', () => {
 		const h = phone();
 		const row = h.note('b');
@@ -3417,14 +3200,14 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		down(row);
 		rest();
 
-		// The clock that was going to take the mark off was set for a tap (see
-		// ROW_PRESS_MARK_MS), and this was not one.
+		// 那个本会把标记摘掉的时钟是为一次点击设的（见 ROW_PRESS_MARK_MS），而这并不是
+		// 一次点击。
 		vi.advanceTimersByTime(ROW_PRESS_MARK_MS * 2);
 		expect(row.classList.contains('is-armed')).toBe(true);
 		expect(row.classList.contains('is-pressed')).toBe(true);
 
-		// …and the two go together: tapping another row takes the arm off this one, and
-		// a mark left standing on it would be a mark on a row nobody is pointing at.
+		// ……而两者一起走：点另一行会把武装从这一行上摘掉，而留在它上面的标记会是一个落在
+		// 没人在指的行上的标记。
 		h.pressRow(h.note('a'));
 		h.clickRow(h.note('a'));
 		expect(row.classList.contains('is-armed')).toBe(false);
@@ -3439,18 +3222,17 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		rest();
 
 		expect(row.classList.contains('is-armed')).toBe(true);
-		// The words are the ones a hover earns, and they are up AT ONCE: the finger has
-		// already been resting for the whole of the press, which is longer than a mouse
-		// is ever asked to wait (see tip.ts's speak).
+		// 那些话是悬停所挣到的那些，而它们**立刻**就上来：手指在这次按下的整段时间里已经
+		// 停着了，那比一只鼠标被要求等的任何时候都长（见 tip.ts 的 speak）。
 		expect(tip()?.querySelector('.nav-tip-path')?.textContent).toBe('b.md');
-		// …and ONE row is armed, because one finger can only stop on one.
+		// ……而**一行**被武装了，因为一根手指只能停在一行上。
 		expect(h.note('a').classList.contains('is-armed')).toBe(false);
 	});
 
 	it('手指停在时间上时，说出那个年纪背后的准确时刻', () => {
-		// Which element the finger came down on decides WHICH of the two things the row
-		// says, exactly as it does for a pointer (see tip.ts's subject): the time answers
-		// for the moment behind it, and the row answers for which file this is.
+		// 手指落在哪个元素上，决定这一行说两件事中的**哪一件**，与指针的情况完全一样
+		// （见 tip.ts 的 subject）：时间应答的是它背后那个时刻，而这一行应答的是这是哪个
+		// 文件。
 		const h = timed();
 
 		down(h.note('b').querySelector<HTMLElement>('.nav-row-time')!);
@@ -3467,16 +3249,15 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 
 		down(row);
 		rest();
-		// The finger coming up is not the pointer leaving the row — a touch pointer
-		// ceases to exist when it does, and the browser says `out` all the same — so the
-		// words the press earned have to outlive it: the reader lifted the finger to
-		// reach for what the press put on the row, not because they stopped looking.
+		// 手指抬起不是指针离开这一行 —— 一个触摸指针在抬起时就停止存在了，而浏览器照样
+		// 说 `out` —— 所以这次按下挣到的那些话必须活得比它久：读者抬起手指是为了够按下
+		// 放到这一行上的东西，不是因为他们不看了。
 		lift(row);
 		row.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
 		expect(tip()).not.toBeNull();
 
-		// …and the click the browser may still deliver is the press's own tail rather
-		// than a second gesture: a reader who stopped on a row did not ask to go there.
+		// ……而浏览器可能仍会送来的那次点击是这次按下自己的尾巴，而不是第二个手势：在一行
+		// 上停住的读者没有要求去那儿。
 		h.clickRow(row);
 
 		expect(h.jumpTo).not.toHaveBeenCalled();
@@ -3488,8 +3269,8 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		const row = h.note('b');
 
 		down(row);
-		// A drag and not a rest: the finger left the spot it came down on by more than
-		// the slop a resting finger is allowed (see LONG_PRESS_SLOP_PX).
+		// 一次拖动、不是一次静置：手指离开它落下的那一点，超过了停着的手指所允许的余量
+		// （见 LONG_PRESS_SLOP_PX）。
 		finger(row, 'pointermove', { x: 240, y: 240 });
 		rest();
 
@@ -3503,54 +3284,50 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 
 		down(row);
 		rest();
-		// The press's own tail, which the lift delivers before any tap of the reader's
-		// (see the test below): it is answered by nobody.
+		// 这次按下自己的尾巴，抬起会在读者任何一次点击之前送来（见下一个测试）：它不被
+		// 任何人应答。
 		lift(row);
 		h.clickRow(row);
 		h.clickRow(h.forgetButton(row));
 
-		// The row's own identity, carried by the control rather than worked out from an
-		// index a redraw may have moved (see RecentFilesList.fileRow).
+		// 这一行自己的身份，由那个控件带着，而不是从一个可能被重画挪动过的下标算出来
+		// （见 RecentFilesList.fileRow）。
 		expect(h.forget).toHaveBeenCalledWith('b.md');
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
 	it('用触发时加上的那个控件把 app 的菜单弹出来', () => {
-		// The menu a desktop gets from a right-click (see body.ts's contextRow): the app's
-		// own actions for the file, with this panel's one item on top of them. On a phone
-		// the long press that used to raise it arms the row instead, so the menu comes
-		// back on the armed row's own control rather than behind the press.
+		// 桌面从右键拿到的那个菜单（见 body.ts 的 contextRow）：app 自己的那些针对文件的
+		// 动作，本面板的那一项盖在最上面。在手机上，从前抬起它的长按改成武装这一行，所以
+		// 菜单改从被武装那一行自己的控件上回来，而不是藏在按下背后。
 		const h = phone();
 		const row = h.note('b');
 
 		down(row);
 		rest();
-		// The finger comes up, and the browser clicks whatever is under it — the
-		// press's own tail, which opens nothing (see the test above).
+		// 手指抬起，浏览器点它底下的任何东西 —— 那是这次按下自己的尾巴，什么都不打开
+		// （见上面那个测试）。
 		lift(row);
 		h.clickRow(row);
-		// …and THEN the reader taps the control the press put on the row.
+		// ……然后读者才点那次按放到这一行上的控件。
 		h.clickRow(row.querySelector<HTMLElement>('.nav-row-menu')!);
 
 		const menu = menuOf(h.trigger);
 		expect(menu.items[0].title).toBe(t('recentFiles.openInNewTab'));
-		// …and it was OPENED, and placed at the control the reader tapped rather than at
-		// wherever the platform said the tap happened: a menu merely built is a menu
-		// nobody can see, and one placed at the screen's corner is a menu to go looking
-		// for (see RecentFilesList.menuControl).
+		// ……而它被**打开了**，并且放在读者点下的那个控件处，而不是平台所说的点击发生的
+		// 任何地方：一个只是被建起来的菜单是没人看得见的菜单，而一个放在屏幕角落的菜单是
+		// 要去找的菜单（见 RecentFilesList.menuControl）。
 		expect(menu.shownAt).toBeDefined();
-		// NOTHING TRAVELLED, and that is the whole of the difference from the shortcut
-		// this control used to be: the menu is a question, and opening the row one tab
-		// over is one of its answers rather than the tap's.
+		// **什么都没行进**，而这就是它与这个控件从前的快捷方式之间的全部区别：菜单是一个
+		// 问题，而把这一行开在隔壁标签页里是它的答案之一，不是这次点击的。
 		expect(h.jumpTo).not.toHaveBeenCalled();
-		// …and the arm stays on the row behind the menu: it is still the row the reader
-		// was reaching into when the menu closes.
+		// ……而武装留在菜单背后的那一行上：菜单关上时，它仍是读者正在伸手去够的那一行。
 		expect(row.classList.contains('is-armed')).toBe(true);
 	});
 
 	it('从菜单自己那一项把这一行开在隔壁标签页里，手机和桌面一样', () => {
-		// The one thing the app cannot know about this row (see body.ts's contextRow) is
-		// still one tap away: it is the first item of the menu the control raises.
+		// app 无法知道的关于这一行的那件事（见 body.ts 的 contextRow）仍离一次点击只有
+		// 一步：它是那个控件所抬起的菜单的第一项。
 		const h = phone();
 		const row = h.note('b');
 
@@ -3565,10 +3342,9 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('面板自己关掉时把菜单一起带走', () => {
-		// The menu is put on the DOCUMENT and not into the panel's element, so a shell
-		// that closes takes none of it with it: a dialog closed under an open menu
-		// would leave the app's menu standing over nothing at all (see
-		// RecentFilesBrowser.destroy).
+		// 那个菜单被放到 **document** 上、不是放进面板的元素里，所以关掉的外壳一行都不
+		// 带走：在一个打开的菜单底下关掉的对话框，会让 app 的菜单悬在一个什么都没有的
+		// 地方（见 RecentFilesBrowser.destroy）。
 		const h = phone();
 		const row = h.note('b');
 
@@ -3585,12 +3361,10 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('再点一次那个弹菜单的控件，就把菜单收回去', () => {
-		// ONE DOOR, TWO ENDS. The app cannot answer this tap: the control stops its own
-		// press so that reaching for it does not open the note (see menuControl), and a
-		// press the document never hears is a press that cannot close the app's menu
-		// from outside it. So the tap is the answer itself — and raising the menu again
-		// in the same breath would be a menu that never went away, which reads as a
-		// control that does nothing.
+		// **一扇门，两个端头**。app 答不了这次点击：那个控件拦下自己的按下，好让伸手去
+		// 够它不会打开笔记（见 menuControl），而 document 从没听过的按下，是一次没法从
+		// 外面关掉 app 菜单的按下。所以这次点击本身就是那个答案 —— 而同一口气里又抬起
+		// 菜单会是一个从没走开的菜单，那读起来像一个什么都不做的控件。
 		const h = phone();
 		const row = h.note('b');
 		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
@@ -3603,26 +3377,24 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		const menu = menuOf(h.trigger);
 		expect(menu.closed).toBe(false);
 
-		// …and the SAME control again — a finger comes DOWN on it first, which is where
-		// the question is asked and not at the click it delivers.
+		// ……而**同一个**控件再来一次 —— 手指先**落**在它上面，问题就是在那里问的，不是
+		// 在它送出的那次点击上。
 		down(more());
 		h.clickRow(more());
 
 		expect(menu.closed).toBe(true);
-		// …and the app was not asked for a second one: a tap that took the menu back is
-		// not a tap that asked for another.
+		// ……而 app 没有被要求第二个：一次把菜单收回的点击，不是一次要求再要一个的点击。
 		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
-		// …and the ARM IS STILL ON THE ROW: the menu was a question, and the × may yet
-		// be the answer the reader was reaching for.
+		// ……而**武装仍在那一行上**：菜单是个问题，而那个 × 可能才是读者正在伸手去够的
+		// 答案。
 		expect(row.classList.contains('is-armed')).toBe(true);
 	});
 
 	it('按下落在菜单自己那块面上时，把菜单收回', () => {
-		// THE TABLET CASE, and the whole of why the control cannot answer it alone. When
-		// there is no room below the point it was given, the app moves a menu UP BY ITS
-		// OWN HEIGHT — over the row, and over the very control that raised it. A finger
-		// aiming at the control then lands on the menu, and the app answers a press there
-		// with nothing: only the backdrop beside the menu closes it, and only on a click.
+		// **平板上的那种情形**，也是这个控件为何没法单独应答它的全部原因。当给它的那个
+		// 点底下没有空间时，app 会把菜单**按它自己的高度向上**挪 —— 挪到那一行上方，也挪
+		// 到那个抬起它的控件上方。于是一只瞄准那个控件的手指落在菜单上，而 app 在那里对
+		// 一次按下什么都不应答：只有菜单旁边的背景能关掉它，而且只在一次点击上。
 		const h = phone();
 		const row = h.note('b');
 		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
@@ -3635,7 +3407,7 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		const menu = menuOf(h.trigger);
 		expect(menu.closed).toBe(false);
 
-		// …and the menu is standing where the control was, so the finger lands on it.
+		// ……而菜单正立在那控件原本的位置上，所以手指落在它上面。
 		const surface = document.body.createDiv({ cls: 'menu' });
 		down(surface);
 
@@ -3644,9 +3416,8 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('按下落在菜单某项上时，菜单不动', () => {
-		// The one press that must NOT take the menu away: choosing an item is the menu's
-		// own answer, and a menu pulled out from under the press would take the item with
-		// it — a tap that resolves to nothing at all.
+		// 唯一一次**不**得把菜单带走的按下：选一项是菜单自己的答案，而一个从按下底下被
+		// 抽走的菜单会把那一项一起带走 —— 一次解析为什么都没有的点击。
 		const h = phone();
 		const row = h.note('b');
 
@@ -3665,10 +3436,9 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('app 自己把上一个菜单收掉之后，还能再弹一次', () => {
-		// An item chosen on it, or a tap away from it: the app's own gestures, and the
-		// app's own menu to take off the screen. From that moment the panel owes it
-		// nothing — and the control goes back to RAISING one, because a tap that takes a
-		// menu back only means that while one is standing (see contextRow).
+		// 在它上面选了一项，或在它外面点了一下：app 自己的手势，也是 app 自己的菜单要
+		// 离开屏幕。从那一刻起面板不欠它什么 —— 而那个控件回到**抬起**一个菜单，因为一次
+		// 把菜单收回的点击只有在一个菜单正立着时才是那个意思（见 contextRow）。
 		const h = phone();
 		const row = h.note('b');
 		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
@@ -3680,17 +3450,16 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		h.clickRow(more());
 		menuOf(h.trigger).hide();
 
-		// …and the same control again, now asking for a menu rather than for one to go.
+		// ……而同一个控件再来一次，这次是要一个菜单，而不是要它走。
 		h.clickRow(more());
 
 		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
 	});
 
 	it('那次按下自己的点击落在它加上的控件上时，什么都不打开', () => {
-		// The controls arrive at the row's far end — which is where the finger may
-		// already be resting. The click the lift then delivers is the press's tail and
-		// not a second gesture: a reader who stopped on a row did not ask for its menu,
-		// and above all did not ask to DROP it (see the × in fileRow).
+		// 那些控件到达这一行的远端 —— 而手指可能已经停在的那里。抬起随后送来的那次点击
+		// 是这次按下的尾巴、不是第二个手势：在一行上停住的读者没有要求它的菜单，尤其没有
+		// 要求**丢掉**它（见 fileRow 里的 ×）。
 		const h = phone();
 		const row = h.note('b');
 		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
@@ -3701,26 +3470,23 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 
 		expect(h.trigger).not.toHaveBeenCalled();
 		expect(h.forget).not.toHaveBeenCalled();
-		// …and the arm is still on the row: the reader was reaching for it.
+		// ……而武装仍在那一行上：读者正在伸手去够它。
 		expect(row.classList.contains('is-armed')).toBe(true);
 
-		// The NEXT tap is the reader's own — and a tap is a finger coming DOWN first,
-		// which is what spends the claim the press was holding (see long-press.ts's
-		// release, and the test below).
+		// **下一次**点击是读者自己的 —— 而一次点击首先是手指**落下**，正是这一点花掉那次
+		// 按下所持有的主张（见 long-press.ts 的 release，以及下面那个测试）。
 		down(more());
 		h.clickRow(more());
 		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
 	});
 
 	it('按下之后它自己那一次点击始终没来，此时第一次点按照样应答', () => {
-		// Whether the tail of a long press is delivered at all is the platform's
-		// business: a WebView that raised a menu for the press, or a finger that
-		// drifted past the slop on its way up, may deliver no click with it. The
-		// claim then OUTLIVES the press that made it — and the controls stop their
-		// own presses from reaching the gesture (see RecentFilesList.fileRow), so
-		// nothing reset it: the reader's first tap on a control did nothing, and the
-		// tap after it landed on a row that had been disarmed under them and opened
-		// the note. A finger arriving anywhere on the row's controls spends it.
+		// 一次长按的尾巴到底送不送来，是平台的事：一个为这次按抬起过菜单的 WebView，或
+		// 一根在抬起路上漂过余量的手指，可能压根不送出点击。于是那个主张**活得比**做出它
+		// 的那次按下更久 —— 而控件拦住自己的按下不让它抵达这个手势（见
+		// RecentFilesList.fileRow），所以没有东西重置它：读者在某个控件上的第一次点击
+		// 什么都没做，而它之后那次点击落在一行已经在他们底下被解除武装的行上，打开了笔记。
+		// 一根落在这一行控件任何地方的手指都会花掉它。
 		const h = phone();
 		const row = h.note('b');
 		const more = () => row.querySelector<HTMLElement>('.nav-row-menu')!;
@@ -3728,7 +3494,7 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		down(row);
 		rest();
 		lift(row);
-		// …and no click: the platform delivered nothing for the finger coming up.
+		// ……而没有点击：平台没有为手指抬起送来任何东西。
 
 		down(more());
 		h.clickRow(more());
@@ -3737,9 +3503,8 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('这种按下之后第一次点 × 也照样应答', () => {
-		// The same claim, on the control that is not survivable: a reader who stopped
-		// on a row and then aimed at its × got nothing, and the tap after it opened
-		// the note they were trying to drop.
+		// 同一个主张，落在那个人们撑不过去的控件上：一个在一行上停住、然后把目标对着它的
+		// × 的读者什么都没得到，而之后那次点击打开了他们正想丢掉的笔记。
 		const h = phone();
 		const row = h.note('b');
 
@@ -3755,11 +3520,10 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('点按落在控件旁边那条空白区时，什么都不打开', () => {
-		// Two targets side by side are missed by a finger that drifts — and a finger
-		// that comes down on one and lifts over the other has clicked NEITHER: the
-		// browser clicks their nearest common ancestor, which without the strip's own
-		// answer is the ROW (see RecentFilesList.actionStrip). A miss is a miss:
-		// nothing opens, and the arm waits for the reader to aim again.
+		// 并排的两个目标会被一根漂移的手指错过 —— 而一根落在其中一个、却在另一个上面抬起
+		// 的手指，**两个都没**点到：浏览器会点它们最近的共同祖先，而若没有那条控件区自己
+		// 的答复，那就是这一**行**（见 RecentFilesList.actionStrip）。没打中就是没打中：
+		// 什么都不打开，而武装等着读者重新瞄准。
 		const h = phone();
 		const row = h.note('b');
 
@@ -3783,16 +3547,14 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		h.clickRow(h.note('a'));
 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
-		// One row at a time, and the words go with it: an armed row that has stopped
-		// saying anything is a row the reader has to guess at.
+		// 一次一行，而话随之而走：一个已经不再说什么的武装行，是一个读者得去猜的行。
 		expect(row.classList.contains('is-armed')).toBe(false);
 		expect(tip()).toBeNull();
 	});
 
 	it('滚动时、重画时都解除', () => {
-		// A scroll takes the rows out from under words that are standing still, and a
-		// redraw throws away the row the finger stopped on: a × left standing on the row
-		// drawn in its place would be a control for a row nobody armed.
+		// 一次滚动把那些行从立着不动的话底下抽走，而一次重画丢掉手指停住的那一行：一个
+		// 留在取代它画出的那一行上的 ×，会是一个属于没人武装过的行的控件。
 		const h = phone();
 		const row = h.note('b');
 
@@ -3810,25 +3572,25 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('WebView 为同一根手指发来的菜单事件也能触发它', () => {
-		// A long press arrives as a `contextmenu` on some platforms and not on others
-		// (see long-press.ts), so both doors are open and the arm is idempotent: what
-		// matters is that the row is armed either way, and that the app's file menu is
-		// NOT raised — on a phone the press is the ROW's answer, not the file's.
+		// 一次长按在某些平台上以 `contextmenu` 到达、在另一些平台上不是（见
+		// long-press.ts），所以两扇门都开着、而武装是幂等的：要紧的是这一行无论走哪条路
+		// 都被武装，以及 app 的文件菜单**没有**被抬起 —— 在手机上这次按下是**行**的答案，
+		// 不是文件的。
 		const h = phone();
 		const row = h.note('b');
 
 		const ev = h.longPress(row);
 
 		expect(row.classList.contains('is-armed')).toBe(true);
-		// …and the press is still refused, or the platform's own selection callout would
-		// come up over the row while the reader is waiting for it to answer.
+		// ……而按下仍被拒绝，否则平台自己的选择 callout 会在读者等它应答的时候在那一行
+		// 上方冒出来。
 		expect(ev.defaultPrevented).toBe(true);
 		expect(h.trigger).not.toHaveBeenCalled();
 	});
 
 	it('桌面上什么都不触发 —— 那里停住就是悬停', () => {
-		// The gesture is not heard at all where a pointer can hover: the controls are
-		// already on the row the pointer is over, and so are the words.
+		// 在指针能悬停的地方这个手势压根不被听到：那些控件已经在指针所在的那一行上，那些
+		// 话也是。
 		const h = harness(entries(), 1, files);
 		const row = h.note('b');
 
@@ -3840,14 +3602,13 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	});
 
 	it('行的菜单给笔记和它的各个落点都配上，× 两者都有', () => {
-		// A landing is a record of its own on this list now, so it carries the same
-		// removal the note's row does — what its × takes off is the SPOT, and the note's
-		// row above stays (see onForgetLanding). The two rows say so differently: the
-		// note's × is "remove from recent files", the spot's is "remove this place", and
-		// a reader pointing at one of them is never guessing which one they got.
+		// 一个落点如今是这份列表上自己的记录，所以它带着与笔记行一样的移除 —— 它的 × 拿
+		// 掉的是**那处地点**，而上面笔记那一行留着（见 onForgetLanding）。两行说这件事的
+		// 方式不同：笔记的 × 是「从最近文件里移除」，那处地点的是「移除这个地点」，而指在
+		// 其中一个上的读者从不用猜自己拿到的是哪一个。
 		//
-		// The menu goes on both for the reason it always did: the spot IS a place a
-		// reader can ask for one tab over, and only this panel knows which place that is.
+		// 菜单两者都挂，理由与从前一样：那处地点**确实**是一个读者可以要求开在隔壁标签页
+		// 里的地点，而只有这个面板知道那是哪个地点。
 		const spots = [
 			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
 			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
@@ -3865,9 +3626,8 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 	expect(landing.querySelector('.nav-row-menu')?.getAttribute('aria-label'))
 		.toBe(t('recentFiles.rowMenu'));
 
-	// …and the two controls stand in the SAME ORDER on both: the menu inside, the ×
-	// at the very end. A reader who learned the row's far end on a note's row reads
-	// the same end on a landing's, and the removal never moves inward.
+	// ……而两个控件在两者上排**同样的次序**：菜单在内，× 在最末。一个在笔记行上学到这一
+	// 行远端的读者，在落点行上读到的是同一个端头，而移除从不向内移动。
 	const ends = (el: HTMLElement) => Array.from(el.querySelectorAll('.nav-row-actions > *'))
 		.map(c => c.classList.contains('nav-row-forget') ? 'x' : 'menu');
 	expect(ends(note)).toEqual(['menu', 'x']);
@@ -3875,10 +3635,9 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 });
 
 	it('用落点自己那一行上的 × 只拿掉这一处，笔记留着', () => {
-		// What goes is the SPOT: the note keeps its own row, and so does every other
-		// place in it. A row is a LINE, so what the × hands the store is the identity of
-		// every place that landed on it (see landingKeys) — one of them alone would put
-		// the row straight back.
+		// 走掉的是**那处地点**：笔记保留自己那一行，它里面每一个别的地点也一样。一行是一
+		// **条线**，所以 × 交给 store 的是落在它上面的每一个地点的身份（见 landingKeys）
+		// —— 只给其中一个会立刻把这一行放回来。
 		const spots = [
 			visit('x.md', NOW - 30 * MINUTE, { scroll: 100 }),
 			visit('x.md', NOW - 10 * MINUTE, { scroll: 412 }),
@@ -3890,54 +3649,53 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		h.clickRow(h.forgetButton(h.place('L101')));
 
 		expect(h.forgetLanding).toHaveBeenCalledWith([gone]);
-		// The spot is off the list; the note's own record and the other spot are not.
+		// 那处地点离开了列表；笔记自己的记录与另一处地点没有。
 		expect(h.entries.map(e => (e.kind === 'jump' ? e.st?.scroll : 'note')))
 			.toEqual([412, 'note']);
 		expect(h.jumpTo).not.toHaveBeenCalled();
-		// …and the redraw is the panel's own (see body.ts's forgetLanding), so the row is
-		// gone from the screen too — with the note's row standing for the spot that is
-		// left, since one place is not a list (see printsLandings).
+		// ……而这次重画是面板自己的（见 body.ts 的 forgetLanding），所以那一行也从屏幕上
+		// 没了 —— 而笔记那一行代表剩下的那处地点，因为一处地点不是一份列表（见
+		// printsLandings）。
 		expect(h.rows()).toHaveLength(0);
 		expect(h.note('x')).toBeDefined();
 	});
 });
 
-// A HOVER OVER A ROW ASKS THE APP FOR THE NOTE ITSELF (see RecentFilesBrowser.hoverRow).
-// There is no preview in this plugin and nothing to test of one: what this panel draws when
-// a row is hovered is still nothing, and what it SAYS is one event naming the file the row
-// stands for — so the popover a reader gets here is the app's own, written by whatever the
-// app already answers every other list with, including whether hovering is enough at all.
-// What this panel adds to the asking, and what is tested below, is the one thing only it
-// knows: WHICH FILE, and WHERE in it.
+// 悬停在一行上是向 app 要**那篇笔记本身**（见 RecentFilesBrowser.hoverRow）。本插件里
+// 没有预览，也没有预览的什么可测：一行被悬停时这个面板画的仍是什么都没有，而它**说的**
+// 是一个命名这一行所代表的文件的事件 —— 所以读者在这里拿到的 popover 是 app 自己的，
+// 由 app 已经用来应答每一份别的列表的那套东西写下，包括悬停究竟够不够。这个面板给那次
+// 询问加上的、也是下面所测的，是只有它知道的那一件事：**哪个文件**，以及文件里的
+// **哪里**。
 describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	const files = { 'a.md': '', 'b.md': '' };
-	// A note the reader simply opened — a file row with no spot of its own.
+	// 一篇读者只是打开过的笔记 —— 一个没有自己地点的文件行。
 	const plain = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
-	// …and one they also jumped into twice: under 'all' the spots are rows of their own
-	// (a note with a SINGLE landing prints none — see RecentFilesList.printsLandings), and
-	// the row the preview is asked about is the one eleven lines down.
+	// ……以及一篇他们还跳进去过两次的笔记：在 'all' 下那些地点是各自的行（只有**一个**
+	// 落点的笔记什么都不印 —— 见 RecentFilesList.printsLandings），而预览被问起的是
+	// 十一行以下那一行。
 	const jumped = (): NavEntry[] => [
 		visit('a.md', NOW - MINUTE),
 		visit('a.md', NOW - 2 * MINUTE, { scroll: 11 }),
 		visit('a.md', NOW - 3 * MINUTE, { scroll: 40 }),
 		visit('b.md', NOW),
 	];
-	// A note with parsed headings, as the metadata cache reports them: the row eleven
-	// lines down sits inside "Beta", which starts at line 5.
+	// 一篇有解析后标题的笔记，按 metadata cache 报告的样子：十一行以下那一行坐在
+	// 「Beta」里，而 Beta 从第 5 行开始。
 	const heading = (text: string, line: number) => ({
 		heading: text, level: line === 0 ? 1 : 2, position: { start: { line } },
 	});
-	// …and the same note with a spot of its own saved for it, which is what the note's
-	// OWN row has wherever it can be previewed from (`focus` picks the stop, see
-	// PreviewFocusMode: the row's line is a choice now, and not the row's default).
+	// ……以及同一篇笔记、为它保存了自己的一处地点，这就是笔记**自己**那一行在能被预览
+	// 的地方所持有的东西（`focus` 挑那个停靠点，见 PreviewFocusMode：这一行的行号如今是
+	// 一个选择，而不是这一行的默认）。
 	const withHeadings = (
 		headings: unknown[],
 		saved?: Record<string, EphemeralState>,
 		focus?: PreviewFocusMode,
 	) => harnessAll(jumped(), 3, files, [], {}, { 'a.md': headings }, false, {},
 		path => saved?.[path], focus);
-	// The questions the app was asked, in order: the panel hands each one over as the
-	// app's own event, with the request as its second argument (see hoverRow).
+	// app 被问过的那些问题，按次序：面板每一个都按 app 自己的事件交出去，请求作为第二个
+	// 参数（见 hoverRow）。
 	const asked = (trigger: unknown) =>
 		(trigger as { mock: { calls: unknown[][] } }).mock.calls
 			.filter(c => c[0] === 'hover-link')
@@ -3945,13 +3703,11 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 				source?: string; targetEl?: HTMLElement; hoverParent?: HoverParent;
 				linktext?: string; sourcePath?: string; state?: { scroll?: number };
 			});
-	// THE APP ANSWERING, as much of it as a test can stand in for: the core writes the
-	// popover it opened back into the HOVER PARENT the panel handed it, and that field is
-	// the whole of the handle this panel has on anything the app drew (see hover-settle.ts)
-	// — there is no PeekPopover in jsdom, and none of what the core does next can happen
-	// here. The panel looks for it between paints, so one turn of that clock is one look.
-	// The card is returned because its END is half of the answer: taking it out of the
-	// document is the preview being closed.
+	// **app 应答**，尽一个测试能替身到的程度：core 把它打开的那个 popover 写回面板交给
+	// 它的那个 **HOVER PARENT** 里，而那个字段就是本面板对 app 画出的任何东西所持有的
+	// 全部把手（见 hover-settle.ts）—— jsdom 里没有 PeekPopover，core 接下来做的没有
+	// 一件能在这里发生。面板在两次绘制之间找它，所以那个时钟转一圈就是看一眼。这张卡片
+	// 被返回，是因为它的**结束**是答案的一半：把它从 document 拿走就是预览被关上了。
 	const opened = async (h: ReturnType<typeof harness>): Promise<HTMLElement> => {
 		const parent = asked(h.trigger).at(-1)!.hoverParent!;
 		const card = document.body.createDiv({ cls: 'popover' });
@@ -3959,8 +3715,8 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 		await vi.advanceTimersByTimeAsync(150);
 		return card;
 	};
-	// The row's own hint, as the document carries it: the panel draws it there rather than
-	// inside the list, which scrolls and clips (see tip.ts).
+	// 这一行自己的提示，按 document 带着它的样子：面板把它画在那儿，而不是画在会滚动、
+	// 会裁剪的列表里面（见 tip.ts）。
 	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
 
 	it('说出这一行代表的是哪个文件，每次到达只说一次', () => {
@@ -3972,44 +3728,39 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
 		expect(question[0].linktext).toBe('a.md');
-		// The path on disk rather than the name printed on the row: the row's name is
-		// shortened, may be neither unique nor spelled the way the vault spells it, and
-		// is not what opens anyway (see displayName).
+		// 是磁盘上的路径，而不是行上印的名字：行的名字被缩短过、可能既不唯一、拼写也不照
+		// vault 的拼法，而且它反正不是打开时用的东西（见 displayName）。
 		expect(question[0].sourcePath).toBe('a.md');
-		// WHO IS ASKING is how the app knows which answer to give: this panel's own id,
-		// registered once for both shells (see main.ts's registerHoverLinkSource), and
-		// named by nothing borrowed from another view.
+		// **谁在问**是 app 据以知道该给哪个答案的东西：本面板自己的 id，为两个外壳各注册
+		// 一次（见 main.ts 的 registerHoverLinkSource），而且不借用任何别的视图的名字。
 		expect(question[0].source).toBe(NAV_SOURCE_ID);
-		// The ROW, and not whichever word of it the pointer crossed: the popover belongs
-		// to the line of the list the reader is on.
+		// **那一行**，而不是指针划过的那一行里随便哪个词：popover 属于读者所在的列表
+		// 那一行。
 		expect(question[0].targetEl).toBe(row);
 
-		// MOVING INSIDE that row asks nothing again: the name, the badge and the time are
-		// all still one arrival on one row (see RecentFilesList.hoverAt) — otherwise a
-		// hand crossing the row would be a hand asking six times for one page.
+		// 在那一行**里面**移动不再问任何东西：名字、徽标与时间都仍是同一行上的一次到达
+		// （见 RecentFilesList.hoverAt）—— 否则一只横穿这一行的手会是一只为一页东西问
+		// 六次的手。
 		row.querySelector('.nav-row-name')!.dispatchEvent(pointer('pointermove'));
 		expect(asked(h.trigger)).toHaveLength(1);
 	});
 
 	it('指针没动、面板在它底下新画出来的行，不去问', () => {
-		// THE DIALOG A HOTKEY OPENED with the mouse resting mid-screen: the rows are drawn
-		// around the pointer, the browser reports an arrival on whichever one it landed on,
-		// and the app would answer with a page opened over a row the reader never pointed
-		// at — a note asked for by a keystroke. Arriving is not pointing (see
-		// RecentFilesList.hoverAt), and two events at one place is one hand that has
-		// not moved.
+		// **一个快捷键打开的对话框**，而鼠标正停在屏幕中央：那些行是围着指针画出来的，
+		// 浏览器报告了它在哪一行上的一次到达，而 app 会用一个开在读者从没指过的行上方的
+		// 页面来应答 —— 一篇被一次按键要来的笔记。到达不是指着（见
+		// RecentFilesList.hoverAt），而在同一处的两个事件是一只手没有动过。
 		const h = harness(plain(), 1, files);
 		const row = h.note('a');
 
-		// The arrival the browser reports for the row it drew around the pointer, and the
-		// move that comes with it — both at the place the hand already was.
+		// 浏览器为它围着指针画出的那一行报告的到达，以及随之而来的那次移动 —— 两者都在
+		// 那只手本来就所在的地方。
 		row.dispatchEvent(pointer('pointerover'));
 		row.dispatchEvent(pointer('pointermove', 'mouse', true));
 
 		expect(asked(h.trigger)).toHaveLength(0);
 
-		// …and the smallest move of that hand is all it takes to be asked: the row the
-		// pointer came to rest on is still a row the reader can point at.
+		// ……而那只手最小的移动就足以被问：指针停下来所在的那一行，仍是读者能指的一行。
 		row.dispatchEvent(pointer('pointermove'));
 
 		expect(asked(h.trigger)).toHaveLength(1);
@@ -4017,9 +3768,9 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('指针没动、列表在它底下重画过的行，也不再问', () => {
-		// The same arrival, one render later: the rows the reader is looking at are thrown
-		// away and drawn again — a note taken off the list, the ages ticking, a query typed
-		// — and the row now under the pointer is a row nobody has pointed at a second time.
+		// 同一次到达，一次渲染之后：读者正在看的那些行被扔掉又画一遍 —— 一篇笔记被拿下
+		// 列表、年纪在走、一个查询被打出来 —— 而如今在指针底下的那一行是一行没人第二次
+		// 指过的行。
 		const h = harness(plain(), 1, files);
 		movedOnto(h.note('a'));
 		expect(asked(h.trigger)).toHaveLength(1);
@@ -4033,14 +3784,13 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('指针走开又回来之后，会再问一次', () => {
-		// Leaving the LIST is what makes the next arrival an arrival (see the list's own
-		// pointerleave): arriving on the same row twice in one visit is one question.
+		// 离开**列表**正是让下一次到达成为一次到达的东西（见列表自己的 pointerleave）：
+		// 在一次造访里两次到达同一行是一个问题。
 		const h = harness(plain(), 1, files);
 		movedOnto(h.note('a'));
 
-		// A mouse's leave also lets the held order go, so the rows are drawn again on the
-		// way out (see RecentFilesBrowser.thawOrder) — the row below is a NEW element,
-		// and it answers for itself.
+		// 鼠标的离开也会把被扣住的次序放掉，所以那些行在出去的路上又被画了一遍（见
+		// RecentFilesBrowser.thawOrder）—— 下面那一行是一个**新**元素，它自己应答。
 		h.list().dispatchEvent(pointer('pointerleave'));
 		movedOnto(h.note('a'));
 
@@ -4048,11 +3798,10 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('按落点行上印着的那一行去要那一页', () => {
-		// This is the reason the asking is worth making from HERE rather than anywhere
-		// else a file can be hovered: the row is a PLACE, and the popover opens on it.
-		// `scroll` is the app's own name for a markdown view's top line — one number, in
-		// the vocabulary the view reads (see EphemeralState) — and it is 0-based, as the
-		// line a row prints is one-based.
+		// 这就是这次询问值得从**这里**、而不是从别的任何能悬停文件的地方发出的原因：这一
+		// 行是一个**地点**，而 popover 开在它上面。`scroll` 是 app 自己给 markdown 视图
+		// 顶行的名字 —— 一个数字，用的是视图所读的那套词汇（见 EphemeralState）—— 而它
+		// 是 0-based 的，正如一行所印的行号是 1-based 的。
 		const h = harnessAll(jumped(), 3, files);
 		expect(h.place('L12')).toBeDefined(); // the row whose line is the one asked about
 
@@ -4065,12 +3814,11 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('笔记自己那一行只要笔记，不要别的', () => {
-		// THE ROW IS THE FILE, so the file is what it asks to see — and it asks the way
-		// every list the app ships asks: no section, and no line to travel to. The line
-		// DOES sit under "Beta", and knowing that changes nothing, for two reasons. A
-		// reader hovering "meeting-notes" and being shown its third heading has not been
-		// shown what they pointed at, however soon it arrived. And the note opens there
-		// anyway: the row's own CLICK is that arrival, one gesture later.
+		// **这一行就是那个文件**，所以它要看的正是那个文件 —— 而它按 app 自带的每一份
+		// 列表要它的方式去要：不要小节，也不要行号可去。那一行**确实**坐在「Beta」底下，
+		// 而知道这一点不改变什么，有两个理由。一个悬停「meeting-notes」却被显示它第三个
+		// 标题的读者，并没有被显示他们指的东西，无论它到得多快。而且这篇笔记反正会开在
+		// 那里：这一行自己的**点击**就是那次到达，晚一个手势。
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
 
 		movedOnto(h.note('a'));
@@ -4082,11 +3830,10 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('读者选了那种方式时，要的是整篇笔记、并挪到它那一行', () => {
-		// The other stop (see PreviewFocusMode), asked for by name because it is not the
-		// default: named a line, the app draws the whole note first and travels to it
-		// behind the cover (see hover-settle.ts), arriving at the spot the row's click
-		// would have opened at — which is what lets this preview agree with the click
-		// standing behind it.
+		// 另一个停靠点（见 PreviewFocusMode），按名字点名要来是因为它不是默认：被点出一
+		// 条行号时，app 先把整篇笔记画出来、再在遮罩背后行进去（见 hover-settle.ts），
+		// 到达这一行的点击本会打开的那处地点 —— 正是这一点让这个预览与站在它背后的那次
+		// 点击一致。
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } },
 			'line');
 
@@ -4099,10 +3846,9 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('点名不了任何行的预览，不读文件', async () => {
-		// What a line COSTS, and what the default stop therefore does not pay: a line is
-		// re-found in the note's own TEXT, which for a note no tab is holding is a whole
-		// file read — one that lands with the whole list redrawn sixty milliseconds
-		// later, right where the app is drawing the card this hover asked for.
+		// 一行号**要花**什么，以及默认停靠点因此不必付什么：一行号要在笔记自己的**文本**
+		// 里重新找到，而对一篇没有标签页持有的笔记来说那是一次整文件读取 —— 它落地时会
+		// 带着整份列表在六十毫秒后重画，正好在 app 正在画这次悬停所要的那张卡片的地方。
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)], { 'a.md': { scroll: 11 } });
 
 		movedOnto(h.note('a'));
@@ -4112,11 +3858,10 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('笔记在那儿确实有一节时，点出这一行所在的那一小节', () => {
-		// Asked for a line, the app's own popover cannot open at it: it draws the whole
-		// note first and moves the scroller only once that render lands — and flashes
-		// the target on the way (see hover-settle.ts). Asked for a section it draws ONLY
-		// that section, so there is nothing left to travel to and nothing to flash.
-		// Naming the section therefore costs no line at all: it is where the row stands.
+		// 被点出一行号时，app 自己的 popover 没法开在那儿：它先把整篇笔记画出来，只有那
+		// 次渲染落地后才挪滚动器 —— 并在路上闪一下目标（见 hover-settle.ts）。被点出一个
+		// 小节时它**只**画那个小节，所以没有东西要行进过去、也没有东西要闪。因此点出小节
+		// 不花掉任何行号：那就是这一行所在的地方。
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5)]);
 
 		movedOnto(h.place('L12'));
@@ -4124,16 +3869,15 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 		const question = asked(h.trigger);
 		expect(question).toHaveLength(1);
 		expect(question[0].linktext).toBe('a.md#Beta');
-		// …and there is no second instruction in the same breath: a line number beside a
-		// section would be the app going somewhere it was not asked to go.
+		// ……而同一口气里没有第二条指令：一个挨着小节的行号会是 app 去一个它没被要求去的
+		// 地方。
 		expect(question[0].state).toBeUndefined();
 	});
 
 	it('app 分辨不出的标题，退回按行号', () => {
-		// `#Beta` resolves to the FIRST heading with that text, so a note that says
-		// "Beta" twice would open the wrong one of them — and a wrong section shown
-		// without moving once is worse than the right place arriving late (which the
-		// cover hides anyway, see PreviewSettle).
+		// `#Beta` 解析到带那段文本的**第一个**标题，所以一篇两次写着「Beta」的笔记会打开
+		// 错的那一个 —— 而一个一次都不移动就显示的错小节，比晚到的正确地点更糟（反正遮罩
+		// 会把它藏住，见 PreviewSettle）。
 		const h = withHeadings([heading('Alpha', 0), heading('Beta', 5), heading('Beta', 20)]);
 
 		movedOnto(h.place('L12'));
@@ -4143,9 +3887,8 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('没法写进链接里的标题，退回按行号', () => {
-		// The characters below are link syntax to the parser, not part of a name: each
-		// opens something else (a subpath, an alias, the link itself), so the heading
-		// would arrive as something other than itself.
+		// 下面那些字符对解析器来说是链接语法、不是名字的一部分：每一个都开启别的东西
+		// （一个子路径、一个别名、链接本身），所以那个标题会以不是它自己的东西到达。
 		const h = withHeadings([heading('Alpha', 0), heading('Beta | gamma', 5)]);
 
 		movedOnto(h.place('L12'));
@@ -4155,10 +3898,9 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('笔记连一处位置都没有的行，不承诺任何行号', () => {
-		// Nothing is invented to fill the silence: the line a preview is asked for is a
-		// place the note HAS, and a note the reader never left anywhere — no jump in it,
-		// nothing saved for it — has none to be asked about. What the preview then shows is
-		// the note from its head, which is what opening it plainly would have shown.
+		// 不编造任何东西来填补这份沉默：预览被要的行号是笔记**拥有**的一个地方，而一篇
+		// 读者从没在哪离开过的笔记 —— 里面没有 jump、也没为它保存过任何东西 —— 没有可被
+		// 要的行号。那时预览显示的是从开头起的这篇笔记，而那正是普通打开它本会显示的东西。
 		const h = harness(plain(), 1, files);
 
 		movedOnto(h.note('a'));
@@ -4167,9 +3909,8 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('没有页面可给的行，背后什么都不去要', () => {
-		// A pathless view names no file: there is nothing for the app to open a preview
-		// of, and building this panel's own card about the graph is exactly the second
-		// implementation the asking is meant to spare us (see hoverRow).
+		// 一个没有路径的视图不命名任何文件：没有东西可让 app 打开预览，而为图谱搭这个面板
+		// 自己的卡片，恰恰是这次询问本就意在替我们省掉的第二套实现（见 hoverRow）。
 		const h = harness([
 			visit('a.md', NOW - MINUTE),
 			{ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry,
@@ -4182,9 +3923,9 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('手指问不出任何东西，也不前往任何地方', () => {
-		// A finger resting on a row is about to tap it, not to read it — and there is no
-		// room on a phone for a page beside the row anyway (see RecentFilesList.onHoverRow).
-		// Nothing travels either way: a hover is not a navigation, wherever it leads.
+		// 停在一行上的手指是即将点它，不是要读它 —— 而且手机上本来也没有空间在一行旁边
+		// 放一页（见 RecentFilesList.onHoverRow）。两条路都不行进：悬停不是导航，无论它
+		// 通向哪里。
 		const h = harness(plain(), 1, files);
 
 		movedOnto(h.note('a'), 'touch');
@@ -4194,15 +3935,13 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('给 app 打开的那张卡片做标记，面板要托起来的正是它', async () => {
-		// The note answering a hover from the DIALOG shell opens behind it: the core
-		// puts every popover on the document's body and paints it below a modal
-		// container (see body.ts's liftPreview), so the page the dialog asked for is
-		// the one thing its own frame is standing over. Neither the card's paint nor
-		// the layers are here to test — no stylesheet runs in jsdom, and both values
-		// are the app's — but the SEAM is: which cards get marked is exactly which
-		// cards this panel asked the app for, and one it did not ask about is not
-		// this panel's to dress up. Marked rather than styled inline, because how a
-		// popover looks is the theme's answer and always has been.
+		// 从**对话框**外壳应答悬停的那篇笔记开在它背后：core 把每一个 popover 都放到
+		// document 的 body 上、把它画在一个模态容器下面（见 body.ts 的 liftPreview），
+		// 所以对话框要的那一页是它自己的框所站着的唯一一样东西。这里要测的既不是那张卡片
+		// 的绘制、也不是那些层 —— jsdom 里不跑样式表，而两个值都是 app 的 —— 而是那个
+		// **接缝**：哪些卡片被标记，恰恰就是这个面板向 app 要过的那些卡片，而一个它没问过
+		// 的卡片不是这个面板该去装扮的。用标记而不是内联样式，因为 popover 长什么样是主题
+		// 的答案，历来如此。
 		const h = harness(plain(), 1, files);
 		movedOnto(h.note('a'));
 
@@ -4211,35 +3950,33 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 		expect(card.classList.contains('position-restore-nav-preview')).toBe(true);
 	});
 
-	// WHAT THE ROWS SAY FOR THEMSELVES STANDS ASIDE FOR WHAT THE APP IS SHOWING. The hint
-	// answers what the row could not print (see RecentFilesList.fileRow) — the path the
-	// setting left off it, the other names a note goes by — and the note answers all of it
-	// too: better, and on the page rather than in a box beside it. Nothing of this is the
-	// asking being refused; it is two answers to one question being one answer too many.
+	// 行自己说的那些话给 app 正在显示的东西让路。提示回答的是这一行印不出来的东西（见
+	// RecentFilesList.fileRow）—— 设置留在它外面的路径、一篇笔记另叫的那些名字 —— 而那篇
+	// 笔记也把这一切都回答了：答得更好，而且是在页面上、不是在旁边一个盒子里。这些都不是
+	// 询问被拒绝；它是同一个问题的两个答案，多了一个。
 	//
-	// And nothing of it is REMEMBERED, either: whether a hint may speak is asked fresh at
-	// every hover (see RecentFilesListOptions.tipsQuiet), so the answer's lifetime is the
-	// popover's — not the pointer's, and not some flag's that a later hover has to clear.
+	// 而且这一切都**不被记住**：一条提示可不可以说话，在每一次悬停时都重新问一遍（见
+	// RecentFilesListOptions.tipsQuiet），所以这个答案的寿命就是那个 popover 的 —— 不是
+	// 指针的，也不是某个此后某次悬停还得去清的标志的。
 	it('笔记一盖到列表上，就把自己说的话收回', async () => {
 		const h = harness(plain(), 1, files);
-		// A hovering that got nothing else to go on is a hovering with something to say.
+		// 一次除此之外什么都得不到的悬停，是一次有话说要说的悬停。
 		movedOnto(h.note('a'));
 		expect(h.hover(h.note('a'))).not.toBeNull();
 
-		// …and then the app opens one: the reader held its key, or has once said that
-		// hovering is enough for every list the app has. What was said is taken back…
+		// ……然后 app 打开了一个：读者按住了它的键，或曾经说过「悬停对 app 的每一份列表
+		// 都够了」。说过的话被收回……
 		await opened(h);
 		expect(tip()).toBeNull();
 
-		// …and nothing new is said while the note stands: the page has already answered
-		// "which file is this" better than the box beside it could.
+		// ……而笔记立着的时候不再说新的话：那一页对「这是哪个文件」的回答已经比旁边那个
+		// 盒子能给的更好。
 		expect(h.hover(h.note('b'))).toBeNull();
 	});
 
 	it('app 什么都没回答时，该说的话留着', async () => {
-		// Refusing is not answering either: a preview plugin turned off, or a key still
-		// being held back, is a hovering that got nothing at all — and the row's own words
-		// are then the only thing reading it has earned.
+		// 拒绝也不是应答：一个被关掉的预览插件、或一个仍被扣着的键，是一次什么都没得到的
+		// 悬停 —— 而那时这一行自己的话就是读它唯一挣到的东西。
 		const h = harness(plain(), 1, files);
 		movedOnto(h.note('a'));
 		await vi.advanceTimersByTimeAsync(2000);
@@ -4248,9 +3985,9 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 
 	it('笔记一消失又能开口 —— 指针始终没离开过列表', async () => {
-		// The silence ends with the PREVIEW, not with a journey of the pointer's: a hint
-		// that stayed off after the popover closed was the bug this asking is the answer
-		// to (see tip.ts's `quiet`), and "away and back" is no longer part of the bargain.
+		// 沉默随**预览**结束，而不是随指针的一段旅程结束：一个在 popover 关上后仍关着的
+		// 提示，正是这次询问所回答的那个 bug（见 tip.ts 的 `quiet`），而「走开又回来」不再
+		// 是这笔交易的一部分。
 		const h = harness(plain(), 1, files);
 		movedOnto(h.note('a'));
 		expect(h.hover(h.note('a'))).not.toBeNull();
@@ -4263,34 +4000,31 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	});
 });
 
-// A ROW'S LINE NUMBER IS AN ADDRESS, AND THE NOTE MOVES UNDER IT. What the app is
-// asked for from here is a SPOT, and a spot recorded last week may have had the ground
-// shift under its own number since: a paragraph written above it moves every line below.
-// So the number handed over is the one the note's own text answers to TODAY — or none at
-// all (see now-line.ts), which is the honest asking: a preview that opens the note without
-// naming a line was never wrong about where the spot was.
+// 一行的行号是一个**地址**，而那篇笔记在它底下移动。从这里向 app 要的是一处**地点**，
+// 而一周前记下的一处地点，它自己那个行号底下的地基可能自那以后就动了：写在它上面的一段
+// 文字会挪动下面每一行。所以交出去的那个数字，是笔记自己的文本**今天**应答的那个 ——
+// 或压根没有（见 now-line.ts），而那是诚实的询问：一个打开笔记却不点出行号的预览，从来
+// 没有搞错过那处地点在哪儿。
 describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () => {
-	// The note as it was when the record was taken, and the spot: line 11 of it.
+	// 记录取来时的这篇笔记，以及那处地点：它的第 11 行。
 	const SPOT = 11;
 	const st = captured(SPREAD_DOC, SPOT);
-	// …and as it stands now, with two lines written in above the spot: everything below
-	// has moved down by two, and the spot's own text has moved down with it.
+	// ……以及它现在的样子，那处地点上方写进了两行：下面的一切都下移了两行，而那处地点
+	// 自己的文本也跟着下移了。
 	const edited = [...SPREAD_DOC.slice(0, 2), '补记一行', '', ...SPREAD_DOC.slice(2)].join('\n');
 	const files = { 'a.md': SPREAD_DOC.join('\n') };
-	// The questions the app was asked, in order (see the suite above).
+	// app 被问过的那些问题，按次序（见上面那个套件）。
 	const asked = (trigger: unknown) =>
 		(trigger as { mock: { calls: unknown[][] } }).mock.calls
 			.filter(c => c[0] === 'hover-link')
 			.map(c => c[1] as { linktext?: string; state?: { scroll?: number } });
 	const one = (): NavEntry[] => [visit('a.md', NOW, st)];
 
-	// The three below ask for the line the app MOVED TO AFTERWARDS — which is the stop
-	// this list offers rather than the one it ships (see PreviewFocusMode), so each one
-	// says so where the panel read its own preference.
+	// 下面三个要的是 app **此后挪到**的那一行 —— 那是这份列表提供的停靠点，而不是它自带的
+	// 那个（见 PreviewFocusMode），所以每一个都在面板读它自己那条偏好的地方说明了。
 	it('笔记开着时，点出这一处现在待在第几行', () => {
-		// The buffer of a note that is OPEN is the only source that cannot be behind: it
-		// is the text the reader is looking at, saved or not — and the file's own clock
-		// says the note has been written since the record was taken.
+		// 一篇**开着**的笔记的缓冲区是唯一不可能落后的来源：那是读者正在看的文本，无论存
+		// 没存 —— 而文件自己的时钟说这篇笔记自记录取来之后被写过。
 		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 },
 			prefs({ focus: 'line' }).browser);
 
@@ -4303,16 +4037,16 @@ describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () =
 	});
 
 	it('没有标签页拿着它时就从磁盘读，那一行要下一次悬停才点得出来', async () => {
-		// Nothing is in hand the first time — the lines sit behind an await, and an asking
-		// is not going to wait for a file — so that hover asks for the note with NO number,
-		// and the reading it started is what lets the next one name the spot.
+		// 第一次手上什么都没有 —— 那些行在一个 await 后面，而一次询问不会去等一个文件
+		// —— 所以那次悬停**不点行号**地要这篇笔记，而它起的那次读取正是让下一次能点出
+		// 那处地点的东西。
 		const h = harness(one(), 0, { 'a.md': edited }, [], {}, {}, false, { 'a.md': 9 },
 			prefs({ focus: 'line' }).browser);
 
 		movedOnto(h.note('a'));
 		expect(asked(h.trigger)[0].state).toBeUndefined();
 
-		// The reading lands, and the panel redraws with it (see redrawAfterLateRead).
+		// 这次读取落地，而面板随之重画（见 redrawAfterLateRead）。
 		await vi.advanceTimersByTimeAsync(LATE_READ_REDRAW_MS * 2);
 		movedOnto(h.note('a'));
 
@@ -4320,8 +4054,7 @@ describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () =
 	});
 
 	it('笔记此后没被写过时，保留记下的那个行号', () => {
-		// The file's clock says what the record says: nothing has been written, so the
-		// recorded line is still the line.
+		// 文件的时钟说的与记录说的一样：没被写过任何东西，所以记下的那一行仍是那一行。
 		const h = harness([visit('a.md', NOW, { ...st, mtime: 4 })], 0, files, [], {}, {}, false,
 			{ 'a.md': 4 }, prefs({ focus: 'line' }).browser);
 
@@ -4331,10 +4064,9 @@ describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () =
 	});
 
 	it('行上有行号、但笔记是按 app 自己那套去问的时候，不点行号', () => {
-		// The same open note, the same spot two lines off and found again — and nothing
-		// named, because the DEFAULT stop asks for the note the way every list the app
-		// ships asks for it. Everything above this test is an expedition the reader
-		// chose, not a duty this row has.
+		// 同一篇开着的笔记、同一处偏了两行又被找到的地点 —— 而什么都没被点出，因为
+		// **默认**停靠点按 app 自带的每一份列表要这篇笔记的方式去要它。这个测试上面的一切
+		// 都是读者选择的一次远征，不是这一行有的义务。
 		const h = harness(one(), 0, files, [], { 'a.md': edited }, {}, false, { 'a.md': 9 });
 
 		movedOnto(h.note('a'));
@@ -4345,7 +4077,7 @@ describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () =
 	});
 
 	it('那一处再也找不回来时，一个行号都不点', () => {
-		// The note was rewritten: nothing left in it is the line the record's anchor names.
+		// 这篇笔记被重写了：它里面已经没有东西是记录的那个 anchor 所指的行。
 		const h = harness(one(), 0, files, [], { 'a.md': '全新的一段\n'.repeat(20) }, {}, false,
 			{ 'a.md': 9 });
 
@@ -4353,15 +4085,14 @@ describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () =
 
 		const question = asked(h.trigger)[0];
 		expect(question.state).toBeUndefined();
-		// …and no SECTION either: a heading belongs to a line, and there is no line.
+		// ……也没有**小节**：一个标题属于某一行，而没有行。
 		expect(question.linktext).toBe('a.md');
 	});
 });
 
 describe('RecentFilesModal —— 置顶的行', () => {
-	// A PIN is a bookmark for a NOTE, so the block holds one row per note and no
-	// landings under any of them; what the reader loses is the list of spots, not
-	// the newest one, which the row still stands for (see RecentFilesList).
+	// 一个**钉**是一篇**笔记**的书签，所以置顶块一本笔记一行、底下没有任何落点；读者失去
+	// 的是那些地点的清单，不是最新的那一个 —— 那一行仍代表它（见 RecentFilesList）。
 	const three = () => [
 		visit('a.md', NOW - 5 * MINUTE),
 		visit('b.md', NOW - 2 * MINUTE),
@@ -4374,13 +4105,13 @@ describe('RecentFilesModal —— 置顶的行', () => {
 			undefined, ['b.md', 'c.md']);
 
 		const names = h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
-		// The pin order and not the clock: c.md is the newest place here and b.md
-		// is the older of the two pins, and the reader put b first.
+		// 是钉住的次序、不是时钟：c.md 是这里最新的地点，而 b.md 是两个钉里较旧的那个，
+		// 而读者把 b 放在前面。
 		expect(names).toEqual(['b', 'c', 'a']);
 		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
 		expect(h.notes()[1].classList.contains('is-pinned')).toBe(true);
 		expect(h.notes()[2].classList.contains('is-pinned')).toBe(false);
-		// ONE line, under the block and nowhere else.
+		// **一条**线，在块下面、别处一概没有。
 		const lines = h.el.querySelectorAll('.position-restore-nav-pinned-sep');
 		expect(lines).toHaveLength(1);
 		expect(lines[0].nextElementSibling).toBe(h.notes()[2]);
@@ -4399,8 +4130,8 @@ describe('RecentFilesModal —— 置顶的行', () => {
 
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
 			.toEqual(['b', 'c', 'a']);
-		// b.md's two spots are not printed — the block is one row per note — while
-		// a.md, which nobody pinned, keeps both of its own.
+		// b.md 的两处地点不印 —— 置顶块是一篇笔记一行 —— 而没人钉住的 a.md 保留它自己的
+		// 两处。
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
 			.toEqual(['L11', 'L21']);
 	});
@@ -4413,7 +4144,7 @@ describe('RecentFilesModal —— 置顶的行', () => {
 	});
 
 	it('行不在屏幕上的钉子跳过；等这一条被钉住时再补上', () => {
-		// A pin naming a note the filter dropped is not a promise that it is listed.
+		// 一个钉住了一篇被过滤掉的笔记的钉，不是「它被列出了」的承诺。
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['gone.md']);
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
@@ -4432,7 +4163,7 @@ describe('RecentFilesModal —— 置顶的行', () => {
 			undefined, ['a.md']);
 
 		h.clickRow(h.note('a'));
-		// The row stands for the note's newest landing, as it does unpinned.
+		// 这一行代表这篇笔记最新的那个落点，与它没被钉住时一样。
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 
 		h.clickRow(h.forgetButton(h.note('a')));
@@ -4441,9 +4172,8 @@ describe('RecentFilesModal —— 置顶的行', () => {
 });
 
 describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
-	// WHAT THIS LIST ADDS to the app's own menu for a file: the pin, which is a
-	// bookmark for a NOTE and belongs on a note's row — and the two steps, which
-	// are about the pinned block's own order and nowhere else.
+	// 本列表给 app 自己那个文件菜单**加上**的东西：钉住 —— 那是一篇**笔记**的书签、属于
+	// 笔记行 —— 以及那两步，它们只关于置顶块自己的次序，别处一概无关。
 	const three = () => [
 		visit('a.md', NOW - 5 * MINUTE),
 		visit('b.md', NOW - 2 * MINUTE),
@@ -4465,8 +4195,8 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
 
 	it('笔记行上给「钉住」这一项，落点行上不给', () => {
-		// A pin is a bookmark for the NOTE: a landing is a spot INSIDE one, and
-		// pinning it would be a second, smaller kind of pin (see body.ts's pinItems).
+		// 一个钉是一篇**笔记**的书签：一个落点是它**内部**的一处地点，钉住它会是第二种、
+		// 更小的钉（见 body.ts 的 pinItems）。
 		const spread = [
 			visit('a.md', NOW - 3 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 2 * MINUTE, { scroll: 20 }),
@@ -4484,8 +4214,8 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 	});
 
 	it('把这篇笔记钉住，它那一行挪到列表最上面', () => {
-		// The row moves AT ONCE: the panel is the only thing that can say so, and a
-		// dialog does not subscribe to the store (see body.ts's pin).
+		// 这一行**立刻**挪动：面板是唯一说得出这件事的东西，而对话框不订阅 store（见
+		// body.ts 的 pin）。
 		const h = harness(three(), 2, files);
 
 		h.rightClick(h.note('a'));
@@ -4498,8 +4228,7 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 	});
 
 	it('有步可挪时才给那两项', () => {
-		// At either end of the block an item that would do nothing is worse than an
-		// item that is not there.
+		// 在块的两端，一个什么都不做的项比一个不存在的项更糟。
 		const alone = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['a.md']);
 		alone.rightClick(alone.note('a'));
@@ -4543,17 +4272,16 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 	});
 
 	it('超过一步时才给「挪到头」那一项', () => {
-		// "Move to the front" beside the front would do exactly what "move up"
-		// just offered, so it is not there — a block of three has no row far
-		// enough from either end to need one.
+		// 在最前面的旁边放「挪到最前」做的正是「上移」刚提供的，所以它不在那儿 —— 三行的
+		// 一个块没有离任一端够远、需要这一项的行。
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['a.md', 'b.md', 'c.md']);
 		h.rightClick(h.note('b'));
 		expect(items(h).map(i => i.title))
 			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'), t('recentFiles.pinDown')]);
 
-		// Four is where a row is two steps from an end: the FRONT row has no way
-		// up at all, the one below it is one step up and two down.
+		// 四行才有离某一端两步的行：**最前**那一行压根没有上移的路，它下面那一行则是上移
+		// 一步、下移两步。
 		const four = { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' };
 		const block = harness([
 			visit('a.md', NOW - 5 * MINUTE),
@@ -4581,7 +4309,7 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 			t('recentFiles.pinFirst'), t('recentFiles.pinDown')]);
 		expect(titles('d')).toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp'),
 			t('recentFiles.pinFirst')]);
-		// …and the block itself is still drawn in the reader's own order.
+		// ……而块本身仍按读者自己的次序画。
 		expect(names(block)).toEqual(['a', 'b', 'c', 'd']);
 	});
 
@@ -4598,8 +4326,7 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 		h.rightClick(h.note('b'));
 		item(h, t('recentFiles.pinLast')).click!();
 
-		// What the store is handed is the DISTANCE, not the index: how far a row
-		// has to travel is the block's business.
+		// 交给 store 的是那个**距离**、不是下标：一行要挪多远是块自己的事。
 		expect(h.movePinned).toHaveBeenCalledWith('b.md', 2);
 		expect(h.pinned).toEqual(['a.md', 'c.md', 'd.md', 'b.md']);
 		expect(names(h)).toEqual(['a', 'c', 'd', 'b']);
@@ -4607,10 +4334,9 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 });
 
 describe('RecentFilesModal —— 视图行上的「钉住」', () => {
-	// WHAT the reader pins is their own business: a pathless view is a place this
-	// list remembers and a row this list draws, and a pin is about the ROW. What
-	// differs from a note is only the menu's SIZE — a view names no file, so
-	// nothing is asked of the app (see body.ts's contextRow).
+	// 读者钉**什么**是他们自己的事：一个没有路径的视图是本列表记住的一处地点、也是本列表
+	// 画的一行，而一个钉是关于那一**行**的。与笔记不同的只是菜单的**大小** —— 一个视图
+	// 不命名任何文件，所以什么都不向 app 询问（见 body.ts 的 contextRow）。
 	const graph = { kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: NOW } as NavEntry;
 	const spots = () => [visit('a.md', NOW - MINUTE), graph];
 	const files = { 'a.md': '' };
@@ -4624,16 +4350,16 @@ describe('RecentFilesModal —— 视图行上的「钉住」', () => {
 		h.rightClick(graphRow(h));
 		Menu.shown.at(-1)!.items.find(i => i.title === t('recentFiles.pin'))!.click!();
 
-		// A view is named by its TYPE, which is exactly what a path cannot say
-		// (see nav/entry.ts's navGroupKey).
+		// 视图以它的**类型**命名，而这正是路径说不出的事（见 nav/entry.ts 的
+		// navGroupKey）。
 		expect(h.pin).toHaveBeenCalledWith('view:graph');
 		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
 		expect(h.notes()[0]).toBe(graphRow(h));
 	});
 
 	it('手机上从被触发行自己那个控件调出同一份菜单', () => {
-		// The control is the ONLY door on a phone, and a view's row used to have
-		// none at all — which left a view unpinnable where most readers pin.
+		// 在手机上这个控件是**唯一**的门，而一个视图的行从前根本没有它 ——
+		// 这让视图在读者最常钉住的地方钉不了。
 		const h = harness(spots(), 1, files, [], {}, {}, true);
 		const row = graphRow(h);
 
@@ -4648,9 +4374,8 @@ describe('RecentFilesModal —— 视图行上的「钉住」', () => {
 });
 
 describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
-	// ONE property the reader named in the settings, and the file's own name
-	// where a note has none of it: that is the whole of the rule, which is why
-	// there is no second setting saying which to prefer (see reads.ts's titleOf).
+	// 读者在设置里指定的**一个**属性，笔记没有该属性时则用文件自己的名字：整条
+	// 规则就这些，所以没有第二个设置去说更偏好哪个（见 reads.ts 的 titleOf）。
 	const spots = () => [visit('b.md', NOW - MINUTE), visit('a.md', NOW)];
 	const files = { 'a.md': '', 'b.md': '' };
 	const named = (title: string) => prefs({ title }).browser;
@@ -4664,15 +4389,14 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 			'b.md': cacheWith({}),
 		}, false, {}, named('title'));
 
-		// a.md is the newest, and it is the one with a name of its own.
+		// a.md 是最新的，它也是那个自带名字的。
 		expect(names(h)).toEqual(['每周回顾', 'b']);
 	});
 
 	it('设置还空着时一律印文件名，笔记里怎么写都不管', () => {
-		// OFF is the default and it has to mean OFF: a vault that names its notes
-		// in their file names owes this row nothing, and a `title` sitting in a
-		// note is then just another name it can be SEARCHED by (see the suite
-		// above).
+		// 关是默认值，它就得意味着关：一个用文件名给笔记命名的 vault 不欠这一行
+		// 任何东西，此时待在一篇笔记里的 `title` 只是它还能被**搜索**的另一个名字
+		// （见上面的套件）。
 		const h = harness(spots(), 1, files, [], {}, {
 			'a.md': cacheWith({ title: '每周回顾' }),
 		}, false, {}, prefs().browser);
@@ -4681,8 +4405,8 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 	});
 
 	it('只认单段文本当名字', () => {
-		// A list, a year or an emptied property is not a name: a row that guessed
-		// would print "[object Object]" or "2024" where the reader's note goes.
+		// 一个列表、一个年份或一个被清空的属性都不是名字：一个瞎猜的行会在本该是
+		// 读者笔记的地方印出 "[object Object]" 或 "2024"。
 		const h = harness([
 			visit('b.md', NOW - 3 * MINUTE),
 			visit('c.md', NOW - 2 * MINUTE),
@@ -4697,8 +4421,8 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 	});
 
 	it('按它印出来的名字能搜到，两篇同名的也能分辨', () => {
-		// What is searched and what is disambiguated is the same name the row
-		// prints: a note renamed in frontmatter is one name everywhere on it.
+		// 被搜索的和被分辨的是同一个名字，即这一行印出来的那个：一篇在前置元数据
+		// 里改过名的笔记，在它上面处处是同一个名字。
 		const h = harness([
 			visit('notes/a.md', NOW - MINUTE),
 			visit('other/b.md', NOW),
@@ -4719,18 +4443,17 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 		box.value = '周会';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(names(h)).toEqual(['周会', '周会']);
-		// …and the file's own name still finds it, which is the name the reader
-		// sees everywhere else.
+		// ……而文件自己的名字仍然能找到它，那也是读者在别处处处见到的名字。
 		box.value = 'a.md';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(names(h)).toEqual(['周会']);
 	});
 
 	it('名字是借来的之后，仍然说得出它是哪个文件', () => {
-		// A row printing every path says no MORE than a row printing none: the folder
-		// alone names no file, and under a borrowed name neither does the name cell —
-		// so both "always" modes owe the file its own name, on the same row, or the
-		// note this row stands for is the one thing it never says.
+		// 一个把每条路径都印出来的行，比一个什么都不印的行说得多不了哪去：光凭文件夹
+		// 命名不了任何文件，而在一个借来的名字下名字单元格也一样 —— 所以两种「总是」
+		// 模式都欠文件它自己的名字、且要在同一行上，否则这一行所代表的笔记就是它从不
+		// 说出口的那一件事。
 		const h = harness(spots(), 1, files, [], {}, {
 			'a.md': cacheWith({ title: '每周回顾' }),
 		}, false, {}, prefs({ title: 'title', path: 'before' }).browser);
@@ -4738,13 +4461,12 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 		expect(names(h)).toEqual(['每周回顾', 'b']);
 		expect(h.notes().map(r => r.querySelector('.nav-row-path')?.textContent))
 			.toEqual(['a.md', '/']);
-		// …and nothing about the path on hover: the row has just said it, and a hover
-		// is for what a row leaves out (see fileRow).
+		// ……悬停上也不再提路径：这一行刚说过它了，而悬停是留给行省略掉的东西的
+		// （见 fileRow）。
 		expect(h.hover(h.notes()[0])).toBeNull();
 
-		// WHERE NO PATH IS PRINTED, the file's own name is one hover away instead —
-		// a reader who did not ask for paths is not a reader who cannot ask which
-		// note this is.
+		// 在哪里都不印路径时，文件自己的名字就在一次悬停之外 —— 一个没要求显示路径
+		// 的读者，不是一个没法问这是哪篇笔记的读者。
 		const quiet = harness(spots(), 1, files, [], {}, {
 			'a.md': cacheWith({ title: '每周回顾' }),
 		}, false, {}, named('title'));
@@ -4754,22 +4476,20 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 	});
 
 	it('印出来的名字变了才重画，别的编辑不重画', () => {
-		// The reader is TYPING that property, in the note, while the row stands
-		// there printing the old name. An edit anywhere in a note re-parses it,
-		// so what earns a redraw is the name being different now — a full
-		// rebuild of the list per keystroke is the cost of not comparing.
+		// 读者正在笔记里**键入**那个属性，而行就立在那里印着旧名字。笔记里任何一处
+		// 编辑都会让它重新解析，所以值得重画的是名字**此刻**变了 —— 每敲一键就整份
+		// 重建列表，就是不比较的代价。
 		const cache = { 'a.md': cacheWith({ title: 'One' }) };
 		const h = harness([visit('a.md', NOW)], 0, files, [], {}, cache, false, {},
 			named('title'));
 		expect(names(h)).toEqual(['One']);
 
-		// By position and not by name: the row's name is the thing that is
-		// about to change under the reader.
+		// 按位置而不是按名字：这一行的名字正是读者脚下即将变掉的东西。
 		const row = h.notes()[0];
 		cache['a.md'].frontmatter.title = 'Two';
 		h.changeFile('a.md');
 		expect(names(h)).toEqual(['Two']);
-		// …and it was drawn again rather than patched: the row is a new element.
+		// ……而它是被重新画出来、不是被打补丁：这一行是个新元素。
 		expect(h.notes()[0]).not.toBe(row);
 
 		const same = h.notes()[0];
@@ -4780,11 +4500,10 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 	});
 
 	it('读者换一个属性时，重画它印出来的名字', () => {
-		// The property is a READER and not a value, and the settings tab asks a
-		// standing panel to draw again the moment it changes (see BROWSER_PREF_KEYS).
-		// What has to go with it is the memory of the names: those are kept PER PATH
-		// and outlive a redraw (see reads.ts), so a cache that kept them would print
-		// the name it read under the property the reader has since left behind.
+		// 这个属性是一个**读者**而不是一个值，设置页一有变动就会请常驻面板重画一次
+		// （见 BROWSER_PREF_KEYS）。跟它一起必须走的是名字的记忆：那些是**按路径**存
+		// 的、能活过一次重画（见 reads.ts），所以一个留着它们不放的缓存在读者换过属性
+		// 之后，会印出它在读者已然抛下的那个属性下读到的名字。
 		const cache = {
 			'a.md': cacheWith({ title: '每周回顾', name: '另一个名字' }),
 		};
@@ -4796,26 +4515,24 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 		h.changed();
 		expect(names(h)).toEqual(['另一个名字', 'b']);
 
-		// …and emptied is OFF again: a note is then called by its own name, however
-		// it is written.
+		// ……而清空后又回到关：此时一篇笔记由它自己的名字来称呼，无论它怎么写。
 	chosen.state.title = '';
 	h.changed();
 	expect(names(h)).toEqual(['a', 'b']);
 });
 
-// THE FOUR ARROWS — the panel's answer for a device with no keyboard, and the one
-// control in it that acts on the NOTE rather than on the list. What is tested here is
-// the body's half of it: that a press runs the act the plugin named, that a press the
-// body cannot answer is greyed rather than answered with nothing, and that the strip is
-// drawn in every shell — there is no switch for it, four buttons at the foot of a list
-// cost that list nothing and a reader with no keyboard has no other way to ask.
+// 那四个箭头 —— 面板为没有键盘的设备给出的答案，也是其中唯一一个作用于**笔记**
+// 而不是作用于列表的控件。这里测的是 body 那一半：一次按压会运行插件指定的那个
+// 动作、一次 body 答不出的按压会被置灰而不是用空来作答、以及这条箭头条在每个外壳
+// 里都会被画出来 —— 它没有开关，列表脚边四个按钮不费列表任何东西，而一个没有键盘
+// 的读者也没有别的办法来发问。
 describe('RecentFilesModal —— 那四个箭头', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const two = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 
-	// The strip and its four buttons, found by their own class rather than by where they
-	// stand: where a strip stands is the stylesheet's (a phone puts it under the list,
-	// asserted in the styles suite), and jsdom lays nothing out.
+	// 这条箭头条和它的四个按钮，是按它们自己的 class 而不是按它们站的位置来找到的：
+	// 条站在哪儿是样式表的事（手机把它放在列表下方，在样式套件里断言），而 jsdom
+	// 不做任何布局。
 	const strip = (h: ReturnType<typeof harness>) =>
 		h.el.querySelector<HTMLElement>('.position-restore-nav-arrows')!;
 	const buttons = (h: ReturnType<typeof harness>) =>
@@ -4824,8 +4541,8 @@ describe('RecentFilesModal —— 那四个箭头', () => {
 		button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
 	it('执行插件指定的那个动作，为此关掉这个对话框', () => {
-		// One press each, and the dialog goes FIRST: it stands over the note these act
-		// on, so a move the reader cannot see is a move that did not happen.
+		// 每个各按一次，而对话框**先**关掉：它挡在这些动作所作用的笔记上面，所以一次
+		// 读者看不见的移动就是一次没发生过的移动。
 		for (const [at, act] of [[0, 'back'], [1, 'forward'], [2, 'top'], [3, 'bottom']] as const) {
 			const h = harness(two(), 1, files);
 			const close = vi.spyOn(h.modal, 'close');
@@ -4836,8 +4553,8 @@ describe('RecentFilesModal —— 那四个箭头', () => {
 	});
 
 	it('每个按钮都用它运行的命令来命名', () => {
-		// The same words as in the palette, and the only place on the panel that says
-		// WHOSE ends the last two go to: "top of note", not "top of this list".
+		// 与命令面板里同样的字眼，也是面板上唯一说出后两个去往**谁的**两端的地方：
+		// 「笔记顶部」，不是「这个列表的顶部」。
 		const h = harness(two(), 1, files);
 		expect(buttons(h).map(b => b.getAttribute('aria-label'))).toEqual([
 			t('navHistory.commands.navigateBack'),
@@ -4848,14 +4565,12 @@ describe('RecentFilesModal —— 那四个箭头', () => {
 	});
 
 	it('它虽然挨着列表，自己不是列表里的一行', () => {
-		// The whole difficulty of four arrows over a list: the strip belongs to the
-		// panel, and it is the listbox that is the list.
+		// 在列表上放四个箭头的全部难处：箭头条属于面板，而列表是那个 listbox。
 		const h = harness(two(), 1, files);
 		expect(h.list().contains(strip(h))).toBe(false);
 		expect(strip(h).parentElement).toBe(h.el);
-		// …and it comes AFTER the list, because that is where it stands on screen (see
-		// the styles suite): nothing reorders it, so Tab reaches it in the order the eye
-		// does rather than jumping to the foot of the panel first.
+		// ……而它排在列表**之后**，因为那才是它在屏幕上的位置（见样式套件）：没有任何
+		// 东西重排它，所以 Tab 按眼睛的顺序到达它、而不是先跳到面板脚边。
 		const bands = Array.from(h.el.children);
 		expect(bands.indexOf(strip(h))).toBeGreaterThan(bands.indexOf(h.list()));
 	});
@@ -4866,8 +4581,8 @@ describe('RecentFilesModal —— 那四个箭头', () => {
 		expect([back.disabled, forward.disabled, top.disabled, bottom.disabled])
 			.toEqual([false, false, false, false]);
 
-		// The two ends follow the NOTE and not this list, which is what greying them
-		// keeps saying out loud: with no note open there is nothing for them to go to.
+		// 两端跟随的是**笔记**而不是这个列表，这正是把它们置灰所一直在明说的：没有
+		// 打开的笔记，它们就没有可去之处。
 		h.arrows.set({ back: false, edge: false });
 		h.changed();
 		expect([back.disabled, forward.disabled]).toEqual([true, false]);
@@ -4876,8 +4591,8 @@ describe('RecentFilesModal —— 那四个箭头', () => {
 	});
 
 	it('方向键留给拿着焦点的那个控件', () => {
-		// The list's walking is the filter box's: a button with the focus answers an
-		// arrow key itself, and Enter is its own press.
+		// 列表的走法是过滤框的走法：一个拿着焦点的按钮自己应答方向键，而回车就是它
+		// 自己的按压。
 		const h = harness(two(), 1, files);
 		const onPanel = new KeyboardEvent('keydown', {
 			key: 'ArrowDown', bubbles: true, cancelable: true,
