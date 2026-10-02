@@ -1,9 +1,9 @@
-// Unit tests for the leaf+file dedup in Restorer (hasOpenedLeafPath +
-// pruneStaleLeafIds) — the logic with two debugged regressions on record:
-//  - a fresh leaf must never be marked handled from a stale view.file
-//    snapshot (rapid file switch stranded restores at the top);
-//  - pruning must drop entries for closed leaves (incl. pendingOpenKind)
-//    so a reused leaf id can't wrongly dedup a later open.
+// Restorer 里 leaf+file 去重的单元测试（hasOpenedLeafPath +
+// pruneStaleLeafIds）—— 这套逻辑背着两个已修过的回归：
+//  - 全新的 leaf 绝不能凭一份过期的 view.file 快照被标成已处理
+//    （快速换文件会把恢复搁浅在页顶）；
+//  - 裁剪必须丢弃已关闭 leaf 的条目（含 pendingOpenKind），
+//    好让一个被复用的 leaf id 无法错误地给后来的打开去重。
 
 import { describe, it, expect } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
@@ -13,8 +13,8 @@ import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 
-// hasOpenedLeafPath / pruneStaleLeafIds are private; tests drive them
-// through this alias.
+// hasOpenedLeafPath / pruneStaleLeafIds 是私有的；测试通过这个别名
+// 驱动它们。
 type DedupApi = {
 	hasOpenedLeafPath(leaf: WorkspaceLeaf, filePath: string): boolean;
 	pruneStaleLeafIds(): void;
@@ -67,7 +67,7 @@ describe('Restorer 去重', () => {
 		restorer.hasOpenedLeafPath(leaf, 'a.md');
 		expect(restorer.hasOpenedLeafPath(leaf, 'b.md')).toBe(false);
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('b.md');
-		// ... and the new pair dedups from now on.
+		// ……而新那一对从此刻起算去重命中。
 		expect(restorer.hasOpenedLeafPath(leaf, 'b.md')).toBe(true);
 	});
 
@@ -79,12 +79,12 @@ describe('Restorer 去重', () => {
 		state.handledLeafIdMap.set('leaf-closed', 'old.md');
 		state.pendingOpenKind.set(closedLeaf, 'anchorLink');
 
-		// Fresh open of the live leaf triggers the prune.
+		// 对存活 leaf 的一次全新打开会触发裁剪。
 		expect(restorer.hasOpenedLeafPath(liveLeaf, 'a.md')).toBe(false);
 
 		expect(state.handledLeafIdMap.has('leaf-closed')).toBe(false);
 		expect(state.pendingOpenKind.has(closedLeaf)).toBe(false);
-		// Live entries survive.
+		// 存活的条目留了下来。
 		expect(state.handledLeafIdMap.get('leaf-live')).toBe('a.md');
 	});
 
@@ -94,11 +94,11 @@ describe('Restorer 去重', () => {
 		const leaf = makeLeaf('leaf-2');
 
 		restorer.hasOpenedLeafPath(leaf, 'a.md'); // recorded
-		// The leaf is closed and another one opens: prune drops leaf-2's entry.
+		// 该 leaf 关闭、另一个打开：裁剪丢掉了 leaf-2 的条目。
 		liveLeafIds.length = 0;
 		liveLeafIds.push('leaf-3');
 		expect(restorer.hasOpenedLeafPath(makeLeaf('leaf-3'), 'b.md')).toBe(false);
-		// The closed id gets reused by a later leaf instance: no stale dedup.
+		// 那个已关闭的 id 被后来的一个 leaf 实例复用：没有陈旧去重。
 		expect(restorer.hasOpenedLeafPath(leaf, 'a.md')).toBe(false);
 	});
 });

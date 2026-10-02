@@ -1,28 +1,25 @@
-// Tests for PreviewSettle (recent-files/browser/hover-settle.ts), the observer
-// that watches the app's own page preview and covers the jump it makes when it
-// is asked for a line.
+// PreviewSettle（recent-files/browser/hover-settle.ts）的测试，它是个观察者，
+// 盯着 app 自己的页面预览，并遮住它在被要求跳到某一行时所做的那次跳动。
 //
-// What is pinned here is the LOOP'S LIFETIME, the part that is easy to get
-// wrong in either direction. It has to still be looking when the app answers
-// late — this panel's preview needs the Mod key, so the popover may appear ten
-// seconds after the row was asked — and it has to NOT still be looking once
-// the hover has ended, or a card the reader is reading stands open under a
-// paint loop that has nothing left to wait for. The tracked popover is not
-// what decides that; the asking is.
+// 这里钉的是**循环的寿命**，也就是两个方向上都容易搞错的那部分。app 答得
+// 晚时它必须**还在**看 —— 这个面板的预览需要 Mod 键，所以 popover 可能在
+// 行被提问十秒之后才出现 —— 而悬停一结束它就必须**不再**看，否则读者正在
+// 读的卡片会一直敞着，底下却挂着一个已无事可等的 paint 循环。定夺这一点的
+// 不是被跟踪的 popover，而是那次提问。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import type { HoverParent, HoverPopover } from 'obsidian';
 import { PreviewSettle } from '@/recent-files/browser/hover-settle';
 
-// Enough of the app's handle: the parent the asking is handed to, and the one
-// member this module reads off it.
+// app 句柄够用的那一份：提问被交给的 parent，以及本模块从它身上读的
+// 那一个成员。
 type Parent = { hoverPopover?: HoverPopover };
 
 function makePopover(): HoverPopover {
 	const el = document.createElement('div');
-	// isConnected is what the loop asks: a card the app has taken away is gone
-	// even while the field still names it.
+	// 循环问的是 isConnected：一张已被 app 收走的卡片就是没了，
+	// 即便那个字段还指着它。
 	document.body.appendChild(el);
 	return { hoverEl: el } as unknown as HoverPopover;
 }
@@ -47,9 +44,8 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-// Let the loop take the looks it is waiting on, and let the awaits after each
-// of them settle. The paint itself is stubbed, so a look is a frame and not a
-// clock.
+// 让循环把它在等的那几次注视取走，并让每次注视之后的 await 都落定。
+// paint 本身是桩，所以一次注视是一帧，而不是一个时钟。
 async function paint(times = 1): Promise<void> {
 	for (let i = 0; i < times; i++) {
 		const due = frames;
@@ -62,8 +58,8 @@ async function paint(times = 1): Promise<void> {
 }
 
 describe('PreviewSettle', () => {
-	// The reason the loop is an observer and not a wait: when the app answers is
-	// not bounded, so several frames of silence must not end it.
+	// 循环为何是观察者而不是等待：app 答话的时机没有上界，
+	// 所以几帧的沉默不能把它结束掉。
 	it('app 答晚了它还在看', async () => {
 		const h = harness();
 		h.settle.ask(false); // a section: it is drawn where it stands
@@ -87,9 +83,9 @@ describe('PreviewSettle', () => {
 		expect(h.opened).toHaveLength(2);
 	});
 
-	// What the loop waits for is bounded by the asking: the app opens its preview
-	// off the pointer, so a pointer that has left the list means no further answer
-	// is coming — however long the card it left behind stands open.
+	// 循环等什么由那次提问界定：app 是跟着指针打开预览的，所以指针一旦
+	// 离开列表，就意味着不会再有答案来了 —— 不管它留下的那张卡片还要
+	// 敞多久。
 	it('悬停一结束就撤下来，不管有没有 popover', async () => {
 		const h = harness();
 		h.settle.ask(false);
@@ -106,8 +102,8 @@ describe('PreviewSettle', () => {
 		expect(h.opened).toHaveLength(1);
 	});
 
-	// Standing down is not permanent: the next asking starts it again, and its
-	// first look is the one that notices the popover it remembered has closed.
+	// 撤下来不是永久的：下一次提问会重新启动它，而它的头一次注视
+	// 会发现它记住的那个 popover 已经关上了。
 	it('下一次提问时重新开始', async () => {
 		const h = harness();
 		h.settle.ask(false);

@@ -1,18 +1,17 @@
-// Unit tests for BackgroundSettler.completeBackgroundRestores — the startup
-// sweep that settles background split tabs whose open never fired
-// 'file-open'. What this pins down:
-//  - a built background source-injected leaf: settled under its cover, marker
-//    consumed, cover lifted — and the ACTIVE-leaf recording baseline
-//    (lastLoadedFilePath / lastEphemeralState) is left untouched;
-//  - a built background reading leaf (no marker): restored from its saved
-//    record via the no-anchor masked path and recorded as handled;
-//  - a caller-target-handled leaf (Obsidian's own cached position) is skipped;
-//  - the active leaf is never touched;
-//  - a deferred leaf (no editor) keeps its marker and reports pending;
-//  - a stale marker (handled pair moved to another file) is consumed, not settled;
-//  - a leaf owned by an in-flight restore is skipped untouched;
-//  - a built leaf with no saved record is skipped;
-//  - a scroll-0 (cursor-only) injection is revealed only, never settled.
+// BackgroundSettler.completeBackgroundRestores 的单元测试 —— 那趟启动清扫，
+// 给那些打开时从未触发 'file-open' 的后台分屏标签页做落定。这里钉住的：
+//  - 一个已建好的后台源码注入 leaf：在自己的盖布下落定、标记被消费、
+//    盖布掀起 —— 而**活动 leaf** 的记录基线（lastLoadedFilePath /
+//    lastEphemeralState）原封不动；
+//  - 一个已建好的后台阅读 leaf（没有标记）：经无锚的遮罩路径从它
+//    已存的记录恢复，并记为已处理；
+//  - 已被 caller 目标接管的 leaf（以 Obsidian 原生缓存位置为准）跳过；
+//  - 活动 leaf 绝不碰；
+//  - 一个延迟 leaf（没有编辑器）保留它的标记并报告 pending；
+//  - 一个陈旧标记（配对的那条已处理标记移到了别的文件）被消费掉，不落定；
+//  - 被一次进行中恢复持有的 leaf 原封不动地跳过；
+//  - 一个已建好却没有存档记录的 leaf 跳过；
+//  - 一次 scroll 为 0（只有光标）的注入只揭幕，绝不落定。
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MarkdownView, type WorkspaceLeaf } from 'obsidian';
@@ -38,22 +37,21 @@ function makeLeaf(id: string, view: MarkdownView): WorkspaceLeaf {
 	return leaf;
 }
 
-// Source-mode record: scroll plus the cursor a source save contributes.
+// 源码模式的记录：滚动加上源码保存所贡献的光标。
 const RECORD = {
 	scroll: 10,
 	cursor: { from: { line: 10, ch: 0 }, to: { line: 10, ch: 0 } },
 };
 
-// Reading-mode record: scroll-only — a preview save never contributes a
-// cursor. A cursor-bearing record would keep waitForRestorePainted
-// re-applying for its full deadline (the reading readback can't match it),
-// so it would slow the reading-restore test without pinning real behavior.
+// 阅读模式的记录：只有 scroll —— 预览保存从不贡献光标。一条带光标的
+// 记录会让 waitForRestorePainted 在整个期限内反复重贴（阅读的
+// 回读对不上它），所以它只会拖慢阅读恢复测试，并不能钉住真实行为。
 const READING_RECORD = { scroll: RECORD.scroll };
 
-// Source-mode markdown view. No editor.cm means the pixel settle no-ops.
+// 源码模式的 markdown 视图。没有 editor.cm 意味着像素落定空转。
 function makeSourceView(filePath = 'a.md'): MarkdownView {
-	// The stub's MarkdownView ignores its leaf arg; a cast satisfies the real
-	// constructor signature (constructor(leaf: WorkspaceLeaf)).
+	// 桩替身的 MarkdownView 忽略它的 leaf 参数；一次 cast 满足真构造函数
+	// 的签名（constructor(leaf: WorkspaceLeaf)）。
 	const view = new MarkdownView(undefined as never) as MarkdownView & Record<string, unknown>;
 	Object.assign(view, {
 		file: { path: filePath },
@@ -68,11 +66,11 @@ function makeSourceView(filePath = 'a.md'): MarkdownView {
 	return view;
 }
 
-// Reading-mode markdown view whose renderer is "ready": a sizer with content
-// (isContentReady) and a real preview scroller that setEphemeralState moves,
-// so waitForRestorePainted confirms the applied scroll. Obsidian's MarkdownView
-// always constructs its source editor (mode only swaps the shown subview), so
-// a reading view still has one — its getCursor readback just yields no cursor.
+// 渲染器「就绪」的阅读模式 markdown 视图：一个带内容的 sizer
+// （isContentReady）和一个会被 setEphemeralState 移动的真预览滚动容器，
+// 好让 waitForRestorePainted 确认已应用的滚动。Obsidian 的 MarkdownView
+// 总会构造它自己的源码编辑器（模式只切换显示的子视图），所以阅读视图
+// 也有一个 —— 只是它的 getCursor 回读给不出光标。
 function makePreviewView(filePath = 'a.md'): MarkdownView & { setEphemeralState: (s: Record<string, unknown>) => void } {
 	const contentEl = document.createElement('div');
 	const containerEl = document.createElement('div');
@@ -81,9 +79,9 @@ function makePreviewView(filePath = 'a.md'): MarkdownView & { setEphemeralState:
 	sizer.className = 'markdown-preview-sizer';
 	sizer.append(child);
 	sizer.style.height = '1000px';
-	// jsdom does no layout, so scrollHeight is always 0 — isContentReady would
-	// stay false and waitForContentReady would burn its 2000ms deadline. Stub
-	// the "renderer produced content" signal the real browser computes.
+	// jsdom 不做版面，所以 scrollHeight 永远是 0 —— isContentReady 会一直
+	// 是 false，waitForContentReady 会烧掉它 2000ms 的期限。把真浏览器
+	// 算出来的那个「渲染器产出了内容」信号桩掉。
 	Object.defineProperty(sizer, 'scrollHeight', { value: 1000, configurable: true });
 	const scroller = document.createElement('div');
 	scroller.className = 'markdown-preview-view';
@@ -179,7 +177,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-bg')).toBe(false);
 		expect(state.cover.isCovered(leafObjs['leaf-bg'])).toBe(false);
 		expect(state.handledLeafIdMap.get('leaf-bg')).toBe('a.md');
-		// The background settle must never touch the active leaf's recording baseline.
+		// 后台落定绝不能碰活动 leaf 的记录基线。
 		expect(state.lastLoadedFilePath).toBe('active.md');
 		expect(state.lastEphemeralState).toEqual({ scroll: 1 });
 	});
@@ -192,9 +190,9 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(await settler.completeBackgroundRestores()).toBe(true);
 
 		expect(state.handledLeafIdMap.get('leaf-bg')).toBe('a.md');
-		// The saved scroll was applied to the view.
+		// 已存的滚动被应用到了视图上。
 		expect(bg.view.currentMode.getScroll()).toBe(RECORD.scroll);
-		// Baseline untouched.
+		// 基线原封未动。
 		expect(state.lastLoadedFilePath).toBe('active.md');
 		expect(state.lastEphemeralState).toBeUndefined();
 	});
@@ -242,7 +240,7 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		expect(await settler.completeBackgroundRestores()).toBe(true);
 
 		expect(state.injectedOpenLeafIds.has('leaf-bg')).toBe(false);
-		// The stale pair was left alone — the sweep never re-settled b.md.
+		// 陈旧的那一对被放过 —— 清扫从未重新落定 b.md。
 		expect(state.handledLeafIdMap.get('leaf-bg')).toBe('b.md');
 	});
 
@@ -297,8 +295,8 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 		const { state, settler, leafObjs } = makeHarness({ leaves: [deferred] });
 		markInjected(state, [leafObjs['leaf-def']]);
 
-		// Count sweep passes through the app mock's leaf iteration: a pass
-		// reaches it once, a refused pass never does.
+		// 借 app mock 的 leaf 迭代来数清扫趟数：一趟会够到它一次，
+		// 被拒绝的一趟则永远不会。
 		const app = (settler as unknown as {
 			app: { workspace: { iterateAllLeaves: (cb: (leaf: unknown) => void) => void } };
 		}).app;
@@ -309,14 +307,14 @@ describe('BackgroundSettler.completeBackgroundRestores', () => {
 			originalIterate(cb);
 		};
 
-		// The first pass stays pending (deferred leaf); the overlapping call
-		// must be refused instead of double-running the sweep.
+		// 第一趟保持待定（延迟 leaf）；重叠的那次调用必须被拒绝，
+		// 而不是把清扫跑两遍。
 		const first = settler.completeBackgroundRestores();
 		expect(await settler.completeBackgroundRestores()).toBe(false);
 		await first;
 		expect(sweeps).toBe(1);
 
-		// Guard released: a fresh pass runs again.
+		// 守卫释放：新的一趟又跑起来。
 		expect(await settler.completeBackgroundRestores()).toBe(false);
 		expect(sweeps).toBe(2);
 	});

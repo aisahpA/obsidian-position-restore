@@ -1,16 +1,14 @@
-// Unit tests for the leaf-scoped restore supersession semantics — the fix
-// for the cross-leaf stuck-cover bug. Restore staleness must be decided per
-// leaf: only a newer restore on the SAME leaf (or that leaf's view moving to
-// another file) supersedes an in-flight restore. A restore running
-// concurrently on a DIFFERENT leaf must not invalidate it, or the first
-// leaf's masked restore skips its reveal (the restore cover has no safety
-// timer) and the pane stays at opacity 0 indefinitely.
+// 按 leaf 划分的恢复取代语义的单元测试 —— 即「跨 leaf 卡住盖布」那个
+// bug 的修复。恢复的新旧必须按 leaf 判定：只有**同一个** leaf 上更新的
+// 恢复（或该 leaf 的视图挪到了别的文件）才能取代一次正在飞的恢复。在
+// **不同** leaf 上并发跑的恢复绝不能把它作废，否则第一个 leaf 的遮罩
+// 恢复会跳过揭幕（恢复遮罩没有安全计时器），窗格就永远停在 opacity 0。
 //
-// Two layers:
-//  - PositionState::beginLeafRestore / isCurrentLeafRestore, the API the
-//    fix is built on (fast, deterministic);
-//  - one full-pipeline cross-leaf restore: leaf A parks mid-restore under
-//    its cover, leaf B restores fully, and A must still reveal.
+// 两层：
+//  - PositionState::beginLeafRestore / isCurrentLeafRestore，修复所依赖
+//    的那套 API（快、确定性）；
+//  - 一次完整的跨 leaf 全流水线恢复：leaf A 在恢复途中停在盖布底下，
+//    leaf B 完整恢复，而 A 仍然必须揭幕。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MarkdownView, FileView, type WorkspaceLeaf } from 'obsidian';
@@ -57,10 +55,10 @@ describe('PositionState 按 leaf 划分的恢复轮次', () => {
 	});
 });
 
-// ---- Full-pipeline cross-leaf regression ----
+// ---- 跨 leaf 的全流水线回归 ----
 
-// OpenCover styles leaf DOM via Obsidian's HTMLElement.setCssStyles
-// extension, which jsdom lacks.
+// OpenCover 通过 Obsidian 给 HTMLElement 加的 setCssStyles 扩展
+// 来给 leaf 的 DOM 上样式，jsdom 没有这个扩展。
 beforeEach(() => {
 	Object.defineProperty(HTMLElement.prototype, 'setCssStyles', {
 		value(this: HTMLElement, styles: Record<string, string>) {
@@ -83,10 +81,9 @@ function makeLeaf(id: string): WorkspaceLeaf {
 	} as unknown as WorkspaceLeaf;
 }
 
-// Reading-mode view that NEVER becomes content-ready in jsdom (no layout →
-// sizer.scrollHeight stays 0), so its masked restore parks under its cover
-// until the CONTENT_READY_MAX_MS deadline. Deterministic parking for the
-// interleave test.
+// 在 jsdom 里**永不**变成内容就绪的阅读模式视图（没有版面 →
+// sizer.scrollHeight 一直是 0），所以它的遮罩恢复会停在盖布底下，
+// 直到 CONTENT_READY_MAX_MS 期限。给交错测试一个确定性的停放点。
 function makeParkedPreviewView(leaf: WorkspaceLeaf, filePath = 'a.md'): MarkdownView {
 	const contentEl = document.createElement('div');
 	const containerEl = document.createElement('div');
@@ -114,8 +111,8 @@ function makeParkedPreviewView(leaf: WorkspaceLeaf, filePath = 'a.md'): Markdown
 	return view;
 }
 
-// Source-mode view: restores instantly (no async render to wait for), so it
-// runs to completion while the parked preview is still covered.
+// 源码模式视图：瞬间恢复（没有异步渲染要等），所以当停着的那份预览
+// 还被盖着时，它能一路跑完。
 function makeSourceView(leaf: WorkspaceLeaf, filePath = 'b.md'): MarkdownView {
 	const contentEl = document.createElement('div');
 	const containerEl = document.createElement('div');
@@ -150,7 +147,7 @@ describe('跨 leaf 的恢复并发（卡住盖布那个回归）', () => {
 		const app = {
 			workspace: {
 				layoutReady: true,
-				// The stub mirrors `MarkdownView extends FileView`.
+				// 桩替身照着 `MarkdownView extends FileView` 来。
 				getActiveViewOfType: (Type: unknown) =>
 					activeView && (Type === MarkdownView || Type === FileView) ? activeView : undefined,
 				iterateAllLeaves: () => undefined,
@@ -162,18 +159,18 @@ describe('跨 leaf 的恢复并发（卡住盖布那个回归）', () => {
 		);
 		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
 
-		// Leaf A parks mid-masked-restore under its own restore cover.
+		// Leaf A 在自己的恢复盖布底下停在遮罩恢复途中。
 		const promiseA = restorer.restoreEphemeralState();
-		// Leaf B opens while A is still covered; its restore completes fully.
+		// A 还被盖着时 leaf B 打开了；它的恢复完整跑完。
 		activeView = viewB;
 		await restorer.restoreEphemeralState();
 		expect(state.restoreRun).toBe(2); // both restores actually ran
 
-		// Let A unwind past its content-ready deadline and reveal.
+		// 让 A 走完它的内容就绪期限并揭幕。
 		await promiseA;
 
-		// The reveal ran for A too: its contentEl opacity was lifted. Under
-		// the old single-global-counter isCurrent this stayed '0' forever.
+		// A 也揭幕了：它的 contentEl opacity 被抬起来了。用旧的全局单计数器
+		// isCurrent 时，它会永远停在 '0'。
 		expect(viewA.contentEl.style.opacity).toBe('');
 		expect(viewB.contentEl.style.opacity).toBe('');
 	}, 15000);
