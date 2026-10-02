@@ -147,7 +147,7 @@ describe('PositionManager 的 vault 路径变更', () => {
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
-		await vi.advanceTimersByTimeAsync(A_BEAT); // a beat: deferred, not synchronous
+		await vi.advanceTimersByTimeAsync(A_BEAT); // 一拍：延后，非同步
 		expect(h.database.deleteFile).not.toHaveBeenCalled();
 
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
@@ -199,7 +199,7 @@ describe('PositionManager 的 vault 路径变更', () => {
 
 		h.files.delete('a.md');
 		h.manager.deleteFile(h.file('a.md'));
-		h.files.add('a.md'); // the replacement lands before the window closes
+		h.files.add('a.md'); // 替换在窗口关闭前落地
 
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
 
@@ -230,7 +230,7 @@ describe('PositionManager 的导航历史维护', () => {
 		const h = makeHarness();
 		h.files.add('a.md');
 		h.funnel.recordOpen('a.md', 'leaf-1');
-		h.funnel.recordOpen('gone.md', 'leaf-1'); // deleted while Obsidian was closed
+		h.funnel.recordOpen('gone.md', 'leaf-1'); // Obsidian 关闭期间被删
 
 		h.manager.sweepMissingHistory();
 		await vi.advanceTimersByTimeAsync(LONG_AFTER);
