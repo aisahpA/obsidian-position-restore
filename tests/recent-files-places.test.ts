@@ -1,11 +1,10 @@
-// Tests for the RECENT FILES list (recent-files/places.ts + places-store.ts): the
-// store the panel draws and travels through, and which the stack feeds.
+// 「最近文件」列表（recent-files/places.ts + places-store.ts）的测试：这个 store
+// 既是面板据以绘制、据以前往的东西，也是栈喂数据的地方。
 //
-// What is being pinned here is the separation the feature is built on: a place is
-// not a stack step. A place list never truncates, dedupes by place instead of by
-// step, drops inferred moves (teleports) entirely, keeps no position for a FILE
-// (the position database owns "where I left this file"), and keeps its own for a
-// JUMP (the one spot nothing else records).
+// 这里钉住的是本功能赖以成立的那条分界：一个地点不是栈里的一步。地点列表绝不
+// 截断，按地点而非按步去重，把推断出来的移动（跳变）整个丢掉，对 FILE 不保留
+// 位置（「我把这篇笔记留在哪」归位置数据库管），而对 JUMP 保留它自己的位置
+// （那是别处都不会记下的唯一一处）。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { App, TFile } from 'obsidian';
@@ -28,10 +27,9 @@ function makeApp(): App {
 	} as unknown as App;
 }
 
-// A vault whose notes carry frontmatter: the list's own property rule reads the
-// metadata cache (see shared/frontmatter.ts), and that is the only part of the
-// app it asks — everything else is still the bare stub above. A path absent from
-// `props` answers like a file the cache has not parsed yet.
+// 一个笔记带 frontmatter 的 vault：列表自己的属性规则会去读元数据缓存（见
+// shared/frontmatter.ts），而这是它唯一会问 app 的地方 —— 其余一切都还是上面那个
+// 光秃秃的桩。`props` 里缺席的路径，会表现得像缓存还没解析过的文件。
 function makeAppWithFrontmatter(props: Record<string, Record<string, unknown>>): App {
 	return {
 		...makeApp(),
@@ -48,7 +46,7 @@ function makeSettings(over: Partial<PluginSettings> = {}): PluginSettings {
 	return { ...DEFAULT_SETTINGS, ...over } as PluginSettings;
 }
 
-// The open pipeline, in miniature: what a travel asked for, and the order.
+// 打开流水线，缩微版：一次前往索要了什么，以及它们的次序。
 function openers() {
 	const calls: string[] = [];
 	return {
@@ -61,11 +59,10 @@ function openers() {
 	};
 }
 
-// The harness picks the MIDDLE stop of the landings setting, against the
-// shipped default of 'none' (see LandingsMode): most of this file is about what
-// a LANDING is, and the bottom stop would refuse every one of them before the
-// assertion was reached. The default itself is held by one test of its own
-// below rather than by every other test in the file.
+// 这个 harness 取的是落点设置**中间**那一档，而不是出厂的默认档 'none'（见
+// LandingsMode）：本文件大部分都在讲**落点**是什么，而最底那一档会在断言走到之前
+// 就把它们全部拒掉。默认档本身由下面单独一个测试把守，而不是由文件里其余每个测试
+// 各自把守。
 function makePlaces(settings: Partial<PluginSettings> = {}, app = makeApp()) {
 	const places = new NavPlaces(app, makeSettings({ recentFilesLandings: 'last', ...settings }));
 	const opened = openers();
@@ -95,8 +92,8 @@ describe('NavPlaces —— 什么算一个地点', () => {
 		places.remember(visit('b.md'));
 		places.remember(visit('a.md'));
 
-		// One record per file — a file opened ten times is one row — and the array IS
-		// the MRU order (the panel reads an index as a clock, see list.ts's activeRep).
+		// 每个文件一条记录 —— 一个开了十次的文件就是一行 —— 而数组**就是** MRU 次序
+		// （面板把索引读作时钟，见 list.ts 的 activeRep）。
 		expect(paths(places)).toEqual(['b.md', 'a.md']);
 	});
 
@@ -116,8 +113,8 @@ describe('NavPlaces —— 什么算一个地点', () => {
 	});
 
 	it('推断出来的步（跳变）整个丢掉', () => {
-		// The sampler's heuristic is not a place the reader chose, and it was the
-		// reason the list needed a second eviction tier (see places.ts).
+		// 采样器的启发式不是读者选择的地点，而这正是这份列表需要第二层淘汰的原因
+		// （见 places.ts）。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(teleport('a.md', 500));
@@ -130,12 +127,11 @@ describe('NavPlaces —— 什么算一个地点', () => {
 		places.remember({ ...visit('a.md'), st: { scroll: 120 } } as NavVisit);
 		places.remember({ ...jump('a.md', 'outline:## T'), st: { scroll: 7 } } as NavJump);
 
-		// The FILE place keeps no position of its own: the position database owns
-		// "where I left this file", and a second copy here would make the panel's line
-		// and the plain open disagree.
+		// FILE 地点不保留自己的位置：「我把这篇笔记留在哪」归位置数据库管，这里再存一份
+		// 只会让面板上的行与普通打开各自说一套。
 		const file = places.entries.find(e => e.kind === 'visit') as NavVisit;
 		expect(file.st).toBeUndefined();
-		// …while a jump's landing exists nowhere else, and its row promises it.
+		// ……而一个 jump 的落点在别处不存在，它那一行也把它承诺给了读者。
 		const j = places.entries.find(e => e.kind === 'jump') as NavJump;
 		expect(j.st).toEqual({ scroll: 7 });
 	});
@@ -152,8 +148,8 @@ describe('NavPlaces —— 什么算一个地点', () => {
 		expect(j.key).toBe('outline:## T');
 		expect(j.keyLine).toBe(12);
 		expect(j.st).toEqual({ scroll: 3 });
-		// The rendered form and the authoritative source form are ONE place, not two:
-		// identity normalizes the hashes away (see placeKey).
+		// 渲染出来的形式和权威的来源形式是**同一个**地点，不是两个：身份会把那些井号规范掉
+		// （见 placeKey）。
 		expect(places.entries).toHaveLength(1);
 	});
 
@@ -174,10 +170,9 @@ describe('NavPlaces —— 什么算一个地点', () => {
 	});
 
 	it('视图保留它自己的名字，每次访问都刷新一遍', () => {
-		// The label is not part of a place's IDENTITY — that is the view type (see
-		// placeKey), and two Thino tabs are one destination. It is what the row
-		// PRINTS, and it is taken from the recording each time: a view that renamed
-		// itself is named by what it says now (see places.ts's placeRecord).
+		// 标签不是地点**身份**的一部分 —— 身份是视图类型（见 placeKey），两个 Thino 标签页
+		// 是同一个目的地。它是那一行**打印**出来的东西，且每次都从这次记录里取：一个给自己
+		// 改过名的视图，按它**此刻**说的话命名（见 places.ts 的 placeRecord）。
 		const { places } = makePlaces();
 		const labelAt = (i: number) => {
 			const entry = places.entries[i];
@@ -191,18 +186,17 @@ describe('NavPlaces —— 什么算一个地点', () => {
 
 		places.remember(thino('Memos'));
 
-		// One place, re-named — not two.
+		// 一个地点，改了名 —— 不是两个。
 		expect(places.entries).toHaveLength(1);
 		expect(labelAt(0)).toBe('Memos');
 	});
 
 	it('视图保留它自己的状态和图标，每次访问都刷新一遍', () => {
-		// What a place is REBUILT with when its own tab is gone: the state the view
-		// had while the reader was in it, plus the mark its row wears. Both come off
-		// the recording, like the label above — and the state is the one thing about a
-		// view that cannot be derived later (see NavView.state), so a visit whose read
-		// came back EMPTY keeps the snapshot already recorded instead of erasing it:
-		// one failed read must not cost the reader the place they left.
+		// 一个地点在它自己的标签页没了之后**靠什么重建**：读者还在里面时视图持有的 state，
+		// 加上它那一行戴着的标记。两者都取自这次记录，和上面的标签一样 —— 而 state 是视图
+		// 身上唯一**事后推不出来**的东西（见 NavView.state），所以一次读取空手而归的访问会
+		// 保留已经记下的快照，而不是把它抹掉：一次读取失败绝不该让读者丢掉他们离开的那个
+		// 地点。
 		const { places } = makePlaces();
 		const stateAt = (i: number) => {
 			const entry = places.entries[i];
@@ -219,27 +213,25 @@ describe('NavPlaces —— 什么算一个地点', () => {
 		expect(stateAt(0)).toEqual({ filter: 'today' });
 		expect(iconAt(0)).toBe('git-fork');
 
-		// A later visit re-read both.
+		// 之后的一次访问把两者都重读了。
 		places.remember(thino({ filter: 'week' }, 'calendar'));
 		expect(places.entries).toHaveLength(1); // still one place: the type is the identity
 		expect(stateAt(0)).toEqual({ filter: 'week' });
 		expect(iconAt(0)).toBe('calendar');
 
-		// A visit whose state read came back empty (the view threw, answered with
-		// nothing, or went over the ceiling — see shared/leaf.ts's viewState) keeps
-		// what is there; a view that names no icon simply drops it, and the row falls
-		// back to the word (see list.ts's fileRow).
+		// 一次 state 读取空手而归的访问（视图抛了、答了个空、或超过上限 —— 见
+		// shared/leaf.ts 的 viewState）会保留原有的东西；而一个不指名任何图标的视图就干脆
+		// 把它丢掉，那一行退回用文字（见 list.ts 的 fileRow）。
 		places.remember(thino());
 		expect(stateAt(0)).toEqual({ filter: 'week' });
 		expect(iconAt(0)).toBeUndefined();
 	});
 
 	it('视图地点就地落地：它的状态，以及随之而来的时间戳', () => {
-		// The funnel's `onLanded` for a view — the stack re-read the view's state as the
-		// reader left it (see stack.ts's refreshTopLeafOnActivation), and this list has to
-		// hear about it because a ROW is what the reader clicks. Nothing MOVES: the place
-		// keeps its own position in the list and only the facts about it are refreshed,
-		// so a reader travelling down the panel never sees rows shuffle under the pointer.
+		// 漏斗给视图的 `onLanded` —— 栈在读者离开时就重读了视图的 state（见 stack.ts 的
+		// refreshTopLeafOnActivation），而这份列表必须听到，因为读者点的是**一行**。什么都
+		// **不挪**：地点保留它在列表里的位置，只刷新关于它的事实，于是在面板里往下前往的读者
+		// 永远不会看到行在指针底下重排。
 		const { places } = makePlaces();
 		places.remember(view('thino_view'));
 		places.remember(visit('a.md'));
@@ -256,7 +248,7 @@ describe('NavPlaces —— 什么算一个地点', () => {
 	});
 
 	it('不在列表上的地点，视图落地一律无视', () => {
-		// Nothing to refresh: the reader removed the row, or the ceiling trimmed it.
+		// 没什么可刷新的：那一行要么被读者拿掉了，要么被上限裁掉了。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 
@@ -267,9 +259,9 @@ describe('NavPlaces —— 什么算一个地点', () => {
 });
 
 describe('NavPlaces —— 一个标题一条记录', () => {
-	// A jump is recorded before its landing settles, so the merge is made at the settle —
-	// the first moment two jumps can be told apart. What it covers is two keys naming ONE
-	// spot: an outline click and a link, both naming one heading.
+	// 一个 jump 在它的落点落定之前就被记下，所以合并发生在落定那一刻 —— 那是两个 jump
+	// 第一次能被分辨开的时刻。它管的是两个 key 命名**同一处**的情形：一次大纲点击和一个
+	// 链接，两者都命名同一个标题。
 	it('停在同一行的两个跳转合并成一个', () => {
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
@@ -281,8 +273,8 @@ describe('NavPlaces —— 一个标题一条记录', () => {
 	});
 
 	it('留最新的那一个 —— 也就是这一行本来就是照它画的那个', () => {
-		// The panel draws a line from its newest step (see groupByFile), so the record
-		// that survives is the one the reader was already clicking.
+		// 面板是照它最新的那一步画出一行的（见 groupByFile），所以活下来的那条记录正是读者
+		// 本来就在点的那一个。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		places.settle({ ...jump('a.md', 'outline:## One'), st: { scroll: 12 } });
@@ -307,7 +299,7 @@ describe('NavPlaces —— 一个标题一条记录', () => {
 	});
 
 	it('还没有落地的跳转不去动它 —— 没有坐标不等于有了行号', () => {
-		// …and this is also why the merge is not made in remember, where no jump has one.
+		// ……这也正是合并不放在 remember 里做的原因：在那儿，没有哪个 jump 有落点。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		places.remember(jump('a.md', 'outline:## Two'));
@@ -331,8 +323,8 @@ describe('NavPlaces —— 一个标题一条记录', () => {
 
 describe('NavPlaces —— 标题被记下来时带着的状态', () => {
 	it('交到手上的状态原样保留，里面那几句引文也在', () => {
-		// The words were read WITH the landing (see ephemeral.ts's readLandingState); this list takes
-		// the state as it arrives, rather than reassembling it field by field.
+		// 那些字是和落点一起读到的（见 ephemeral.ts 的 readLandingState）；这份列表按 state
+		// 到达时的样子收下它，而不是逐字段拼回去。
 		const { places } = makePlaces();
 		const st: NavEntryState = { scroll: 10, context: ['L9'] };
 		places.remember(jump('a.md', 'outline:## One'));
@@ -343,11 +335,10 @@ describe('NavPlaces —— 标题被记下来时带着的状态', () => {
 });
 
 describe('NavPlaces —— 调用方指定的目标是那篇笔记，不是一个标题', () => {
-	// A search match, or a backlink hit, inside the note already open: core hands the target
-	// over as an ephemeral state, so it names no anchor and its key is a timestamp (see
-	// nav/entry.ts's isCallerKey). Its row could say nothing but a line number already on the
-	// row above, so it is the NOTE that gets recorded — which is what a hit in another file
-	// already was.
+	// 已经打开的那篇笔记内部的一次搜索命中、或一次反向链接命中：core 把目标作为一个
+	// ephemeral state 交过来，于是它不指名任何锚点、它的 key 是一个时间戳（见
+	// nav/entry.ts 的 isCallerKey）。它那一行除了一个已经印在上一行的行号以外说不出别的，
+	// 所以记下的是**那篇笔记** —— 这也正是另一文件里的命中本来就是的样子。
 	it('记下命中落在哪篇笔记，一个标题也不记', () => {
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'caller:111'));
@@ -375,7 +366,7 @@ describe('NavPlaces —— 调用方指定的目标是那篇笔记，不是一�
 	});
 
 	it('指明了去处的跳转仍然照记', () => {
-		// The rule is about the KEY, not about jumps: an outline click is a place.
+		// 这条规则管的是 KEY，不是 jump：一次大纲点击是一个地点。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 
@@ -384,10 +375,9 @@ describe('NavPlaces —— 调用方指定的目标是那篇笔记，不是一�
 });
 
 describe('NavPlaces —— 块目标是那篇笔记，不是一个标题', () => {
-	// `[[note#^id]]`: the key is the linktext, and the block id it carries names a spot a row
-	// could only print as a line number inside a section — two of them in the same section look
-	// alike, and neither can be told apart without hovering. So it is the note that gets
-	// recorded. The stack still keeps these steps: going back to a block is a real step.
+	// `[[note#^id]]`：key 是链接文本，它携带的块 id 命名的是这么一处地方 —— 一行只能把它
+	// 打印成某节里的一个行号，同一节里的两个看着一模一样，不悬停就分辨不出。所以记下的是
+	// 那篇笔记。栈仍然留着这些步：回到一个块是一步真实的步。
 	it('记下这个块所在的那篇笔记，一个标题也不记', () => {
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'a.md#^b1'));
@@ -413,7 +403,7 @@ describe('NavPlaces —— 块目标是那篇笔记，不是一个标题', () =>
 	});
 
 	it('指向标题的链接仍然照记 —— 那是这一行叫得出名字的', () => {
-		// The rule is about the TARGET, not about links: a heading names a section.
+		// 这条规则管的是**目标**，不是链接：一个标题命名的是一个节。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'a.md#one'));
 
@@ -431,14 +421,14 @@ describe('NavPlaces —— 它自己的文件夹规则', () => {
 		places.remember(visit('.trash/d.md'));
 		places.remember(visit('.obsidian/workspace.json'));
 
-		// The rule is the LIST's own, deliberately not the recording rules' folders
-		// (see PluginSettings.recentFilesExcludeFolders).
+		// 这条规则是**列表**自己的，刻意不是记录规则那边的那套文件夹
+		// （见 PluginSettings.recentFilesExcludeFolders）。
 		expect(paths(places)).toEqual(['笔记/a.md']);
 	});
 
 	it('完全不去问「该不该记位置」那一套规则', () => {
-		// A short file, a file with a frontmatter marker, a folder excluded from
-		// POSITION recording: all of them are still files the reader navigates to.
+		// 一个短文件、一个带 frontmatter 标记的文件、一个被排除在**位置**记录之外的文件夹：
+		// 它们全都仍是读者会导航过去的文件。
 		const { places } = makePlaces({
 			excludedFolders: ['日记'],
 			minLinesToRecord: 1000,
@@ -461,7 +451,7 @@ describe('NavPlaces —— 它自己的文件夹规则', () => {
 		settings.recentFilesExcludeFolders = ['私人'];
 		expect(places.pruneExcluded()).toBe(1);
 		expect(paths(places)).toEqual(['公开/b.md']);
-		// the place the reader was standing in is gone: nothing is "here"
+		// 读者原先站着的那个地点没了：没有东西「在这里」
 		expect(places.index).toBe(-1);
 	});
 });
@@ -480,10 +470,9 @@ describe('NavPlaces —— 它自己的 frontmatter 规则', () => {
 		places.remember(visit('published/b.md'));
 		places.remember(visit('notes/c.md'));
 
-		// A name on its own keeps out every file carrying it (`kanban-plugin`);
-		// a name with a value only the file whose value equals it (`publish: true`,
-		// so the still-unpublished b.md is listed). The entry form is the one the
-		// position rules already speak (see shared/frontmatter.ts).
+		// 光一个名字会挡掉每个带着它的文件（`kanban-plugin`）；带值的名字只挡掉值相等的文件
+		// （`publish: true`，所以还没发布的 b.md 照样列出）。这项写法正是位置规则本来就会说的
+		// 那种（见 shared/frontmatter.ts）。
 		expect(paths(places)).toEqual(['published/b.md', 'notes/c.md']);
 	});
 
@@ -498,16 +487,16 @@ describe('NavPlaces —— 它自己的 frontmatter 规则', () => {
 		places.remember(jump('看板/board.md', 'outline:## T'));
 		places.remember(visit('notes/a.md'));
 
-		// The whole ROW goes — the note and each jump made inside it — as it does
-		// for a folder that was just excluded (see pruneExcluded).
+		// **整行**都走 —— 那篇笔记以及它里面做出的每个 jump —— 和一个刚被排除的文件夹一样
+		// （见 pruneExcluded）。
 		settings.recentFilesExcludeProperties = ['kanban-plugin'];
 		expect(places.pruneExcluded()).toBe(2);
 		expect(paths(places)).toEqual(['notes/a.md']);
 	});
 
 	it('不读「恢复位置」功能自己那个逐文件标记', () => {
-		// `position-restore: false` answers whether a POSITION is recorded for
-		// this file — it says nothing about whether the reader goes there.
+		// `position-restore: false` 回答的是这个文件要不要**记位置** —— 它对读者会不会去那儿
+		// 一句话也不说。
 		const app = makeAppWithFrontmatter({ 'notes/a.md': { 'position-restore': false } });
 		const { places } = makePlaces({ recentFilesExcludeProperties: ['status'] }, app);
 		places.remember(visit('notes/a.md'));
@@ -516,8 +505,8 @@ describe('NavPlaces —— 它自己的 frontmatter 规则', () => {
 	});
 
 	it('frontmatter 还没解析的文件照样列出来', () => {
-		// The metadata cache fills lazily. A place withheld on a guess is a place
-		// the reader cannot get back; the next visit asks again.
+		// 元数据缓存是惰性填充的。凭猜测就扣下的地点，是读者拿不回来的地点；下一次访问会
+		// 重新问一遍。
 		const { places } = makePlaces({ recentFilesExcludeProperties: ['status'] }, makeAppWithFrontmatter({}));
 		places.remember(visit('notes/a.md'));
 
@@ -525,8 +514,8 @@ describe('NavPlaces —— 它自己的 frontmatter 规则', () => {
 	});
 
 	it('读者一条规则都没写时，一句也不去问 vault', () => {
-		// The default: no rule, no metadata-cache read. makeApp() has no
-		// metadataCache at all, so a lookup here would throw.
+		// 默认情形：没有规则，就不读元数据缓存。makeApp() 压根没有 metadataCache，所以这里
+		// 去查一下就会抛。
 		const { places } = makePlaces();
 		places.remember(visit('notes/a.md'));
 
@@ -549,15 +538,14 @@ describe('NavPlaces —— 上限', () => {
 		places.remember(visit('a.md'));
 		places.remember(visit('b.md'));
 		places.remember(visit('c.md'));
-		// Back to the oldest place — a traversal, which visits nothing new.
+		// 回到最旧的那个地点 —— 一次遍历，不访问任何新东西。
 		places.markCurrent(visit('a.md'));
 
-		// …and THEN the list has to give a row up: the ceiling came down
-		// under a reader who has not moved since.
+		// ……然后列表才不得不让出一行：上限在一个此后没再动过的读者底下压低了。
 		settings.recentFilesCap = 2;
 		places.applyCap();
 
-		// Removal stops at the current index: 'a.md' is the row they are on.
+		// 移除止于当前的索引：'a.md' 就是他们所在的那一行。
 		expect(paths(places)).toEqual(['a.md', 'c.md']);
 		expect(places.index).toBe(0);
 	});
@@ -580,10 +568,9 @@ describe('NavPlaces —— 上限', () => {
 		expect(makePlaces({ recentFilesCap: 0 }).places.cap()).toBe(1);
 	});
 
-	// WHAT THE CEILING COUNTS is rows, and a row is what the reader is SHOWN:
-	// under 'last' a note is one row however many landings it holds, so a
-	// landing can never cost a file its place on the list — which is the whole
-	// reason the two ceilings are counted apart (see NavPlaces.trim).
+	// 上限数的是**行**，而行就是读者**被展示**的东西：在 'last' 下，一篇笔记无论持有多少
+	// 落点都是一行，所以一个落点永远不能让一个文件丢掉它在列表上的位置 —— 这正是两个上限
+	// 分开数数的全部理由（见 NavPlaces.trim）。
 	it('一篇笔记无论有多少个标题都只算一行', () => {
 		const { places } = makePlaces({ recentFilesCap: 2 });
 		places.remember(visit('a.md'));
@@ -592,8 +579,8 @@ describe('NavPlaces —— 上限', () => {
 		places.remember(visit('b.md'));
 		places.remember(visit('c.md'));
 
-		// Three notes, room for two: the one that goes takes its landings with
-		// it, because a ROW is the thing being dropped (see forget).
+		// 三篇笔记，只放得下两行：走掉的那一篇把它的落点一起带走，因为**行**才是被丢掉的东西
+		// （见 forget）。
 		expect(paths(places)).toEqual(['b.md', 'c.md']);
 	});
 
@@ -604,8 +591,7 @@ describe('NavPlaces —— 上限', () => {
 		places.remember(jump('a.md', 'h1'));
 		places.remember(visit('b.md'));
 		places.remember(visit('c.md'));
-		// Back to the oldest row: the note AND the landing inside it are the
-		// row the ceiling has to step over.
+		// 回到最旧的那一行：那篇笔记**和**它里面的落点，就是上限必须跨过去的那一行。
 		places.markCurrent(visit('a.md'));
 
 		settings.recentFilesCap = 2;
@@ -615,24 +601,22 @@ describe('NavPlaces —— 上限', () => {
 		expect(places.index).toBe(0);
 	});
 
-	// …and the landings have a ceiling of their own, the same number, so the
-	// list they live in stays bounded even where none of them is a row.
+	// ……而落点有它们自己的上限，数字相同，好让它们所处的那个列表即使一个都不成行也保持
+	// 有界。
 	it('标题有它们自己的上限，超了丢最旧的那个', () => {
 		const { places } = makePlaces({ recentFilesCap: 2 });
 		places.remember(visit('a.md'));
 		for (const key of ['h1', 'h2', 'h3', 'h4'])
 			places.remember(jump('a.md', key));
 
-		// The note's row is never in question — it is one row all along — but
-		// only the two newest landings are kept, and it is the LANDING that
-		// goes rather than the note it stands in.
+		// 笔记那一行从来不成问题 —— 它自始至终就是一行 —— 但只有最新的两个落点留住，而走掉的
+		// 是**落点**，不是它所在的那篇笔记。
 		expect(paths(places)).toEqual(['a.md', 'a.md#h3', 'a.md#h4']);
 	});
 
-	// The top stop DRAWS every landing as a row, but it does not change what
-	// the ceiling counts: a note is still one row, so the extra lines cost the
-	// reader no note — which is what keeps the number they set meaning the same
-	// thing at every stop (see NavPlaces.trim).
+	// 最顶那一档把每个落点都**画**成一行，但它不改变上限数的是什么：一篇笔记仍是一行，所以
+	// 多出来的行不会让读者少一篇笔记 —— 这正是让他们设的数字在每一档都含义相同的东西
+	// （见 NavPlaces.trim）。
 	it('每个标题都画成一行，但不占上限的名额', () => {
 		const { places } = makePlaces({ recentFilesCap: 3, recentFilesLandings: 'all' });
 		places.remember(visit('a.md'));
@@ -641,14 +625,12 @@ describe('NavPlaces —— 上限', () => {
 		places.remember(visit('b.md'));
 		places.remember(visit('c.md'));
 
-		// Three notes in a ceiling of three, landings and all: what the reader
-		// sees runs longer than the number — the one clause that stop adds.
+		// 三篇笔记，上限是三，落点全算上：读者看到的比那个数字长 —— 那一档只加这一条。
 		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'a.md#h2', 'b.md', 'c.md']);
 		expect(places.rowCount()).toBe(3);
 	});
 
-	// …and so moving between the stops never re-trims: the ceiling was never
-	// counting the thing that changed.
+	// ……于是在两档之间挪动从不重新裁剪：上限从来数的就不是那个变了的东西。
 	it('读者在两个停靠点之间挪动时不重新裁剪', () => {
 		const settings = makeSettings({ recentFilesCap: 3, recentFilesLandings: 'last' });
 		const places = new NavPlaces(makeApp(), settings);
@@ -665,16 +647,13 @@ describe('NavPlaces —— 上限', () => {
 	});
 });
 
-// The BOTTOM stop of the landings setting (see LandingsMode): it answers
-// RECORDING, and recording only — what is already recorded is a place like any
-// other and no stop deletes it.
+// 落点设置**最底**那一档（见 LandingsMode）：它管的是**记不记**，且只管记录 —— 已经
+// 记下的东西和任何别的地点一样，没有哪一档会删掉它。
 describe('NavPlaces —— 记不记跳转', () => {
-	// The shipped default (see LandingsMode), and why it is the TOP stop: what
-	// ships is the whole of what the list can record, because it is the only
-	// stop from which the two below it can be chosen with anything to choose
-	// between — a reader who started at 'none' and only later came upon the
-	// setting would find nothing recorded under it. The harness above turns it
-	// down so that landings can be talked about as a separate thing.
+	// 出厂的默认档（见 LandingsMode），以及它为什么是最顶那一档：出厂的应当是这份列表
+	// 能记录的全部，因为只有从这一档往下，其余两档才有可比较的东西可选 —— 一个从 'none'
+	// 起步、后来才碰到这个设置的读者，在它下面会发现什么都没记。上面的 harness 把它调低，
+	// 好让落点能被当成一个独立的东西来谈。
 	it('默认记下跳转', () => {
 		const places = new NavPlaces(makeApp(), makeSettings());
 		places.remember(visit('a.md'));
@@ -688,7 +667,7 @@ describe('NavPlaces —— 记不记跳转', () => {
 		places.remember(visit('a.md'));
 		places.remember(jump('a.md', 'h1'));
 
-		// The note is still a place; the spot inside it is not.
+		// 那篇笔记仍是一个地点；它里面那一处不是。
 		expect(paths(places)).toEqual(['a.md']);
 	});
 
@@ -699,11 +678,9 @@ describe('NavPlaces —— 记不记跳转', () => {
 		expect(paths(places)).toEqual(['view:graph']);
 	});
 
-	// The bottom stop stops the list RECORDING; it does not reach back and
-	// delete what it already has. A landing goes when the note it stands in is
-	// crowded out (see NavPlaces.trim), and not before — which is what makes
-	// every stop reversible: a reader trying "how finely" out and coming back
-	// finds their landings where they were.
+	// 最底那一档让列表**停止记录**；它不回头删掉已经有的东西。一个落点在它所在的笔记被挤出
+	// 时才走（见 NavPlaces.trim），不会更早 —— 这正是每一档都可逆的原因：一个试着「多细」
+	// 又回来的读者，会发现他们的落点还在原处。
 	it('选了最低档时，已经记下的标题留住', () => {
 		const settings = makeSettings({ recentFilesLandings: 'last' });
 		const places = new NavPlaces(makeApp(), settings);
@@ -712,12 +689,12 @@ describe('NavPlaces —— 记不记跳转', () => {
 		places.remember(visit('b.md'));
 
 		settings.recentFilesLandings = 'none';
-		// From here on a file is all that is recorded of a visit…
+		// 从这里起，一次访问只记下一个文件……
 		places.remember(jump('b.md', 'h2'));
 		places.remember(visit('c.md'));
 		expect(paths(places)).toEqual(['a.md', 'a.md#h1', 'b.md', 'c.md']);
 
-		// …and coming back down finds the landing it had, not an empty note.
+		// ……而回来时能找到它原先那个落点，不是一篇空笔记。
 		settings.recentFilesLandings = 'all';
 		expect(places.entries.filter(e => e.kind === 'jump')).toHaveLength(1);
 	});
@@ -740,8 +717,7 @@ describe('NavPlaces —— 当前地点', () => {
 		places.remember(visit('b.md'));
 		expect(places.index).toBe(1);
 
-		// …and a jump stands on the LANDING, not on the note — that is the
-		// difference the panel's dot is drawn for.
+		// ……而一个 jump 站在**落点**上，不在笔记上 —— 面板那个圆点画的正是这个差别。
 		places.remember(jump('b.md', 'outline:## T'));
 		expect(places.index).toBe(2);
 	});
@@ -766,10 +742,9 @@ describe('NavPlaces —— 当前地点', () => {
 	});
 
 	it('绝不为正在读的那篇凭空造一个地点 —— 「在这里」不算一个地点', () => {
-		// A workspace restored at startup opens its file through a path nothing
-		// recorded. The list stays TRULY empty in that case: "you are here" has nothing
-		// to stand on until the reader goes somewhere — the list does not put the note
-		// being sat in back on itself, and nothing fills a place in (see forget below).
+		// 启动时恢复的工作区，会经由一条什么都没记录过的路径打开它的文件。那种情况下列表
+		// **真的**保持空：「你在这里」在读者去某处之前没有任何东西可站 —— 列表不会把正在坐着
+		// 的那篇笔记放回它自己身上，也没有任何东西能把一个地点补进来（见下面 forget）。
 		const { places } = makePlaces();
 		places.markCurrent(visit('restored.md'));
 
@@ -786,9 +761,8 @@ describe('NavPlaces —— 前进后退按记录所说的走', () => {
 
 		await places.travel(0);
 
-		// A FILE place carries no position, so nothing is injected: the position
-		// database decides — exactly as clicking the same file in the file explorer
-		// does. This is what keeps the two entry points from behaving differently.
+		// FILE 地点不带位置，所以什么都不注入：由位置数据库决定 —— 和在文件浏览器里点同一个
+		// 文件一模一样。这正是让两个入口行为一致的东西。
 		expect(calls).toEqual(['file:a.md@leaf-1']);
 	});
 
@@ -799,8 +773,8 @@ describe('NavPlaces —— 前进后退按记录所说的走', () => {
 
 		await places.travel(1);
 
-		// placeKey normalizes the heading's hashes away (see placeKey): the identity
-		// is what the travel reports, while the record keeps the readable form.
+		// placeKey 会把标题里的井号规范掉（见 placeKey）：前往时报告的是身份，而记录留着
+		// 可读的形式。
 		expect(calls).toEqual([`jump:${placeKey(jump('a.md', 'outline:## T'))}`]);
 		expect((places.entries[1] as NavJump).key).toBe('outline:## T');
 	});
@@ -823,9 +797,8 @@ describe('NavPlaces —— 前进后退按记录所说的走', () => {
 
 describe('NavPlaces —— 忘掉一个文件', () => {
 	it('丢掉这条文件记录，以及在它里面做过的每个跳转', () => {
-		// What a reader means by "I do not want to see this note here" is the FILE: one
-		// row per note is the list's own shape (see list.ts), so a removal that left the
-		// landings behind would leave the row behind with them.
+		// 读者说「我不想在这儿看到这篇笔记」指的是那个**文件**：一篇笔记一行是列表自己的形状
+		// （见 list.ts），所以一次把落点留在原处的移除，会把那一行也一起留下。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(jump('a.md', 'outline:## One'));
@@ -838,8 +811,8 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 	});
 
 	it('其它文件和无路径视图照旧站得住', () => {
-		// A view has no path, so no path names it: the removal is about a FILE, and the
-		// graph is not one (see places.ts's forget).
+		// 视图没有路径，所以没有路径能指名它：这次移除针对的是一个 FILE，而图谱不是
+		// （见 places.ts 的 forget）。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(view('graph'));
@@ -847,8 +820,8 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 
 		places.forget('a.md');
 
-		// Named through placeKey rather than spelled out: what is pinned here is which
-		// places SURVIVED, and a key is the store's own way of naming one (see placeKey).
+		// 经由 placeKey 命名而不是写字面量：这里钉住的是哪些地点**活了下来**，而 key 是这个
+		// store 自己给地点命名的方式（见 placeKey）。
 		expect(paths(places)).toEqual([
 			placeKey(view('graph')),
 			placeKey(jump('b.md', 'outline:## T')),
@@ -856,10 +829,9 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 	});
 
 	it('无路径视图照样丢得掉 —— 虽然没有路径能指名它', () => {
-		// A view is a ROW like any other, so it comes off the list like any other — and the
-		// only thing that can name it is its own TYPE (see nav/entry.ts's navGroupKey).
-		// The filter used to keep every pathless record unconditionally, which left the
-		// graph a row the reader could see and never take away.
+		// 视图是和任何其它行一样的**一行**，所以它像任何其它行一样从列表上下来 —— 而唯一能
+		// 指名它的东西是它自己的**类型**（见 nav/entry.ts 的 navGroupKey）。这个过滤从前会
+		// 无条件留住每一条无路径记录，结果让图谱成了一行读者看得见却永远拿不掉的东西。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(view('graph'));
@@ -867,8 +839,7 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 
 		places.forget('view:graph');
 
-		// Named through placeKey rather than spelled out, as above: what is pinned is which
-		// places SURVIVED.
+		// 如上一节，经由 placeKey 命名而不是写字面量：这里钉住的是哪些地点**活了下来**。
 		expect(paths(places)).toEqual(['a.md', placeKey(view('thino-memo'))]);
 	});
 
@@ -884,8 +855,8 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 	});
 
 	it('忘掉的正好是正在读的那个地点时，不再站在任何地方', () => {
-		// "Here" is an index into the list: a place that is gone must not leave one
-		// behind, or the note that arrives next would be named as where the reader is.
+		// 「此处」是列表里的一个索引：一个没了的地点绝不能留下一个索引，否则下一篇到来的笔记
+		// 会被指名成读者所在之处。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.markCurrent(visit('a.md'));
@@ -906,8 +877,8 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 
 		places.forget('a.md');
 
-		// The index is re-found by IDENTITY and not by arithmetic (see dropPlaces): the
-		// place that slid down one slot is the same place.
+		// 索引是**按身份**重新找回来的，不是靠算术（见 dropPlaces）：滑下一格的那个地点还是
+		// 同一个地点。
 		expect(paths(places)).toEqual(['b.md']);
 		expect(places.index).toBe(0);
 	});
@@ -926,9 +897,8 @@ describe('NavPlaces —— 忘掉一个文件', () => {
 });
 
 describe('NavPlaces —— 忘掉一个标题', () => {
-	// The × on a LANDING's own row (see list.ts's onForgetLanding): what goes is one
-	// spot, and the note's row above stays — the two acts are on two different rows
-	// now, so neither has to be told apart by a gesture.
+	// **落点**自己那一行上的 ×（见 list.ts 的 onForgetLanding）：走掉的是一个点，而上面
+	// 笔记那一行留着 —— 这两个动作现在落在两行不同的行上，于是谁都不必靠手势来分辨。
 	it('只丢这一处，留下这篇笔记以及它别的位置', () => {
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
@@ -938,8 +908,8 @@ describe('NavPlaces —— 忘掉一个标题', () => {
 
 		places.forgetLanding([placeKey(jump('a.md', 'outline:## One'))]);
 
-		// Named through placeKey rather than spelled out: what is pinned is which
-		// places SURVIVED, and a key is the store's own way of naming one.
+		// 经由 placeKey 命名而不是写字面量：这里钉住的是哪些地点**活了下来**，而 key 是这个
+		// store 自己给地点命名的方式。
 		expect(paths(places)).toEqual([
 			'a.md',
 			placeKey(jump('a.md', 'outline:## Two')),
@@ -948,11 +918,10 @@ describe('NavPlaces —— 忘掉一个标题', () => {
 	});
 
 	it('把一行所代表的每个地点都丢掉，让这一行回不来', () => {
-		// A row is a LINE, and the panel collapses onto it every place that landed
-		// there — a heading reached by an outline click and by a link are one row to
-		// the reader (see list.ts's landingKeys). A removal that named one of them
-		// would leave the other to draw the row again the moment it was taken off,
-		// which is a × that does nothing.
+		// 一行就是**一行**，面板把落在它上面的每个地点都收拢到它身上 —— 一次大纲点击到达的
+		// 标题和一次链接到达的标题，对读者来说是一行（见 list.ts 的 landingKeys）。一次只指名
+		// 其中一个的移除，会在那一行刚被拿掉的瞬间把另一个留下、又把这行画回来，那就是一个什么
+		// 都不做的 ×。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		places.remember(jump('a.md', 'a.md#one'));
@@ -978,8 +947,8 @@ describe('NavPlaces —— 忘掉一个标题', () => {
 	});
 
 	it('列表从来没收过的那些键，一句话也不说', () => {
-		// The keys arrive from a panel that may be a click behind the store (a dialog
-		// holding a snapshot), so a place already gone is not a change to report.
+		// 这些 key 来自一个可能比 store 慢一拍的面板（一个拿着快照的对话框），所以一个已经没了
+		// 的地点不是一项要报告的变化。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		const seen = vi.fn();
@@ -992,8 +961,8 @@ describe('NavPlaces —— 忘掉一个标题', () => {
 	});
 
 	it('忘掉的正好是正在读的那一处时，不再站在任何地方', () => {
-		// "Here" is an index into the list: a place that is gone must not leave one
-		// behind, or the note that arrives next would be named as where the reader is.
+		// 「此处」是列表里的一个索引：一个没了的地点绝不能留下一个索引，否则下一篇到来的笔记
+		// 会被指名成读者所在之处。
 		const { places } = makePlaces();
 		places.remember(jump('a.md', 'outline:## One'));
 		places.markCurrent(jump('a.md', 'outline:## One'));
@@ -1015,8 +984,8 @@ describe('NavPlaces —— 簿记', () => {
 
 		places.renameFile('old.md', 'new.md');
 
-		// The jump's own key is a heading, not a path: it survives the rename, and the
-		// identity is recomputed from the path (see placeKey).
+		// jump 自己的 key 是一个标题，不是路径：它在改名中留存下来，而身份是按路径重算的
+		// （见 placeKey）。
 		expect(places.entries.map(e => e.kind === 'view' ? '' : e.path))
 			.toEqual(['new.md', 'new.md', 'other.md']);
 		expect((places.entries[1] as NavJump).key).toBe('outline:## T');
@@ -1043,12 +1012,12 @@ describe('NavPlaces —— 簿记', () => {
 	});
 });
 
-// A PIN is the reader's own answer about a row: it is kept out of the ceiling,
-// out of the rules and out of the trim, and it leaves with the row it names.
+// 一个**钉**是读者对某一行的亲口答复：它被挡在上限之外、规则之外、裁剪之外，并随着它
+// 所指名的那一行一起离开。
 describe('NavPlaces —— 把一行钉到顶部', () => {
 	it('新钉的行放在置顶区末尾，同一行不会钉两次', () => {
-		// A pin arriving at the top would push down the rows the reader had
-		// already arranged; the block is a shelf they are filling, not a stack.
+		// 新钉的行若落在顶部，会把读者已经排好的那些行往下推；这个置顶区是他们正在填的一个
+		// 书架，不是一个栈。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(visit('b.md'));
@@ -1082,9 +1051,8 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 	});
 
 	it('一次挪到底，落在末端而不是越过它', () => {
-		// "Move to the front" hands over more steps than the block is long, and
-		// what it means is the end: counting them is the CALLER's arithmetic
-		// about a shape it does not own (see NavPlaces.movePinned).
+		// 「移到最前」交过来的步数比置顶区还长，而它的意思就是末端：去数它们是**调用方**对
+		// 一个它并不拥有的形状做的算术（见 NavPlaces.movePinned）。
 		const { places } = makePlaces();
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md'])
 			places.remember(visit(p));
@@ -1094,7 +1062,7 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 
 		places.movePinned('c.md', -2);
 		expect(places.pinned).toEqual(['c.md', 'a.md', 'b.md', 'd.md']);
-		// More steps than there is block: the row lands ON the end it asked for.
+		// 步数比置顶区还多：那一行**落在**它要的那一端上。
 		places.movePinned('a.md', -99);
 		expect(places.pinned).toEqual(['a.md', 'c.md', 'b.md', 'd.md']);
 		places.movePinned('b.md', 99);
@@ -1116,8 +1084,8 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 		expect(places.isPinned('a.md')).toBe(false);
 	});
 
-	// THE CEILING counts the rows the reader did NOT name: a pin is kept on top of
-	// the number and not out of it, so pinning a note costs them none of the fifty.
+	// **上限**数的是读者**没有**亲口指名的那些行：一个钉被留在那个数字**之上**而不是其中，
+	// 所以钉住一篇笔记不会让他们少掉五十里的任何一个。
 	it('钉住的行算在上限之外，而不是占上限里面的名额', () => {
 		const { places } = makePlaces({ recentFilesCap: 2 });
 		for (const p of ['a.md', 'b.md', 'c.md'])
@@ -1127,7 +1095,7 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 		for (const p of ['d.md', 'e.md'])
 			places.remember(visit(p));
 
-		// The unnamed rows are c, d, e — one over, and the oldest of them goes.
+		// 未被指名的行是 c、d、e —— 多了一个，其中最早的那个走。
 		expect(paths(places)).toEqual(['b.md', 'd.md', 'e.md']);
 	});
 
@@ -1204,9 +1172,8 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 
 describe('NavPlaces —— 清空列表', () => {
 	it('丢掉列表自己记住的每个地点，置顶区留下', () => {
-		// What a clear leaves is what the reader wrote down by hand: the ceiling and
-		// the rules already spare a pin (see pruneExcluded), and emptying the list is
-		// one more thing the list does BY ITSELF.
+		// 清空留下的，正是读者亲手写下的东西：上限与规则本来就饶过钉住的行（见
+		// pruneExcluded），而清空列表是列表**自己**做的又一件事。
 		const { places } = makePlaces();
 		for (const p of ['a.md', 'b.md', 'c.md'])
 			places.remember(visit(p));
@@ -1219,9 +1186,8 @@ describe('NavPlaces —— 清空列表', () => {
 	});
 
 	it('钉住的行，它自己的标题也留下 —— 那是它自己的', () => {
-		// The pinned block draws the note and never a spot inside it (see list.ts's
-		// printsLandings) — but the row still OPENS the newest one, and a clear is no
-		// reason to break the promise the reader pinned.
+		// 置顶区画的是笔记，从不画它里面的某一处（见 list.ts 的 printsLandings）—— 但那一行
+		// 仍然**打开**最新的那一处，而一次清空没有理由违背读者钉下时的承诺。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.remember(jump('a.md', 'outline:## One'));
@@ -1246,8 +1212,8 @@ describe('NavPlaces —— 清空列表', () => {
 	});
 
 	it('清空后立刻写盘，不留给下一次落盘', () => {
-		// For the reason a pin is written down at once: a clear is a rare, deliberate
-		// act, and a quit a few seconds later would otherwise put the whole list back.
+		// 理由和「钉住立刻写盘」一样：清空是一次罕见、刻意的动作，否则几秒后一次退出就会把整份
+		// 列表放回来。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.persist();
@@ -1269,8 +1235,8 @@ describe('NavPlaces —— 清空列表', () => {
 	});
 
 	it('列表里除了钉住的行什么都没有时，一句话也不说', () => {
-		// A clear of a list that is already what a clear leaves behind changes
-		// nothing, and a change that did not happen owes no redraw and no write.
+		// 清空一份已经就是清空结果的东西，什么都不改变，而一次没有发生的改变不欠任何重画、也不
+		// 欠任何写盘。
 		const { places } = makePlaces();
 		places.remember(visit('a.md'));
 		places.pin('a.md');
@@ -1335,11 +1301,10 @@ describe('NavPlaces —— 落盘与读回', () => {
 	});
 });
 
-// The signal a RESIDENT panel lives on (see NavPlaces.subscribe): the dialog is
-// opened, read and closed inside one render and needs none of this, but a sidebar
-// panel is on screen for hours and has no other way to learn that the list moved
-// under it. It used to come from the stack (see nav-history/stack.ts) — the panel draws
-// places now, so the place list is what has to say so.
+// **常驻**面板赖以活着的信号（见 NavPlaces.subscribe）：对话框在一次渲染里打开、读完、
+// 关闭，完全不需要这个；但侧边栏面板会在屏幕上待上几个小时，没有别的办法知道列表在它
+// 底下动过。这信号从前来自栈（见 nav-history/stack.ts）—— 现在面板画的是地点，所以得由
+// 地点列表来说这件事。
 describe('NavPlaces —— 变更通知', () => {
 	it('订阅者能收到地点的变更，退订之后就收不到', () => {
 		const { places } = makePlaces();
@@ -1349,8 +1314,7 @@ describe('NavPlaces —— 变更通知', () => {
 		places.remember(visit('a.md'));
 		expect(seen).toHaveBeenCalledTimes(1);
 
-		// The panel was closed: a place recorded afterwards must not be drawn into a
-		// body that has already been torn down.
+		// 面板关了：此后记下的地点绝不能被画进一个已经被拆掉的身体里。
 		off();
 		places.remember(visit('b.md'));
 		expect(seen).toHaveBeenCalledTimes(1);
@@ -1365,7 +1329,7 @@ describe('NavPlaces —— 变更通知', () => {
 
 		places.markCurrent(visit('a.md'));
 		expect(seen).toHaveBeenCalledTimes(1);
-		// Already standing there: nothing on screen moved.
+		// 本来就站在那儿：屏幕上什么都没动。
 		places.markCurrent(visit('a.md'));
 		expect(seen).toHaveBeenCalledTimes(1);
 		places.markCurrent(undefined);
@@ -1392,15 +1356,15 @@ describe('NavPlaces —— 变更通知', () => {
 		places.deleteFile('b.md');
 		expect(seen).toHaveBeenCalledTimes(4);
 
-		// A filtered path is never a place, so it is never news either.
+		// 被规则过滤掉的路径从来不是一个地点，所以它也从来不是新闻。
 		places.remember(visit('.trash/x.md'));
 		expect(seen).toHaveBeenCalledTimes(4);
 	});
 });
 
 describe('NavPlaces.reland —— 把一个标题放回它现在站着的位置', () => {
-	// The line arrives already answered: the store keeps no vault of its own, and what
-	// it writes is what the panel found in one.
+	// 行号是带着答案来的：这个 store 自己不留 vault，它写下的东西就是面板在某个 vault 里
+	// 找到的。
 	const landing = (line: number, mtime: number): NavJump => ({
 		...jump('a.md', 'outline:## T'), keyLine: line,
 		st: { scroll: line, anchor: 'a line', context: ['below it'], mtime },
@@ -1415,18 +1379,17 @@ describe('NavPlaces.reland —— 把一个标题放回它现在站着的位置'
 
 		expect(there(places).keyLine).toBe(14);
 		expect(there(places).st?.mtime).toBe(500);
-		// The WORDS stay: they were read once, and reading them again would not make
-		// them truer — it would lose the ones the reader left with.
+		// 那些**字**留住：它们只读过一次，再读一遍不会让它们更真 —— 反而会丢掉读者离开时带着
+		// 的那些。
 		expect(there(places).st?.anchor).toBe('a line');
 		expect(there(places).st?.context).toEqual(['below it']);
-		// Neither a visit nor a re-recording: a row ages by the stamp it already had.
+		// 既不是一次访问，也不是一次重记：一行按它本来就有的那个采集戳变旧。
 		expect(there(places).t).toBe(aged);
 	});
 
 	it('不通知任何人，只把自己写了下去', () => {
-		// Nothing is broadcast because nothing ELSE needs to know: the rows these lines
-		// belong to are the rows about to be drawn, and by the panel that asked. A place
-		// lives for months, though, so the answer goes to storage at once.
+		// 什么都不广播，因为没有**别的**东西需要知道：这些行所属的那些行，正是即将被画出来的
+		// 那些行，而且是由发问的那个面板画的。但一个地点能活好几个月，所以答案立刻写进存储。
 		const { places } = makePlaces();
 		places.remember(landing(4, 100));
 		const seen = vi.fn();
@@ -1438,9 +1401,8 @@ describe('NavPlaces.reland —— 把一个标题放回它现在站着的位置'
 	});
 
 	it('行本来就站在那里时什么都不写', () => {
-		// The very next draw, every time: a record carrying the note's own clock is the
-		// cheapest answer the panel has, so nothing asks again. Which is what stops the
-		// pass that writes these from being a loop.
+		// 每一次都是紧接着的下一次绘制：一条带着笔记自己时钟的记录，是面板手里最便宜的答案，
+		// 于是没有东西再问一遍。这正是让写这些记录的那一趟不至于变成死循环的东西。
 		const { places } = makePlaces();
 		places.remember(landing(4, 100));
 		places.reland([{ key: placeKey(there(places)), line: 4, mtime: 100 }]);
@@ -1451,16 +1413,15 @@ describe('NavPlaces.reland —— 把一个标题放回它现在站着的位置'
 	});
 
 	it('答不出任何行号时，这个地点原样不动', () => {
-		// An entry the pass never mentioned keeps EVERYTHING, its old clock included —
-		// which is exactly what lets its row go on saying it cannot find the spot.
+		// 那一趟从未提到过的条目保留**一切**，包括它旧的时钟 —— 这正是让它那一行继续说着
+		// 「找不到这一处」的东西。
 		const { places } = makePlaces();
 		places.remember(landing(4, 100));
 		const st = there(places).st;
 		places.reland([{ key: 'a.md#outline:## Gone', line: 9, mtime: 500 }]);
 		expect(there(places).keyLine).toBe(4);
 		expect(there(places).st).toBe(st);
-		// …and a clock nobody could read leaves the record saying nothing rather than
-		// claiming a check that was never made.
+		// ……而一个没人读得出的时钟，会让那条记录什么都不说，而不是声称做过一次从未做过的检查。
 		places.reland([{ key: placeKey(there(places)), line: 9 }]);
 		expect(there(places).keyLine).toBe(9);
 		expect(there(places).st?.mtime).toBe(100);
