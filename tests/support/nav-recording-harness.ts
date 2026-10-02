@@ -1,9 +1,8 @@
-// Shared helpers for the two navigation-recording suites: nav-funnel.test.ts
-// (the funnel's own contract, and the capture points that write to it) and
-// nav-history-stack.test.ts (the stack that reads it).
+// 两个导航记录套件共用的辅助函数：nav-funnel.test.ts（漏斗自己的契约，以及写进漏斗的
+// 那些采集点）与 nav-history-stack.test.ts（读它的那个栈）。
 //
-// NOT a test file itself — vitest only collects `*.test.ts`. This mirrors
-// tests/support/position-store-seam.ts: a plain module the suites import.
+// 它**自己不是**测试文件 —— vitest 只收 `*.test.ts`。这一点跟
+// tests/support/position-store-seam.ts 一样：一个套件 import 的普通模块。
 
 import { vi } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
@@ -16,10 +15,10 @@ import { NavEntry } from '@/nav/entry';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS, EphemeralState, PluginSettings } from '@/types';
 
-// `missingViewTypes` are the ones this vault cannot build: no factory in the registry, so a tab
-// asking for one gets the placeholder pane that claims to be it (see shared/leaf). Every other
-// type answers with a factory, the way every type the app itself installed does.
-// `blocks` is a block id to its line, the shape a vault's cache carries for a `^id` target.
+// `missingViewTypes` 是这个库建不出来的那些：注册表里没有工厂，于是要它的标签页拿到一块
+// 自称是它的占位窗格（见 shared/leaf）。其他每个类型都能用工厂应答，跟 app 自己装过的每个
+// 类型一样。
+// `blocks` 是块 id 到它所在行，库的缓存为 `^id` 目标带的就是这个形状。
 export function makeApp(
 	headings?: Array<{ heading: string; level: number; position: { start: { line: number } } }>,
 	missingViewTypes: readonly string[] = [],
@@ -48,10 +47,9 @@ export function makeApp(
 			iterateAllLeaves: (_cb: (leaf: WorkspaceLeaf) => void) => undefined,
 			setActiveLeaf: vi.fn(),
 			getMostRecentLeaf: () => null,
-			// The view branch of the open pipeline asks the workspace for every leaf
-			// showing a view TYPE and, when there is none, for a new tab (see stack.ts's
-			// findLeafShowing / showViewInNewTab). A suite that never travels to a view
-			// has neither, and says so here rather than leaving the methods missing.
+			// 打开管道的视图分支会向工作区要「所有显示某个视图**类型**的 leaf」，一个都没有时再要一个
+			// 新标签页（见 stack.ts 的 findLeafShowing / showViewInNewTab）。从不前往视图的套件两者
+			// 都没有，所以在这里明说，而不是把这两个方法留空。
 			getLeavesOfType: () => [],
 			getLeaf: () => ({ setViewState: vi.fn(), detach: vi.fn() }),
 		},
@@ -62,25 +60,20 @@ export function makeApp(
 	} as unknown as App & { commands: { executeCommandById: ReturnType<typeof vi.fn> } };
 }
 
-// The two navigation readers, wired as the composition root wires them (see
-// position/manager.ts): the CAPTURE points (the record* calls) write to the
-// funnel, and the funnel publishes to the stack and the place list. The harness
-// hands all three back by name, so a test says which side it means — `funnel.`
-// for a capture, `stack.` for the stack's own state and traversal, `places.`
-// for the recent-files list.
+// 两个导航读者，按组装根接线的方式接好（见 position/manager.ts）：**采集**点（那些 record*
+// 调用）写进漏斗，漏斗再发布给栈与地点列表。脚手架把这三个按名字交回去，于是一个测试能说清
+// 它指的是哪一边 —— 采集用 `funnel.`、栈自己的状态与遍历用 `stack.`、最近文件列表用
+// `places.`。
 export function makeNav(
 	app = makeApp(),
 	settings: Partial<PluginSettings> = {},
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ) {
-	// The middle stop of the landings setting, against the shipped default of
-	// 'none' (see LandingsMode): most of these tests watch the place list to see
-	// what a jump BECAME, and the bottom stop would refuse the jump before there
-	// was anything to look at. The default is a setting, not a behaviour of
-	// navigation, so nothing here is bent by it.
-	// The threshold is pinned for the same reason the landings mode is: this measures
-	// the stack's own gates, and the shipped 0 would refuse every teleport before it
-	// reached one.
+	// 落点设置取中间那一档，出厂默认是 'none'（见 LandingsMode）：这里多数测试盯着地点列表
+	// 看一次跳转**变成了**什么，而最低那一档会在还没东西可看之前就把跳转挡掉。默认值是一个
+	// 设置、不是导航的行为，所以这里没有任何东西被它掰弯。
+	// 阈值钉住，理由和落点档一样：这里量的是栈自己的闸门，而出厂的 0 会在每一次 teleport
+	// 够到闸门之前就把它挡掉。
 	const resolved = { ...DEFAULT_SETTINGS, recentFilesLandings: 'last',
 		navHistoryTeleportMinLines: 10, ...settings } as PluginSettings;
 	const state = new PositionState(resolved);
@@ -105,10 +98,9 @@ export function entry(path: string, leafId = 'leaf-1'): NavEntry {
 	return { kind: 'visit', path, leafId, t: 1 };
 }
 
-// A leaf whose view is a file view — or, with no `file`, the EMPTY TAB's view,
-// which is the one main-area view that is not a place. `containerEl` is what
-// isMainAreaLeaf asks the workspace root about, so 'sidebar' models a panel while
-// the default 'main' sits in the root.
+// 视图是文件视图的那种 leaf —— 或者不带 `file` 时，空标签页的视图，它是主区域里唯一不算
+// 地点的视图。`containerEl` 正是 isMainAreaLeaf 向工作区根问的东西，于是 'sidebar' 模拟
+// 一个面板，而默认的 'main' 待在根里。
 export function leafWithFile(id: string, file?: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	return {
 		id,
@@ -119,13 +111,11 @@ export function leafWithFile(id: string, file?: string, containerEl: unknown = '
 	} as unknown as WorkspaceLeaf;
 }
 
-// A leaf holding a non-file view — the graph, Thino's memo list, a main-area
-// search. Everything it reports is what the view says about ITSELF: `label` and
-// `icon` are the name and mark its tab header shows (what a row standing for it
-// prints and draws), and `state` is what it answers getState with — the state a
-// place is REBUILT with when its own tab is gone (see nav/entry's NavView). All
-// three are optional: the global graph names no icon and has no state, and a view
-// that reports nothing is the ordinary case rather than the broken one.
+// 装着一个非文件视图的 leaf —— 关系图谱、Thino 的备忘列表、主区域里的搜索。它报的每一样
+// 都是视图关于**它自己**的说法：`label` 与 `icon` 是它标签页头部显示的名字与标记（代表它
+// 的那一行打印与绘制的就是这个），`state` 是它答 getState 的东西 —— 一个地点在它自己的
+// 标签页没了之后，就是拿这份 state **重建**起来的（见 nav/entry 的 NavView）。三样都可选：
+// 全局图谱不报图标也没有 state，而什么都不报的视图是寻常情形，不是坏了的那种。
 export function viewLeaf(
 	id: string,
 	viewType: string,
@@ -143,9 +133,9 @@ export function viewLeaf(
 	} as unknown as WorkspaceLeaf;
 }
 
-// A FileView that FOLLOWS the note instead of standing for one — outline, backlinks, local graph,
-// file properties — as it looks once it is in the main area (opened there by hand, or by a mobile
-// layout). It answers every question a FileView does, see shared/leaf's isFileDestination.
+// 跟着笔记走、而不是代表某篇笔记的 FileView —— 大纲、反向链接、局部图谱、文件属性 ——
+// 说的是它进到主区域之后的样子（手工在那里打开，或被手机版布局放到那里）。FileView 答的
+// 每个问题它都答，见 shared/leaf 的 isFileDestination。
 export function followingLeaf(
 	id: string,
 	viewType: string,
@@ -165,9 +155,9 @@ export function followingLeaf(
 	} as unknown as WorkspaceLeaf;
 }
 
-// A leaf restored from a saved tab whose VIEW WAS NEVER BUILT (see shared/leaf's
-// isDeferredLeaf): it answers a view's questions off the state it was saved with, and is not
-// the view's own class. Mobile comes back to the note it was last reading this way.
+// 从一份存档标签页恢复出来的 leaf，而**它的视图从未被建起来**（见 shared/leaf 的
+// isDeferredLeaf）：它凭存下来的 state 回答视图的那些问题，自己却不是视图那个类。手机
+// 就是这样回到它上次在读的那篇笔记的。
 export function deferredLeaf(
 	id: string,
 	state?: Record<string, unknown>,
@@ -180,9 +170,8 @@ export function deferredLeaf(
 	} as unknown as WorkspaceLeaf;
 }
 
-// These tests build file-only stacks (a graph entry appears in exactly one
-// full-object equality assertion); the helpers narrow the file kinds so the
-// per-index reads stay terse.
+// 这些测试搭的都是只有文件的栈（视图条目只在唯一一处整对象相等的断言里出现）；这几个
+// 辅助函数把文件那几种 kind 收窄，好让按下标读的那些地方保持简短。
 export const pathOf = (e: NavEntry) => (e.kind !== 'view' ? e.path : undefined);
 export const keyOf = (e: NavEntry) => (e.kind === 'jump' ? e.key : e.kind === 'teleport' ? `teleport:${e.line}` : undefined);
 export const stOf = (e: NavEntry) => (e.kind !== 'view' ? e.st : undefined);
