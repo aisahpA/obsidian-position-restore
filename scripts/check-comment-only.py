@@ -5,6 +5,7 @@
 """
 import subprocess
 import sys
+from collections import Counter
 
 COMMENT_PREFIXES = ('//', '/*', '*', '*/')
 
@@ -19,7 +20,22 @@ def is_trailing_comment_change(old: str, new: str) -> bool:
 	那种行一旦真的改动，前缀必然不同，会被判为代码改动。"""
 	if '//' not in old or '//' not in new:
 		return False
-	return old.split('//', 1)[0].rstrip() == new.split('//', 1)[0].rstrip()
+	return code_part(old) == code_part(new)
+
+
+def code_part(line: str) -> str:
+	return line.split('//', 1)[0].rstrip()
+
+
+def comment_only_run(olds: list[str], news: list[str]) -> bool:
+	"""一整组连续的 `-` 行后面跟一整组连续的 `+` 行。git diff 会把相邻改动并成一组，组内两边行数
+	不一定相等（注释块重排会增减行）。
+	- 两边都全是纯注释行 ⇒ 通过。
+	- 否则比较两边的**代码部分多重集**：相等即证明这些改动只落在 `//` 之后。行尾注释（`code; // 说明`）
+	  就在这一类里，且天然挡住真正的代码改动（改名、增删、缩进变化都会让多重集不同）。"""
+	if all(is_comment(o.strip()) for o in olds) and all(is_comment(n.strip()) for n in news):
+		return True
+	return Counter(code_part(o) for o in olds) == Counter(code_part(n) for n in news)
 
 
 def main() -> int:
@@ -37,15 +53,19 @@ def main() -> int:
 		if line.startswith(skips):
 			i += 1
 			continue
-		# 改动行成对出现（`-old` 紧跟 `+new`）时，交给行尾注释的判定
-		if line[:1] == '-' and i + 1 < len(lines) and lines[i + 1][:1] == '+':
-			old, new = line[1:], lines[i + 1][1:]
-			if not (is_comment(old.strip()) and is_comment(new.strip())
-					or is_trailing_comment_change(old, new)):
-				bad += [line, lines[i + 1]]
-			i += 2
+		# 一整组连续的 `-` 行 + 紧跟的一整组连续的 `+` 行，交给成组判定
+		if line[:1] == '-':
+			olds, j = [], i
+			while j < len(lines) and lines[j][:1] == '-':
+				olds.append(lines[j][1:]); j += 1
+			news = []
+			while j < len(lines) and lines[j][:1] == '+':
+				news.append(lines[j][1:]); j += 1
+			if not comment_only_run(olds, news):
+				bad += ['-' + o for o in olds] + ['+' + n for n in news]
+			i = j
 			continue
-		if line[:1] in ('-', '+') and not is_comment(line[1:].strip()):
+		if line[:1] == '+' or not is_comment(line[1:].strip()):
 			bad.append(line)
 		i += 1
 	if bad:
