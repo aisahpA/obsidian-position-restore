@@ -79,6 +79,6 @@
 - `npx vitest run tests/ephemeral-remap.test.ts` —— anchor 文本重映射。
 - `npx vitest run tests/sampler-scroll-capture.test.ts` —— 两条腿的采集。
 - `npx vitest run tests/teleport-event.test.ts` —— 推断跳变（含选区、阈值为 0）。
-- `npx vitest run tests/landing-absorb.test.ts` —— 落地吸收窗口。
+- `npx vitest run tests/landing-absorb.test.ts` —— 落点吸收窗口。
 - 手工验：打开一篇长笔记滚到中间，**什么都不做**等两秒，再切走切回来 —— 位置应该还在
   （反之说明把程序性移动误记成了读者移动）。

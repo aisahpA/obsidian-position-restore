@@ -13,7 +13,7 @@ export interface OutlineCaptureHost {
 // 阅读模式下点大纲，其它采集路径都看不见：core 把一次条目点击解析成
 // setActiveLeaf + setEphemeralState({line}) —— 既没有 openLinkText，也没有 setViewState，
 // 而预览模式下没有光标可供轮询去推断 teleport。源码模式**也**在这里采集：本钩子压入带 key 的
-// 记录，它同时撑开的落地吸收窗口会把紧随其后的光标跳变挡在门外，所以点一次恰好压入一条记录。
+// 记录，它同时撑开的落点吸收窗口会把紧随其后的光标跳变挡在门外，所以点一次恰好压入一条记录。
 // 监听器跑在 workspace 根节点的捕获阶段，也就是 core 的处理器之前 —— 正因为如此才能让
 // refreshTop 看到点击之前的位置。
 // 每一步解析都静默降级：未知的 DOM、找不到大纲、目标 leaf 无法确定 ⇒ 剩下的交给常规管线。
@@ -81,8 +81,8 @@ export function installOutlineCapture(
 		const heading = selfEl.querySelector('.tree-item-inner')?.textContent?.trim();
 		if (heading) {
 			host.recordOpen(view.file.path, leafId, { key: `outline:${heading}` });
-			// 撑开落地吸收窗口（与 open 类跳转同一套契约）：core 异步地解析这次跳转，
-			// 采集必须一直处在吸收状态直到它落定 —— 落定那一刻的读取会成为这条记录精确的落地。
+			// 撑开落点吸收窗口（与 open 类跳转同一套契约）：core 异步地解析这次跳转，
+			// 采集必须一直处在吸收状态直到它落定 —— 落定那一刻的读取会成为这条记录精确的落点。
 			// 什么都没记录时不撑开：那样落定时的采集会覆盖掉与之无关的栈顶记录。
 			host.state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 		}

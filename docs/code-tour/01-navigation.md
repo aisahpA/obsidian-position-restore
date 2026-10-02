@@ -46,7 +46,7 @@ active-leaf-change─┘                              │
 
 一次跳转的三拍（`nav/outline-capture.ts:79-97` 是这一拍的完整样板）：
 先 `leave()` 记下**点击前**的精确位置 → 再 `recordOpen()` 压入带 key 的记录 →
-最后撑开落地吸收窗口（`LANDING_ABSORB_MS`），让紧随其后那次光标跳变被挡在门外。
+最后撑开落点吸收窗口（`LANDING_ABSORB_MS`），让紧随其后那次光标跳变被挡在门外。
 **点一次，恰好压入一条记录。**
 
 ## 有哪些坑

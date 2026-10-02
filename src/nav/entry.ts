@@ -29,9 +29,9 @@ export interface NavJump extends NavEntryBase {
 	// 文本片段重映射。
 	keyLine?: number;
 	st?: NavEntryState;
-	// 某次导航把读者从这一步带走时他所站的位置。这一步的 `st` 是落地 —— 是行所承诺的位置，
+	// 某次导航把读者从这一步带走时他所站的位置。这一步的 `st` 是落点 —— 是行所承诺的位置，
 	// 也是地点列表保存的那个 —— 所以漂移只能摆在它旁边，并且自己成为一步
-	// （见 NavStack 的 flushDeparture），而不是去改落地：前进后退必须还能把读者送回
+	// （见 NavStack 的 flushDeparture），而不是去改落点：前进后退必须还能把读者送回
 	// 他点过的那个标题。
 	leftAt?: NavEntryState;
 }

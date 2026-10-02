@@ -44,11 +44,11 @@ export interface NavRecording {
 }
 
 // 一次位置读取：一个地点在读者离开它时它在哪儿，或某次跳转真正落到哪儿。这两者故意是两个不同的
-// 事实 —— 栈两个都要（它需要*某个*位置可以回去），而一个地点只保留落地。
+// 事实 —— 栈两个都要（它需要*某个*位置可以回去），而一个地点只保留落点。
 export type NavLeave =
 	// 读者离开了这个地点；这是他当时的位置。
 	| { cause: 'read'; path: string; leafId: string; st: NavEntryState }
-	// 某次跳转的落地已落定：这是它真正把他带到的地方。
+	// 某次跳转的落点已落定：这是它真正把他带到的地方。
 	| { cause: 'settled'; path: string; leafId: string; st: NavEntryState }
 	// 标签页 / 窗格被激活：接管过来的那个 leaf 自己持有一个位置。
 	| { cause: 'tab'; leaf: WorkspaceLeaf };
@@ -60,9 +60,9 @@ export interface NavFunnelSink {
 	onVisit?(recording: NavRecording): void;
 	// 一次位置读取（见 NavLeave）。目前只有栈实现了它。
 	onLeave?(leave: NavLeave): void;
-	// 某次跳转的落地现在知道了 —— 带 key 的跳转落定，或 teleport 的滚动在跳跃事件之后一帧才到。
+	// 某次跳转的落点现在知道了 —— 带 key 的跳转落定，或 teleport 的滚动在跳跃事件之后一帧才到。
 	// 带着的是这条记录**用于识别身份**的字段（一个地点的身份是跳转的 key，而 key 只有记录里才有），
-	// 但不带时间戳：落地描述的是一条已经存在的记录，它的 `t` 属于当初压栈的那一边。
+	// 但不带时间戳：落点描述的是一条已经存在的记录，它的 `t` 属于当初压栈的那一边。
 	onLanded?(entry: NewNavEntry): void;
 	// 「你在这里」这个标记移动了。
 	onHere?(entry?: NavEntry): void;
@@ -228,7 +228,7 @@ export class NavFunnel {
 		this.publishLeave({ cause: 'read', path, leafId, st });
 	}
 
-	// 落地已经落定（跳转之后读者不再动了）：这是这次跳转把他带到的那个位置，
+	// 落点已经落定（跳转之后读者不再动了）：这是这次跳转把他带到的那个位置，
 	// 也是一个地点唯一认的位置。
 	settled(path: string, leafId: string, st: NavEntryState) {
 		this.publishLeave({ cause: 'settled', path, leafId, st });
@@ -279,7 +279,7 @@ export class NavFunnel {
 		this.publish(recording);
 	}
 
-	// 一个落地现在知道了，来自哪一侧都有可能：栈那边是它自己落定的带 key 跳转，采样器那边是
+	// 一个落点现在知道了，来自哪一侧都有可能：栈那边是它自己落定的带 key 跳转，采样器那边是
 	// 滚动比跳跃事件晚一帧才到的 teleport。每个订阅者各取自己保留的那些 kind。
 	landing(entry: NewNavEntry) {
 		for (const sink of this.sinks)
