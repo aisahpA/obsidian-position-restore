@@ -28,11 +28,11 @@ import { isMainAreaLeaf, markdownViewInUse, viewIcon, viewLabel, viewState } fro
 import { atEdge, caretAtEdge, caretToEdge, holdEdge, moveToEdge, NoteEdge, syncViewScroll } from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
-// Facade over the collaborating pieces, owned by the plugin; main.ts only talks to this class.
-// Each method dispatches to the piece that owns the concern — nothing here holds state of its own.
-// It is also the ONE place that knows both navigation stores: it wires the funnel to each and hands
-// the place list the stack's open pipeline, so neither store imports the other. The cross-phase
-// coordination flags live in the shared PositionState, so the collaborators never desync.
+// 门面，扣在若干协作者之上，归插件所有；main.ts 只跟这一个类打交道。
+// 每个方法都派发给负责该关注点的那一块 —— 这里自己不持有任何状态。
+// 它也是**唯一**同时认识两个导航 store 的地方：把漏斗接到两边、又把栈的打开流水线
+// 交给地点列表，于是两个 store 互不 import。跨阶段的协调标志住在共享的 PositionState 里，
+// 所以协作者们永远不会失步。
 export class PositionManager {
 	private app: App;
 	private database: CursorPositionDatabase;
@@ -51,19 +51,19 @@ export class PositionManager {
 	constructor(
 		app: App,
 		database: CursorPositionDatabase,
-		// The one shared settings object (main.ts assigns it once, the settings tab mutates it in
-		// place), kept as a field because the browser reads its preferences live off it.
+		// 那唯一的共享设置对象（main.ts 赋一次值，设置标签页就地对它做改动），
+		// 存成字段是因为浏览器会从它身上实时读自己的偏好。
 		private settings: PluginSettings,
 	) {
 		this.app = app;
 		this.database = database;
 		this.state = new PositionState(settings);
-		// The recording funnel first: both readers below need it.
+		// 先建记录漏斗：下面两个读者都需要它。
 		this.funnel = new NavFunnel(app, this.state);
 		this.stack = new NavStack(app, settings, this.state, this.funnel, (path) => this.database.db[path]);
 		this.places = new NavPlaces(app, settings);
-		// The funnel's two listeners. The stack IS one; the place list keeps its own vocabulary
-		// (places, not steps), so the port translation lives here.
+		// 漏斗的两个订阅者。栈本身就是其中一个；地点列表保有自己的词汇
+		// （地点，不是步），所以那层端口的翻译住在这里。
 		this.funnel.subscribe(this.stack);
 		this.funnel.subscribe({
 			onVisit: (recording) => this.places.remember(recording.record),
@@ -86,33 +86,32 @@ export class PositionManager {
 
 	installPatches(registerCleanup: (fn: () => void) => void) {
 		this.patcher.installPatches(registerCleanup);
-		// Outline panel clicks as in-file nav jumps (reading mode — the one jump path the patches
-		// and the poll cannot see). Silent no-op when the outline DOM can't be resolved.
+		// 把大纲面板的点击当成文件内的导航跳转（阅读模式 —— 补丁和轮询都看不见的
+		// 那唯一一条跳转路径）。大纲 DOM 解析不出来时静默地什么都不做。
 		this.funnel.installOutlineCapture(registerCleanup);
-		// Search anchor: armed by focus on a search input so search-driven jumps don't overwrite
-		// the saved position. Platform-neutral: both the desktop and the mobile poll take the guard.
+		// 搜索锚：由搜索输入框获得焦点时武装，这样由搜索驱动的跳转就不会覆盖保存的位置。
+		// 平台中立：桌面和移动端的轮询都会走这道防护。
 		this.sampler.installSearchAnchor(registerCleanup);
-		// Frontmatter recording rules: drop a file's records the moment it opts out.
+		// frontmatter 记录规则：一篇文件一旦选择退出，立刻丢掉它的记录。
 		this.sampler.installFrontmatterWatch(registerCleanup);
 		if (Platform.isDesktopApp) {
 			this.sampler.installScrollCapture(registerCleanup);
-			// Desktop counterpart of the mobile touch listener: stamp user input so scroll capture
-			// can tell real scrolls from programmatic movement.
+			// 移动端触摸监听在桌面的对应物：给用户输入盖时间戳，好让滚动采集
+			// 分得清真的滚动和程序性的移动。
 			this.sampler.installUserIntentTracker(registerCleanup);
-			// In-file jump detection at per-selection-event granularity (VSCode's 10-line
-			// threshold) instead of the poll's 100ms quantization.
+			// 文件内跳转检测按「每次选区事件」的粒度做（VSCode 的 10 行阈值），
+			// 而不是轮询的 100ms 量化。
 			this.sampler.installTeleportWatcher(registerCleanup);
 		} else {
-			// Mobile: no scroll capture (WKWebView drops the events), but the poll needs a
-			// reliable "user touched the view" signal to tell real scrolls from passive reflow.
+			// 移动端：没有滚动采集（WKWebView 会丢掉事件），但轮询需要一个可靠的
+			// 「用户碰过视图」信号，好把真的滚动和被动的重排区分开。
 			this.sampler.installTouchListener(registerCleanup);
 		}
 	}
 
-	// Where the app's OWN file list opens its hover preview. Own registration
-	// rather than folded into installPatches: it changes no position and reads
-	// none of the pipes the patches feed, and it stays answerable on its own if
-	// the preview it points at is ever dropped.
+	// app 自己的文件列表把悬停预览开在哪里。它单独注册而不是折进 installPatches：
+	// 它不改任何位置、也不读补丁喂的那些管线，而且万一它指向的预览将来被删掉，
+	// 它自己仍能独立地回答。
 	installExplorerPreview(registerCleanup: (fn: () => void) => void) {
 		this.explorerPreview.install(registerCleanup);
 	}
@@ -122,36 +121,34 @@ export class PositionManager {
 			.catch(e => console.error('Position Restore: restore failed:', e));
 	}
 
-	// 'active-leaf-change' completion for opens that never fired 'file-open' (background opens,
-	// restart-restored tabs, same-file deferred-tab activations).
+	// 给那些从未触发 'file-open' 的 open 做 'active-leaf-change' 收尾（后台打开、
+	// 重启后恢复的标签页、同文件被延后的标签页激活）。
 	completeInjectedRestore(leaf: WorkspaceLeaf | null): void {
 		void this.restorer.completeInjectedRestore(leaf)
 			.catch(e => console.error('Position Restore: complete injected restore failed:', e));
 	}
 
-	// Startup sweep for background split tabs whose open never fired 'file-open'. Bounded poll;
-	// stops when no built leaf still needs work or the deadline passes.
+	// 给那些 open 从未触发 'file-open' 的后台分屏标签页做的启动清扫。有界轮询；
+	// 没有已建好、还需要处理的 leaf 或过了截止时间就停。
 	installBackgroundSettle(registerCleanup: (fn: () => void) => void) {
 		this.backgroundSettler.start(registerCleanup);
 	}
 
-	// The 100ms tick. The view-state read below is NOT part of it: it rides a slower
-	// tick of its own (see main.ts's registerPolling).
+	// 100ms 的 tick。下面那个视图 state 的读取**不属于**它：后者搭的是自己那条更慢的
+	// tick（见 main.ts 的 registerPolling）。
 	sampleActiveView() {
 		this.sampler.sampleActiveView();
 	}
 
-	// A view's state is not finished when the reader arrives in it: the built-in browser answers
-	// getState with `{title, mode}` until the page has committed and the url it is on exists, and
-	// the place list writes that same unfinished state over its own good one. Nothing re-reads it
-	// until the reader leaves — which is never, for a tab closed straight after opening. So the
-	// tick re-reads it and publishes the difference as a landing, through the same wire as the
-	// leave-read (see funnel.ts's NavFunnelSink.onLanded), with both readers updating in place.
+	// 读者进到一个视图里时，它的 state 还没定型：内置浏览器在页面提交、且它所在的 url 存在
+	// 之前，用 `{title, mode}` 回答 getState，而地点列表会把这份同样没定型的 state 覆在
+	// 自己那份好好的之上。直到读者离开之前没有任何东西重读它 —— 而对于一个打开后立刻
+	// 关掉的标签页，那就是永远不。所以这条 tick 重读它，并把差异当作一次落点发布出去，
+	// 走与「离开时读取」同一条线（见 funnel.ts 的 NavFunnelSink.onLanded），两个读者就位更新。
 	//
-	// Quiet on nearly every tick (the comparison is against what the step already holds) except for
-	// a third-party view whose own getState is expensive: it is asked once per second while the
-	// reader sits in it. Hence the order below — the two property reads answering "is this the
-	// step?" come BEFORE isMainAreaLeaf, which walks the workspace's element tree.
+	// 几乎每个 tick 都是安静的（对比的是这一步已经持有的东西），除了某个自己 getState 很贵的
+	// 第三方视图：读者坐在它里面时，它每秒被问一次。所以有下面的顺序 —— 那两个回答
+	// 「这是不是那一步？」的属性读取排在 isMainAreaLeaf 之前，后者要遍历工作区的元素树。
 	sampleActiveViewState(): void {
 		if (!this.funnel.isRecording())
 			return;
@@ -175,28 +172,26 @@ export class PositionManager {
 		});
 	}
 
-	// Every persist point (quit, suspend flush, periodic flush) goes through here. The three
-	// stores below write synchronously to localStorage; only the db file is async, so this
-	// promise is the whole answer to "has everything reached disk" — which is what lets the
-	// quit handler hand Obsidian something to wait for (see main.ts's 'quit').
+	// 每一个持久化点（退出、挂起 flush、周期性 flush）都走这里。下面三个 store 同步写
+	// localStorage；只有 db 文件是异步的，所以这个 promise 就是「是不是全都到磁盘了」的
+	// 完整答案 —— 也正是它让退出处理器能交给 Obsidian 一个可等待的东西（见 main.ts 的 'quit'）。
 	//
-	// IT SETTLES EVEN WHEN A WRITE FAILS, and that is the point of the catch: Obsidian awaits
-	// every promise handed to Tasks — with Promise.all — before it closes the window, so one
-	// rejection here would leave the app stuck on its "Saving..." dialog, holding the reader
-	// over positions it could not have saved anyway. A failure is still reported, in the log.
+	// **写入失败时它也会 settle**，而这就是那个 catch 的意义：Obsidian 会在关窗之前，把交给
+	// Tasks 的每个 promise 用 Promise.all 等完，所以这里一个 reject 就会让 app 卡在它那个
+	// 「正在保存…」对话框上，把读者扣在它反正也保存不了的位置上。失败仍会报告，进日志。
 	async storePositionData(): Promise<void> {
 		try {
-			// Closing a leaf fires no dedicated event, so dead records survive until the next
-			// fresh open's prune. Prune at every persist point instead.
+			// 关掉一个 leaf 不触发任何专门的事件，所以死掉的记录会一直活到下一次
+			// 全新 open 的修剪。改为在每个持久化点都修剪。
 			this.restorer.pruneStaleLeafIds();
 
-			// The per-leaf overlay persists at the database's cadence rather than only at quit:
-			// it is the only place a same-file-in-two-tabs split survives a restart. Deduped
-			// against its own last blob, so an unchanged round is one stringify.
+			// 每个 leaf 的 overlay 按数据库的节奏持久化，而不是只在退出时：它是「同一个文件
+			// 分在两个标签页」这一状态熬过重启的唯一去处。对它上一次的 blob 去重，
+			// 所以没变的一轮只是一次 stringify。
 			this.store.persist();
 
-			// Navigation stores ride the same persist points, each dirty-checked against its own
-			// last written snapshot. Two independent calls: neither writes on the other's behalf.
+			// 导航 store 搭同样的持久化点，各自对自己上次写下的快照做脏检查。
+			// 两次独立调用：谁也不替谁写。
 			this.stack.persist();
 			this.places.persist();
 
@@ -206,10 +201,9 @@ export class PositionManager {
 		}
 	}
 
-	// Navigate back/forward through the recorded jump history (VSCode-style). The promise IS
-	// the traversal — a step opens a note and waits for it — and the panel's arrows wait for
-	// it too (see RecentFilesBrowser.pressArrow). The commands do not, and say so at the
-	// call site.
+	// 在记录下来的跳转历史里前进/后退（VSCode 风格）。这个 promise **就是**遍历本身 ——
+	// 一步打开一篇笔记并等它 —— 面板的箭头也等它（见 RecentFilesBrowser.pressArrow）。
+	// 命令不等，并且在调用点明说了。
 	navigateBack(): Promise<void> {
 		return this.stack.navigate(-1)
 			.catch(e => console.error('Position Restore: navigate back failed:', e));
@@ -220,28 +214,25 @@ export class PositionManager {
 			.catch(e => console.error('Position Restore: navigate forward failed:', e));
 	}
 
-	// A note's two ends, as navigation. The step is the point of it: the app's own keys move the
-	// view and leave nothing behind, so the spot the reader stood in is gone the moment they ask
-	// for the other end — on a phone, where those keys do not exist, that spot was never reachable
-	// again at all. So the standing place is written onto the step the reader is leaving, and the
-	// arrival takes a step of its own: back returns to where they stood, forward to the end.
+	// 一篇笔记的两端，作为导航。重点就是那一步：app 自己的按键只移动视图、什么都不留下，
+	// 所以读者一要求去另一端，他原来站的那个位置就没了 —— 在手机上（那些按键根本不存在），
+	// 那个位置再也回不去了。于是把他站的地点写到他正要离开的那一步上，而这次到达自己占一步：
+	// 后退回到他站过的地方，前进到那一端。
 	//
-	// Neither end is a NAMED target, so both steps are keyless visits — a jump key would make the
-	// top of a note a place of its own in the recent-files list, which is what a heading is and an
-	// end of the note is not.
-	// The note is read off the tab the reader was in rather than off the ACTIVE leaf: a
-	// control standing in a panel — the arrows, on a phone — is itself the active leaf the
-	// moment it is tapped, and `getActiveViewOfType` would answer nothing at all.
+	// 两端都不是**带名**的目标，所以两步都是不带 key 的 visit —— 一个 jump key 会把一篇笔记的
+	// 顶部变成最近文件列表里属于自己的一个地点，而那是标题的身份、不是笔记一端的身份。
+	// 笔记是从读者刚才所在的标签页读来的，而不是从**活动** leaf 读的：一个站在面板里的
+	// 控件 —— 手机上的箭头 —— 在被点的那一刻自己就是活动 leaf，`getActiveViewOfType`
+	// 会什么都答不上来。
 	goToEdge(edge: NoteEdge): void {
 		const view = markdownViewInUse(this.app);
 		if (!view?.file)
 			return;
-		// Standing there is two answers, not one: the view can show the top with the caret 200
-		// lines down, and a reader who asks for the top wants it moved. When it is the only thing
-		// outstanding it goes WITHOUT the rest of the journey — no step, because nothing moved
-		// that could be seen, and back from one would answer with a view that does not stir; and
-		// no hold, because no scroll went anywhere to be undone. Bracketed all the same: a caret
-		// that jumps two hundred lines is the shape the desktop sampler infers a step from.
+		// 「已经在那儿」是两个答案、不是一个：视图可能显示着顶部、而光标在 200 行以下，
+		// 而一个要求去顶部的读者想要它被移过去。当它是唯一还欠着的事时，它**不走**这趟
+		// 旅程的其余部分 —— 不记步，因为没有看得见的东西移动过、而从一个这样的步后退
+		// 会答出一个纹丝不动的视图；也不 hold，因为没有任何滚动去了别处等着被撤销。
+		// 但仍然括起来：一个跳了两百行的光标正是桌面采样器据以推断出一步的形态。
 		if (atEdge(view, edge)) {
 			if (!caretAtEdge(view, edge))
 				void this.funnel.runBracketed(async () => {
@@ -255,35 +246,33 @@ export class PositionManager {
 		const st = readNavEntryState(view);
 		if (st)
 			this.funnel.leave(path, leafId, st);
-		// Forced past the same-location dedup: the arrival is in the same file as the step holding
-		// where they stood, and an unforced record would be folded into it — and the next leave
-		// would then overwrite that one position with the new one.
+		// 强制越过同地点去重：这次到达与那一步（记着他们站的地方）在同一个文件里，
+		// 一个不强制的记录会被折进它 —— 而接下来的离开又会用新位置盖掉那一个位置。
 		this.funnel.visit({ record: { kind: 'visit', path, leafId }, cause: 'open', forced: true });
-		// Bracketed: the move is this plugin's, and the sampler must not read it as the reader
-		// scrolling, which is exactly what it looks like — a screenful moved in one tick. The hold
-		// rides inside the same bracket: the corrections it makes are the move finishing, not a
-		// second navigation.
+		// 括起来：这次移动是插件的，采样器不能把它读成读者在滚动 —— 而它看起来恰恰就是
+		// 那样子，一个 tick 里挪了整屏。hold 也待在同一对括号里：它做的纠正是这次移动的
+		// 收尾，不是第二次导航。
 		void this.funnel.runBracketed(async () => {
 			moveToEdge(view, edge);
 			await holdEdge(view, edge);
-			// Last, so what it reports is where the held move left the note.
+			// 放最后，好让它报告的是被 hold 的这次移动把笔记留在了哪里。
 			await syncViewScroll(view);
 		})
 			.catch(e => console.error('Position Restore: go to edge failed:', e));
 	}
 
-	// Whether the two ends can be asked for at all — the same note the arrows act on, so
-	// that a greyed button and a press that does nothing cannot disagree (see goToEdge).
+	// 两端到底能不能被要求 —— 与箭头作用于同一篇笔记，这样一个变灰的按钮和一次
+	// 什么都不做的按下不会互相打架（见 goToEdge）。
 	canGoToEdge(): boolean {
 		return !!markdownViewInUse(this.app)?.file;
 	}
 
-	// Command availability for back/forward (checkCallback) — see NavStack.canNavigate.
+	// 前进/后退的命令可用性（checkCallback）—— 见 NavStack.canNavigate。
 	canNavigate(dir: -1 | 1): boolean {
 		return this.stack.canNavigate(dir);
 	}
 
-	// The "Open recent files" modal (main.ts command) — see NavStack.travelTo.
+	// 「浏览最近文件」模态框（main.ts 的命令）—— 见 NavStack.travelTo。
 	openRecentFilesModal() {
 		new RecentFilesModal(
 			this.app,
@@ -294,14 +283,14 @@ export class PositionManager {
 		).open();
 	}
 
-	// The resident form of the same browser (main.ts command): same list, same rows, standing in a
-	// sidebar instead of asked and dismissed.
+	// 同一个浏览器的常驻形态（main.ts 的命令）：同样的列表、同样的行，站在侧边栏里，
+	// 而不是召之即来、挥之即去。
 	openRecentFilesSidebar() {
 		void activateRecentFilesView(this.app, this.places, (path) => this.database.db[path], this.browserPrefs());
 	}
 
-	// The factory main.ts hands to Plugin.registerView: the view needs the place list, the saved
-	// positions and the browser's preferences, all of which this facade owns.
+	// main.ts 交给 Plugin.registerView 的工厂：这个视图需要地点列表、保存的位置和
+	// 浏览器的偏好，而这些全归这个门面所有。
 	recentFilesViewCreator(): (leaf: WorkspaceLeaf) => RecentFilesView {
 		return createRecentFilesView(
 			this.places,
@@ -311,51 +300,48 @@ export class PositionManager {
 		);
 	}
 
-	// WHAT THE PANEL'S ARROWS DO. The four acts are the plugin's own (see main.ts's
-	// commands), handed down rather than run by the panel: a body holds no history and
-	// no note, so it can only ask — which is what greys a button that would do nothing.
+	// 面板的箭头做什么。四个动作是插件自己的（见 main.ts 的命令），是交下去、
+	// 而不是由面板来跑：一个 body 不持有历史、也不持有笔记，所以它只能问 ——
+	// 而正是这一点让一个会什么都不做的按钮变灰。
 	private recentFilesArrows(): RecentFilesBrowserArrows {
 		return {
 			back: () => this.navigateBack(),
 			forward: () => this.navigateForward(),
 			top: () => this.goToEdge('top'),
 			bottom: () => this.goToEdge('bottom'),
-			// A STEP'S OWN QUESTION, and not a command's (see NavStack.hasStep): whether
-			// one is there to take, which a traversal in flight does not change. Asking
-			// the command's instead greys both arrows for as long as a step takes.
+			// 这是**一步自己的**问题，不是命令的（见 NavStack.hasStep）：有没有一步可走，
+			// 而这一点不因遍历正在进行而改变。改问命令的，会让两个箭头在一次步所需的
+			// 整段时间里都变灰。
 			canBack: () => this.stack.hasStep(-1),
 			canForward: () => this.stack.hasStep(1),
 			canEdge: () => this.canGoToEdge(),
 		};
 	}
 
-	// The preferences the browser draws by: read LIVE off the shared settings object, so the dialog
-	// and the resident panel cannot hold different opinions, and a choice made in the settings tab
-	// is in force on the next redraw of a panel already standing. READERS ONLY — the settings tab
-	// writes and persists them itself, so there is no second writer to keep in step.
+	// 浏览器据以绘制的偏好：从共享设置对象上**实时**读，所以对话框和常驻面板不会各持一套
+	// 说法，而设置标签页里做的一个选择，在一个已经站着的面板下一次重画时就生效。
+	// **只读** —— 设置标签页自己写、自己持久化，所以没有第二个写入者要同步。
 	private browserPrefs(): RecentFilesBrowserPrefs {
 		return {
 			landings: () => this.settings.recentFilesLandings,
-			// How far back the list reaches; lowering it trims the list on the spot.
+			// 列表往回够多远；调小它会当场修剪列表。
 			placesCap: () => this.settings.recentFilesCap,
-			// How much of a row's path the list prints, and on which side of the name: it decides
-			// what the NEXT render prints.
+			// 列表把一行的路径打印多少、打在名字的哪一侧：它决定**下一次**渲染打印什么。
 			pathDisplay: () => this.settings.recentFilesPathDisplay,
-			// Whether each row says how long ago it was last visited.
+			// 每一行是否说明它上次被访问是多久之前。
 			rowTime: () => this.settings.recentFilesRowTime,
-			// What a row calls the note: the reader's own frontmatter property
-			// where they named one, the file's name everywhere else.
+			// 一行怎么称呼那篇笔记：读者自己命名了 frontmatter 属性时用他的属性，
+			// 其余地方用文件名。
 			titleProperty: () => this.settings.recentFilesTitleProperty,
-			// Where a hover opens the note a row stands for (see PreviewFocusMode). Nothing is
-			// drawn from it, so it takes effect on the next hover rather than the next redraw —
-			// which is why it owes no repaint (see BROWSER_PREF_KEYS in settings/tab.ts).
+			// 悬停在哪里打开一行所代表的笔记（见 PreviewFocusMode）。没有东西由它绘制，
+			// 所以它在下一次悬停时生效、而不是下一次重画时 —— 这正是它不欠任何重画的原因
+			// （见 settings/tab.ts 的 BROWSER_PREF_KEYS）。
 			previewFocus: () => this.settings.recentFilesPreviewFocus,
 		};
 	}
 
-	// A preference the reader just changed while a panel may be standing open beside the page they
-	// are looking at. The panel reads those preferences live (see browserPrefs), so nothing has to
-	// be rebuilt or re-wired — only drawn again.
+	// 读者刚改了一项偏好，而一个面板可能正站在他看的那个页面旁边开着。面板实时读那些偏好
+	// （见 browserPrefs），所以什么都不用重建或重接 —— 只需重画一次。
 	refreshNavPanels(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(RECENT_FILES_VIEW_TYPE)) {
 			const view = leaf.view;
@@ -364,79 +350,73 @@ export class PositionManager {
 		}
 	}
 
-	// Tab/pane activation records a nav entry (VSCode semantics).
+	// 标签页/窗格的激活记一条导航条目（VSCode 语义）。
 	recordActivation(leaf: WorkspaceLeaf | null): void {
 		this.funnel.recordActivation(leaf);
 	}
 
-	// True while a search session is live. main.ts checks this before recording paths outside the
-	// poll, e.g. the suspend flush.
+	// 搜索会话进行中时为真。main.ts 在轮询之外记录路径之前会检查它，例如挂起 flush。
 	isSearchAnchored() {
 		return this.state.isSearchAnchored();
 	}
 
-	// Vault 'rename' — every path-keyed record moves with the file.
+	// Vault 'rename' —— 每条按 path 为键的记录都跟着文件走。
 	renameFile(file: TAbstractFile, oldPath: string) {
 		this.bookkeeper.renameFile(file, oldPath);
 	}
 
-	// Vault 'delete' — a scheduled prune, never an immediate one: the vault reports the same event
-	// for a sync plugin's remove-then-rename replacement, whose undo arrives a moment later.
+	// Vault 'delete' —— 一次预约的修剪，绝不是立刻的：同步插件「先删再改名」的替换会报
+	// 同一个事件，而它的撤销过一会儿才到。
 	deleteFile(file: TAbstractFile) {
 		this.bookkeeper.deleteFile(file);
 	}
 
-	// Vault 'create' — the file a scheduled prune was waiting on came back, which on a phone
-	// is a sync delivering its replacement. Cancels the prune (see PathBookkeeper.cancelPending):
-	// the window is a backstop, not the thing the record's survival races against.
+	// Vault 'create' —— 一次预约的修剪所等待的那个文件回来了，在手机上这是同步在投递
+	// 它的替换品。取消那次修剪（见 PathBookkeeper.cancelPending）：那个窗口是兜底，
+	// 不是记录的存活要跟它赛跑的东西。
 	fileCreated(file: TAbstractFile) {
 		this.bookkeeper.fileCreated(file);
 	}
 
-	// Startup sweep for the navigation stores: files deleted while Obsidian was closed fire no
-	// 'delete' event, so their entries would hold slots in the caps for good. The position records
-	// are deliberately left alone.
+	// 给导航 store 的启动清扫：Obsidian 关闭期间被删的文件不会触发 'delete' 事件，
+	// 所以它们的条目会永久占住上限里的名额。位置记录有意不去动。
 	sweepMissingHistory() {
 		this.bookkeeper.sweepMissingHistory();
 	}
 
-	// The stack's ceiling changed: apply it to the stack already in memory instead of waiting for
-	// the next navigation to drop a large chunk at once.
+	// 栈的上限变了：把它施加到内存里已有的栈上，而不是等下一次导航一次丢掉一大块。
 	applyNavHistoryCap(): void {
 		this.stack.applyStackCap();
 	}
 
-	// One of the list's own rules changed — a folder or frontmatter property added to "do not
-	// list". A place the reader can no longer be shown must not keep a slot in a capped list until
-	// they happen to revisit it, and the drop has to land while they are looking at the setting.
+	// 列表自己的一条规则变了 —— 往「不列出」里加了一个文件夹或 frontmatter 属性。
+	// 一个读者再也看不到的地点不该在一个有上限的列表里占着名额，直到他碰巧重访它；
+	// 而这次丢弃必须在他正看着这项设置时就落下。
 	applyRecentFilesExclusions(): void {
 		if (this.places.pruneExcluded() > 0)
 			this.places.applyCap();
 	}
 
-	// The list's ceiling changed: trimmed at once, so the reader sees the ceiling they just set.
-	// Called by the settings tab and by an external write (data.json edited by hand, a sync
-	// landing), so every writer comes through here.
+	// 列表的上限变了：立刻修剪，好让读者看到他刚设的上限。设置标签页和一次外部写入
+	// （手工编辑 data.json、一次同步落地）都会调它，所以每个写入者都从这里过。
 	//
-	// The ceiling counts NOTES, so what it owes is one number's worth of trimming and nothing else.
+	// 上限数的是**笔记**，所以它欠的只是「一个数字」那么多修剪，别无其他。
 	//
-	// The landings setting is deliberately NOT in this table: it stops or starts RECORDING, which
-	// the list answers on the next navigation (NavPlaces.recordsJumps) rather than a consequence to
-	// re-apply, and it leaves what was already recorded alone.
+	// 落点那项设置有意**不在**这张表里：它停止或开始**记录**，而列表在下一次导航
+	// （NavPlaces.recordsJumps）才回应它，而不是一个要重新施加的后果；它也放着已经记下的东西不管。
 	applyRecentFilesCap(): void {
 		this.places.applyCap();
 	}
 
-	// Every setting in `before` that differs from the current one has its derived consequence
-	// applied. This IS the dispatch — one copy of it. A write from the settings tab arrives here
-	// too, carrying the snapshot the tab took before it wrote, so the consequences don't have to be
-	// repeated per caller. `before` is a copy taken off the settings object immediately before it
-	// was overwritten in place, which is also the only form an EXTERNAL write can arrive in:
-	// data.json names no keys, so comparing is the one thing both callers have in common.
+	// `before` 里每一项与当前不同的设置，都把它派生出来的后果施加一遍。这里**就是**那个分发 ——
+	// 只有这一份。来自设置标签页的一次写入也到达这里，带着标签页在写之前拍下的快照，
+	// 于是这些后果不必按调用者各重复一遍。`before` 是在设置对象被就地覆盖之前紧挨着
+	// 从它身上拷下来的一份，而这也是一次**外部**写入唯一能到来的一种形态：
+	// data.json 不点名任何键，所以对比是两个调用者唯一的共同点。
 	//
-	// Repainting an open panel is deliberately NOT in here: every panel reads its preferences live
-	// (see browserPrefs), so nothing needs recomputing — it is a view asked to draw again, and only
-	// the settings tab knows a reader just changed one of those preferences in front of a panel.
+	// 重画一个开着的面板有意**不**在这里：每个面板都实时读自己的偏好（见 browserPrefs），
+	// 所以什么都不需要重算 —— 那只是一个被要求再画一次的视图，而只有设置标签页知道
+	// 一个读者刚在一个面板面前改了其中一项偏好。
 	applyChangedSettings(before: PluginSettings): void {
 		if (this.settings.navHistoryCap !== before.navHistoryCap)
 			this.applyNavHistoryCap();
@@ -450,15 +430,15 @@ export class PositionManager {
 			this.prunePositions();
 	}
 
-	// Prune the records the current settings exclude (and, incidentally, the ones over the entry
-	// cap). Routed through the store so the file layer and the leaf layer are pruned together.
+	// 修剪当前设置排除掉的记录（顺带也修剪超过条目上限的那些）。经由那个 store 走，
+	// 好让文件层和 leaf 层一起被修剪。
 	prunePositions(): number {
 		return this.store.pruneDatabase();
 	}
 }
 
-// Element-wise equality for the string-list settings: a fresh array is built by every JSON.parse,
-// so identity comparison would report "changed" on every external write and re-run the prune.
+// 字符串列表设置用的逐元素相等：每次 JSON.parse 都会新建一个数组，所以用身份比较会在每次
+// 外部写入时都报「变了」、并重跑那次修剪。
 function sameList(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && a.every((v, i) => v === b[i]);
 }
