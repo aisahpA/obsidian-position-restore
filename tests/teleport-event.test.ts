@@ -24,7 +24,7 @@ type TestEntry = NavJump | NavVisit | NavTeleport;
 function makeFakeMarkdownView(path: string): MarkdownView {
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path },
-		currentMode: { getScroll: () => 42.3 }, // quantizes to 42
+		currentMode: { getScroll: () => 42.3 }, // 量化为 42
 		editor: null as unknown,
 	}) as MarkdownView;
 	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1' };
@@ -110,7 +110,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		const pollRead: EphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		h.state.lastEphemeralState = pollRead;
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
@@ -140,12 +140,12 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		const h = makeHarness({ settings: { navHistoryTeleportMinLines: 30 } });
 
 		h.cursor.line = 5;
-		h.onSelection(h.editor); // baseline: line 5
-		h.cursor.line = 25; // 20 lines — under the 30 the reader asked for
+		h.onSelection(h.editor); // 基线：第 5 行
+		h.cursor.line = 25; // 20 行 —— 低于读者要的 30
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
-		h.cursor.line = 90; // 65 lines from the rolled baseline, over it
+		h.cursor.line = 90; // 距滚动后的基线 65 行，超过阈值
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 90, expect.anything());
 	});
@@ -156,7 +156,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 			settings: { navHistoryTeleportMinLines: DEFAULT_SETTINGS.navHistoryTeleportMinLines },
 		});
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		h.cursor.line = 900;
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
@@ -166,9 +166,9 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		const h = makeHarness();
 		const editor = h.editor as unknown as { somethingSelected: () => boolean };
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		editor.somethingSelected = () => true;
-		h.cursor.line = 900; // Cmd+A: the anchor sits at one end of the file
+		h.cursor.line = 900; // Cmd+A：锚点停在文件的一端
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled();
 
@@ -187,7 +187,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 	it('换文件时重置基线，之后在新文件里记录跳跃', () => {
 		const h = makeHarness();
 
-		h.onSelection(h.editor); // baseline: line 3 in a.md
+		h.onSelection(h.editor); // 基线：a.md 的第 3 行
 		h.cursor.line = 600;
 		h.onSelection(h.editor);
 		expect(h.funnel.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 600, expect.anything());
@@ -196,7 +196,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		h.state.lastLoadedFilePath = 'b.md';
 		h.cursor.line = 2;
 		h.onSelection(h.editor);
-		expect(h.funnel.recordTeleport).toHaveBeenCalledTimes(1); // switch absorbed
+		expect(h.funnel.recordTeleport).toHaveBeenCalledTimes(1); // 换文件被吸收
 
 		h.cursor.line = 900;
 		h.onSelection(h.editor);
@@ -215,7 +215,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 	it('被搜索锚住的那一跳静默重置基线，好让锚之后的这次移动是干净的', () => {
 		const h = makeHarness();
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
 
 		h.cursor.line = 800;
@@ -236,8 +236,8 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 	it('即便在同一文件内，恢复时的重新锚定也会重置基线', () => {
 		const h = makeHarness();
 
-		h.onSelection(h.editor); // baseline: line 3
-		h.state.lastAnchorAt = Date.now(); // restore landed at line 800
+		h.onSelection(h.editor); // 基线：第 3 行
+		h.state.lastAnchorAt = Date.now(); // 恢复落在第 800 行
 
 		h.cursor.line = 805;
 		h.onSelection(h.editor);
@@ -253,7 +253,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 	it('进行中的恢复被吸收，但为下一次移动重置基线', () => {
 		const h = makeHarness();
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		h.state.restoreStarted();
 
 		h.cursor.line = 800;
@@ -263,7 +263,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		h.state.restoreEnded();
 		h.cursor.line = 805;
 		h.onSelection(h.editor);
-		expect(h.funnel.recordTeleport).not.toHaveBeenCalled(); // 5-line move, baseline rolled to 800
+		expect(h.funnel.recordTeleport).not.toHaveBeenCalled(); // 5 行移动，基线滚到 800
 	});
 
 	it('不是活动视图那个 editor 的编辑器，一概无视', () => {
@@ -301,7 +301,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 			defaultLineHeight: 20,
 		};
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
@@ -318,10 +318,10 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		// 第一次跳跃的落点。
 		h.state.lastEphemeralState = { scroll: 10, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 
-		h.onSelection(h.editor); // baseline: line 3
-		h.cursor.line = 500; // jump 1
+		h.onSelection(h.editor); // 基线：第 3 行
+		h.cursor.line = 500; // 跳跃 1
 		h.onSelection(h.editor);
-		h.cursor.line = 900; // jump 2: the teleport top must not be overwritten
+		h.cursor.line = 900; // 跳跃 2：栈顶 teleport 不能被覆盖
 		h.onSelection(h.editor);
 
 		const first = h.entries[h.index - 1];
@@ -344,7 +344,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCbs.push(cb); return rafCbs.length; });
 		try {
 			const h = makeHarness();
-			h.onSelection(h.editor); // baseline: line 3
+			h.onSelection(h.editor); // 基线：第 3 行
 			h.cursor.line = 500;
 			h.onSelection(h.editor);
 
@@ -371,11 +371,11 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCbs.push(cb); return rafCbs.length; });
 		try {
 			const h = makeHarness();
-			h.onSelection(h.editor); // baseline: line 3
+			h.onSelection(h.editor); // 基线：第 3 行
 			h.cursor.line = 500;
-			h.onSelection(h.editor); // jump 1
+			h.onSelection(h.editor); // 跳跃 1
 			h.cursor.line = 900;
-			h.onSelection(h.editor); // jump 2 — top moved on before any frame fired
+			h.onSelection(h.editor); // 跳跃 2 —— 还没等任何帧触发，栈顶就往前走了
 
 			(h.view as unknown as { currentMode: { getScroll: () => number } }).currentMode.getScroll = () => 480.4;
 			rafCbs.forEach((cb) => cb(0));
@@ -398,7 +398,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		const h = makeHarness();
 		(h.view as unknown as { currentMode: unknown }).currentMode = { getScroll: () => NaN };
 
-		h.onSelection(h.editor); // baseline: line 3
+		h.onSelection(h.editor); // 基线：第 3 行
 		h.cursor.line = 500;
 		h.onSelection(h.editor);
 
