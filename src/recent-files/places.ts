@@ -8,146 +8,126 @@ import { normAnchor } from '@/position/capture/ephemeral';
 import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
 import { loadNavPlaces, persistNavPlaces } from './places-store';
 
-// THE RECENT FILES LIST — the panel's (and only the panel's) data.
+// 最近文件列表 —— 面板的（也仅是面板的）数据。
 //
-// NOT the back/forward stack (see nav-history/stack.ts), and the two are deliberately
-// separate stores: the stack is a TRAVERSAL device — ordered, cursor-bound, and
-// TRUNCATING, so a fresh jump discards the forward part and a list drawn from it loses
-// a chunk of itself the moment the reader branches. This is a PLACE store: unordered,
-// never truncated by a jump, deduped by place. (A place can still leave — see forget —
-// but nothing about GOING anywhere removes one, and nothing fills one back in.)
+// 不是前进/后退栈（见 nav-history/stack.ts），两者是刻意分开的 store：栈是遍历装置
+// —— 有序、绑定光标、且会**截断**，所以一次新的跳转就丢掉前进的那部分，而从中画出的
+// 列表会在读者分叉的那一刻丢掉自己的一块。这是地点 store：无序、绝不因跳转而截断、
+// 按地点去重。（一个地点仍可离开 —— 见 forget —— 但「去往某处」这件事本身不会移除
+// 任何一个，也不会把任何一个补回来。）
 //
-// WHAT IS IN IT. Two kinds of place:
-//   - one FILE record per path (`kind: 'visit'`), holding no position of its own. The
-//     line the panel prints and the spot a plain open lands on both come from the
-//     position database, so a click here behaves like a click in the file explorer
-//     (including its exclusion rules). Duplicating that position here would make the
-//     two open paths disagree.
-//   - one record per JUMP (`kind: 'jump'` — an outline click, a heading link), carrying
-//     its own landing, which exists nowhere else. Identity is the heading KEY, not the
-//     line: a heading that moved in an edit is the same place. And ONE record per
-//     LANDING: two jumps that come to rest on one line are one place, merged as the
-//     landing settles (see settle).
-//   - NO record for a target whose row could not name it, and the note it landed in is
-//     what is recorded: a CALLER target (a search match, a backlink hit — see
-//     nav/entry.ts's isCallerKey) names no anchor and its key is a timestamp; a BLOCK
-//     target (isBlockKey) names one, but a row would print it as a line number inside a
-//     section, which is not a thing the reader can pick out of a list.
-// A pathless view (the graph, Thino's memo list) is one record, as in the panel.
+// 里面有什么。两类地点：
+//   - 每个路径一条文件记录（`kind: 'visit'`），自身不持有位置。面板打印的行号与普通
+//     打开落到的位置都来自位置数据库，所以这里的一次点击表现得就像在文件浏览器里的一次
+//     点击（包括它的排除规则）。在这里复制那份位置会让两条打开路径不一致。
+//   - 每次跳转一条记录（`kind: 'jump'` —— 一次大纲点击、一个标题链接），携带它自己的
+//     落点，那份落点在别处不存在。身份是标题 KEY，不是行号：一次编辑中移动过的标题仍是
+//     同一个地点。且一个落点一条记录：两次碰巧停在同一行的跳转是一个地点，随落点落定而
+//     合并（见 settle）。
+//   - 目标的行说不出它的名字的，不记记录，而是记它所落进的那篇笔记：CALLER 目标（一次
+//     搜索命中、一次反向链接命中 —— 见 nav/entry.ts 的 isCallerKey）不指出任何锚点、
+//     它的 key 是一个时间戳；BLOCK 目标（isBlockKey）指出一个，但一行只能把它打印成
+//     某节里的一行号，那不是读者能从列表里挑出来的东西。
+// 无路径的视图（图谱、Thino 的 memo 列表）是一条记录，与面板中一样。
 //
-// WHAT IS NOT IN IT: teleports (the sampler's INFERRED cursor moves), and — at the
-// bottom stop of the landings setting — jumps (see LandingsMode): neither is a place
-// the reader chose to go to.
+// 里面没有什么：跳变（采样器**推断**出的光标移动），以及 —— 在落点设置的最底一档 ——
+// 跳转（见 LandingsMode）：两者都不是读者选择去往的地点。
 //
-// ORDER IS THE MRU ORDER: a touched place moves to the END. The panel reads an index as
-// a clock (list.ts's activeRep), so an in-place update would leave a re-touched place
-// looking older than it is.
+// 次序即 MRU 次序：被碰到的地点移到末尾。面板把索引读作时钟（list.ts 的 activeRep），
+// 所以原地更新会让一个被重新碰到的地点看起来比它实际的更旧。
 //
-// WHO FEEDS IT. Nothing here reaches for anything: the composition root subscribes this
-// store to the recording funnel (see nav/funnel.ts), and it hears the same navigations
-// the stack does — the two lists keep different things from one recording.
+// 谁喂数据给它。这里什么都不去够取任何东西：组合根把这个 store 订阅到记录漏斗（见
+// nav/funnel.ts），它听到的导航与栈听到的相同 —— 两个列表从一次记录中留下不同的东西。
 
 export interface PlaceList {
-	// Oldest first. Read as a plain NavEntry list: every consumer in the browser takes
-	// that shape and is unchanged by this store.
+	// 最旧的在前。当作一个普通的 NavEntry 列表来读：浏览器里每个消费者都取那个形态，
+	// 并不因这个 store 而改变。
 	entries: NavEntry[];
-	// The place the reader is in NOW, or -1. Not persisted: "here" is a live fact about
-	// the workspace, not something a restart can restore.
+	// 读者**此刻**所在的地点，或 -1。不持久化：「此处」是关于工作区的活事实，
+	// 不是重启能恢复的东西。
 	index: number;
-	// Go to a place: a FILE record opens the file the plain way, a JUMP record opens it
-	// and lands on the recorded spot (see NavPlaces.travel). `target` is where to open
-	// it when the reader asked for somewhere other than the tab the file is already in
-	// (see PaneTarget); absent means the ordinary open.
+	// 去往一个地点：FILE 记录以普通方式打开文件，JUMP 记录打开它并落到记录的位置
+	// （见 NavPlaces.travel）。当读者要求的不是文件已在的那个 tab 时，`target` 决定
+	// 在哪打开（见 PaneTarget）；缺省即普通打开。
 	travel(index: number, target?: PaneTarget): Promise<void>;
-	// Drop every place ONE ROW stands for: a note's own record and each jump inside it,
-	// or the single record a pathless view holds. `key` is the row's identity (see
-	// nav/entry.ts's navGroupKey), and a ROW is deliberately what this is about: a note
-	// is one row however many spots it holds, and the reader asked from the row.
+	// 丢掉**一行**所代表的一切地点：一篇笔记自己的记录与它内部的每次跳转，
+	// 或无路径视图持有的那一条记录。`key` 是行的身份（见 nav/entry.ts 的
+	// navGroupKey），而这里说的刻意就是行：一篇笔记无论持有多少位置都是
+	// 一行，读者也是从行上发问的。
 	//
-	// A row's identity and not a path, because a path cannot name a pathless view.
+	// 是行的身份而不是路径，因为路径说不出一个无路径视图。
 	//
-	// What it does NOT touch is why this list can be edited at all: the file itself, and
-	// the position records — a different store, keyed by path. A file visited again takes
-	// its place back, by design. A reader who never wants a file listed wants one of the
-	// rules instead (see recordable), which is a policy rather than a one-off.
+	// 它不动的东西，正是这份列表能可编辑的原因：文件本身，以及位置记录 ——
+	// 那是另一个 store、按路径作键。被再次访问的文件会拿回自己的地点，这是
+	// 设计。一个永远不想看到某文件被列出的读者想要的是规则之一（见
+	// recordable），那是策略而不是一次性的。
 	forget(key: string): void;
-	// Drop ONE LANDING of a note: the places the row UNDER the note's own row stands
-	// for, handed over BY IDENTITY (see placeKey below) rather than by index. One row is
-	// one place as a rule (see settle), but the panel draws from what it can see and a
-	// jump that never settled has no line at all — so the caller names the places the
-	// row stands for rather than the one it was drawn from: a twin left behind would put
-	// the row back before the redraw finished, which is a × that does nothing.
+	// 丢掉一篇笔记的**一个落点**：笔记自己那行**下面**那行所代表的地点，
+	// 按身份（见下方 placeKey）而非按索引交出。一条规矩是一行一地点（见
+	// settle），但面板只从它能看见的东西上绘制，而一次从未落定的跳转根本
+	// 没有行 —— 所以调用方报出该行所代表的地点，而不是它被画出来所依据的
+	// 那一个：落单的双胞胎会在重画完成前把那行放回来，那是一个什么都不做的 ×。
 	//
-	// What stays is the note's own record and its other places.
+	// 留下的是笔记自己的记录与它的其它地点。
 	forgetLanding(keys: readonly string[]): void;
-	// Take the WHOLE LIST off at once: what a vault the reader has never worked in
-	// would hold. What it spares is the rows they pinned — a pin is an answer written
-	// down by hand, and every rule the list keeps BY ITSELF already spares one (see
-	// pruneExcluded), a clear being one more of those.
+	// 一次把**整份列表**拿掉：一个读者从未在其中工作过的 vault 会持有的东西。
+	// 它放过的是读者钉选过的行 —— 一个钉选是手写下的答案，而列表靠**自己**
+	// 维持的每条规则本就放过它（见 pruneExcluded），清空不过是其中又多一条。
 	//
-	// What it does not touch is what forget does not touch: no file, and no position
-	// record. A note visited again takes its place back — with its position, which
-	// was never this list's to keep.
+	// 它不动的就是 forget 不动的：不动文件，也不动位置记录。被再次访问的笔记会
+	// 拿回自己的地点 —— 连同它的位置，而那份位置从来就不是这份列表该留的。
 	clear(): void;
-	// The rows the reader pinned, in the order they are shown — top first. A ROW
-	// identity (see navGroupKey), never a landing: a pin is a bookmark for a note,
-	// not for one spot inside it.
+	// 读者钉选过的行，按展示顺序 —— 最上的在前。是**行**身份（见 navGroupKey），
+	// 从不是一个落点：钉选是给一篇笔记的书签，不是给它内部某个位置的。
 	pinned: readonly string[];
-	// Pin a row, take the pin off, or move one inside the pinned block by `delta`
-	// places (one step is the menu's up/down; a move that would run past an end
-	// lands the row ON that end, which is what "move to the front" asks for).
-	// `key` is the row's identity, the same thing forget takes, so a pin
-	// outlives the landings inside the row and leaves with the row.
+	// 钉选一行、取下钉选，或在钉选块内按 `delta` 个位次移动（一步即菜单的
+	// 上/下移；一次会越过末端的移动会让该行**停在**那个末端，这正是「移到最前」
+	// 想要的）。`key` 是行的身份，与 forget 所取的是同一个东西，所以一个钉选
+	// 比行内部的落点活得久，并随行一同离开。
 	pin(key: string): void;
 	unpin(key: string): void;
 	movePinned(key: string, delta: number): void;
-	// Whether a row is pinned — asked by the panel, which draws the two blocks.
+	// 一行是否被钉选 —— 由绘制两个块的面板来问。
 	isPinned(key: string): boolean;
-	// A landing whose coordinates the note moved out from under, put back where the
-	// anchor it names stands NOW (see ReclaimedLine). The line always arrives answered:
-	// this store reads no vault, and a number guessed here would be one nobody could
-	// tell from the one already standing on the row. NOT a visit — the place keeps its
-	// own age, and nothing about it moves besides its address.
+	// 一个坐标被笔记挪走了的落点，放回它所命名的锚点**此刻**所在之处（见
+	// ReclaimedLine）。行号总是带着答案到达：这个 store 不读 vault，在这里
+	// 猜出的数字会是一个没人能从行上已有的那个分辨出来的数。不是一次访问 ——
+	// 地点保有自己的年龄，除了它的地址，关于它什么都没动。
 	reland(lines: readonly ReclaimedLine[]): void;
-	// Something a browser would have to redraw for.
+	// 浏览器得为它重画的东西。
 	subscribe(fn: () => void): () => void;
 }
 
-// One landing's coordinates put back where they belong: the answer to "where does that
-// heading stand now", which the panel can give and this store cannot reach on its own (a
-// line lives in the vault, and nothing here has one).
+// 一个落点的坐标被放回它该在之处：「那个标题现在在哪」的答案，面板能给，而这个
+// store 无法自己够取（行号活在 vault 里，这里没有任何东西持有它）。
 export interface ReclaimedLine {
-	// The place, by its own identity (see placeKey): an index would not survive a place
-	// being forgotten between the asking and the writing.
+	// 那个地点，按它自己的身份（见 placeKey）：索引熬不过一次「在发问与写入之间
+	// 有地点被忘掉」。
 	key: string;
-	// Where the landing's anchor stands in the note NOW, 0-based.
+	// 落点的锚点**此刻**在笔记中的位置，0-based。
 	line: number;
-	// The note's clock the answer was taken against, stamped on the record for the one
-	// thing it buys: the panel does not go looking for the line again on every draw (see
-	// browser/now-line.ts's cheapest answer). Absent when the file's own clock is one
-	// nobody could read, and the record then says nothing rather than claiming a check.
+	// 答案所依据的、笔记的时钟，盖在记录上，只为它换来的一件事：面板不必在每次
+	// 绘制时再去寻找行号（见 browser/now-line.ts 里最省的那条答案）。当文件自己的
+	// 时钟是没人能读的那一个时缺省，此时记录什么也不说，而不是声称做过核对。
 	mtime?: number;
 }
 
-// What the store needs to travel. Injected (and implemented by NavStack, which owns the
-// open pipeline) rather than reached for, so this module stays a pure list: it can be
-// built and tested without a workspace.
+// store 行走所需的东西。注入进来（并由拥有打开管线的 NavStack 实现）而不是自己去够
+// 取，好让本模块保持为一个纯列表：它可以在没有工作区的情况下被构建与测试。
 export interface PlaceOpeners {
-	// Open a file the way the file explorer does: activate the tab holding it, or open it
-	// there. NO injected landing — the position database decides. With a `target`, the
-	// file opens in a leaf the app picks for that target (a new tab, a split, a window)
-	// and the landing rule is unchanged (see stack.ts).
+	// 以文件浏览器的方式打开一个文件：激活持有它的 tab，或在那里打开它。不注入
+	// 落点 —— 由位置数据库决定。带 `target` 时，文件在 app 为该 target 挑的 leaf
+	// 里打开（一个新 tab、一个分屏、一个窗口），落点规则不变（见 stack.ts）。
 	openFile(path: string, leafId: string, target?: PaneTarget): Promise<void>;
-	// Open the file a jump was made in and land on the jump's recorded spot.
+	// 打开一次跳转所在的文件，并落到该跳转记录的位置。
 	openJump(entry: NavEntry, target?: PaneTarget): Promise<void>;
-	// Show a pathless view: in the leaf that already holds it, or in a new tab when it is
-	// nowhere. The entry arrives WHOLE, so a tab that has to be built is built as the
-	// place the reader left (see NavView.state).
+	// 展示一个无路径视图：在已经持有它的 leaf 里，或在它无处可寻时的一个新 tab 里。
+	// 条目整份到达，所以一个不得不被建起的 tab 按读者离开时的地点来建（见
+	// NavView.state）。
 	openView(entry: NavEntry, target?: PaneTarget): Promise<void>;
 }
 
-// The no-op opener: a store built without a workspace still records places and still
-// answers the panel; it just cannot travel.
+// 空操作 opener：在无工作区下构建的 store 仍会记录地点、仍会应答面板；只是无法行走。
 const NO_OPENERS: PlaceOpeners = {
 	openFile: async () => undefined,
 	openJump: async () => undefined,
@@ -157,16 +137,15 @@ const NO_OPENERS: PlaceOpeners = {
 export class NavPlaces implements PlaceList {
 	entries: NavEntry[] = [];
 	index = -1;
-	// The rows the reader pinned, top first, persisted with the places themselves
-	// (see places-store): a pin and the row it names are one list's two halves.
+	// 读者钉选过的行，最上的在前，与地点本身一起持久化（见 places-store）：
+	// 一个钉选与它所命名的行是一份列表的两半。
 	//
-	// NOT a setting. A pin is the reader's answer about THIS list, and the list
-	// belongs to the machine that made it — a vault copied to another device
-	// brings its places and its pins or neither (see #34's wish).
+	// 不是设置项。钉选是读者关于**这份**列表的答案，而列表属于做出它的那台机器 ——
+	// 一个复制到另一台设备的 vault 要么把自己的地点与钉选都带过去，要么都不带
+	// （见 #34 的愿望）。
 	//
-	// A pin is kept out of the ceiling (see dropOldestRows) and out of the rules
-	// (see pruneExcluded) on purpose: both bound what the list remembers BY
-	// ITSELF, and a pinned row is one the reader named by hand.
+	// 钉选被刻意排除在上限（见 dropOldestRows）与规则（见 pruneExcluded）之外：
+	// 两者都约束列表靠**自己**记住的东西，而被钉选的行是读者亲手命名的。
 	pinned: string[] = [];
 
 	private listeners = new Set<() => void>();
@@ -175,8 +154,8 @@ export class NavPlaces implements PlaceList {
 
 	constructor(
 		private app: App,
-		// The one shared settings object: the ceiling and this list's own folder rule are
-		// read live, so changing either takes effect on the next write.
+		// 那一个共享的设置对象：上限与这份列表自己的文件夹规则都是活读的，
+		// 所以改动任一个都会在下一次写入时生效。
 		private settings: PluginSettings,
 	) {
 		const blob = loadNavPlaces(app);
@@ -184,47 +163,44 @@ export class NavPlaces implements PlaceList {
 		this.pinned = blob.pinned;
 	}
 
-	// The composition root hands in the open pipeline once it exists (see
-	// position/manager.ts). Separate from construction because the two objects need each
-	// other: the funnel feeds this list, and a click here travels out through the stack.
+	// 组合根在打开管线存在后把它交进来（见 position/manager.ts）。与构造分开，是因为
+	// 两个对象彼此需要：漏斗喂这份列表，而这里的一次点击经由栈向外行走。
 	attach(open: PlaceOpeners): void {
 		this.open = open;
 	}
 
 	// ===== Configuration =====
 
-	// Whether this list records JUMPS — everything but the bottom stop of the landings
-	// setting (see LandingsMode), where the list is notes and views and nothing else.
+	// 这份列表是否记录跳转 —— 除了落点设置的最底一档（见 LandingsMode），
+	// 那一档下列表只有笔记与视图，别无其它。
 	//
-	// It answers RECORDING and only recording, never retention: a jump recorded at an
-	// upper stop is a place like any other, and coming down to 'none' leaves it where it
-	// is — it stops new ones being recorded, and what finally takes the old ones is the
-	// trim (see dropOldestLandings). Which is why no stop is a one-way door.
+	// 它回答的是**记录**、且仅是记录，从不是留存：在上档记录下的一次跳转
+	// 与任何其它地点一样，而降到 'none' 会让它留在原处 —— 它只是不再记录新的，
+	// 而最终拿走旧的是修剪（见 dropOldestLandings）。这就是为什么没有哪一档
+	// 是单向门。
 	private recordsJumps(): boolean {
 		return this.settings.recentFilesLandings !== 'none';
 	}
 
-	// How many NOTES the list is kept to: the setting, clamped, with DEFAULT_SETTINGS as
-	// the fallback for a value that is not a number at all (a hand-edited data.json would
-	// otherwise make every `length > cap` comparison false and disable the ceiling
-	// entirely — the same guard as the stack's stackCap). What it counts is the row a
-	// note or view stands for (see rowCount), not the landings inside it.
+	// 列表被保持到多少篇**笔记**：那个设置项，钳制过，以 DEFAULT_SETTINGS 作为
+	// 一个根本不是数字的值的兜底（否则一个手改过的 data.json 会让每个
+	// `length > cap` 比较都为假、彻底禁用上限 —— 与栈的 stackCap 同样的守卫）。
+	// 它数的是笔记或视图所代表的那一行（见 rowCount），不是它内部的落点。
 	cap(): number {
 		const cap = Math.floor(this.settings.recentFilesCap);
 		return Number.isFinite(cap) ? Math.max(1, cap) : DEFAULT_SETTINGS.recentFilesCap;
 	}
 
-	// Whether a path may be listed at all: this list's OWN rules, and no other feature's.
-	// The reader's folder list and property list answer "which visits are worth listing",
-	// and are deliberately not the position recording's excludedFolders and
-	// frontmatterExcludeProperties, which answer a different question (see
-	// PluginSettings.recentFilesExcludeFolders / recentFilesExcludeProperties).
+	// 一个路径究竟能否被列出：这份列表**自己**的规则，不是别的功能的。读者的
+	// 文件夹列表与属性列表回答的是「哪些访问值得列出」，且刻意不是位置记录的
+	// excludedFolders 与 frontmatterExcludeProperties，后者回答的是另一个问题
+	// （见 PluginSettings.recentFilesExcludeFolders / recentFilesExcludeProperties）。
 	private recordable(path: string): boolean {
 		if (!path)
 			return false;
-		// Vault-internal paths are never listed: the configuration folder (whatever the
-		// user named it — see Vault#configDir) is not notes, and Obsidian's trash holds
-		// files the bookkeeper drops anyway.
+		// Vault 内部的路径从不被列出：配置文件夹（无论用户怎么命名它 —— 见
+		// Vault#configDir）不是笔记，而 Obsidian 的废纸篓里装着记账员反正会丢掉的
+		// 文件。
 		const config = (this.app.vault as { configDir?: string }).configDir;
 		if (config && (path === config || path.startsWith(`${config}/`)))
 			return false;
@@ -239,17 +215,15 @@ export class NavPlaces implements PlaceList {
 		return !this.excludedByFrontmatter(path);
 	}
 
-	// `status` keeps out every file carrying the property whatever its value,
-	// `status: archived` only the files whose value equals it — the one entry form this
-	// plugin writes, shared with the position rules (see shared/frontmatter.ts).
+	// `status` 把每个带该属性的文件都挡在外面、无论其值，`status: archived` 只挡值
+	// 与它相等的文件 —— 这是本插件写下的唯一一种条目形式，与位置规则共用（见
+	// shared/frontmatter.ts）。
 	//
-	// Asked LAST, and only when the reader has written a rule: it is the one test here
-	// that reaches into the vault, and with an empty list — the default — the answer is
-	// "no" without touching the metadata cache.
+	// 最后才问，且仅在读者写过规则时问：它是这里唯一一个深入 vault 的测试，而在
+	// 空列表下 —— 默认即是 —— 答案就是「否」，根本不去碰元数据缓存。
 	//
-	// A file the cache has not parsed yet IS listed: the cache fills lazily, and a place
-	// withheld on a guess is a place the reader cannot get back, while a place listed by
-	// mistake is one they can drop.
+	// 缓存尚未解析的文件**会被**列出：缓存是懒填的，而一个凭猜测扣下的地点是读者
+	// 拿不回来的地点，而一个误列的地点是一个他们能丢掉的地点。
 	private excludedByFrontmatter(path: string): boolean {
 		const rules = this.settings.recentFilesExcludeProperties ?? [];
 		if (rules.length === 0)
@@ -273,28 +247,25 @@ export class NavPlaces implements PlaceList {
 
 	// ===== Writing =====
 
-	// A place was visited — the funnel's `onVisit`, for every navigation but a teleport
-	// (see the class comment). Called BEFORE the stack decides whether the step is worth
-	// keeping: a place being sat in again is a fact about THIS list, and the stack's
-	// dedup or its settings must not be able to hide it. A place already on the list is
-	// moved to the end and re-stamped, never duplicated — that is what makes a file
-	// opened ten times one row.
+	// 一个地点被访问了 —— 漏斗的 `onVisit`，对除跳变外的每次导航（见类注释）。
+	// 在栈决定这一步是否值得留下**之前**调用：一个地点被重新坐进是关于**这份**列表的
+	// 事实，栈的去重或它的设置不能把它藏起来。已在列表上的地点被移到末尾并重新盖章、
+	// 绝不重复 —— 这正是让一个被打开十次的文件是一行的原因。
 	remember(entry: NewNavEntry): void {
 		if (entry.kind === 'teleport')
 			return;
-		// Asked of the KIND rather than of the file, and before the list's own file rules:
-		// those answer whether a file may be listed, which is a different question from
-		// whether the spots inside it are remembered.
+		// 问的是 KIND 而不是文件，且在列表自己的文件规则之前：那些回答的是一个文件
+		// 能否被列出，与它内部的位置是否被记住是不同的问题。
 		if (entry.kind === 'jump' && !this.recordsJumps())
 			return;
-		// Two targets the list keeps no place for, but the reader IS in the note they landed in:
-		// it is recorded as that note, which is what a hit in ANOTHER file already gets (a
-		// cross-file search match is no same-file target, so it arrives here as a plain visit).
+		// 两个列表不为其保留任何地点的目标，但读者**确实**在他们落进的那篇笔记里：
+		// 记为那篇笔记，这正是**在别的文件里**的一次命中已经得到的（一次跨文件的搜索
+		// 命中不是同文件目标，所以它到这里时是一次普通访问）。
 		//
-		// A CALLER target (a search match, a backlink hit — nav/entry.ts's isCallerKey) names no
-		// anchor and its key is a timestamp; a BLOCK target (isBlockKey) names one but a row could
-		// only print it as a line number inside a section, which the reader cannot tell from the
-		// row beside it. Neither is a place the list can name.
+		// CALLER 目标（一次搜索命中、一次反向链接命中 —— nav/entry.ts 的 isCallerKey）
+		// 不指出任何锚点、它的 key 是一个时间戳；BLOCK 目标（isBlockKey）指出一个，
+		// 但一行只能把它打印成某节里的一行号，读者无法把它与旁边那行区分开。两者都
+		// 不是列表能命名的地点。
 		if (entry.kind === 'jump' && (isCallerKey(entry.key) || isBlockKey(entry.key))) {
 			this.remember({ kind: 'visit', path: entry.path, leafId: entry.leafId });
 			return;
@@ -308,26 +279,24 @@ export class NavPlaces implements PlaceList {
 		if (at >= 0)
 			this.entries.splice(at, 1);
 		this.entries.push(record);
-		// The reader is standing in the place they just went to, which every
-		// navigation this list hears sets — the funnel's `here` broadcast
-		// reaches it from a traversal alone. Set before the trim, so its
-		// exemption (see dropOldestRows / dropOldestLandings) protects this
-		// place and not a stale one.
+		// 读者正站在他们刚去往的地点里，这份列表听到的每次导航都会设它 ——
+		// 漏斗的 `here` 广播单凭一次遍历就能到达它。在修剪之前设，好让它的
+		// 豁免（见 dropOldestRows / dropOldestLandings）保护的是这个地点，
+		// 而不是一个陈旧的地点。
 		this.index = this.entries.length - 1;
 		this.trim();
 		this.changed();
 	}
 
-	// A detail of a place that ALREADY exists became known — the funnel's `onLanded`. The
-	// stack fills a jump's landing in when it settles (after upgrading the key) and
-	// re-reads a VIEW's own state as the reader leaves it; a row is what the reader
-	// clicks, so what comes back has to be the place they left.
+	// 一个**已存在**地点的某个细节变得已知了 —— 漏斗的 `onLanded`。栈在跳转落定时
+	// 填补它的落点（在上调 key 之后），并在读者离开一个**视图**时重读它自己的 state；
+	// 行是读者点击的东西，所以回来的必须得是他们离开时的那个地点。
 	settle(entry: NewNavEntry): void {
 		if (entry.kind === 'view') {
-			// The view the reader just left, re-read. Its state is the one thing about a
-			// view that cannot be derived later (see NavView.state); the name and the icon
-			// come along because a view that renamed itself during that visit should be
-			// listed under what the reader just read. The stamp moves with them.
+			// 读者刚离开的那个视图，重读。它的 state 是关于一个视图的唯一
+			// 无法事后推导的东西（见 NavView.state）；名字与图标一同前来，
+			// 是因为一个在那次访问中给自己改过名的视图应当被列在读者刚读到
+			// 的名字下。时间戳随它们一同移动。
 			if (!entry.state)
 				return;
 			const at = this.indexOf(placeKey(entry));
@@ -353,29 +322,27 @@ export class NavPlaces implements PlaceList {
 		const place = this.entries[at];
 		if (place.kind !== 'jump')
 			return;
-		// The stack upgrades an outline key to the heading's authoritative source form
-		// ("outline:T" → "outline:## T") when the landing settles. The place's key
-		// follows, because the panel reads it back for the structural re-anchor; its
-		// IDENTITY does not change (placeKey normalizes), which is why the lookup above
-		// still found it.
+		// 栈在落点落定时把一个大纲 key 上调为标题的权威源形式
+		// （"outline:T" -> "outline:## T"）。地点的 key 随之跟进，因为面板会把它
+		// 读回来做结构性重锚；它的身份不变（placeKey 会归一化），这就是上面那次
+		// 查找仍能找到它的原因。
 		place.key = entry.key;
 		if (typeof entry.keyLine === 'number')
 			place.keyLine = entry.keyLine;
-		// The state arrives WHOLE: the words this row is searched and quoted by were read with the
-		// landing itself (see ephemeral.ts's readLandingState), so there is nothing to take here.
+		// state 整份到达：这一行被搜索和引用所用的词是随落点本身一起读到的
+		// （见 ephemeral.ts 的 readLandingState），所以这里没什么可取的。
 		place.st = entry.st;
 		place.t = Date.now();
 		this.absorbSameLanding(place);
 		this.changed();
 	}
 
-	// Which place the reader is in. The stack's current record maps to a place by
-	// identity; an inferred step (a teleport) maps to its FILE, because the reader is in
-	// that file however they got there.
+	// 读者身在哪个地点。栈的当前记录按身份映射到一个地点；一个推断出的步
+	// （一次跳变）映射到它的**文件**，因为读者无论怎么到的那里，都在那个文件里。
 	//
-	// "Here" is a live fact about the workspace, so it is NOT persisted and NOT invented:
-	// a list that came up empty stays empty until the reader goes somewhere, and nothing
-	// here puts the note they happen to be reading back on their own list.
+	// 「此处」是关于工作区的活事实，所以它不持久化、也不臆造：一个起动即空的列表
+	// 会一直空着，直到读者去往某处，而这里不会把他们碰巧正在读的笔记放回他们自己的
+	// 列表。
 	markCurrent(entry?: NewNavEntry): void {
 		const at = this.indexFor(entry);
 		if (at === this.index)
@@ -389,10 +356,9 @@ export class NavPlaces implements PlaceList {
 	pin(key: string): void {
 		if (!key || this.pinned.includes(key))
 			return;
-		// The newest pin goes LAST: the block is a shelf the reader is filling,
-		// and a new one arriving at the top would push the rows they arranged
-		// down under it — which is the one thing a pin is not supposed to do to
-		// the pins that are already there.
+		// 最新的钉选排在最后：这个块是读者在填的一个书架，一个到达顶部的
+		// 新钉选会把他们排列好的行推到它下面 —— 而这正是钉选不该对已经在那
+		// 的钉选做的事。
 		this.pinned.push(key);
 		this.afterPinChange();
 	}
@@ -405,12 +371,10 @@ export class NavPlaces implements PlaceList {
 		this.afterPinChange();
 	}
 
-	// `delta` places up (negative) or down (positive), and nothing for a row the
-	// block does not hold or for a move that would leave it where it is: the
-	// reader is rearranging a shelf, not sorting a column. A move past either
-	// end lands ON that end rather than being refused — "move to the front"
-	// hands over more steps than the block is long, and asking the caller to
-	// count them is asking it to do arithmetic about the list's own shape.
+	// 按 `delta` 个位次上移（负）或下移（正），对于块不持有的行、或一次会让它留在
+	// 原处的移动则什么也不做：读者在重新布置一个书架，不是在给一列排序。一次越过
+	// 任一末端的移动会让它**停在**那个末端而不是被拒绝 —— 「移到最前」交过来的步数
+	// 比块还长，而要调用方去数它们，就是让调用方对列表自己的形状做算术。
 	movePinned(key: string, delta: number): void {
 		const at = this.pinned.indexOf(key);
 		if (at < 0)
@@ -427,9 +391,8 @@ export class NavPlaces implements PlaceList {
 		return this.pinned.includes(key);
 	}
 
-	// A pin is written down AT ONCE and not left to the next flush: pinning is a
-	// rare, deliberate act, and a quit a few seconds later would otherwise take
-	// it back — which reads as a feature that forgot on purpose.
+	// 钉选**立刻**写下、不留给下一次 flush：钉选是稀有而刻意的举动，
+	// 否则几秒后的一次退出就会把它收回 —— 那读起来就像一个故意遗忘的功能。
 	private afterPinChange(): void {
 		this.persist();
 		this.changed();
@@ -437,8 +400,8 @@ export class NavPlaces implements PlaceList {
 
 	// ===== Bookkeeping =====
 
-	// A rename re-keys the places that named the file. Identity is recomputed from `path`,
-	// so no stored key has to be rewritten (a jump's own `key` is a heading/anchor).
+	// 一次重命名会给那些命名了该文件的地点重新作键。身份由 `path` 重算，所以没有
+	// 任何已存的 key 需要重写（跳转自己的 `key` 是一个标题/锚点）。
 	renameFile(oldPath: string, newPath: string): void {
 		let renamed = false;
 		for (const entry of this.entries) {
@@ -447,9 +410,9 @@ export class NavPlaces implements PlaceList {
 			entry.path = newPath;
 			renamed = true;
 		}
-		// …and the pin moves with it, because a pin names the ROW and a note's row
-		// is its path (see navGroupKey): renamed here, forgotten there would leave
-		// a pin pointing at a name nothing answers to.
+		// ……钉选也随之移动，因为钉选命名的是**行**，而一篇笔记的行是它的
+		// 路径（见 navGroupKey）：这里改了名、那里却忘了改，会留下一个指向
+		// 没人应答的名字的钉选。
 		const at = this.pinned.indexOf(oldPath);
 		if (at >= 0) {
 			this.pinned[at] = newPath;
@@ -459,54 +422,48 @@ export class NavPlaces implements PlaceList {
 			this.changed();
 	}
 
-	// A real vault delete drops the file's places — its file record and every jump inside
-	// it. The panel's rows for them would otherwise be dead names holding slots in a
-	// capped list. The key handed on IS the path: a file's row identity is its path (see
-	// navGroupKey) — the one case the row and the path agree on.
+	// 一次真正的 vault 删除会丢掉该文件的地点 —— 它的文件记录与它内部的每次跳转。
+	// 否则面板为它们画的行会成为在受限列表里占着槽位的死名字。传下去的 key **就是**
+	// 路径：一个文件的行身份是它的路径（见 navGroupKey）—— 行与路径相一致的唯一情形。
 	deleteFile(path: string): void {
 		this.dropPlaces(path);
 	}
 
-	// The reader asked for a row to go: the × on the row itself (see
-	// RecentFilesBrowser.onForget). The same removal as a vault delete, by the same rule,
-	// and a second name rather than the bookkeeper's entry point reused, because the two
-	// answer different questions: that one is the VAULT saying the file is gone, this one
-	// is the reader saying they do not want to see it.
+	// 读者要求一行离开：行自己的那个 ×（见 RecentFilesBrowser.onForget）。与一次
+	// vault 删除是同一种移除、同一条规则，是第二个名字而不是复用了记账员的入口点，
+	// 因为两者回答不同的问题：那一个是 **VAULT** 在说文件没了，这一个是读者在说他们
+	// 不想看到它。
 	forget(key: string): void {
 		this.dropPlaces(key);
 	}
 
-	// One landing of a note, taken off by the reader (see RecentFilesBrowser's
-	// forgetLanding — the × on a landing's own row). The keys arrive from the panel,
-	// which is the only thing that knows which places one row stands for, and they are
-	// matched against the list's OWN identity for a place (see placeKey): a dialog's
-	// snapshot may be a click behind the store.
+	// 一篇笔记的一个落点，由读者取下（见 RecentFilesBrowser 的 forgetLanding ——
+	// 落点自己那行上的 ×）。key 从面板传来，面板是唯一知道一行代表哪些地点的东西，
+	// 而它们会与列表**自己**对地点的身份（见 placeKey）相匹配：一个对话框的快照可能
+	// 比 store 慢一次点击。
 	forgetLanding(keys: readonly string[]): void {
 		const doomed = new Set(keys);
 		if (doomed.size === 0)
 			return;
 		const before = this.entries.length;
-		// …and the "you are here" pointer rides along with the filter, exactly as it does
-		// for every other removal here (see keep): a reader standing ON the spot they are
-		// taking off is a reader whose pointer has nowhere to stand, which is the honest
-		// answer rather than a bug.
+		// ……而「你在这里」指针随过滤一同搭车，正像它在这里对每一次其它移除所做的那样
+		// （见 keep）：一个正站在自己拿下的那个位置上的读者，是一个指针无处可站的读者，
+		// 那是诚实的答案，而不是一个 bug。
 		this.keep(this.entries.filter(e => !doomed.has(placeKey(e))));
 		if (this.entries.length === before)
 			return;
 		this.changed();
 	}
 
-	// A LANDING THE NOTE MOVED OUT FROM UNDER, put back where its anchor stands now
-	// (see ReclaimedLine). Not a re-reading: the WORDS stay. They were taken once, on
-	// purpose, and taking them again would not make them truer — it would lose the ones
-	// the reader left with. What moves is an address, nothing more.
+	// 一个被笔记挪走了坐标的落点，放回它的锚点现在所在之处（见 ReclaimedLine）。
+	// 不是一次重读：**词**留下。它们是被有意取过一次的，再取一次不会让它们更真
+	// —— 只会丢掉读者离开时带着的那些。移动的是一个地址，仅此而已。
 	//
-	// NOTHING IS BROADCAST: the rows these lines belong to are the rows about to be
-	// drawn, and by the one panel that asked. Another shell standing beside it draws the
-	// same answer the next time it draws anything at all, and a browser that is not
-	// drawing has nobody to tell. It IS written down at once, for the reason pin is: a
-	// place lives for months, and an answer it would otherwise lose on a quit is one it
-	// can never be asked for again at quite this price.
+	// 什么都不广播：这些行号所属的行就是即将被绘制的行，且是由发问的那一个面板
+	// 绘制的。立在它旁边的另一个 shell 下次绘制任何东西时都会画出同一个答案，
+	// 而一个不在绘制的浏览器没有可告知的对象。它**确实**立刻写下，理由同 pin：
+	// 一个地点活几个月，而一个它否则会在退出时丢掉的答案，是一个再也无法以
+	// 完全相同的代价被重新问及的答案。
 	reland(lines: readonly ReclaimedLine[]): void {
 		let wrote = false;
 		for (const r of lines) {
@@ -526,34 +483,32 @@ export class NavPlaces implements PlaceList {
 			this.persist();
 	}
 
-	// The whole list, taken off at once (see RecentFilesView.onPaneMenu). What survives
-	// is the PINNED BLOCK and nothing else.
+	// 整份列表，一次拿掉（见 RecentFilesView.onPaneMenu）。活下来的是**钉选块**，
+	// 别无其它。
 	//
-	// A pinned row keeps every record it is drawn from, its landings included: the block
-	// draws the note and never a spot inside it, but the row still opens the newest one
-	// it holds, and that promise is what the pin was for.
+	// 一个被钉选的行保留它被绘制所依据的每条记录、落点包含在内：块绘制的是笔记、
+	// 从不是它内部的某个位置，但该行仍会打开它所持有的最新那个，而那份诺言正是
+	// 钉选的初衷。
 	clear(): void {
 		const pinned = new Set(this.pinned);
 		const kept = this.entries.filter(e => pinned.has(navGroupKey(e)));
 		if (kept.length === this.entries.length)
 			return;
 		this.keep(kept);
-		// Written down AT ONCE, for the reason a pin is: this is a rare, deliberate
-		// act, and a quit a few seconds later would otherwise put the whole list back
-		// — which reads as a feature that forgot on purpose.
+		// **立刻**写下，理由同钉选：这是一个稀有而刻意的举动，否则几秒后的一次
+		// 退出就会把整份列表放回来 —— 那读起来就像一个故意遗忘的功能。
 		this.persist();
 		this.changed();
 	}
 
-	// The one removal both names above stand for, keyed by ROW (see navGroupKey): every
-	// record the row is drawn from goes at once. It takes a row rather than a path because
-	// a view has no path — a path-keyed filter can only ever leave every view standing.
+	// 上面两个名字所共同代表的那一种移除，按**行**作键（见 navGroupKey）：该行被
+	// 绘制所依据的每条记录一次全走。它取的是行而不是路径，因为一个视图没有路径
+	// —— 一个按路径作键的过滤只能永远让每个视图都留下。
 	private dropPlaces(key: string): void {
 		const current = this.entries[this.index];
 		const kept = this.entries.filter(e => navGroupKey(e) !== key);
-		// The pin leaves with the row — a row that is gone (a deleted file, or one
-		// the reader took off the list) would otherwise leave a pin that shows
-		// nothing and can only be found by remembering it.
+		// 钉选随行一同离开 —— 一个没了的行（一个被删的文件，或读者从列表上
+		// 拿下的一个）否则会留下一个什么也不展示、只能靠记得它才能找到的钉选。
 		const at = this.pinned.indexOf(key);
 		const unpinned = at >= 0;
 		if (unpinned)
@@ -565,17 +520,15 @@ export class NavPlaces implements PlaceList {
 		this.changed();
 	}
 
-	// One of the list's rules changed (the settings tab — a folder added, or a property):
-	// drop the places it now excludes, so a place the reader can no longer be shown does
-	// not keep a slot in the capped list.
-	// @returns how many places were dropped.
+	// 列表的某条规则变了（设置标签页 —— 加了一个文件夹，或一个属性）：丢掉它现在
+	// 排除的地点，好让一个读者再也无法被展示的地点不继续在受限列表里占着槽位。
+	// @returns 丢掉了多少个地点。
 	pruneExcluded(): number {
 		const current = this.entries[this.index];
 		const pinned = new Set(this.pinned);
-		// A PIN OUTLIVES A RULE. The rules answer what the list remembers BY
-		// ITSELF — a folder or a property the reader said not to record — while a
-		// pinned row is one they named by hand, and a later rule is not a later
-		// answer about that row.
+		// 钉选比规则活得久。规则回答的是列表靠**自己**记住的东西 —— 一个
+		// 读者说过不要记录的文件夹或属性 —— 而被钉选的行是他们亲手命名的，
+		// 一条后来的规则不是关于那一行的后来的答案。
 		const kept = this.entries.filter(e => e.kind === 'view'
 			|| pinned.has(navGroupKey(e))
 			|| this.recordable(e.path));
@@ -588,8 +541,8 @@ export class NavPlaces implements PlaceList {
 		return removed;
 	}
 
-	// Every file path the list still names (view records name none) — the startup sweep's
-	// input (see PathBookkeeper.sweepMissingHistory).
+	// 列表仍然命名的每个文件路径（视图记录不命名任何路径）—— 启动清扫的输入
+	// （见 PathBookkeeper.sweepMissingHistory）。
 	knownPaths(): string[] {
 		const seen = new Set<string>();
 		for (const entry of this.entries)
@@ -600,21 +553,18 @@ export class NavPlaces implements PlaceList {
 
 	// ===== Travel =====
 
-	// Go to a place. The RECORD KIND decides how:
-	//   - a FILE record opens the file the plain way, exactly as the file explorer does.
-	//     It carries no position, so nothing is injected: the position database restores
-	//     whatever it restores (or nothing, for an excluded file), which keeps the two
-	//     entry points to one file from behaving differently.
-	//   - a JUMP record is an explicit navigation, like back/forward, so it carries its
-	//     own landing and lands on it.
-	//   - a view record is answered by a leaf SHOWING that view: the one it came from, any
-	//     other one, or a new tab when the view is nowhere (a place outlives the tab it
-	//     happened in). A tab built for it is built with the state the view had while the
-	//     reader was there (see NavView.state) — see stack.ts's openViewPlace.
-	// `target` decides WHERE all three open, when the reader held a modifier down (see
-	// PaneTarget). Absent — the ordinary click — the record's own leaf is the answer,
-	// which is the plugin's whole point: a place takes you back to where it was, which
-	// `getLeaf(false)` cannot express.
+	// 去往一个地点。**记录 KIND** 决定怎么去：
+	//   - FILE 记录以普通方式打开文件，与文件浏览器做的完全一样。它不携带位置，
+	//     所以什么都不注入：位置数据库恢复它恢复的东西（对一个被排除的文件则是
+	//     什么都不恢复），这让指向同一个文件的两个入口点表现得一致。
+	//   - JUMP 记录是一次显式导航，像前进/后退，所以它携带自己的落点并落到其上。
+	//   - 视图记录由一个**展示**该视图的 leaf 来应答：它来自的那一个、任何其它一个，
+	//     或在视图无处可寻时的一个新 tab（一个地点比它碰巧所在的那个 tab 活得久）。
+	//     为它建起的 tab 带上读者在那里时视图所持有的 state 来建（见 NavView.state）
+	//     —— 见 stack.ts 的 openViewPlace。
+	// 当读者按住修饰键时，`target` 决定三者**在哪**打开（见 PaneTarget）。缺省 ——
+	// 普通点击 —— 记录自己的 leaf 就是答案，这正是本插件的全部要点：一个地点把你带回
+	// 它曾在之处，而那是 `getLeaf(false)` 表达不出的。
 	async travel(index: number, target?: PaneTarget): Promise<void> {
 		const entry = this.entries[index];
 		if (!entry)
@@ -630,9 +580,9 @@ export class NavPlaces implements PlaceList {
 		await this.open.openFile(entry.path, entry.leafId, target);
 	}
 
-	// The ceiling changed (the settings tab): trim NOW rather than on the next visit —
-	// waiting drops a large chunk at once, later, unexplained.
-	// @returns how many places were discarded.
+	// 上限变了（设置标签页）：**现在**就修剪，而不是等下次访问 —— 等待会在之后
+	// 一次丢掉一大块，且无从解释。
+	// @returns 丢弃了多少个地点。
 	applyCap(): number {
 		const removed = this.trim();
 		if (removed > 0)
@@ -642,25 +592,23 @@ export class NavPlaces implements PlaceList {
 
 	// ===== Persistence =====
 
-	// The last blob THIS instance wrote (the flush dedup — see persistNavPlaces). An
-	// instance field, not module state: the list is per vault, and a dedup shared between
-	// instances would let one skip a write it owes.
+	// **本**实例写下的最后一份 blob（flush 去重 —— 见 persistNavPlaces）。是实例
+	// 字段、不是模块状态：列表是按 vault 分的，而实例之间共享的去重会让一个实例
+	// 跳过它欠下的一次写入。
 	persist(): void {
 		this.lastPersisted = persistNavPlaces(this.app, this.entries, this.pinned, this.lastPersisted);
 	}
 
 	// ===== Internals =====
 
-	// ONE RECORD PER LANDING: a jump whose landing has just become known takes over every
-	// older jump in the same file that came to rest on the SAME line — two keys that name
-	// one spot (a heading, and a block ref an edit moved onto its line) are one place to
-	// the reader.
+	// 一个落点一条记录：一个落点刚变得已知的跳转会接管同文件里所有停在了**同一行**的
+	// 更早跳转 —— 两个命名同一处位置的 key（一个标题，以及一个被编辑移到它那行的块
+	// 引用）在读者看来是一个地点。
 	//
-	// Why here and not in remember: a jump is recorded before its landing settles, so at
-	// that moment there is no line to compare.
+	// 为什么在这里而不在 remember：跳转在它的落点落定之前就被记录，所以那一刻没有
+	// 行号可比。
 	//
-	// A jump with NO line is left alone: no coordinates is not a claim about which place
-	// it was.
+	// 没有行号的跳转被放过：没有坐标，就不是一个关于它曾是哪个地点的主张。
 	private absorbSameLanding(place: NavJump): void {
 		const line = landedLine(place);
 		if (line === undefined)
@@ -678,9 +626,8 @@ export class NavPlaces implements PlaceList {
 		return -1;
 	}
 
-	// The place index a stack record stands on, with the fallbacks the "you are here"
-	// marker needs: an inferred step stands on its file, and a jump whose own place is
-	// gone (evicted, or never recorded) stands on its file too.
+	// 一条栈记录所站的地点索引，带「你在这里」标记所需的兜底：一个推断出的步站在它的
+	// 文件上，而一个自己地点没了的跳转（被淘汰了，或从未被记录）也站在它的文件上。
 	private indexFor(entry?: NewNavEntry): number {
 		if (!entry)
 			return -1;
@@ -694,21 +641,19 @@ export class NavPlaces implements PlaceList {
 		return this.indexOf(entry.path);
 	}
 
-	// Keep the list inside its ceiling by dropping the OLDEST things — never the one the
-	// reader is standing in, so a row cannot be evicted from under them by the trim their
-	// own visit triggered. That keeps the ceiling exact rather than letting the list run
-	// over it for as long as the reader sits on an old place.
+	// 通过丢掉最旧的东西把列表保持在上限之内 —— 绝不丢读者所站的那一个，这样一行
+	// 就不会被他们自己的访问所触发的修剪从他们脚下淘汰掉。这让上限保持精确，而不是
+	// 让列表在读者坐在一个旧地点上时一直超着它跑。
 	//
-	// TWO CEILINGS, both the same number: the one the reader sets bounds what they are
-	// SHOWN, while this one bounds what is STORED — a place they are not being shown must
-	// not be able to cost them a place they are (see PluginSettings.recentFilesCap).
-	//   - ROWS first. A row goes WHOLE — the note's own record and every landing inside
-	//     it, the way forget takes them — so a jump can never push a file off the list.
-	//   - LANDINGS second, counted over the whole list rather than per note, because a
-	//     jump is by far the heaviest record here (it carries the lines that were on
-	//     screen with it, see NavEntryState.context) and the ceiling above does not count
-	//     it. It drops the OLDEST landings, never the row they stand in.
-	// @returns how many were dropped.
+	// 两个上限、同一个数字：读者设的那个约束他们被**展示**的东西，而这一约束被**存储**
+	// 的东西 —— 一个没被展示给他们的地点不能让他们失去一个正被展示的地点（见
+	// PluginSettings.recentFilesCap）。
+	//   - 先**行**。一行整份走 —— 笔记自己的记录与它内部的每个落点，如同 forget 取
+	//     它们的方式 —— 所以一次跳转永远无法把一个文件挤出列表。
+	//   - 再**落点**，在整份列表上计而不是按笔记计，因为一次跳转是这里最重的记录
+	//     （它携带当时在屏幕上与它一起的行号，见 NavEntryState.context），而上限
+	//     不数它。它丢最旧的落点，绝不丢它们所站的那一行。
+	// @returns 丢掉了多少个。
 	private trim(): number {
 		const before = this.entries.length;
 		this.dropOldestRows();
@@ -716,18 +661,16 @@ export class NavPlaces implements PlaceList {
 		return before - this.entries.length;
 	}
 
-	// Drop whole rows until the list is inside its ceiling. A row is a note (or a view) in
-	// EVERY mode — the ceiling counts notes, so the mode only changes how many lines a row
-	// takes to draw. Rows are ordered by their NEWEST place: the same clock the panel
-	// reads, an index being the time (see list.ts).
+	// 丢整行，直到列表落回上限之内。在**每种**模式下，一行都是一篇笔记（或一个视图）
+	// —— 上限数的是笔记，所以模式只改变一行画出来要占多少行。行按它们**最新**的地点
+	// 排序：与面板读的同一个时钟，索引即时间（见 list.ts）。
 	private dropOldestRows(): void {
 		const pinned = new Set(this.pinned);
 		const newest = new Map<string, number>();
 		for (let i = 0; i < this.entries.length; i++)
 			newest.set(navGroupKey(this.entries[i]), i);
-		// What the ceiling counts is the rows the reader did NOT name: a pin is
-		// kept ON TOP of the number rather than out of it, so pinning a note does
-		// not quietly cost them one of the fifty they set.
+		// 上限数的是读者**未**命名的行：钉选是加在那个数字**之上**、而不是从
+		// 里面扣的，所以钉选一篇笔记不会悄悄让他们失去他们设的那五十个之一。
 		let counted = 0;
 		for (const key of newest.keys())
 			if (!pinned.has(key))
@@ -745,9 +688,8 @@ export class NavPlaces implements PlaceList {
 				break;
 			if (key === currentKey)
 				continue;
-			// A pin does not age out. The ceiling bounds what the list remembers
-			// by itself, and an eviction the reader did not ask for is the one
-			// thing a pin exists to prevent.
+			// 钉选不会过期淘汰。上限约束的是列表靠自己所记住的东西，
+			// 而一次读者没要求的淘汰，正是钉选存在的意义所在。
 			if (pinned.has(key))
 				continue;
 			doomed.add(key);
@@ -755,10 +697,9 @@ export class NavPlaces implements PlaceList {
 		this.keep(this.entries.filter(e => !doomed.has(navGroupKey(e))));
 	}
 
-	// How many rows the list draws, which is what the ceiling counts: a note is one row
-	// however many landings it holds. The same in all three modes — a mode that made the
-	// ceiling count landings too would leave the reader's number meaning two things (see
-	// PluginSettings.recentFilesCap).
+	// 列表画出多少行，这正是上限所数的：一篇笔记无论持有多少落点都是一行。三种模式
+	// 下都一样 —— 一个让上限也数落点的模式会让读者的那个数字同时意味着两件事（见
+	// PluginSettings.recentFilesCap）。
 	rowCount(): number {
 		const seen = new Set<string>();
 		for (const entry of this.entries)
@@ -766,11 +707,10 @@ export class NavPlaces implements PlaceList {
 		return seen.size;
 	}
 
-	// The landings' own ceiling: the same number, counted over every jump in the list at
-	// once rather than per note. One shared pool rather than a budget each, because what
-	// it bounds is what the list STORES: the jumps it spends the pool on are the ones the
-	// reader actually made, so a note they jumped around in keeps as many as it earned and
-	// a note they only read keeps none.
+	// 落点自己的上限：同一个数字，在列表里每次跳转上一次计，而不是按笔记计。是一个
+	// 共享的池而非各自一份预算，因为它约束的是列表**存储**的东西：它把池花在其上的
+	// 那些跳转，是读者实际做出的跳转，所以一篇他们在里面跳来跳去的笔记保留它挣到的
+	// 那么多，而一篇他们只是读过的笔记一个都不保留。
 	private dropOldestLandings(): void {
 		let held = 0;
 		for (const entry of this.entries)
@@ -784,8 +724,8 @@ export class NavPlaces implements PlaceList {
 		let dropped = 0;
 		for (let i = 0; i < this.entries.length; i++) {
 			const entry = this.entries[i];
-			// A pinned row's landings are its own: the block draws the note, and
-			// the pool here bounds what the list stores by itself.
+			// 被钉选的行，它的落点是它自己的：块绘制的是笔记，而这里的池
+			// 约束的是列表靠自己存储的东西。
 			if (entry.kind === 'jump' && dropped < over && i !== this.index
 				&& !pinned.has(navGroupKey(entry))) {
 				dropped++;
@@ -796,8 +736,8 @@ export class NavPlaces implements PlaceList {
 		this.keep(kept);
 	}
 
-	// Put a filtered array in the list's place, keeping the "you are here" pointer on the
-	// same place when that place survived the filter.
+	// 把一个过滤后的数组放进列表的位置，当那个地点在过滤中存活下来时，
+	// 让「你在这里」指针停在同一地点上。
 	private keep(kept: NavEntry[]): void {
 		if (kept.length === this.entries.length)
 			return;
@@ -807,19 +747,18 @@ export class NavPlaces implements PlaceList {
 	}
 }
 
-// A record's IDENTITY on the list. Not stored: it is recomputed from the record (see
-// places-store's loader), so a rule change cannot leave stale keys behind.
+// 一条记录在列表上的身份。不存储：它由记录重算（见 places-store 的加载器），所以
+// 规则变化不会留下陈旧的 key。
 //
-//   - a FILE is its path. One record per file, whichever tab it was read in: the per-tab
-//     split is the position database's business, and the panel draws one row per note.
-//   - a JUMP is its heading/anchor KEY, normalized. The key is what survives an edit that
-//     moves the heading (see nav-history/stack.ts's upgradeKeyLine and
-//     resolveAnchorShift), and normalizing is what makes the rendered form ("outline:T")
-//     and the authoritative source form ("outline:## T") ONE place rather than two — the
-//     same normalization the stack's own dedup uses.
-//   - a VIEW is its view type, as in the panel's grouping.
-// Typed on NewNavEntry: both a stored record and a recording heard from the funnel answer
-// to it (a record is a recording with the stamp added).
+//   - 一个 FILE 就是它的路径。每个文件一条记录，无论它在哪个 tab 里被读过：按 tab
+//     的分裂是位置数据库的事，而面板每篇笔记画一行。
+//   - 一个 JUMP 是它的标题/锚点 KEY，归一化过。key 才是在一次移动标题的编辑中存活
+//     下来的东西（见 nav-history/stack.ts 的 upgradeKeyLine 与 resolveAnchorShift），
+//     而归一化让渲染形式（"outline:T"）与权威源形式（"outline:## T"）成为**一个**
+//     地点而不是两个 —— 与栈自己的去重所用的同一种归一化。
+//   - 一个 VIEW 是它的视图类型，如同面板的分组。
+// 按 NewNavEntry 定型：一条已存记录与一次从漏斗听到的记录都对它作答（记录是一次
+// 录制加上了时间戳）。
 export function placeKey(entry: NewNavEntry): string {
 	switch (entry.kind) {
 		case 'view':
@@ -833,9 +772,8 @@ export function placeKey(entry: NewNavEntry): string {
 	}
 }
 
-// An outline key keeps its prefix (so a heading and a same-named anchor are not one
-// place) and loses the hashes its two forms differ by; everything else is taken as
-// written.
+// 大纲 key 保留它的前缀（这样标题与同名的锚点就不是一个地点），并丢掉它两种形式
+// 相差的那些井号；其它一切照写下的原样。
 function normalizeJumpKey(key: string): string {
 	const prefix = 'outline:';
 	return key.startsWith(prefix)
@@ -843,7 +781,7 @@ function normalizeJumpKey(key: string): string {
 		: normAnchor(key);
 }
 
-// A FILE place keeps no position (see the class comment) — a note's place is the note.
+// FILE 地点不保留位置（见类注释）—— 一篇笔记的地点就是那篇笔记。
 function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 	const t = Date.now();
 	switch (entry.kind) {
@@ -854,22 +792,20 @@ function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 			return {
 				kind: 'jump', path: entry.path, leafId: entry.leafId, key: entry.key, t,
 				keyLine: entry.keyLine ?? kept?.keyLine,
-				// A re-click of a heading carries no landing yet (it arrives with the
-				// settle): the one already recorded stands until then, so the row never
-				// loses the spot it promises.
+				// 对标题的一次重复点击尚不携带落点（它随落定到达）：已记录的
+				// 那一个在此之前一直立着，所以该行永远不会失去它所承诺的位置。
 				st: entry.st ?? kept?.st,
 			};
 		}
 		case 'view': {
-			// The label and the icon are refreshed by every visit: a view that renamed
-			// itself is named and marked by what it says NOW. A read that came back empty
-			// simply drops them, and the row falls back to this list's own wording.
+			// 标签与图标被每次访问刷新：一个给自己改过名的视图按它**此刻**说的话
+			// 来命名与标记。一次空手而归的读取干脆丢掉它们，行回落到这份列表自己
+			// 的措辞。
 			//
-			// The STATE is the exception, and deliberately: a visit whose state read came
-			// back empty (the view threw, answered with nothing, or went over the ceiling
-			// — see shared/leaf.ts's viewState) KEEPS the snapshot already recorded
-			// instead of erasing it. One failed read must not cost the reader the place
-			// they left.
+			// state 是例外，且是刻意的：一次 state 读取空手而归的访问（视图抛了
+			// 异常、答了空，或超过了上限 —— 见 shared/leaf.ts 的 viewState）**保留**
+			// 已记录的快照而不是抹掉它。一次失败的读取不该让读者失去他们离开时的
+			// 地点。
 			const kept = prev?.kind === 'view' ? prev : undefined;
 			return {
 				kind: 'view', leafId: entry.leafId, viewType: entry.viewType, t,
@@ -878,8 +814,8 @@ function placeRecord(entry: NewNavEntry, prev?: NavEntry): NavEntry {
 			};
 		}
 		default:
-			// Unreachable: remember() refuses teleports. Typed as a visit so a future
-			// variant fails the type check here rather than silently.
+			// 不可达：remember() 拒绝跳变。定为 visit 类型，好让未来某个变体在这里
+			// 失败于类型检查，而不是悄无声息。
 			return { kind: 'visit', path: entry.path, leafId: entry.leafId, t };
 	}
 }
