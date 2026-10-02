@@ -3,28 +3,23 @@ import { SettingsPageContext, intro, hotkeys } from '@/settings/page';
 import { FolderSuggestModal, PropertySuggestModal, PropertyValueModal } from '@/settings/pickers';
 import { t } from '@/i18n';
 
-// THE "RECENT FILES" PAGE — the place list's own face in the settings. Three of
-// its rows are the list's own rules (which folders it refuses, which
-// frontmatter, how far back it reaches), three more are how it LOOKS (see
-// RecentFilesBrowserPrefs). It stands beside the place list and its browser
-// rather than in the settings folder, so that "how do I change what a row
-// prints" lands on the same shelf as the code that prints it.
+// 「最近文件」页 —— 地点列表在设置里的那张脸。它有三行是列表自己的规则（它拒绝哪些文件夹、
+// 哪些 frontmatter、它往回够多远），另有三行是它的**样子**（见 RecentFilesBrowserPrefs）。
+// 它站在地点列表和它的浏览器旁边，而不是放进 settings 文件夹，好让「我怎么改一行显示的东西」
+// 落在与「显示它的代码」同一个架子上。
 //
-// One group with no heading, for the reason the back/forward page has none: the
-// page is already named "Recent files".
+// 一个没有标题的分组，理由与前进/后退页一样：这个页面已经叫「最近文件」了。
 export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefinitionItem[] {
 	return [
 		{
 			type: 'group',
 			items: [
 				intro(t('recentFiles.intro')),
-				// The two commands that OPEN this list, on the page that is about
-				// it (see the hotkeys row builder). The back/forward pair is on
-				// its own page.
+				// **打开**这份列表的两条命令，放在关于它的这一页上（见 hotkeys 行构建器）。
+				// 前进/后退那一对在它自己的页上。
 				hotkeys(ctx.plugin, t('recentFiles.hotkeys.desc'), [
 					{ id: 'browse-recent-files', name: t('recentFiles.commands.open') },
-					// The resident panel is a command like the other one, so it is
-					// bound (or not) in the same place — see view.ts.
+					// 常驻面板与另一条一样是一条命令，所以它在同一个地方被绑定（或不绑）—— 见 view.ts。
 					{ id: 'open-recent-files-sidebar', name: t('recentFiles.commands.openSidebar') },
 				]),
 				{
@@ -70,20 +65,14 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
-				// WHICH FRONTMATTER THE LIST REFUSES — the same question the
-				// folder rule above asks, answered one note at a time by the
-				// note itself rather than by where it sits: a board another
-				// plugin owns, a page marked published, a template. It is the
-				// list's OWN list and not the position page's, for the same
-				// reason the folders are (see
-				// PluginSettings.recentFilesExcludeProperties): a note whose
-				// cursor position is not worth keeping is still a note the
-				// reader navigates to.
+				// 这份列表**拒绝哪些 frontmatter** —— 与上面那条文件夹规则同一个问题，但由笔记自己
+				// 一次一篇地作答、而不是由它所在的位置：另一个插件拥有的看板、一个被标记为已发布的页面、
+				// 一个模板。它是这份列表**自己的**列表、不是位置页的，理由与那些文件夹一样
+				// （见 PluginSettings.recentFilesExcludeProperties）：一篇光标位置不值得留的笔记，
+				// 仍是读者会导航去的一篇笔记。
 				//
-				// The two pickers it opens are shared with the position page
-				// (see settings/pickers.ts) — a property name is a property
-				// name whichever page asks for one — so the entry form a reader
-				// learns there is the form that works here.
+				// 它打开的那两个选择器与位置页共用（见 settings/pickers.ts）—— 属性名无论哪一页来要
+				// 都是同一个属性名 —— 所以读者在那里学会的输入形式，就是在这里管用的形式。
 				{
 					type: 'page',
 					name: t('recentFiles.frontmatterExclude.name'),
@@ -141,24 +130,16 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
-				// HOW MUCH OF ONE NOTE THE LIST KEEPS, AND HOW MUCH OF WHAT IT
-				// KEPT IT DRAWS — one row, three stops along a single axis
-				// (see LandingsMode). The two halves are ONE question because
-				// a landing that was never recorded cannot be drawn: a reader
-				// choosing how much to see has already answered how much to
-				// keep, and asking them twice produced a fourth answer that
-				// meant nothing. The stops are monotonic — each keeps and
-				// draws a superset of the one above — which is what lets them
-				// sit in one dropdown instead of two controls.
+				// 这份列表**留**一篇笔记的多少、以及它把**留下的**画多少 —— 一行、一条轴上的三个档
+				// （见 LandingsMode）。两半是**一个**问题，因为一个从未被记录下来的落点画不出来：
+				// 一个在选「看多少」的读者，已经答过了「留多少」，而问他们两遍会产生一个毫无意义的
+				// 第四个答案。各档是单调的 —— 每一档留下并画出的，都是它上面那一档的超集 ——
+				// 这正是它们能待在一个下拉里、而不是两个控件里的原因。
 				//
-				// 'all' is the default: the list ships showing every spot
-				// the reader left, which is the only stop from which the
-				// two below it can be chosen with anything to choose
-				// between — a reader who started at 'none' and only later
-				// came upon this row would find nothing recorded under it.
-				// And no stop is a one-way door: coming down stops the list
-				// RECORDING new landings, but what it already recorded stays
-				// until the note it stands in is crowded out.
+				// 'all' 是默认：列表出厂就显示读者留下的每一个地点，而它也是唯一一个「在它下面两档能挑出
+				// 东西来挑」的档 —— 一个从 'none' 开始、后来才碰到这一行的读者，会发现它底下什么都没记录。
+				// 而且没有哪一档是单向门：往下走会让列表**停止记录**新的落点，但它已经记录下来的东西会一直
+				// 留着，直到它所处的那篇笔记被挤出局。
 				{
 					name: t('recentFiles.landings.name'),
 					desc: t('recentFiles.landings.desc'),
@@ -172,22 +153,14 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					},
 				},
-				// HOW MANY NOTES THE LIST REMEMBERS — one number with one
-				// meaning, whichever stop of the row above the reader is
-				// on: it counts the notes and the views, never the landings
-				// inside them, so moving between the stops does not move
-				// the goal posts of a number they already set.
+				// 这份列表**记住多少篇笔记** —— 一个只有一个含义的数字，无论读者在上面那一行的哪一档：
+				// 它数的是笔记和视图，从不数它们里面的落点，所以在各档之间移动，不会挪动他们已经设下的
+				// 那个数字的球门。
 				//
-				// It stands BELOW that row and not above it, because that
-				// row is the only thing this one needs read first: a reader
-				// who has not yet answered "how finely do I want my
-				// navigation kept" cannot say what a number of notes is a
-				// number of — the row above is what makes the row below
-				// answerable. (And its sentence is written twice, but only
-				// because the top stop owes one extra clause: landings are
-				// drawn as rows there, so the list on screen runs longer
-				// than this number even though the number still counts
-				// notes.)
+				// 它站在那一行**下面**、而不是上面，因为那一行正是这一个需要先被读的东西：一个还没答过
+				// 「我想把我的导航记到多细」的读者，说不出一个笔记数是什么的数目 —— 是上面那一行让下面
+				// 这一行变得可答。（而且它那句话写了两遍，只因为最顶那一档多欠一个从句：在那里落点是
+				// 当作行画出来的，所以屏幕上的列表比这个数字长，尽管这个数字数的仍然是笔记。）
 				{
 					name: t('recentFiles.cap.name'),
 					desc: ctx.plugin.settings.recentFilesLandings === 'all'
@@ -222,15 +195,11 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						key: 'recentFilesRowTime',
 					},
 				},
-				// WHAT A ROW CALLS THE NOTE. One property and not a list of
-				// them: which one counts is the answer a reader can hold in
-				// their head, and a note without it is not nameless — it falls
-				// back to its file name, which is why there is no second
-				// setting saying which to prefer.
+				// 一行把笔记**叫作**什么。一个属性、而不是一串：哪一个算数是读者能记在脑子里的答案，
+				// 而没有它的笔记并非无名 —— 它会退回它的文件名，所以没有第二项设置来说该优先哪个。
 				//
-				// Empty is OFF, and off is the default: a vault that names its
-				// notes in their file names owes this row nothing, and a vault
-				// that does not is the only one that has to say so.
+				// 空就是**关**，而关是默认：一个用文件名命名笔记的 vault 不欠这一行任何东西，
+				// 而一个不这样的 vault 才是唯一必须说出来的那个。
 				{
 					name: t('recentFiles.titleProperty.name'),
 					desc: t('recentFiles.titleProperty.desc'),
@@ -240,12 +209,10 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						placeholder: t('recentFiles.titleProperty.placeholder'),
 					},
 				},
-				// WHERE A HOVERED ROW OPENS THE NOTE IN THE APP'S OWN PREVIEW. The
-				// note's head ships, because the other stop costs a wait: naming a
-				// line has the whole note drawn first and the card moved to it
-				// afterwards, buying for that wait the arrival the row's own CLICK
-				// already gives. A row standing for a PLACE in the note is outside
-				// the choice either way — it opens at that place.
+				// 被悬停的一行**在 app 自己的预览里**把笔记打开在哪里。默认是笔记头部，因为另一档要付
+				// 一次等待：点名一行会让整篇笔记先被画出来、然后卡片再移过去，为那次等待换来的是这一行
+				// **自己点击**时已经给出的那个到达。一个代表笔记里某个**地点**的行，两种情况都在这个
+				// 选择之外 —— 它就在那个地点打开。
 				{
 					name: t('previewFocus.recentFiles.name'),
 					desc: t('previewFocus.recentFiles.desc'),
