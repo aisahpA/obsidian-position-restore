@@ -379,11 +379,11 @@ describe('容量裁剪', () => {
 		for (let i = 1; i <= 751; i++)
 			db.setState(`f${i}`, { scroll: i });
 
-		expect(db.pruneDb()).toBe(189); // 751 - floor(750 * 3/4)
+		expect(db.pruneDb()).toBe(189); // 751 - floor(750 * 3/4) 条被丢掉
 		expect(Object.keys(db.db)).toHaveLength(562);
-		expect(db.db['f1']).toBeUndefined(); // oldest dropped
-		expect(db.db['f190']).toBeDefined(); // first survivor
-		expect(db.db['f751']).toBeDefined(); // newest kept
+		expect(db.db['f1']).toBeUndefined(); // 最旧的被丢掉
+		expect(db.db['f190']).toBeDefined(); // 第一个活下来的
+		expect(db.db['f751']).toBeDefined(); // 最新的留住
 	});
 
 	it('没到上限时什么都不做', () => {
@@ -399,7 +399,7 @@ describe('容量裁剪', () => {
 describe('按文件夹排除', () => {
 	it('按文件夹排除是全等或子孙文件夹命中才删，光有前缀不算', () => {
 		const { db } = makeHarness({}, { excludedFolders: ['notes'] });
-		db.setState('notes', { scroll: 1 }); // a root file named exactly "notes"
+		db.setState('notes', { scroll: 1 }); // 一个名字恰好就是 "notes" 的根文件
 		db.setState('notes/a.md', { scroll: 1 });
 		db.setState('notes/sub/b.md', { scroll: 1 });
 		db.setState('notes2/c.md', { scroll: 1 });
@@ -555,7 +555,7 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 9, cursor: POINT(1, 1), time: 2000 });
 		expect(db.db['b.md']).toEqual({ scroll: 2, time: expect.any(Number) });
 		expect(db.db['c.md']).toEqual({ scroll: 7, time: 2000 });
-		expect(db.dbDirty).toBe(false); // merges never mark dirty
+		expect(db.dbDirty).toBe(false); // 合并从不标脏
 	});
 
 	it('外面的采集比我们更早时让位给我们 —— 过去就是这种同步把人打回页顶', async () => {
@@ -593,9 +593,9 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		try {
 			const { db, externalWrite } = makeHarness();
 			db.setState('a.md', { scroll: 1 });
-			await db.writeDb(); // flush at T
+			await db.writeDb(); // 在 T 时刻落盘
 			vi.advanceTimersByTime(10);
-			db.setState('a.md', { scroll: 100 }); // touched at T+10
+			db.setState('a.md', { scroll: 100 }); // 在 T+10 被碰过
 
 			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
 			await db.mergeExternalChanges();
@@ -646,13 +646,13 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 			return data;
 		});
 
-		db.setState('b.md', { scroll: 2 }); // a local change makes the flush dirty
-		const inFlight = db.mergeExternalChanges(); // do not await yet
+		db.setState('b.md', { scroll: 2 }); // 一次本地改动让落盘变脏
+		const inFlight = db.mergeExternalChanges(); // 先不 await
 		await db.writeDb();
 		await inFlight;
 
 		const written = JSON.parse(files[DB_PATH]).positions;
-		expect(written['c.md']).toEqual({ s: 7 }); // foreign record survived
+		expect(written['c.md']).toEqual({ s: 7 }); // 外来的记录活了下来
 		expect(written['b.md']).toEqual({ s: 2, t: expect.any(Number) });
 	});
 });
@@ -710,7 +710,7 @@ describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）'
 			});
 
 			await db.writeDb();
-			expect(db.dbDirty).toBe(true); // the concurrent change survived the flush
+			expect(db.dbDirty).toBe(true); // 那次并发的改动挺过了这次落盘
 
 			// 一个外来的文件落到盘上。lastFlushTime 读出来是落盘采快照的那一刻 —— **早于**那次
 			// 并发触碰 —— 所以内存里的 scroll 3 会被当成比落盘出去的那份盘上副本更新。
@@ -763,11 +763,11 @@ describe('switchDbFile', () => {
 		db.setState('local.md', { scroll: 3 });
 
 		expect(await db.switchDbFile('new.json')).toBe(true);
-		expect(DB_PATH in files).toBe(false); // old file removed (move semantics)
-		expect(db.db['t.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) }); // adopted
-		expect(db.db['c.md']).toEqual({ scroll: 5 }); // kept
-		expect(db.db['local.md']).toEqual({ scroll: 3, time: expect.any(Number) }); // touched locally → wins
-		expect(db.dbDirty).toBe(true); // adopted records flush on the next write
+		expect(DB_PATH in files).toBe(false); // 旧文件被删掉（移动语义）
+		expect(db.db['t.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) }); // 被采纳
+		expect(db.db['c.md']).toEqual({ scroll: 5 }); // 留住
+		expect(db.db['local.md']).toEqual({ scroll: 3, time: expect.any(Number) }); // 本地碰过 → 赢
+		expect(db.dbDirty).toBe(true); // 采纳进来的记录在下一次写入时落盘
 	});
 
 	it('目标已存在但不是位置库时拒绝，一处不改', async () => {
@@ -781,9 +781,9 @@ describe('switchDbFile', () => {
 
 		expect(await db.switchDbFile('package.json')).toBe(false);
 		expect(await db.switchDbFile('chart.json')).toBe(false);
-		expect(DB_PATH in files).toBe(true); // real db kept
+		expect(DB_PATH in files).toBe(true); // 真正的库留住
 		expect(files['package.json']).toBe('{"name":"x","deps":["a"]}');
-		expect(db.db['a.md']).toEqual({ scroll: 5 }); // memory kept
+		expect(db.db['a.md']).toEqual({ scroll: 5 }); // 内存里的留住
 		expect(adapter.remove).not.toHaveBeenCalled();
 	});
 
@@ -928,10 +928,10 @@ describe('countDefaultPosition', () => {
 		for (const p of ['a.md', 'c.md'] as const)
 			fmPositions[p] = fm;
 
-		db.setState('a.md', { cursor: POINT(5, 0) }); // parked on the default
-		db.setState('b.md', {});                      // tombstone
-		db.setState('c.md', { cursor: POINT(9, 0) }); // a real line
-		db.setState('d.md', { scroll: 40 });          // a real scroll
+		db.setState('a.md', { cursor: POINT(5, 0) }); // 停在默认位置上
+		db.setState('b.md', {});                      // 墓碑
+		db.setState('c.md', { cursor: POINT(9, 0) }); // 一个真实的行
+		db.setState('d.md', { scroll: 40 });          // 一个真实的滚动位置
 
 		expect(db.countDefaultPosition()).toBe(2);
 	});
