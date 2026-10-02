@@ -4,195 +4,161 @@ interface CursorPos {
 	line: number;
 }
 
-// The hot position record, produced by readEphemeralState on every poll tick,
-// scroll-capture burst and reland frame: position only — no doc-string reads, no
-// layout. Nav-display fields live on NavEntryState.
+// 高频位置记录，由 readEphemeralState 在每个轮询 tick、每次滚动采集突发和每个重落帧
+// 产生：只有位置——不读文档文本、不碰布局。导航显示用的字段在 NavEntryState 上。
 interface EphemeralState {
-	// Dual meaning: markdown saves the quantized top visible line; base views save
-	// the scroller's raw scrollTop pixels. A path is always exactly one kind, so the
-	// slot is never ambiguous within a record.
+	// 双重含义：markdown 存的是量化后的可见顶部行；base 视图存的是滚动容器的原始
+	// scrollTop 像素。一个路径永远是其中一种，所以同一条记录里这个槽不会有歧义。
 	scroll?: number,
 	cursor?: {
 		from: CursorPos,
 		to: CursorPos
 	},
-	// When this position reached the STORE, stamped once by database.setState —
-	// the reader's last deliberate move, not the last flush. Its only reader is
-	// the cross-device merge: the db file is synced, so a shared key is decided
-	// by which side stopped here later. Absent before it existed (and in schema
-	// 1), which counts as oldest. Stored as `t`, shorter, in a file that carries
-	// one entry per note.
+	// 这个位置「抵达 store 的时刻」，由 database.setState 盖一次章——是读者最后一次有意
+	// 移动，不是最后一次 flush。唯一的读者是跨设备合并：数据文件是同步的，同一个 key
+	// 谁后来停在这里就算谁的。它出现之前（以及 schema 1 里）没有这个字段，按最旧处理。
+	// 落盘写作 `t`，更短，因为文件里每篇笔记一条。
 	time?: number,
 }
 
-// What a nav entry carries beyond the position, produced ONLY by the low-frequency
-// nav reads when an entry is saved — never by the hot read. EphemeralState is
-// structurally assignable, so baseline-fed states and legacy entries type-check
-// against consumers typed NavEntryState.
+// 导航条目在位置之外还带的东西，只由低频的导航读取在存条目时产生——高频读取从不
+// 产生。EphemeralState 在结构上可赋值，所以喂进去的基线状态和旧版条目都能通过
+// NavEntryState 类型的消费方检查。
 //
-// Only what a later reader can no longer derive belongs here: the text that sat at
-// the landing, how big the file was, what the link said. Anything the vault or the
-// metadata cache can still answer at browse time (heading chain, aliases, tags) is
-// looked up there instead, so it is always current and costs no storage.
+// 这里只放「后来的读者再也推不出来」的东西：落点上当时那句话、文件当时多大、链接
+// 当时怎么写。仓库或元数据缓存到浏览时还能答的（标题链、别名、标签）一律现查，所以
+// 永远是最新的，也不占存储。
 interface NavEntryState extends EphemeralState {
-	// The landing's CONTEXT: the lines that stood BELOW it at capture time, trimmed
-	// and capped, in document order. What the browser's SEARCH BOX matches — "the
-	// words I saw when I left" is how a reader finds an old spot. SEARCH ONLY:
-	// re-anchoring stays `anchor`'s job, one line with exact-match semantics — a
-	// multi-line block must never feed it. Neither an address nor a quote of the
-	// landing itself: the jump's own key says which line that was, and the section
-	// chain the row prints beside it already names the heading standing there.
+	// 落点的「上下文」：采集时站在它「下面」的那几行，去空白、有上限，按文档顺序。
+	// 面板的搜索框匹配的就是它——「我离开时看到的那几句话」是读者找回旧地点的方式。
+	// 「只」供搜索：重新锚定仍是 `anchor` 的活，一行、精确匹配语义——多行块绝不能喂给
+	// 它。它既不是落点自己的地址、也不是落点自己的引文：是哪一行由 jump 自己的 key
+	// 说了算，而那一行旁边印的标题链已经点出了站在那里的标题。
 	context?: string[],
-	// The file's mtime at capture time. Deliberately NOT used to skip the text remap:
-	// that runs against a live editor buffer, which can differ from the file on disk
-	// — an unsaved edit changes the lines without touching the mtime.
+	// 采集时文件的 mtime。刻意「不」用它来跳过一次文本重映射：那是对活的编辑器缓冲区跑的
+	// ——可能与盘上的文件不同，没保存的编辑改了行，却没碰 mtime。
 	mtime?: number,
-	// Trimmed text of the primary (viewport top) line at capture time. The one
-	// FUNCTIONAL field: lets a stale line number be re-mapped to the line that now
-	// carries this text before the position is applied — a single line with
-	// exact-match semantics, which is why it stays separate from the block.
+	// 采集时主行（视口顶行）去空白后的文本。唯一「有实际作用」的字段：让一个过期的行号
+	// 在位置施加之前，被重映射到今天承载这段文字的那一行——单行、精确匹配语义，它因此
+	// 和上面那个块分开。
 	anchor?: string,
 }
 
-// Device-local per-tab position records.
+// 本机、按标签页各一份的位置记录。
 interface TabStateRecord {
 	filePath: string;
 	st: EphemeralState;
 }
 
-// How much of one note the list keeps, and how much of what it kept it DRAWS: one
-// answer, three stops along it, because the two questions are not independent — a
-// landing never recorded cannot be drawn.
+// 一篇笔记列表记多少、以及记下来的画多少：一个答案，一条轴上的三档，因为这两个问题
+// 不独立——没记过的落点画不出来。
 //
-//   'none' — notes and views only. No landing to draw, none to search by.
-//   'last' — record landings, draw one row per note. The landings are an invisible
-//            index: the search box finds a note by the lines beside a jump.
-//   'all'  — record landings and draw one row each. The default: it is the only
-//            stop from which the other two can be chosen with anything to choose
-//            between, and moving down from here loses nothing.
+//   'none' —— 只记笔记和视图。没有落点可画，也没有可搜的。
+//   'last' —— 记落点，但每篇笔记只画一行。落点成了隐形索引：搜索框靠跳转旁边的那几行
+//              找到一篇笔记。
+//   'all'  —— 记落点、每个各画一行。默认档：只有从这一档往下选，另两档才真的有东西
+//              可选；而从这一档往下走不损失任何东西。
 //
-// The stops are monotonic — each keeps and draws a superset of the one above — and
-// every one is REVERSIBLE: coming down to 'none' stops new landings being recorded
-// and draws none, but does not delete them, so moving back up finds them.
+// 三档是单调的——每一档留的、画的都是上一档的超集——而且每一档都「可逆」：退到
+// 'none' 只是不再记新落点、一个也不画，但不删除，再往上走还找得到。
 //
-// Named here, beside the setting that holds it, because three places speak it;
-// listing.ts re-exports it for the browser's modules.
+// 名字定在这里、紧挨着持有它的那个设置，因为有三处在说它；listing.ts 把它转出去给
+// 面板的几个模块用。
 type LandingsMode = 'none' | 'last' | 'all';
 
-// How much of a row's PATH the list prints. The two "always" states are also a
-// choice of what gives way when the row runs out of width: 'before' drops the NAME
-// to a second line with the path whole, 'after' drops the PATH.
+// 一行上路径印多少。两个「总是」档同时也定下了行挤不下时谁让位：'before' 把「名字」
+// 挤到第二行、路径整条留着，'after' 让「路径」下移。
 //
-// 'smart' (the default) prints the folder only on rows whose name another row on
-// screen shares — where it is the only thing telling two rows apart — and lays them
-// out like 'before'.
+// 'smart'（默认）只在屏幕上另一行的名字与它撞车时才印文件夹——那时它是唯一能分开
+// 两行的东西——排版上按 'before' 走。
 type PathDisplayMode = 'smart' | 'before' | 'after';
 
-// WHERE THE HOVER PREVIEW OPENS A NOTE'S OWN ROW — the two stops the app's own
-// preview can be asked for, and the one loop no listing of ours escapes: hovering
-// any row hands the note to the app and to nothing else.
+// 悬停预览把「笔记自己那一行」打开在哪里——app 自己的预览能指的只有这两档，而且我们
+// 哪份列表都躲不开这一个回路：悬停任何一行，都是把笔记交给 app、交给别处。
 //
-//   'head' — the app's own answer, and the one every list it ships gives: the note
-//            opens at its top, drawn once and never moved.
-//   'line' — the reader's last line in it. The note cannot open there; it is drawn
-//            to its head first and only scrolled once that is done, so a long note
-//            sits empty and then jumps.
+//   'head' —— app 自己的答案，也是它自带每一份列表给的：笔记开在篇首，画一次、不再挪。
+//   'line' —— 读者在那篇里读到的最后一行。笔记没法直接开在那里；它先整篇画到篇首，
+//              画完才滚过去，所以长笔记会先空着、然后一跳。
 //
-// 'head' is the default, for what the second stop costs: the row's CLICK already
-// opens the note at that line, so what is being bought for a wait is a look at the
-// same arrival one gesture early. A LANDING ROW IS OUTSIDE THIS CHOICE either way:
-// it names a place of its own and asks for nothing it has to wait for.
+// 默认是 'head'，理由是第二档的代价：一行的「点击」本来就把笔记开在那一行，所以花
+// 一次等待买到的，只是提前一个手势看到同一个抵达。标题行两种选择都不适用：它自称一个
+// 地点，不需要等任何东西。
 type PreviewFocusMode = 'head' | 'line';
 
 interface PluginSettings {
 	dbFileName: string;
-	// 0 = disabled, do not record positions for files with fewer lines
+	// 0 = 关闭；行数少于该值的文件不记位置
 	minLinesToRecord: number;
-	// do not record positions for files in these folders and their subfolders
+	// 这些文件夹及其子文件夹里的文件不记位置
 	excludedFolders: string[];
-	// do not record positions for files whose frontmatter contains ANY of these
-	// property names (value ignored). Empty array = disabled.
+	// frontmatter 里含以下「任一」属性名的文件不记位置（值忽略）。空数组 = 关闭。
 	frontmatterExcludeProperties: string[];
 	defaultPosition: 'default' | 'fileEnd';
-	// where to open a plain file link (no #/^ target): saved position, or file start
+	// 普通文件链接（不带 #/^ 目标）打开在哪：已保存的位置，还是文件开头
 	linkOpenPosition: 'restore' | 'start';
-	// how to restore a saved position in source mode
+	// source 模式下如何恢复已保存的位置
 	sourceRestoreMethod: 'instant' | 'glide';
-	// how to restore a saved position in reading view
+	// 阅读视图下如何恢复已保存的位置
 	readingRestoreMethod: 'instant' | 'glide';
-	// what to show after a restore: section breadcrumb and/or a source-mode flash
+	// 恢复后显示什么：章节面包屑和/或 source 模式下的闪烁
 	restoreIndicator: 'off' | 'breadcrumb' | 'both';
-	// Opt-in recording of raw scroller scrollTop for base views. Off by default: the
-	// value is device-local, so a synced record from another device would overwrite
-	// the local one with a meaningless pixel offset. Other non-markdown FileViews are
-	// never recorded.
+	// 为 base 视图选择性地记录滚动容器的原始 scrollTop。默认关闭：这个值是本机的，别的
+	// 设备同步过来的记录会用毫无意义的像素偏移盖掉本机那条。其它非 markdown 的 FileView
+	// 一律不记。
 	recordBaseScroll: boolean;
 
-	// Navigation history (VSCode-style back/forward) tuning.
-	// max entries kept in the nav history stack; oldest drop on overflow
+	// 导航历史（VSCode 式前进/后退）的调参。
+	// 导航历史栈最多保留多少条；溢出时丢最旧的
 	navHistoryCap: number;
-	// a FILE tab's activation records as a navigation entry (a view tab's always does)
+	// 文件标签页被激活也记为一条导航（视图标签页一向都记）
 	navHistoryRecordActivation: boolean;
-	// How many lines a cursor move must cross before it counts as an in-file jump: a
-	// go-to-line, a far click, a vim page motion. 0 records none. A number and not a
-	// switch because the question is how big a move the reader means. Desktop only:
-	// on a touch screen every deliberate far jump already arrives as its own keyed
-	// entry. Ships at 0: a step inferred from a cursor move is one the reader did
-	// not ask for, so whoever wants them names the distance.
+	// 光标一次要跨过多少行才算一次文件内跳转：跳到某一行、点一个很远的位置、翻页。
+	// 0 表示不记。用数字而不是开关，因为问题在于读者心里那次移动有多大。仅电脑端：触屏上
+	// 每一次有意的大跳本来就以带 key 的条目送到。出厂 0：从光标移动推断出来的步是读者
+	// 没要过的，想要的人自己报距离。
 	navHistoryTeleportMinLines: number;
 
-	// Files the list must NOT record — its OWN rule, not shared with
-	// excludedFolders: that one answers "whose scroll position is worth remembering"
-	// (a diary folder may be excluded from restores and still be exactly what the
-	// reader navigates back to), while this one answers "which visits are worth
-	// listing".
+	// 列表「不许」记的文件——它自己的规则，不与 excludedFolders 共用：那条答的是「谁的
+	// 光标位置值得记住」（日记文件夹可以不恢复位置，却仍是读者天天回去的地方），这条答的
+	// 是「哪些到访值得列出来」。
 	recentFilesExcludeFolders: string[];
-	// The list's own frontmatter rule, in the same `prop[: value]` form as the
-	// position rules: a file whose frontmatter matches is never added. What it does
-	// NOT read is the position feature's per-file escape hatch (`position-restore`):
-	// that answers whether a POSITION is recorded, and a note opted out of position
-	// recording is still a place the reader goes.
+	// 列表自己的 frontmatter 规则，写法与位置规则一样是 `prop[: value]`：frontmatter
+	// 命中的文件永不收录。它「不」读位置功能那个单文件逃生口（`position-restore`）：那个
+	// 答的是要不要记「位置」，而一篇拒绝记位置的笔记，仍是读者会去的一个地方。
 	recentFilesExcludeProperties: string[];
-	// How much of the reader's navigation the list keeps and draws (see
-	// LandingsMode). One setting and not two because a landing never recorded cannot
-	// be drawn.
+	// 列表把读者的行踪记到多细、画多少（见 LandingsMode）。一个设置而不是两个，因为没
+	// 记过的落点画不出来。
 	recentFilesLandings: LandingsMode;
-	// ===== The recent-files list: its own storage, and its own rules. =====
-	// A different thing from the back/forward stack and from the position records:
-	// what it holds is WHERE the reader has been, so a place may be lived in for
-	// months where a stack step lives for minutes.
-	// How many NOTES it remembers — the oldest drop on overflow, in every mode. The
-	// landings are bounded separately and internally: their ceiling is storage
-	// hygiene, not a number the reader is asked to invent.
+	// ===== 最近文件列表：自己的存储，自己的规则。 =====
+	// 与前进/后退的栈、与位置记录都不是一回事：它装的是读者「去过哪里」，所以一个地点
+	// 可以住上几个月，而栈里的一步只活几分钟。
+	// 它记住多少「篇笔记」——每种模式下溢出都丢最旧的。落点的上限另算、且是内部的：那是
+	// 存储卫生，不是让读者去编一个数字。
 	recentFilesCap: number;
-	// whether a row prints the folder its note sits in, and on which side of the name
+	// 一行是否印它所在笔记的文件夹，以及印在名字的哪一侧
 	recentFilesPathDisplay: PathDisplayMode;
-	// Whether a row prints how long ago it was last visited. On by default: the list
-	// already IS in that order, so what the label adds is the MAGNITUDE — two rows
-	// are both "before" and only one is from this morning. It is the place's own `t`,
-	// not the file's mtime.
+	// 一行是否印距上次到访过了多久。默认开：列表本来就按这个顺序排，所以标签加的是
+	// 「量级」——两行都是「刚才」，而只有一个真的出自今早。用的是地点自己的 `t`，不是
+	// 文件的 mtime。
 	recentFilesRowTime: boolean;
-	// The frontmatter property a row prints as the note's NAME, empty for none. A
-	// vault that names its notes in a property rather than in their file names reads
-	// by those names everywhere — the quick switcher, the backlinks, every `[[` —
-	// and this list is where the reader comes looking for one. A note without the
-	// property, or whose value is not a name, prints its file name.
+	// 一行印作「笔记名」的 frontmatter 属性，留空则不用。以属性而非文件名给笔记命名的
+	// 仓库，处处都按那些名字读——快速切换、反向链接、每个 `[[`——而这份列表正是读者来找
+	// 其中一个名字的地方。没有这个属性、或它的值不是名字的笔记，印文件名。
 	recentFilesTitleProperty: string;
-	// Where the hover preview opens the note a row stands for (see
-	// PreviewFocusMode). What stays out of it is a row naming a landing.
+	// 悬停预览把一行代表的笔记开在哪里（见 PreviewFocusMode）。不受它管的是一行「点名了
+	// 落点」的行。
 	recentFilesPreviewFocus: PreviewFocusMode;
-	// Where the app's OWN file list opens its hover preview. Its own setting,
-	// not shared with the one above: the two are different ground — one is a
-	// list this plugin draws, the other the app's — and a reader may well want
-	// one to open at the top and the other at the line they left.
+	// app「自己」的文件列表把悬停预览开在哪里。它自己一个设置，不与上面那个共用：两者是
+	// 两块不同的地盘——一块是本插件画的列表，另一块是 app 的——读者完全可能想让一个开在
+	// 篇首、另一个开在他离开的那一行。
 	fileExplorerPreviewFocus: PreviewFocusMode;
 }
 
 export const SAFE_DB_FLUSH_INTERVAL = 5000;
 
-// A view's state is re-read on a tick of its own, slower than the 100ms position poll:
-// the read asks a third-party view for getState, whose cost we don't own, and an answer
-// arriving late only delays a landing — the leave-read takes the last one.
+// 视图的 state 有自己的一个 tick 单独重读，比 100ms 的位置轮询慢：这次读取是向第三方
+// 视图要 getState，那份开销不归我们管，而答案来晚只推迟一次落点——离开时的读取拿的
+// 是最后一次。
 export const VIEW_STATE_POLL_MS = 1000;
 
 export const DEFAULT_SETTINGS: PluginSettings = {
