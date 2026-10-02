@@ -1,6 +1,6 @@
 // 整个构建就这一个文件，外面没有打包器：esbuild 读 TypeScript、按 tsconfig 自己的
 // `paths` 解析 `@/…`、打包、压缩、写 sourcemap —— 五个 rollup 插件干的活一次调用
-// 做完，耗时大约只有它们的一百分之一（37 ms 对 3.7 s）。
+// 做完，耗时大约只有它们的一百分之一。
 //
 // 它**不**做的一件事是类型检查：esbuild 抹掉类型时压根不看它们一眼，所以
 // `npm run build` 先跑 `tsc --noEmit`（见 package.json）—— 一个从不检查类型的构建
@@ -33,9 +33,8 @@ const js = {
 	format: 'cjs',
 	platform: 'browser',
 	// 用 tsconfig 自己的 target，也是 Obsidian 官方示例插件用的那个。
-	// 跟 es2019 实测对比：小 4.2 kB（gzip 后 1.2 kB）—— `??`、`?.` 和类字段不再被
-	// 改写成 ES2019 的等价物，而这个插件支持的任何环境（minAppVersion 1.13）都不会
-	// 跑更旧的东西。
+	// 比 es2019 更小 —— `??`、`?.` 和类字段不再被改写成 ES2019 的等价物，而这个
+	// 插件支持的任何环境（minAppVersion 1.13）都不会跑更旧的东西。
 	target: 'es2021',
 	// Obsidian 在运行时就交给插件的东西，所以不能打进包里：CodeMirror 或 Lezer 的
 	// 第二份副本会是跟 app 那个**不同**的实例，两者不共享状态。
@@ -56,8 +55,8 @@ const js = {
 };
 
 // 样式表：生产构建压缩它，开发构建直接**拷贝**它。两条路 esbuild 都会丢掉 CSS
-// 注释（实测：73 条全丢），而那些注释写的是「这条规则为什么存在」—— 正是改一条
-// 规则的人想在 devtools 里找到的东西。
+// 注释（实测全丢），而那些注释写的是「这条规则为什么存在」—— 正是改一条规则
+// 的人想在 devtools 里找到的东西。
 async function writeStyles() {
 	const before = readFileSync(CSS_SOURCE, 'utf8');
 	if (isProd) {
