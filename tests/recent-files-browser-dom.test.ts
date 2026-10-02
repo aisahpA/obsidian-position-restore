@@ -657,8 +657,8 @@ afterEach(() => {
 	document.body.className = '';
 });
 
-describe('RecentFilesModal — the dropped-steps footnote', () => {
-	it('is gone: the stack sits at its cap in ordinary use, so it never earned a line', () => {
+describe('RecentFilesModal —— 被丢掉的步那条脚注', () => {
+	it('已经撤掉：平时栈总停在上限处，它从来没挣到过一行', () => {
 		// It reported what the ceiling had discarded, from the foot of the list —
 		// which is below the fold exactly when entries HAVE been dropped (a stack
 		// at the cap is what overflows the dialog), so nobody ever saw it. The
@@ -670,8 +670,8 @@ describe('RecentFilesModal — the dropped-steps footnote', () => {
 	});
 });
 
-describe('RecentFilesModal — current position', () => {
-	it('shows the current note as a row like any other, with no dot of its own', () => {
+describe('RecentFilesModal —— 当前位置', () => {
+	it('当前笔记跟别的笔记一样就是一行，自己不带圆点', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
@@ -695,7 +695,7 @@ describe('RecentFilesModal — current position', () => {
 		expect(notes[1].querySelector('.nav-row-here')).toBeNull();
 	});
 
-	it('keeps the current note to ONE row, and opens it at the spot it stands for', () => {
+	it('当前笔记只占一行，并在它代表的那一处打开它', () => {
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE, { scroll: 3 }),
 			visit('c.md', NOW - 2 * MINUTE, { scroll: 20 }),
@@ -716,7 +716,7 @@ describe('RecentFilesModal — current position', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
-	it('keeps a one-step history a one-row list, and opens that row', () => {
+	it('只有一步的历史就是只有一行的列表，那一行照样能打开', () => {
 		// The list used to call itself empty when the current entry's note was the only
 		// place left on it, and that row answered nothing: the one list a reader with
 		// every tab closed ever sees was the one list with no way back in. The row is a
@@ -732,7 +732,7 @@ describe('RecentFilesModal — current position', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 	});
 
-	it('says "no match" only when the query really emptied the list', () => {
+	it('只有当查询真的把列表清空时，才说「没有匹配」', () => {
 		// The sentence is the QUERY's answer and not a verdict on the place the reader
 		// is standing in: a filter that matches nothing empties the list, while a filter
 		// that keeps only the current note leaves a row that opens like any other (see
@@ -753,7 +753,7 @@ describe('RecentFilesModal — current position', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('quotes nothing on a row the query matched by the anchor it recorded', () => {
+	it('查询是靠记下的锚点命中的那一行，不引任何原文', () => {
 		// The row survived the filter on `st.anchor` alone, and a visit records no context
 		// — so the hover says which file the row is and nothing about why it is on the
 		// list. Locked as it stands: the anchor is the line a restore re-finds, not a line
@@ -769,7 +769,7 @@ describe('RecentFilesModal — current position', () => {
 		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
 	});
 
-	it('is not found by the section a visit merely happens to sit in', () => {
+	it('某次访问恰好待在某个小节里，并不因此就被搜到', () => {
 		// A VISIT IS NOT A PLACE. The line it carries is the note's as the position
 		// database last saw it, which moves while the note is being read — so the
 		// chain read off that line is a fact about the minute and not about the
@@ -813,7 +813,7 @@ describe('RecentFilesModal — current position', () => {
 		expect(jump.notes()).toHaveLength(1); // the chain carried the word
 	});
 
-	it('is not found by the coordinate a row prints', () => {
+	it('行上印着的坐标本身不参与搜索', () => {
 		// "L7" IS A READING, NOT A NAME: where the reader left the note, which the
 		// position database rewrites while it is being read. It is on the row to be
 		// looked at and not to be typed, and a number that answers a query one minute
@@ -836,7 +836,7 @@ describe('RecentFilesModal — current position', () => {
 			.toBe(t('recentFiles.noMatch'));
 	});
 
-	it('prints both spots, the current one marked, when the setting asks for them', () => {
+	it('设置要求显示时，两处都印出来，当前那一处带标记', () => {
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE, { scroll: 3 }),
 			visit('c.md', NOW - 2 * MINUTE, { scroll: 20 }),
@@ -873,12 +873,12 @@ describe('RecentFilesModal — current position', () => {
 // under the list on every visit), so a click that reads it after a rebuild opens
 // whatever slid into that slot — the wrong note. What the click is answered with
 // instead is the place the reader PRESSED (see RecentFilesList.onPress / onClick).
-describe('RecentFilesModal — a click after the list was rebuilt', () => {
+describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 	// a is the OLDEST here, so recency puts it LAST: three rows, a.md third.
 	const three = () => [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 
-	it('opens the note that was PRESSED, not whatever the index names now', () => {
+	it('打开的是被按下的那篇笔记，而不是下标此刻指着的那一篇', () => {
 		const entries = three();
 		const h = harness(entries, 2, files);
 		const row = h.note('a');
@@ -900,7 +900,7 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
-	it('opens nothing when the place it stood for is off the list now', () => {
+	it('它原来代表的那个地点已经不在列表上了，就什么都不打开', () => {
 		const entries = three();
 		const h = harness(entries, 2, files);
 		const row = h.note('a');
@@ -918,7 +918,7 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('still opens the row under the click when no press preceded it', () => {
+	it('前面没有按下时，仍然打开点击落着的那一行', () => {
 		// A programmatic activation, or an assistive technology's: there is no press
 		// to remember, so the event's own row is the answer — and it is the right one,
 		// because such a click can only ever land on an element that IS on the list.
@@ -930,7 +930,7 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 	});
 
-	it('opens the row under the click when the list did NOT rebuild', () => {
+	it('列表没有重建时，打开点击落着的那一行', () => {
 		// The ordinary click, in two halves: press and release with nothing in
 		// between. The element in hand is still the one the list drew, so its own
 		// index is the exact answer and no lookup is needed.
@@ -944,7 +944,7 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('answers a click that the browser gave to the LIST, when the pressed row was gone', () => {
+	it('被按下的那一行已经没了、浏览器把点击交给了列表时，也照样应答', () => {
 		// A press whose element is removed before the release does not always come
 		// back to that element: the browser resolves the click on the nearest
 		// ancestor still in the document, so no row sees it at all. That is the
@@ -960,7 +960,7 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
-	it('does nothing with a click on the list that no press preceded', () => {
+	it('没有先按下的、落在列表上的点击，什么都不做', () => {
 		// The list's own background — the gap under the last row. It is not a row,
 		// and it stands for no place: nothing was pressed and nothing may be opened.
 		const entries = three();
@@ -971,7 +971,7 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('answers what the click LANDED on, when a press for another row is outstanding', () => {
+	it('按下的是另一行的、那一次还悬着时，按这次点击落着的地方来答', () => {
 		// A press the reader abandons — the pointer dragged off the row, or a
 		// right-click that raised the row's menu instead — must not lie in wait and
 		// open the row it names later on. An element still on the list answers for
@@ -988,8 +988,8 @@ describe('RecentFilesModal — a click after the list was rebuilt', () => {
 	});
 });
 
-describe('RecentFilesModal — keyboard', () => {
-	it('does nothing on Enter until a row is pointed at', () => {
+describe('RecentFilesModal —— 键盘', () => {
+	it('还没指到任何一行之前，回车什么都不做', () => {
 		// Enter used to fall back to "go back one step", which meant the same key
 		// did two different things depending on whether the pointer had crossed a
 		// row — and duplicated the app's own back command. Going back one step
@@ -1002,7 +1002,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('arrows move the selection and Enter jumps to the note it names', () => {
+	it('方向键挪选中项，回车跳到它点名的那篇笔记', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
@@ -1013,7 +1013,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('walks one row per key, and keeps the row it walks to in view', () => {
+	it('每按一次挪一行，并让挪到的那一行留在视野里', () => {
 		// One position, moved one row at a time, and the list follows it — so the
 		// reader can see where they are instead of a highlight moving off-screen.
 		// (jsdom lays nothing out, so what this sees is the browser's own minimal
@@ -1038,7 +1038,7 @@ describe('RecentFilesModal — keyboard', () => {
 		spy.mockRestore();
 	});
 
-	it('moves the list for the walk and not for a click, and brings a row that leaves it to its middle', () => {
+	it('挪列表是为了走位、不是为了一次点击；走出视野的行会被拉到正中间', () => {
 		// The list is the reader's viewport too, and this is the bug that taught it:
 		// the position walks ONE row per key, so scrolling it the minimum distance back
 		// into sight moves the list exactly as far as the row moved. The row then sits
@@ -1080,7 +1080,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(spy).not.toHaveBeenCalled(); // no browser scroll: the walk is the list's own
 	});
 
-	it('moves the position for a key and for nothing a pointer merely crosses', () => {
+	it('只有按键会挪位置，指针光是划过什么都不挪', () => {
 		// THE RULE OF THE LIST (see RecentFilesList): a pointer that passes over a row
 		// chooses nothing. It used to move THE position — the row Enter travels to —
 		// which meant a mouse crossing the list selected a row nobody chose and could
@@ -1114,7 +1114,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(selected()).toEqual(['c']);
 	});
 
-	it('walks the note rows, and ←→ opens nothing because nothing is printed', () => {
+	it('只在笔记行之间走；←→ 什么都不打开，因为行上什么都没显示', () => {
 		// Two landings in b.md, and the cursor walks onto its row.
 		const entries = [
 			visit('a.md', NOW - 5 * MINUTE),
@@ -1146,7 +1146,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(h.rows()).toHaveLength(0);
 	});
 
-	it('lists the jumps a note holds, never the note\'s own record', () => {
+	it('列出这篇笔记里的各个跳转，绝不列笔记自己那条记录', () => {
 		// The file's own record is the note's ROW (see listing.ts's `anchor`). A
 		// landing row standing for it would open the file the reader is already in —
 		// a plain open of the note on screen, i.e. a row that visibly does nothing,
@@ -1168,7 +1168,7 @@ describe('RecentFilesModal — keyboard', () => {
 		expect(h.jumpTo).not.toHaveBeenCalledWith(2);
 	});
 
-	it('walks the landing rows too when the setting prints them', () => {
+	it('设置要求显示落点行时，也走进那些落点行', () => {
 		// The same list under 'all': the note's spots are rows of their own, so ↓ steps
 		// into them and Enter travels to the one it is on (see RecentFilesList.move).
 		const entries = [
@@ -1189,7 +1189,7 @@ describe('RecentFilesModal — keyboard', () => {
 	});
 });
 
-describe('RecentFilesModal — the file scope is gone', () => {
+describe('RecentFilesModal —— 文件范围选择器已经撤掉', () => {
 	// What stood here was two controls carrying one state: an "only this note"
 	// switch and a chip opening a menu of every note the history had been in.
 	// Both answered "where else in this note was I", and the search box already
@@ -1206,7 +1206,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		visit('c.md', NOW),
 	];
 
-	it('leaves the toolbar to the search box and its ×', () => {
+	it('工具栏上只剩搜索框和它的 ×', () => {
 		const h = harness(entries(), 3, files);
 
 		expect(h.el.querySelector('.position-restore-nav-toggle')).toBeNull();
@@ -1225,7 +1225,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		expect(strip[0].querySelector('.position-restore-nav-clear')).toBe(h.clearButton());
 	});
 
-	it('empties the box from the × at the end of the line', () => {
+	it('用行尾那个 × 清空输入框', () => {
 		// The app's own gesture, copied from its quick switcher (see RecentFilesBrowser
 		// .toolbar): the press is REFUSED so the caret never leaves the box, and the click
 		// clears the box and re-reads the list from it. It is in the DOM whether or not
@@ -1259,7 +1259,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		expect(h.clearButton().getAttribute('aria-label')).toBe(t('recentFiles.close'));
 	});
 
-	it('closes the dialog from that same × when there is nothing typed', () => {
+	it('什么都没输入时，同一个 × 用来关掉这个对话框', () => {
 		// ONE GLYPH, TWO ACTS, at the spot the app's own prompt puts them at: anything typed
 		// is emptied (above), and nothing typed is the way OUT. A dialog whose top is its box
 		// has no other closing the pointer can reach — the header's × went the way of the
@@ -1288,7 +1288,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 		expect(close).toHaveBeenCalledTimes(2);
 	});
 
-	it('narrows to a note by its own name, which is what the scope was for', () => {		const h = harness(entries(), 3, files);
+	it('按笔记自己的名字筛到它，这正是当初那个范围选择器要干的事', () => {		const h = harness(entries(), 3, files);
 		expect(h.notes()).toHaveLength(3);
 
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
@@ -1304,7 +1304,7 @@ describe('RecentFilesModal — the file scope is gone', () => {
 // printed nowhere on the row but its own tooltip. They are the fourth thing a query
 // can hit that is not literally on the row, and the first one that is deliberately
 // about the reader's memory rather than about the visit.
-describe('RecentFilesModal — searching a note by its other names', () => {
+describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 	// The window opens with the note's `visit` (the file's own record) and one jump
 	// into it, so a query's hits can be counted as rows AND as landing rows.
 	const entries = (): NavEntry[] => [
@@ -1332,7 +1332,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 	const namesOn = (tip: HTMLElement) =>
 		Array.from(tip.querySelectorAll('.nav-tip-text')).map(l => l.textContent);
 
-	it('finds a note by an alias, by its title, and not by an unrelated word', () => {
+	it('按别名、按 title 都能找到一篇笔记；不相干的词不行', () => {
 		const h = harness(entries(), 2, files, [], {}, cache);
 
 		search(h, '周会');
@@ -1351,7 +1351,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(names(h)).toEqual([]);
 	});
 
-	it('takes an alias written as a single string, not only as a list', () => {
+	it('别名写成单个字符串也认，不只有列表形式', () => {
 		// `aliases: solo` is as valid a frontmatter line as the usual block list, and
 		// Obsidian's own matching takes both (see readMeta).
 		const h = harness(entries(), 2, files, [], {}, cache);
@@ -1361,7 +1361,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(names(h)).toEqual(['b']);
 	});
 
-	it('ANDs tokens across the two places a name can come from', () => {
+	it('名字可能来自两处，两处的词按「与」一起判', () => {
 		const h = harness(entries(), 2, files, [], {}, cache);
 
 		// One token from the title, one from the aliases: both must be somewhere in
@@ -1374,7 +1374,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(names(h)).toEqual([]);
 	});
 
-	it('does not re-order anything: an alias match is still the MRU list', () => {
+	it('不重新排序：靠别名命中的也仍然按最近用过的次序排', () => {
 		// The order is "where have I been", and a name the reader half-remembers says
 		// nothing about when they were there. Two notes carry the same alias and the
 		// note the reader is IN does not, so what is left is the plain MRU order of the
@@ -1393,7 +1393,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(names(h)).toEqual(['b', 'a']);
 	});
 
-	it('prints the other names on the row\'s tooltip, after the path', () => {
+	it('把别的名字印在这一行的提示条上，排在路径之后', () => {
 		// A note WITH names and one without, so the second half of the rule is visible
 		// beside the first: the names are an addition to the tooltip, not a replacement.
 		const h = harness([visit('a.md', NOW - MINUTE), visit('plain.md', NOW)], 1,
@@ -1419,7 +1419,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(plain.querySelector('.nav-tip-text')).toBeNull();
 	});
 
-	it('says nothing about a name the row is already printing', () => {
+	it('行上已经印着的那个名字，不再重复说', () => {
 		// The reader made `title` the property a row prints, so the note's own name is
 		// on the row: the tooltip owes it nothing, and what is left to say is the
 		// aliases. A `title` that IS the file's own name is the same case with the
@@ -1436,7 +1436,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(namesOn(h.hover(h.note('same'))!)).toEqual([`${t('recentFiles.aliases')} 同样`]);
 	});
 
-	it('draws a folder path as its segments, with the separators between them', () => {
+	it('文件夹路径按各段画出来，分隔符画在段与段之间', () => {
 		// The one reason the panel draws its own tooltip: a `/` between two long segments
 		// is the least visible character in the string, so it is a span of its own for
 		// the stylesheet to weight (see styles.css), and the folder segments step back so
@@ -1453,7 +1453,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(tip.querySelector('.nav-tip-path')?.textContent).toBe('deep/folder/note.md');
 	});
 
-	it('leaves a landing row\'s tooltip alone', () => {
+	it('落点行的提示条不动', () => {
 		// A landing row says nothing of the FILE: a spot is placed by the coordinate and
 		// the section it prints, and the note's other names belong to the note rather than
 		// to one spot in it (see placeRow / fileRow). It says nothing of the SECTION
@@ -1474,7 +1474,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(h.hover(h.note('a'))!.textContent).toContain('周会');
 	});
 
-	it('reads each path once, and reads it again only when the file changes', () => {
+	it('每个路径只读一次，只有文件变了才再读一次', () => {
 		// Two notes, one read each: the record is memoized per PATH for the life of the
 		// body (see RecentFilesReads), so filtering, re-ordering and every later render
 		// are answered from memory — and a frontmatter change drops exactly one path.
@@ -1491,7 +1491,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(h.cacheReads()).toBe(3); // one path re-read, the other still remembered
 	});
 
-	it('asks again about a file the cache has not answered yet', () => {
+	it('缓存还没回答过的文件会再问一次', () => {
 		// A sync replaces a note by removing the file and renaming the download over
 		// it (see position/path-bookkeeping.ts), and the app fires NO 'changed' for a
 		// rename — so a body that remembered the emptiness it saw in that moment went
@@ -1515,7 +1515,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(trail()).toBe('呈现方案›预览');
 	});
 
-	it('reads the chain out of the note itself when the cache has nothing', async () => {
+	it('缓存里什么都没有时，直接从笔记本身读那条链', async () => {
 		// The other half of the same sync, and the half that does not end: on a phone the
 		// cache does not merely answer late, it may never answer at all — the note was
 		// replaced under the app, and OPENING it does not make the app parse it either
@@ -1546,7 +1546,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 		expect(reads('a.md')).toHaveLength(1);
 	});
 
-	it('answers a hover\'s line out of the reading the render already took', async () => {
+	it('悬停要的那一行，用这次重画已经取过的那份读取来回答', async () => {
 		// ONE reading serves BOTH records — a note's lines are the lines its headings sit on
 		// (see RecentFilesReads) — so the reading a row's CHAIN starts is the same reading the
 		// LINE in a hover comes back out of. A spot whose record carries no key can be placed
@@ -1574,7 +1574,7 @@ describe('RecentFilesModal — searching a note by its other names', () => {
 	});
 });
 
-describe('RecentFilesModal — the list\'s looks belong to the settings tab', () => {
+describe('RecentFilesModal —— 列表的长相归设置页管', () => {
 	// What the list PRINTS is no longer chosen in the panel: the four choices the
 	// toolbar's gear used to carry are rows of the plugin's settings tab now (see
 	// RecentFilesBrowserPrefs), so the strip is the box alone, and a dialog that lives a
@@ -1587,7 +1587,7 @@ describe('RecentFilesModal — the list\'s looks belong to the settings tab', ()
 	];
 	const files = { 'a.md': '', 'b.md': '' };
 
-	it('draws from the values the plugin holds, and offers nowhere to change them', () => {
+	it('按插件里现在的那些值画，不提供任何改动的地方', () => {
 		const h = harness(entries(), 2, files, [], {}, {}, false, {},
 			prefs({ landings: 'all' }).browser);
 
@@ -1607,13 +1607,13 @@ describe('RecentFilesModal — the list\'s looks belong to the settings tab', ()
 	});
 });
 
-describe('RecentFilesModal — a file that is gone', () => {
+describe('RecentFilesModal —— 已经没了的文件', () => {
 	// A place whose file no longer exists is not listed at all: no row, no landing,
 	// no "you are here" — not even for the note the reader is standing in. The
 	// recent-files store prunes such a place on the vault's own delete event (see
 	// places.ts); the list agrees with it on the spot, which is also what covers the
 	// moment before that prune lands (see RecentFilesList.render).
-	it('leaves a deleted note out of the list entirely', () => {
+	it('已经删掉的笔记整个不进列表', () => {
 		const entries = [visit('gone.md', NOW - 2 * MINUTE), visit('b.md', NOW)];
 		const h = harness(entries, 1, { 'b.md': '' }, ['gone.md']);
 
@@ -1623,7 +1623,7 @@ describe('RecentFilesModal — a file that is gone', () => {
 		expect(h.el.textContent).not.toContain('gone.md');
 	});
 
-	it('shows no row for a current note whose file is gone', () => {
+	it('当前笔记的文件已经没了时，不给它画行', () => {
 		// The reader may well be STANDING in the file that was just deleted (the tab is
 		// still open in the app). The list still has no row for it: it lists what it can
 		// open, and nothing claims to be "here".
@@ -1634,7 +1634,7 @@ describe('RecentFilesModal — a file that is gone', () => {
 		expect(h.el.querySelector('.position-restore-nav-row.is-current')).toBeNull();
 	});
 
-	it('leaves its LANDINGS out too, even with every landing printed', () => {
+	it('连它的各个落点也一起不列，即使设置要求把所有落点都显示出来', () => {
 		const entries = [
 			visit('gone.md', NOW - 3 * MINUTE, { scroll: 40 }),
 			visit('gone.md', NOW - 2 * MINUTE, { scroll: 400 }),
@@ -1648,7 +1648,7 @@ describe('RecentFilesModal — a file that is gone', () => {
 		expect(h.notes()).toHaveLength(1);
 	});
 
-	it('says the history is empty when every place it holds is gone', () => {
+	it('它记着的每个地点都没了时，说历史是空的', () => {
 		// The one case the filtering creates: a history whose places all name missing
 		// files reads as an empty one. That is the honest answer — there is nowhere in
 		// this list to go — and it is the SAME message as an empty history, because it
@@ -1660,7 +1660,7 @@ describe('RecentFilesModal — a file that is gone', () => {
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.empty'));
 	});
 
-	it('draws the row again once the vault has the note back', () => {
+	it('仓库里又有了这篇笔记时，把这一行重新画出来', () => {
 		// A sync takes the note away and delivers it a moment later. The place is still
 		// in the list — the store drops one only after a grace window long enough to
 		// tell a replacement from a delete (see PathBookkeeper) — so what is missing is
@@ -1679,12 +1679,12 @@ describe('RecentFilesModal — a file that is gone', () => {
 	});
 });
 
-describe('RecentFilesModal — keyboard is announced', () => {
+describe('RecentFilesModal —— 键盘的无障碍声明', () => {
 	// The focus never leaves the filter box (typing narrows the list from the
 	// same keys that walk it), so the box is an ARIA combobox over the list and
 	// the current option is named by aria-activedescendant. Without that
 	// attribute the arrow keys move a highlight a screen reader cannot see.
-	it('wires the filter box to the list and follows the arrow keys', () => {
+	it('把筛选框接到列表上，并让方向键能走', () => {
 		const entries = [visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
@@ -1712,14 +1712,14 @@ describe('RecentFilesModal — keyboard is announced', () => {
 	});
 });
 
-describe('RecentFilesModal — one note, many landings', () => {
+describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 	// A reading capture lands on a viewport line: every landing of one note is a
 	// row under that note, and two DIFFERENT lines stay two rows.
 	const at = (path: string, line: number, agoMin: number): NavEntry =>
 		visit(path, NOW - agoMin * MINUTE, { scroll: line });
 	const files = { 'x.md': '', 'y.md': '', 'z.md': '' };
 
-	it('collapses repeat visits to one landing into one spot', () => {
+	it('反复访问同一个落点，合并成一处', () => {
 		// Bouncing between the note being written and its reference: every return
 		// to x.md L412 was the same PLACE, however it was reached and however many
 		// times. What the list prints of a note is the places in it the reader can
@@ -1744,7 +1744,7 @@ describe('RecentFilesModal — one note, many landings', () => {
 		expect(h.el.textContent).not.toContain('×');
 	});
 
-	it('makes a one-landing note a single row: no count, no caret, no landing row', () => {
+	it('只有一个落点的笔记就是一行：没有计数、没有插入符、没有落点子行', () => {
 		// Most notes in a real history were visited once, and there is no choice to make
 		// in those: the row is the note AND the spot, and a "1" plus a caret would be two
 		// cells spent saying there is nothing under them.
@@ -1763,7 +1763,7 @@ describe('RecentFilesModal — one note, many landings', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
 	});
 
-	it('gives a file with no coordinates ONE landing, however often it was opened', () => {
+	it('没有坐标的文件只占一个落点，开过多少次都一样', () => {
 		// A `.base` view, a PDF, an image: a file with nowhere in it to BE. Every visit
 		// is the same place, so the note holds one landing — and, having one, it is a
 		// single row that prints nothing under it. What it did instead was print one
@@ -1794,7 +1794,7 @@ describe('RecentFilesModal — one note, many landings', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
 
-	it('prints every landing when the settings ask for all of them', () => {
+	it('设置要求全显示时，每个落点都印出来', () => {
 		// The other side of the setting (see LandingsMode): every distinct spot under
 		// the note, in the note's own order — and no count anywhere, because the list
 		// no longer has anything to hide behind one.
@@ -1807,7 +1807,7 @@ describe('RecentFilesModal — one note, many landings', () => {
 		expect(h.note('x').querySelector('.nav-row-count')).toBeNull();
 	});
 
-	it('never merges two notes, however alike their steps are', () => {
+	it('两篇笔记绝不合并，哪怕它们的步再像', () => {
 		// ONE tab walks from x.md to z.md and both were captured at the same
 		// line — the ordinary way to read two notes side by side. Different notes
 		// are different rows, always.
@@ -1819,7 +1819,7 @@ describe('RecentFilesModal — one note, many landings', () => {
 			.toEqual(['y', 'z', 'x']);
 	});
 
-	it('orders the notes by their newest landing', () => {
+	it('按最新的那个落点排各篇笔记', () => {
 		// x.md was opened three times, but its last one is older than y.md's, so
 		// it comes second: the row is the note, the order is still recency.
 		const h = harness([
@@ -1868,7 +1868,7 @@ function fakeLayout(answer: () => {
 	};
 }
 
-describe('RecentFilesModal — a landing row', () => {
+describe('RecentFilesModal —— 落点行', () => {
 	// The landings a note holds are rows of their own under 'all', so these tests ask
 	// for them: the note here holds TWO places — L7 under "预览" and L36 under
 	// "尾巴" — far enough apart that they are two rows at all (see SPREAD_DOC), and a
@@ -1881,7 +1881,7 @@ describe('RecentFilesModal — a landing row', () => {
 	];
 	const files = { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' };
 
-	it('prefixes the landing with the deepest section levels', () => {
+	it('落点前面按最深的层级加上小节', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		// the deepest two levels, straight off the heading cache — the ROWS never read
@@ -1890,7 +1890,7 @@ describe('RecentFilesModal — a landing row', () => {
 		expect(h.rows()[1].querySelector('.nav-row-trail')?.textContent).toBe('面板设计›尾巴');
 	});
 
-	it('shows the coordinate and the section, never the landing text', () => {
+	it('显示坐标和小节，绝不显示落点那段引文', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 
 		// Down the note: L7 first, then L36.
@@ -1901,7 +1901,7 @@ describe('RecentFilesModal — a landing row', () => {
 		expect(row.textContent).not.toContain('最后一段');
 	});
 
-	it('labels every landing with the line it will OPEN', () => {
+	it('每个落点都用它将要打开的那一行来标注', () => {
 		// The list used to fold landings close enough together into one row, which printed
 		// the NEWEST member's line while covering the rest: a click could reach only that
 		// line, and the range the row covered survived as its tooltip. Every spot is a row
@@ -1927,7 +1927,7 @@ describe('RecentFilesModal — a landing row', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('keeps the heading the landing line itself carries as the deepest level', () => {
+	it('落点行自己带的那个标题算作最深的一级', () => {
 		// an outline jump lands ON "### 预览". A row prints no landing text, so that
 		// heading is the row's LAST level — the one a reader places the spot by — and it
 		// stays in the chain.
@@ -1945,7 +1945,7 @@ describe('RecentFilesModal — a landing row', () => {
 	// chapter above them — and the chapter is the first thing a reader looking for a
 	// place asks about. The chain is whole on hover, outermost first, the way the
 	// note runs.
-	it('says the whole chain on hover, and only where the row prints less than all of it', () => {
+	it('悬停时说整条链，而且只在行上印不全的时候', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 		const rows = h.rows();
 
@@ -1965,7 +1965,7 @@ describe('RecentFilesModal — a landing row', () => {
 	expect(h.hover(rows[1])).toBeFalsy();
 });
 
-it('says nothing more where nothing was recorded to quote', () => {
+it('本来就没记下可引的东西，就不再说什么', () => {
 	// A place recorded before the block was captured carries a position and no
 	// words (see NavEntryState.context): a tooltip is not a place to put a blank
 	// line, so the row answers exactly as it did before.
@@ -1985,7 +1985,7 @@ it('says nothing more where nothing was recorded to quote', () => {
 	expect(h.hover(h.place('L36'))).toBeFalsy();
 });
 
-it('says nothing about a landing while no query is up — the row has said it all', () => {
+it('没有查询在跑时，落点一句都不多说 —— 行上已经说全了', () => {
 	// Every landing IS a heading jump, so recording the words below it buys search
 	// and nothing else: with nothing typed, quoting one of them would put the same
 	// words on screen twice — once as a line the row explains, once as a line it
@@ -2003,7 +2003,7 @@ it('says nothing about a landing while no query is up — the row has said it al
 	expect(tip.querySelector('.nav-tip-quote')).toBeNull();
 });
 
-it('names the line the query hit', () => {
+it('点出查询命中的那一行', () => {
 	// Two landings one line apart, so both of them answer a query either of their
 	// blocks carries: a note left with a single landing prints no landing rows at
 	// all (see RecentFilesList.printsLandings), and there would be no row to ask.
@@ -2054,7 +2054,7 @@ const landing = (
 // back is said about fields only that shape carries.
 const jumpAt = (entries: NavEntry[], i: number) => entries[i] as NavJump;
 
-it('puts a landing back where its heading stands now, and says nothing about it', () => {
+it('把落点放回它那个标题现在所在的位置，且对此一言不发', () => {
 	// An edit that moves a heading does not move the READER, and this panel can answer
 	// where the spot went — so nothing is owed its row, and the coordinate is corrected
 	// before the row exists, which is the whole of why no warning is.
@@ -2103,7 +2103,7 @@ it('puts a landing back where its heading stands now, and says nothing about it'
 	expect(lines(h)).toEqual(['L3', 'L15']);
 });
 
-it('says so when the heading a landing named is not in the note any more', () => {
+it('落点点名的那个标题已经不在笔记里时，明说出来', () => {
 	// What is LEFT after the pass above has put back what it can: the one case nobody
 	// can fix. Every other row whose note was written since is silent now — including
 	// one whose heading merely moved — so this line only ever stands for a landing the
@@ -2173,7 +2173,7 @@ it('says so when the heading a landing named is not in the note any more', () =>
 	expect(jumpAt(h.entries, 1).st?.mtime).toBe(taken);
 });
 
-it('says nothing about a note the vault has not parsed yet', () => {
+it('仓库还没解析过的笔记，什么都不说', () => {
 	// The answer "that heading is not in the note" belongs to something that has READ the
 	// note. A note a sync has just put back has no parsed headings for as long as the app
 	// takes to re-read it — and on a phone it may never be re-read at all — and a row that
@@ -2193,7 +2193,7 @@ it('says nothing about a note the vault has not parsed yet', () => {
 	expect(h.reland).not.toHaveBeenCalled();
 });
 
-it('says nothing about the note when the record kept no time of its own', () => {
+it('这条记录自己没有留下时间时，关于这篇笔记什么都不说', () => {
 	// A record taken before the field existed, or by a read that had no file to stamp:
 	// "unknown" is not "untouched", and a line claiming the note has been written has
 	// nothing to stand on then. What is missing is that one line — the words it would
@@ -2213,7 +2213,7 @@ it('says nothing about the note when the record kept no time of its own', () => 
 		.toBeGreaterThan(0);
 });
 
-it('says the line a query hit on the NOTE\'S ROW, when that row IS the place', () => {
+it('笔记行本身就代表那个地点时，在这一行上说出查询命中的那一行', () => {
 	// A note's landings are printed under it only from two of them up (see
 	// printsLandings): a note left with ONE place has no landing row at all, and its
 	// own row is what stands for the place — the click goes there (see activeRep). That
@@ -2239,7 +2239,7 @@ it('says the line a query hit on the NOTE\'S ROW, when that row IS the place', (
 	expect(quotes()).toEqual([`${t('recentFiles.matchedLine')}正文第 2 行`]);
 });
 
-it('says nothing on a note\'s own row while that row is the FILE', () => {
+it('笔记行代表的是文件本身时，这一行什么都不说', () => {
 	// The other half of the rule, and the reason the one above is a rule about the
 	// row rather than about the note: a note whose own record is on the list is opened
 	// the plain way by its row, and a plain open has no words recorded about it — the
@@ -2266,7 +2266,7 @@ it('says nothing on a note\'s own row while that row is the FILE', () => {
 	// on printing a "›" with nothing to its left — standing where the deepest level,
 	// the one the row is for, could have had the room (see styles.css's collapse
 	// order). The row still READS the same, so nothing a reader looks at changed.
-	it('hangs the separator on the level it follows, not between the two levels', () => {
+	it('分隔符挂在它跟着的那一级上，而不是挂在两级之间', () => {
 		const h = harnessAll(body(), 2, files, [], {}, SPREAD_HEADINGS);
 		const crumb = h.rows()[0].querySelector('.nav-row-trail')!;
 
@@ -2287,7 +2287,7 @@ it('says nothing on a note\'s own row while that row is the FILE', () => {
 	//
 	// (With no layout at all — every test above — nothing is dropped: a row that has
 	// not been measured keeps both of its levels, which is what the rows above print.)
-	it('takes off the outer level the row could not print, and says it on hover', () => {
+	it('行上印不出来的最外那一级去掉，改用悬停说出来', () => {
 		// L36's chain IS two levels, so its row prints both until the layout says
 		// otherwise — the only row that can show what the pass lends a row, since L7's
 		// three-level chain already has the whole chain on its hover.
@@ -2328,7 +2328,7 @@ it('says nothing on a note\'s own row while that row is the FILE', () => {
 		}
 	});
 
-	it('puts the coordinate before the section, with the row\'s own controls after it', () => {
+	it('坐标排在小节前面，这一行自己的控件排在之后', () => {
 		// The row used to be name | section | small print (pane, coordinate, age) with
 		// the age in a measured column of its own. The note is the row now, so a landing
 		// is coordinate | section | controls — and the controls are last and out of the
@@ -2344,7 +2344,7 @@ it('says nothing on a note\'s own row while that row is the FILE', () => {
 		expect(h.el.querySelector('.position-restore-nav-list .nav-row-time')).toBeNull();
 	});
 
-	it('gives a landing its OWN time — the last visit to that spot, not to the note', () => {
+	it('落点有它自己的时间 —— 最后一次访问那一处，而不是访问这篇笔记', () => {
 		// A note's row is stamped with the NEWEST of its places (see fileRow), which
 		// answers "when was I in this file" and not "when was I here": a spot the
 		// reader has not been back to keeps the time it earned, and that is the moment
@@ -2377,7 +2377,7 @@ it('says nothing on a note\'s own row while that row is the FILE', () => {
 // WHAT A ROW SAYS about the FILE behind it: the name without its extension, the type
 // badge where the type is worth saying, the folder on the side the setting asks for,
 // and the full path on hover (see displayName / badgeOf / PathDisplayMode).
-describe('RecentFilesModal — the name, the type and the path', () => {
+describe('RecentFilesModal —— 名字、类型和路径', () => {
 	const files = {
 		'a/index.md': '', 'b/index.md': '', 'notes.md': '',
 		'report.pdf': '', 'LICENSE': '', 'board.canvas': '',
@@ -2420,7 +2420,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		'a/index.md': { headings: [], frontmatter: { title: 'Weekly sync', aliases: ['周会', 'standup'] } },
 	};
 
-	it('prints the name without the extension, and marks every type but markdown', () => {
+	it('名字不带扩展名，除 markdown 外的每种类型都带标记', () => {
 		const h = harness(stack(), 5, files);
 
 		expect(attr(rowFor(h, 'notes.md')))
@@ -2437,7 +2437,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 			.toEqual({ name: 'board', badge: 'CANVAS', path: undefined });
 	});
 
-	it('carries the file\'s full path, extension and all, where the row does not print it', () => {
+	it('行上没印路径的地方，提示条带上文件的完整路径，连扩展名一起', () => {
 		// The row prints neither the extension nor (by default) the folder, so the
 		// tooltip is the last place either is still said. It is the PANEL's tooltip and
 		// not the native `title` it used to be (see tip.ts): a browser tooltip cannot be
@@ -2452,7 +2452,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 			.toBe('LICENSE');
 	});
 
-	it('says nothing on hover where the row already prints the path', () => {
+	it('行上已经印了路径的地方，悬停时不再说', () => {
 		// The reader asked for the paths by turning them on (see PathDisplayMode), so the
 		// hover has nothing left to add: a row that prints its folder is a row that says
 		// nothing on hover — the extension alone is not worth a tooltip (see fileRow).
@@ -2470,7 +2470,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		expect(hoverOf(smart, 'notes.md')?.querySelector('.nav-tip-path')?.textContent).toBe('notes.md');
 	});
 
-	it('says the other names even where the row prints the path', () => {
+	it('行上印了路径的地方，照样说别的名字', () => {
 		// The names are printed NOWHERE on a row and are searchable, so they are the one
 		// thing a hover still owes a reader whose paths are on screen — the path line goes
 		// and the names' line stays (see fileRow).
@@ -2485,7 +2485,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 			]);
 	});
 
-	it('marks a pathless view, and says nothing else about it', () => {
+	it('无路径视图带个标记，此外不再说它什么', () => {
 		// The graph is a view and not a file: it has no type to mark and no path to
 		// print or to hover — its name is the view's own label, or this list's wording
 		// for a view that has none (see model.ts's viewName). What the row DOES print
@@ -2503,7 +2503,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		expect(h.hover(graph)).toBeNull();
 	});
 
-	it('draws the icon a view named for itself, in place of the word', () => {
+	it('画出视图自己起的那个图标，代替文字', () => {
 		// A view is asked for its icon the way it is asked for its name (see
 		// shared/leaf.ts's viewIcon): the row then wears the same mark the reader saw
 		// on that view's tab, without this plugin knowing which plugin it was. The
@@ -2523,7 +2523,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		expect(mark.getAttribute('aria-label')).toBe(t('recentFiles.viewBadge'));
 	});
 
-	it('prints the folder on every row, on the side the setting asks for', () => {
+	it('每一行都印上文件夹，按设置要求的那一侧', () => {
 		const ctx = (path: 'before' | 'after') =>
 			harness(stack(), 5, files, [], {}, {}, false, {}, prefs({ path }).browser);
 		// 'before' is the quick switcher's shape: the whole path laid out in front of
@@ -2544,7 +2544,7 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 		expect(attr(rowFor(after, 'notes.md')).path).toBe('/');
 	});
 
-	it('prints the folder on the colliding rows only, by default', () => {
+	it('默认只在名字撞车的那几行印文件夹', () => {
 		// 'smart' is the default, and it is the setting that says the least: the
 		// folder is a disambiguator, so it appears exactly where there is something to
 		// disambiguate — and nowhere else.
@@ -2565,12 +2565,12 @@ describe('RecentFilesModal — the name, the type and the path', () => {
 // the panel's decision: a pointer crossing the list says nothing, a pointer that rests
 // gets an answer, and the answer goes the moment the thing it describes is no longer
 // what the pointer is on — or is no longer on screen at all.
-describe('RecentFilesModal — the row\'s tooltip', () => {
+describe('RecentFilesModal —— 行的提示条', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
 
-	it('answers only a pointer that RESTS on the row', () => {
+	it('只有在行上停住的指针才应答', () => {
 		// A tooltip that appeared the instant the pointer touched a row would be a band
 		// of text flashing down the list at the speed of the mouse (see TIP_DELAY_MS).
 		const h = harness(entries(), 1, files);
@@ -2583,7 +2583,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 		expect(tip()?.querySelector('.nav-tip-path')?.textContent).toBe('a.md');
 	});
 
-	it('says nothing for a pointer that only crossed the row', () => {
+	it('只是从行上划过的指针，什么都不说', () => {
 		const h = harness(entries(), 1, files);
 		const row = h.note('a');
 
@@ -2594,7 +2594,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('takes the answer away when the pointer leaves the row', () => {
+	it('指针离开这一行就把答案收走', () => {
 		// The row is one target: the tooltip belongs to what the pointer is ON, and the
 		// pointer moving off it — even onto another row that says nothing — takes it away.
 		const h = harness(entries(), 1, files);
@@ -2603,7 +2603,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 		expect(h.unhover(h.note('a'))).toBeNull();
 	});
 
-	it('takes it away when the list is rebuilt under it', () => {
+	it('底下的列表重建时把它收走', () => {
 		// Every keystroke redraws the rows, so a tooltip left standing would be pointing
 		// at a row that no longer exists — and describing a list the reader has just
 		// filtered (see RecentFilesList.render).
@@ -2617,7 +2617,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('takes it away on a scroll, and on a press that is about to travel', () => {
+	it('滚动时收走，即将前往的那一次按下也收走', () => {
 		// A tooltip is pinned to the row's own box and does not move with it: a scroll
 		// leaves it hanging over whatever slid underneath. A press is the same fact one
 		// moment later — the row is about to open, or the list to be rebuilt.
@@ -2631,7 +2631,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('draws it on the document, outside the panel\'s own element', () => {
+	it('把它画在 document 上，在面板自己的元素之外', () => {
 		// It has to be able to hang BELOW the list — the rows near the foot are the ones
 		// a reader needs it for — and the list scrolls and clips its own content.
 		const h = harness(entries(), 1, files);
@@ -2641,7 +2641,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 		expect(shown.parentElement).toBe(document.body);
 	});
 
-	it('takes its element with it when the panel goes', () => {
+	it('面板关掉时把它的元素一起带走', () => {
 		// The tooltip is the one thing the body put OUTSIDE its own element, so nothing
 		// that removes the panel removes it (see RecentFilesBrowser.destroy).
 		const h = harness(entries(), 1, files);
@@ -2657,7 +2657,7 @@ describe('RecentFilesModal — the row\'s tooltip', () => {
 // switch and not a scale: off, the rows are exactly the rows that were there before
 // the label existed, and on, every row carries one — including the ones with no file
 // behind them at all.
-describe('RecentFilesModal — the time on a row', () => {
+describe('RecentFilesModal —— 行上的时间', () => {
 	const DAY = 24 * 60 * MINUTE;
 	const HOUR = 60 * MINUTE;
 	const on = () => prefs({ time: true }).browser;
@@ -2673,7 +2673,7 @@ describe('RecentFilesModal — the time on a row', () => {
 	const times = (h: ReturnType<typeof harness>) =>
 		h.notes().map(r => r.querySelector('.nav-row-time')?.textContent);
 
-	it('is off by default, and leaves nothing at all on the row', () => {
+	it('默认关闭，行上一点痕迹都不留', () => {
 		// Not hidden but ABSENT: the setting is the only reason the element exists, and
 		// a span kept in the DOM to be styled away would still be a cell the row's own
 		// grid has to lay out.
@@ -2687,7 +2687,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		expect(h.el.querySelectorAll('.is-timed')).toHaveLength(0);
 	});
 
-	it('says the age of each note, from the newest step the note holds', () => {
+	it('说出每篇笔记有多旧，按它最新那一步算', () => {
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
 
 		// The order is the rows' own ages: a/index.md (5m), then the graph (2h), then
@@ -2697,7 +2697,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		expect(times(h)).toEqual(['5m ago', '2h ago', '3d ago']);
 	});
 
-	it('dates the pathless view too, and every row the same way', () => {
+	it('无路径视图也标时间，每一行都同一个算法', () => {
 		// The graph is a row like any other and it was visited like any other: what it
 		// has no answer for is a FILE (no path, no type — see badgeOf), not a time.
 		const h = harness(stack(), 2, files, [], {}, {}, false, {}, on());
@@ -2708,7 +2708,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		expect(graph.querySelector('.nav-row-path')).toBeNull();
 	});
 
-	it('carries the exact moment as the label\'s own tooltip', () => {
+	it('精确时刻放在这个标签自己的提示里', () => {
 		// The label is abbreviated ("5m ago"), so the moment is one hover away — and it
 		// is the TIME's tooltip, so the row's own still says which file. The
 		// time is INSIDE the row, so this is the one place the pointer's nearest subject
@@ -2721,7 +2721,7 @@ describe('RecentFilesModal — the time on a row', () => {
 		expect(h.hover(h.note('notes'))?.querySelector('.nav-tip-path')?.textContent).toBe('notes.md');
 	});
 
-	it('gives every dated row the far track its age stands in, folder or no folder', () => {
+	it('每个带时间的行都给一条容下它的远侧轨道，有没有文件夹都一样', () => {
 		// The age is a cell of the ROW and not of the name (see
 		// RecentFilesList.fileRow): that is what puts every label at the same x down the
 		// list, whatever the row prints beside it. The class the stylesheet reads is
@@ -2753,7 +2753,7 @@ describe('RecentFilesModal — the time on a row', () => {
 // the keyboard's own equivalent, and the app's menu on a right-click. Which of these
 // the app decides rather than this plugin is the point of most of them (see
 // Keymap / PaneTarget).
-describe('RecentFilesModal — where a row opens, and the right-click menu', () => {
+describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () => {
 	// a.md is the OLDER note, so recency puts it SECOND: two rows, b.md first.
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
@@ -2773,7 +2773,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		return calls[0][1] as { items: { title: string; section: string; icon: string; click?: () => void }[] };
 	};
 
-	it('asks the app where to open, and opens there', () => {
+	it('问 app 该开到哪儿，就在那儿打开', () => {
 		// A plain click: the app says "where it already is" (its `false`), which this
 		// plugin normalises to no target at all (see RecentFilesList.onClick).
 		const h = harness(entries(), 1, files);
@@ -2789,7 +2789,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(held.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('opens a middle-click in a new tab, from the press itself', () => {
+	it('中键点击在新标签页里打开，从按下那一刻就开始', () => {
 		// The middle button raises `auxclick` and not `click`, so a handler waiting for
 		// the click would never run; and preventDefault on the press is what keeps the
 		// WebView's middle-click autoscroll out of the list (see RecentFilesList.onPress).
@@ -2801,7 +2801,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('leaves a press of any other button alone', () => {
+	it('其它按键的按下不理会', () => {
 		// The right button raises the row's menu and never a click (see the suite
 		// below); anything else — a fourth button, a hover-reporting pointer — opens
 		// nothing and claims nothing.
@@ -2817,7 +2817,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.trigger).not.toHaveBeenCalled();
 	});
 
-	it('opens a row in a new tab on Cmd/Ctrl+Enter', () => {
+	it('Cmd/Ctrl+Enter 把一行开在新标签页里', () => {
 		// The focus never leaves the filter box, so a row's modifier-click is out of
 		// reach: the keyboard's own answer is the gesture every list in the app takes.
 		// Whether the modifier is down is the app's call (see Keymap.isModifier).
@@ -2830,7 +2830,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('hands the app a menu for a file row, with its own items on top', () => {
+	it('给文件行交给 app 一份菜单，自己的几项排在最上面', () => {
 		// The menu is the app's — what a reader can do with a file is not this plugin's
 		// business — and what is added is what the app cannot know: this row stands for a
 		// PLACE, so "open in a new tab" here means this note, at the spot the row stands
@@ -2861,7 +2861,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('takes the row off the list from the × on it', () => {
+	it('用它上面的 × 把这一行从列表里拿掉', () => {
 		// The one write the panel makes (see body.ts's forgetRow), and it goes to the list
 		// and no further: the file itself, and the position database, are untouched (see
 		// NavPlaces.forget). The row has to leave the screen as it goes — a × that left it
@@ -2882,7 +2882,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(names()).toEqual(['b']);
 	});
 
-	it('does not open the note when the reader reaches for the ×', () => {
+	it('读者伸手去点 × 时不打开笔记', () => {
 		// The press and the click are stopped AT the × rather than left to bubble (see
 		// RecentFilesList.fileRow): with the press let through, the row would be recorded as
 		// pressed and the release would open the file the reader was trying to drop — the
@@ -2897,7 +2897,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.forget).toHaveBeenCalledWith('a.md');
 	});
 
-	it('says WHICH place its own item opens, on a row that stands for a landing', () => {
+	it('行代表的是一个落点时，自己那一项会说明它打开的是哪一处', () => {
 		// A row whose note has no file record of its own opens the LANDING it stands for
 		// (see activeRep), so "open in a new tab" would be a promise the row does not
 		// keep: it is opened HERE, at that spot.
@@ -2910,7 +2910,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.jumpTo).toHaveBeenCalledWith(0, 'tab');
 	});
 
-	it('raises its OWN menu for a pathless view, and asks the app about nothing', () => {
+	it('无路径视图用自己那份菜单，什么都不去问 app', () => {
 		// The graph is not a file, so there is no file menu for it to be about: what
 		// comes up is this list's own two items, and NO `file-menu` event is sent —
 		// the app would be asked to speak about a file that does not exist.
@@ -2931,7 +2931,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
 	});
 
-	it('gives a pathless view the same × a note gets, since its row is a row', () => {
+	it('无路径视图也配上和笔记一样的 ×，它那一行反正也是一行', () => {
 		// The graph is refused a FILE menu — there is no file for one to be about — and
 		// while the removal lived in that menu, the refusal left it no way off the list at
 		// all. The × needs no file, so every row carries one (see RecentFilesList.fileRow).
@@ -2948,7 +2948,7 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 		expect(h.forget).toHaveBeenCalledWith('view:graph');
 	});
 
-	it('raises no menu when the file behind the row is gone', () => {
+	it('行背后的文件已经没了时，不弹菜单', () => {
 		// A place whose file the list cannot open is not DRAWN at all (see
 		// RecentFilesList.render), so the only way here is a file that went between the
 		// render and the right-click — a sync removing it, a delete landing a moment
@@ -2965,14 +2965,14 @@ describe('RecentFilesModal — where a row opens, and the right-click menu', () 
 	});
 });
 
-describe('RecentFilesModal — same-named notes', () => {
+describe('RecentFilesModal —— 同名的笔记', () => {
 	// The panel is used in a vault, not a code repo: "index.md" exists in five
 	// folders, and a row that printed only its last path segment named all five
 	// the same. The folder is printed exactly where the name collides, and
 	// nowhere else — a row whose name is unique prints the name alone.
 	const files = { 'a/index.md': '', 'b/index.md': '', 'notes.md': '' };
 
-	it('prints the folder on a name two notes share, and on nothing else', () => {
+	it('两篇笔记同名时印上文件夹，别的地方不印', () => {
 		const h = harness([
 			visit('a/index.md', NOW - 3 * MINUTE),
 			visit('b/index.md', NOW - 2 * MINUTE),
@@ -2998,7 +2998,7 @@ describe('RecentFilesModal — same-named notes', () => {
 			.toEqual(['nav-row-name']);
 	});
 
-	it('gives a same-named note at the vault root a folder to show', () => {
+	it('位于仓库根目录的同名笔记也给它一个文件夹可显示', () => {
 		// "/" and "a/" are the two answers, and neither is blank: a blank cell is
 		// what the /-note used to render, which read as "no folder" rather than
 		// as "the root".
@@ -3012,7 +3012,7 @@ describe('RecentFilesModal — same-named notes', () => {
 		expect(folders).toEqual(['a/', '/']);
 	});
 
-	it('drops the folder again once the collision is gone', () => {
+	it('撞名一消失就把文件夹去掉', () => {
 		// A collision the query removed is not on screen to be
 		// confused with anything, so the surviving row stops paying for it.
 		const h = harness([
@@ -3032,7 +3032,7 @@ describe('RecentFilesModal — same-named notes', () => {
 });
 
 
-describe('RecentFilesModal — the recorded landing block', () => {
+describe('RecentFilesModal —— 记下来的那块落点', () => {
 	// An entry carries the lines that stood below its landing (see
 	// NavEntryState.context). The SEARCH BOX is their one reader: "the words I saw
 	// when I left" is how a reader finds an old spot, and a phrase from anywhere in
@@ -3054,7 +3054,7 @@ describe('RecentFilesModal — the recorded landing block', () => {
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 	};
 
-	it('finds a note by any line of a recorded block', () => {
+	it('记下的那一块里的任何一行都能搜到这篇笔记', () => {
 		const h = harness([withBlock(), visit('b.md', NOW)], 1, files);
 
 		search(h, '到哪里去');
@@ -3063,7 +3063,7 @@ describe('RecentFilesModal — the recorded landing block', () => {
 		expect(h.notes()[0].querySelector('.nav-row-name')?.textContent).toBe('a');
 	});
 
-	it('finds a note by the section its landing row prints', () => {
+	it('落点行上印着的那一小节也能搜到这篇笔记', () => {
 		// The section chain is derived from the heading cache, not recorded on the
 		// entry — and it is a column the reader reads, so a query must be able to hit it.
 		const headings = { 'a.md': [{ heading: '架构设计', level: 1, position: { start: { line: 0 } } }] };
@@ -3079,7 +3079,7 @@ describe('RecentFilesModal — the recorded landing block', () => {
 
 });
 
-describe('RecentFilesModal — touch', () => {
+describe('RecentFilesModal —— 触屏', () => {
 	// Three notes, sitting on c.md. Each earlier step carries a landing line, so
 	// the row it stands for has a coordinate of its own to describe — and each
 	// note holds exactly one place, which is the ordinary shape of a vault's history
@@ -3100,7 +3100,7 @@ describe('RecentFilesModal — touch', () => {
 	];
 	const SPREAD_FILES = { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' };
 
-	it('empties the box from the × without summoning the keyboard', () => {
+	it('用 × 清空输入框，不把键盘叫出来', () => {
 		// The panel deliberately leaves the box unfocused on touch — the on-screen
 		// keyboard covers half a phone (see body.ts's mount) — so the × must not put the
 		// focus there either: a finger that taps it is clearing, not typing.
@@ -3118,7 +3118,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(document.activeElement).not.toBe(box);
 	});
 
-	it('treats a tap inside any cell of a row as a tap on the row', () => {
+	it('点在行内任何一个格子上都算点在行上', () => {
 		// A touch WebView sends mousemove before the click. Nothing about the cell
 		// under the finger may change what happens: the note's own name cell and the
 		// row's padding both act on the row — and what the row does is OPEN the file
@@ -3133,7 +3133,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('ignores the mousemove a tap synthesises, so the click still opens the note', () => {
+	it('无视点按合成出来的那次 mousemove，好让随后的点击仍然打开笔记', () => {
 		// A touch WebView sends mouseover/mousemove before the click. The list has no
 		// mousemove handler to take that for a hover any more (see RecentFilesList), so
 		// the pointer report selects nothing — and the click that follows is the row's
@@ -3149,7 +3149,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('lets a pointing device open the file from the row itself, in one click', () => {
+	it('带指针的设备一次点击就能从行本身打开文件', () => {
 		// The row is not a touch affordance: a mouse gets the same one click, and it is
 		// the whole journey — one press, one destination, and the panel has nothing to
 		// do with it (see RecentFilesList.onClick).
@@ -3159,7 +3159,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
 	});
 
-	it('opens nothing on a right-click, and refuses the gesture', () => {
+	it('右键不打开任何东西，并拒绝这次手势', () => {
 		const h = harness(entries(), 2, files);
 
 		const ev = h.rightClick(h.note('b'));
@@ -3173,7 +3173,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(ev.defaultPrevented).toBe(true);
 	});
 
-	it('does not travel on a press that was only held down', () => {
+	it('只是按住没动的那次按下，不会前往', () => {
 		const h = harness(entries(), 2, files);
 		const row = h.note('b');
 
@@ -3194,7 +3194,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('opens without raising the on-screen keyboard', () => {
+	it('打开时不弹出软键盘', () => {
 		// Focusing the search box is what unfolds a phone's keyboard across the
 		// bottom half of the panel, over the list the panel exists for. The box
 		// is one tap away when the user does mean to type.
@@ -3207,7 +3207,7 @@ describe('RecentFilesModal — touch', () => {
 		expect(desktop.el.querySelector('.position-restore-nav-filter')).toBe(document.activeElement);
 	});
 
-	it('keeps the keyboard down when the × is tapped', () => {
+	it('点 × 时键盘保持收着', () => {
 		// The × is the one control in the strip a finger reaches for, and putting the
 		// caret back in the box afterwards would unfold the on-screen keyboard over
 		// the list — the opposite of what the tap asked for (see
@@ -3237,11 +3237,11 @@ describe('RecentFilesModal — touch', () => {
 // the gesture, and answering it as if it were the mouse's rebuilds every row
 // underneath a touch that is in the middle of becoming a scroll — which is what a
 // phone's list could not be scrolled by, and what left a folded drawer half-open.
-describe('RecentFilesModal — a finger in the list', () => {
+describe('RecentFilesModal —— 手指落在列表上', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 
-	it('does not redraw the list when a finger leaves it', () => {
+	it('手指离开列表时不重画', () => {
 		const h = harness(entries(), 1, files);
 		const row = h.note('a');
 
@@ -3253,7 +3253,7 @@ describe('RecentFilesModal — a finger in the list', () => {
 		expect(h.note('a')).toBe(row);
 	});
 
-	it('redraws it when a MOUSE leaves it, which is what the order is held for', () => {
+	it('鼠标离开时才重画，那个次序就是为此留着的', () => {
 		// The same two events from a pointing device are the panel's whole answer to
 		// "is anybody reading this list?" — the order is taken on the way in and the
 		// list catches up on the way out.
@@ -3267,7 +3267,7 @@ describe('RecentFilesModal — a finger in the list', () => {
 		expect(h.note('a').querySelector('.nav-row-name')?.textContent).toBe('a');
 	});
 
-	it('says nothing on hover for a finger', () => {
+	it('手指不触发悬停说话', () => {
 		// A finger does not hover: it presses, and the press takes the answer away
 		// (see tip.ts). A tooltip raised by a touch's over would appear 400ms after a
 		// finger that has already moved on, over a row the list may have redrawn.
@@ -3285,7 +3285,7 @@ describe('RecentFilesModal — a finger in the list', () => {
 // things THIS panel knows about it that the app cannot. Everything below is heard from
 // a TOUCH harness, because a desktop's hover already answers all of it and needs none
 // of this — which is what the last-but-one test here says.
-describe('RecentFilesModal — a finger that stopped on a row', () => {
+describe('RecentFilesModal —— 手指停在某一行上', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const entries = () => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
@@ -3322,7 +3322,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 	// going through, nothing on the row changes at all — and the travel is not the end
 	// of it either, because on a phone the drawer folds away behind it. So the press
 	// itself is what the row answers with (see list.ts's markPressed).
-	it('marks the row a finger pressed, for as long as the reader can still see it', () => {
+	it('手指按过的那一行留个标记，只要读者还看得见它', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3356,7 +3356,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 	// down: a finger that is still resting on its way to becoming a long press is a
 	// finger the reader is still pointing with, and a mark that blinked out halfway
 	// through would say the row had stopped answering (see list.ts's releaseMark).
-	it('keeps the mark lit for the whole of a long press', () => {
+	it('整个长按过程里标记一直亮着', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3380,7 +3380,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 
 	// …while a finger the platform never reported coming up does not leave a row lit
 	// for good: the mark has a latest moment of its own (see ROW_PRESS_HOLD_MAX_MS).
-	it('lets the mark go when the finger never came up at all', () => {
+	it('手指始终没抬起来时，标记放开', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3397,7 +3397,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 	// …and it belongs to the ROW and not to the list, so it does not outlive one: the
 	// travel the press asked for redraws the list, and the row drawn in its place is a
 	// row the reader never pressed.
-	it('takes the mark off with the row it was put on', () => {
+	it('标记跟着它所在的那一行一起消失', () => {
 		const h = phone();
 		down(h.note('b'));
 		expect(h.note('b').classList.contains('is-pressed')).toBe(true);
@@ -3410,7 +3410,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 
 	// …and a press does not stop being a press when it becomes an arm: the finger is
 	// still on the row the whole time the arm is standing.
-	it('keeps the mark under a finger that rested, and lets it go with the arm', () => {
+	it('手指停住时标记留着，随触发一起放开', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3431,7 +3431,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(row.classList.contains('is-pressed')).toBe(false);
 	});
 
-	it('arms the row a finger stopped on, and says what the row cannot print', () => {
+	it('手指停住的那一行被触发，并说出行上印不出来的话', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3447,7 +3447,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(h.note('a').classList.contains('is-armed')).toBe(false);
 	});
 
-	it('says the moment behind the age, when the finger stopped on the time', () => {
+	it('手指停在时间上时，说出那个年纪背后的准确时刻', () => {
 		// Which element the finger came down on decides WHICH of the two things the row
 		// says, exactly as it does for a pointer (see tip.ts's subject): the time answers
 		// for the moment behind it, and the row answers for which file this is.
@@ -3461,7 +3461,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 			.toBe(new Date(NOW).toLocaleString());
 	});
 
-	it('opens nothing on the click a long press delivers when the finger lifts', () => {
+	it('长按在手指抬起时送来的那次点击，不打开任何东西', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3483,7 +3483,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(row.classList.contains('is-armed')).toBe(true);
 	});
 
-	it('arms nothing when the finger was only beginning to scroll', () => {
+	it('手指刚开始滑动时，什么都不触发', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3497,7 +3497,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('takes the row off the list from the × the arm put on it', () => {
+	it('用触发时加上的那个 × 把这一行拿掉', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3515,7 +3515,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('raises the app\'s menu from the control the arm put on it', () => {
+	it('用触发时加上的那个控件把 app 的菜单弹出来', () => {
 		// The menu a desktop gets from a right-click (see body.ts's contextRow): the app's
 		// own actions for the file, with this panel's one item on top of them. On a phone
 		// the long press that used to raise it arms the row instead, so the menu comes
@@ -3548,7 +3548,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(row.classList.contains('is-armed')).toBe(true);
 	});
 
-	it('opens the row one tab over from the menu\'s own item, on a phone as on a desktop', () => {
+	it('从菜单自己那一项把这一行开在隔壁标签页里，手机和桌面一样', () => {
 		// The one thing the app cannot know about this row (see body.ts's contextRow) is
 		// still one tap away: it is the first item of the menu the control raises.
 		const h = phone();
@@ -3564,7 +3564,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(h.jumpTo).toHaveBeenCalledWith(1, 'tab');
 	});
 
-	it('takes the menu with it when the panel itself closes', () => {
+	it('面板自己关掉时把菜单一起带走', () => {
 		// The menu is put on the DOCUMENT and not into the panel's element, so a shell
 		// that closes takes none of it with it: a dialog closed under an open menu
 		// would leave the app's menu standing over nothing at all (see
@@ -3584,7 +3584,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(menu.closed).toBe(true);
 	});
 
-	it('takes the menu back when the control that raised it is tapped again', () => {
+	it('再点一次那个弹菜单的控件，就把菜单收回去', () => {
 		// ONE DOOR, TWO ENDS. The app cannot answer this tap: the control stops its own
 		// press so that reaching for it does not open the note (see menuControl), and a
 		// press the document never hears is a press that cannot close the app's menu
@@ -3617,7 +3617,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(row.classList.contains('is-armed')).toBe(true);
 	});
 
-	it('takes the menu back when the press lands on the menu\'s own surface', () => {
+	it('按下落在菜单自己那块面上时，把菜单收回', () => {
 		// THE TABLET CASE, and the whole of why the control cannot answer it alone. When
 		// there is no room below the point it was given, the app moves a menu UP BY ITS
 		// OWN HEIGHT — over the row, and over the very control that raised it. A finger
@@ -3643,7 +3643,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		surface.remove();
 	});
 
-	it('leaves the menu alone when the press lands on one of its items', () => {
+	it('按下落在菜单某项上时，菜单不动', () => {
 		// The one press that must NOT take the menu away: choosing an item is the menu's
 		// own answer, and a menu pulled out from under the press would take the item with
 		// it — a tap that resolves to nothing at all.
@@ -3664,7 +3664,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		item.remove();
 	});
 
-	it('raises a menu again after the app took the last one off itself', () => {
+	it('app 自己把上一个菜单收掉之后，还能再弹一次', () => {
 		// An item chosen on it, or a tap away from it: the app's own gestures, and the
 		// app's own menu to take off the screen. From that moment the panel owes it
 		// nothing — and the control goes back to RAISING one, because a tap that takes a
@@ -3686,7 +3686,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(2);
 	});
 
-	it('opens nothing when the press\'s own click lands on a control it put there', () => {
+	it('那次按下自己的点击落在它加上的控件上时，什么都不打开', () => {
 		// The controls arrive at the row's far end — which is where the finger may
 		// already be resting. The click the lift then delivers is the press's tail and
 		// not a second gesture: a reader who stopped on a row did not ask for its menu,
@@ -3712,7 +3712,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
 	});
 
-	it('answers the first tap after a press whose own click NEVER came', () => {
+	it('按下之后它自己那一次点击始终没来，此时第一次点按照样应答', () => {
 		// Whether the tail of a long press is delivered at all is the platform's
 		// business: a WebView that raised a menu for the press, or a finger that
 		// drifted past the slop on its way up, may deliver no click with it. The
@@ -3736,7 +3736,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(menuOf(h.trigger).items[0].title).toBe(t('recentFiles.openInNewTab'));
 	});
 
-	it('answers the first tap on the × after such a press, too', () => {
+	it('这种按下之后第一次点 × 也照样应答', () => {
 		// The same claim, on the control that is not survivable: a reader who stopped
 		// on a row and then aimed at its × got nothing, and the tap after it opened
 		// the note they were trying to drop.
@@ -3754,7 +3754,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('opens nothing when a tap lands on the strip beside the controls', () => {
+	it('点按落在控件旁边那条空白区时，什么都不打开', () => {
 		// Two targets side by side are missed by a finger that drifts — and a finger
 		// that comes down on one and lifts over the other has clicked NEITHER: the
 		// browser clicks their nearest common ancestor, which without the strip's own
@@ -3773,7 +3773,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(row.classList.contains('is-armed')).toBe(true);
 	});
 
-	it('disarms the row when the reader taps another one', () => {
+	it('读者点另一行时，把这一行的触发解除', () => {
 		const h = phone();
 		const row = h.note('b');
 
@@ -3789,7 +3789,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('disarms it on a scroll, and on a redraw', () => {
+	it('滚动时、重画时都解除', () => {
 		// A scroll takes the rows out from under words that are standing still, and a
 		// redraw throws away the row the finger stopped on: a × left standing on the row
 		// drawn in its place would be a control for a row nobody armed.
@@ -3809,7 +3809,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('arms it from the menu event a WebView raises for the same finger', () => {
+	it('WebView 为同一根手指发来的菜单事件也能触发它', () => {
 		// A long press arrives as a `contextmenu` on some platforms and not on others
 		// (see long-press.ts), so both doors are open and the arm is idempotent: what
 		// matters is that the row is armed either way, and that the app's file menu is
@@ -3826,7 +3826,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(h.trigger).not.toHaveBeenCalled();
 	});
 
-	it('arms nothing on a desktop, where a rest is a hover', () => {
+	it('桌面上什么都不触发 —— 那里停住就是悬停', () => {
 		// The gesture is not heard at all where a pointer can hover: the controls are
 		// already on the row the pointer is over, and so are the words.
 		const h = harness(entries(), 1, files);
@@ -3839,7 +3839,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 		expect(tip()).toBeNull();
 	});
 
-	it('puts the row\'s menu on a note and on its landings, and the × on both', () => {
+	it('行的菜单给笔记和它的各个落点都配上，× 两者都有', () => {
 		// A landing is a record of its own on this list now, so it carries the same
 		// removal the note's row does — what its × takes off is the SPOT, and the note's
 		// row above stays (see onForgetLanding). The two rows say so differently: the
@@ -3874,7 +3874,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 	expect(ends(landing)).toEqual(['menu', 'x']);
 });
 
-	it('takes one spot off the list from the × on its own row, and leaves the note', () => {
+	it('用落点自己那一行上的 × 只拿掉这一处，笔记留着', () => {
 		// What goes is the SPOT: the note keeps its own row, and so does every other
 		// place in it. A row is a LINE, so what the × hands the store is the identity of
 		// every place that landed on it (see landingKeys) — one of them alone would put
@@ -3909,7 +3909,7 @@ describe('RecentFilesModal — a finger that stopped on a row', () => {
 // app already answers every other list with, including whether hovering is enough at all.
 // What this panel adds to the asking, and what is tested below, is the one thing only it
 // knows: WHICH FILE, and WHERE in it.
-describe('RecentFilesModal — a hover asks the app for the note', () => {
+describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	// A note the reader simply opened — a file row with no spot of its own.
 	const plain = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
@@ -3963,7 +3963,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 	// inside the list, which scrolls and clips (see tip.ts).
 	const tip = () => document.querySelector<HTMLElement>('.position-restore-nav-tip');
 
-	it('names the file a row stands for, once per arrival', () => {
+	it('说出这一行代表的是哪个文件，每次到达只说一次', () => {
 		const h = harness(plain(), 1, files);
 		const row = h.note('a');
 
@@ -3991,7 +3991,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)).toHaveLength(1);
 	});
 
-	it('asks nothing for a row the PANEL DREW UNDER a pointer that has not moved', () => {
+	it('指针没动、面板在它底下新画出来的行，不去问', () => {
 		// THE DIALOG A HOTKEY OPENED with the mouse resting mid-screen: the rows are drawn
 		// around the pointer, the browser reports an arrival on whichever one it landed on,
 		// and the app would answer with a page opened over a row the reader never pointed
@@ -4016,7 +4016,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)[0].linktext).toBe('a.md');
 	});
 
-	it('asks nothing again for a row the list REDREW under a pointer that has not moved', () => {
+	it('指针没动、列表在它底下重画过的行，也不再问', () => {
 		// The same arrival, one render later: the rows the reader is looking at are thrown
 		// away and drawn again — a note taken off the list, the ages ticking, a query typed
 		// — and the row now under the pointer is a row nobody has pointed at a second time.
@@ -4032,7 +4032,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)).toHaveLength(1);
 	});
 
-	it('asks again once the pointer has been away and come back', () => {
+	it('指针走开又回来之后，会再问一次', () => {
 		// Leaving the LIST is what makes the next arrival an arrival (see the list's own
 		// pointerleave): arriving on the same row twice in one visit is one question.
 		const h = harness(plain(), 1, files);
@@ -4047,7 +4047,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)).toHaveLength(2);
 	});
 
-	it('asks for the page at the line the landing row printed', () => {
+	it('按落点行上印着的那一行去要那一页', () => {
 		// This is the reason the asking is worth making from HERE rather than anywhere
 		// else a file can be hovered: the row is a PLACE, and the popover opens on it.
 		// `scroll` is the app's own name for a markdown view's top line — one number, in
@@ -4064,7 +4064,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('asks for the note and nothing else for the note’s own row', () => {
+	it('笔记自己那一行只要笔记，不要别的', () => {
 		// THE ROW IS THE FILE, so the file is what it asks to see — and it asks the way
 		// every list the app ships asks: no section, and no line to travel to. The line
 		// DOES sit under "Beta", and knowing that changes nothing, for two reasons. A
@@ -4081,7 +4081,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toBeUndefined();
 	});
 
-	it('asks for the note WHOLE, moved to its line, when the reader chose that', () => {
+	it('读者选了那种方式时，要的是整篇笔记、并挪到它那一行', () => {
 		// The other stop (see PreviewFocusMode), asked for by name because it is not the
 		// default: named a line, the app draws the whole note first and travels to it
 		// behind the cover (see hover-settle.ts), arriving at the spot the row's click
@@ -4098,7 +4098,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('reads no file for a preview that names no line', async () => {
+	it('点名不了任何行的预览，不读文件', async () => {
 		// What a line COSTS, and what the default stop therefore does not pay: a line is
 		// re-found in the note's own TEXT, which for a note no tab is holding is a whole
 		// file read — one that lands with the whole list redrawn sixty milliseconds
@@ -4111,7 +4111,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(h.cachedRead).not.toHaveBeenCalled();
 	});
 
-	it('names the SECTION the row stands in, when the note has one there', () => {
+	it('笔记在那儿确实有一节时，点出这一行所在的那一小节', () => {
 		// Asked for a line, the app's own popover cannot open at it: it draws the whole
 		// note first and moves the scroller only once that render lands — and flashes
 		// the target on the way (see hover-settle.ts). Asked for a section it draws ONLY
@@ -4129,7 +4129,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(question[0].state).toBeUndefined();
 	});
 
-	it('falls back to the line for a heading the app could not tell apart', () => {
+	it('app 分辨不出的标题，退回按行号', () => {
 		// `#Beta` resolves to the FIRST heading with that text, so a note that says
 		// "Beta" twice would open the wrong one of them — and a wrong section shown
 		// without moving once is worse than the right place arriving late (which the
@@ -4142,7 +4142,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('falls back to the line for a heading that cannot travel in a link', () => {
+	it('没法写进链接里的标题，退回按行号', () => {
 		// The characters below are link syntax to the parser, not part of a name: each
 		// opens something else (a subpath, an alias, the link itself), so the heading
 		// would arrive as something other than itself.
@@ -4154,7 +4154,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)[0].state).toEqual({ scroll: 11 });
 	});
 
-	it('promises no line for a row whose note has no spot at all', () => {
+	it('笔记连一处位置都没有的行，不承诺任何行号', () => {
 		// Nothing is invented to fill the silence: the line a preview is asked for is a
 		// place the note HAS, and a note the reader never left anywhere — no jump in it,
 		// nothing saved for it — has none to be asked about. What the preview then shows is
@@ -4166,7 +4166,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)[0].state).toBeUndefined();
 	});
 
-	it('asks for nothing behind a row that has no page', () => {
+	it('没有页面可给的行，背后什么都不去要', () => {
 		// A pathless view names no file: there is nothing for the app to open a preview
 		// of, and building this panel's own card about the graph is exactly the second
 		// implementation the asking is meant to spare us (see hoverRow).
@@ -4181,7 +4181,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(asked(h.trigger)).toHaveLength(0);
 	});
 
-	it('asks nothing of a finger, and travels nowhere', () => {
+	it('手指问不出任何东西，也不前往任何地方', () => {
 		// A finger resting on a row is about to tap it, not to read it — and there is no
 		// room on a phone for a page beside the row anyway (see RecentFilesList.onHoverRow).
 		// Nothing travels either way: a hover is not a navigation, wherever it leads.
@@ -4193,7 +4193,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(h.jumpTo).not.toHaveBeenCalled();
 	});
 
-	it('marks the card the app opened, which is the card this panel has to lift', async () => {
+	it('给 app 打开的那张卡片做标记，面板要托起来的正是它', async () => {
 		// The note answering a hover from the DIALOG shell opens behind it: the core
 		// puts every popover on the document's body and paints it below a modal
 		// container (see body.ts's liftPreview), so the page the dialog asked for is
@@ -4220,7 +4220,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 	// And nothing of it is REMEMBERED, either: whether a hint may speak is asked fresh at
 	// every hover (see RecentFilesListOptions.tipsQuiet), so the answer's lifetime is the
 	// popover's — not the pointer's, and not some flag's that a later hover has to clear.
-	it('takes its own words back the moment the note is standing over the rows', async () => {
+	it('笔记一盖到列表上，就把自己说的话收回', async () => {
 		const h = harness(plain(), 1, files);
 		// A hovering that got nothing else to go on is a hovering with something to say.
 		movedOnto(h.note('a'));
@@ -4236,7 +4236,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(h.hover(h.note('b'))).toBeNull();
 	});
 
-	it('keeps what it has to say when the app answers nothing', async () => {
+	it('app 什么都没回答时，该说的话留着', async () => {
 		// Refusing is not answering either: a preview plugin turned off, or a key still
 		// being held back, is a hovering that got nothing at all — and the row's own words
 		// are then the only thing reading it has earned.
@@ -4247,7 +4247,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 		expect(h.hover(h.note('a'))).not.toBeNull();
 	});
 
-	it('speaks again once the note is gone — the pointer never having left the list', async () => {
+	it('笔记一消失又能开口 —— 指针始终没离开过列表', async () => {
 		// The silence ends with the PREVIEW, not with a journey of the pointer's: a hint
 		// that stayed off after the popover closed was the bug this asking is the answer
 		// to (see tip.ts's `quiet`), and "away and back" is no longer part of the bargain.
@@ -4269,7 +4269,7 @@ describe('RecentFilesModal — a hover asks the app for the note', () => {
 // So the number handed over is the one the note's own text answers to TODAY — or none at
 // all (see now-line.ts), which is the honest asking: a preview that opens the note without
 // naming a line was never wrong about where the spot was.
-describe('RecentFilesModal — a hover asks for the spot as it stands today', () => {
+describe('RecentFilesModal —— 悬停要的是这一处今天的行号', () => {
 	// The note as it was when the record was taken, and the spot: line 11 of it.
 	const SPOT = 11;
 	const st = captured(SPREAD_DOC, SPOT);
@@ -4287,7 +4287,7 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 	// The three below ask for the line the app MOVED TO AFTERWARDS — which is the stop
 	// this list offers rather than the one it ships (see PreviewFocusMode), so each one
 	// says so where the panel read its own preference.
-	it('names the line the spot stands at now, when the note is open', () => {
+	it('笔记开着时，点出这一处现在待在第几行', () => {
 		// The buffer of a note that is OPEN is the only source that cannot be behind: it
 		// is the text the reader is looking at, saved or not — and the file's own clock
 		// says the note has been written since the record was taken.
@@ -4302,7 +4302,7 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		});
 	});
 
-	it('reads the note off the disk when no tab holds it, and names the line one hover later', async () => {
+	it('没有标签页拿着它时就从磁盘读，那一行要下一次悬停才点得出来', async () => {
 		// Nothing is in hand the first time — the lines sit behind an await, and an asking
 		// is not going to wait for a file — so that hover asks for the note with NO number,
 		// and the reading it started is what lets the next one name the spot.
@@ -4319,7 +4319,7 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		expect(asked(h.trigger).at(-1)!.state).toEqual({ scroll: SPOT + 2 });
 	});
 
-	it('keeps the recorded number when the note has not been written since', () => {
+	it('笔记此后没被写过时，保留记下的那个行号', () => {
 		// The file's clock says what the record says: nothing has been written, so the
 		// recorded line is still the line.
 		const h = harness([visit('a.md', NOW, { ...st, mtime: 4 })], 0, files, [], {}, {}, false,
@@ -4330,7 +4330,7 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		expect(asked(h.trigger)[0].state).toEqual({ scroll: SPOT });
 	});
 
-	it('names no line where the ROW has one but the note is asked for the app’s own way', () => {
+	it('行上有行号、但笔记是按 app 自己那套去问的时候，不点行号', () => {
 		// The same open note, the same spot two lines off and found again — and nothing
 		// named, because the DEFAULT stop asks for the note the way every list the app
 		// ships asks for it. Everything above this test is an expedition the reader
@@ -4344,7 +4344,7 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 		expect(question.state).toBeUndefined();
 	});
 
-	it('names no line at all where the spot cannot be found again', () => {
+	it('那一处再也找不回来时，一个行号都不点', () => {
 		// The note was rewritten: nothing left in it is the line the record's anchor names.
 		const h = harness(one(), 0, files, [], { 'a.md': '全新的一段\n'.repeat(20) }, {}, false,
 			{ 'a.md': 9 });
@@ -4358,7 +4358,7 @@ describe('RecentFilesModal — a hover asks for the spot as it stands today', ()
 	});
 });
 
-describe('RecentFilesModal — the pinned rows', () => {
+describe('RecentFilesModal —— 置顶的行', () => {
 	// A PIN is a bookmark for a NOTE, so the block holds one row per note and no
 	// landings under any of them; what the reader loses is the list of spots, not
 	// the newest one, which the row still stands for (see RecentFilesList).
@@ -4369,7 +4369,7 @@ describe('RecentFilesModal — the pinned rows', () => {
 	];
 	const files = { 'a.md': '', 'b.md': '', 'c.md': '' };
 
-	it('draws the pinned rows first, in the reader’s own order, above a line', () => {
+	it('置顶的行最先画，按读者自己排的次序，下方有一条分隔线', () => {
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['b.md', 'c.md']);
 
@@ -4386,7 +4386,7 @@ describe('RecentFilesModal — the pinned rows', () => {
 		expect(lines[0].nextElementSibling).toBe(h.notes()[2]);
 	});
 
-	it('prints no landings under a pinned row, even where the setting asks for them', () => {
+	it('置顶行下面不印任何落点，即使设置要求印', () => {
 		const spots = [
 			visit('a.md', NOW - 5 * MINUTE, { scroll: 10 }),
 			visit('a.md', NOW - 4 * MINUTE, { scroll: 20 }),
@@ -4405,14 +4405,14 @@ describe('RecentFilesModal — the pinned rows', () => {
 			.toEqual(['L11', 'L21']);
 	});
 
-	it('draws no line when the block is the whole list', () => {
+	it('整份列表都是置顶区时，不画那条线', () => {
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['a.md', 'b.md', 'c.md']);
 
 		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
 	});
 
-	it('skips a pin whose row is not on screen, and takes it up when the pin is made', () => {
+	it('行不在屏幕上的钉子跳过；等这一条被钉住时再补上', () => {
 		// A pin naming a note the filter dropped is not a promise that it is listed.
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['gone.md']);
@@ -4426,7 +4426,7 @@ describe('RecentFilesModal — the pinned rows', () => {
 		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
 	});
 
-	it('opens what a pinned row stands for, and takes it off the list the same way', () => {
+	it('置顶行代表什么就打开什么，从列表里拿掉也走同一条路', () => {
 		const spots = [visit('a.md', NOW - MINUTE, { scroll: 412 }), visit('b.md', NOW)];
 		const h = harness(spots, 1, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['a.md']);
@@ -4440,7 +4440,7 @@ describe('RecentFilesModal — the pinned rows', () => {
 	});
 });
 
-describe('RecentFilesModal — the pin on a row’s menu', () => {
+describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 	// WHAT THIS LIST ADDS to the app's own menu for a file: the pin, which is a
 	// bookmark for a NOTE and belongs on a note's row — and the two steps, which
 	// are about the pinned block's own order and nowhere else.
@@ -4464,7 +4464,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 	const names = (h: ReturnType<typeof harness>) =>
 		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
 
-	it('offers the pin on a note’s row, and not on a landing’s', () => {
+	it('笔记行上给「钉住」这一项，落点行上不给', () => {
 		// A pin is a bookmark for the NOTE: a landing is a spot INSIDE one, and
 		// pinning it would be a second, smaller kind of pin (see body.ts's pinItems).
 		const spread = [
@@ -4483,7 +4483,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(items(landing).map(i => i.title)).toEqual([t('recentFiles.openHereInNewTab')]);
 	});
 
-	it('pins the note and puts its row at the top of the list', () => {
+	it('把这篇笔记钉住，它那一行挪到列表最上面', () => {
 		// The row moves AT ONCE: the panel is the only thing that can say so, and a
 		// dialog does not subscribe to the store (see body.ts's pin).
 		const h = harness(three(), 2, files);
@@ -4497,7 +4497,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(h.notes()[0].classList.contains('is-pinned')).toBe(true);
 	});
 
-	it('offers the two steps only where there is a step to take', () => {
+	it('有步可挪时才给那两项', () => {
 		// At either end of the block an item that would do nothing is worse than an
 		// item that is not there.
 		const alone = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
@@ -4518,7 +4518,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 			.toEqual([open, t('recentFiles.unpin'), t('recentFiles.pinUp')]);
 	});
 
-	it('moves a pinned row one step inside the block, and draws what it did', () => {
+	it('把置顶行在块内挪一步，并把挪的结果画出来', () => {
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['a.md', 'b.md']);
 
@@ -4530,7 +4530,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(names(h)).toEqual(['b', 'a', 'c']);
 	});
 
-	it('takes the pin off, and the row goes back to the list in its own place', () => {
+	it('取消钉住，这一行回到列表里原来那个位置', () => {
 		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
 			undefined, ['a.md']);
 
@@ -4542,7 +4542,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
 	});
 
-	it('offers the whole way only where it is MORE than one step', () => {
+	it('超过一步时才给「挪到头」那一项', () => {
 		// "Move to the front" beside the front would do exactly what "move up"
 		// just offered, so it is not there — a block of three has no row far
 		// enough from either end to need one.
@@ -4585,7 +4585,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 		expect(names(block)).toEqual(['a', 'b', 'c', 'd']);
 	});
 
-	it('moves a pinned row to the end of the block in one answer', () => {
+	it('一次就把它挪到置顶区末尾', () => {
 		const four = { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' };
 		const h = harness([
 			visit('a.md', NOW - 5 * MINUTE),
@@ -4606,7 +4606,7 @@ describe('RecentFilesModal — the pin on a row’s menu', () => {
 	});
 });
 
-describe('RecentFilesModal — the pin on a view’s row', () => {
+describe('RecentFilesModal —— 视图行上的「钉住」', () => {
 	// WHAT the reader pins is their own business: a pathless view is a place this
 	// list remembers and a row this list draws, and a pin is about the ROW. What
 	// differs from a note is only the menu's SIZE — a view names no file, so
@@ -4618,7 +4618,7 @@ describe('RecentFilesModal — the pin on a view’s row', () => {
 		h.notes().find(r =>
 			r.querySelector('.nav-row-name')?.textContent === t('recentFiles.graphView'))!;
 
-	it('pins a view from its own menu, and the block draws it', () => {
+	it('视图从自己那份菜单里被钉住，置顶区把它画出来', () => {
 		const h = harness(spots(), 1, files);
 
 		h.rightClick(graphRow(h));
@@ -4631,7 +4631,7 @@ describe('RecentFilesModal — the pin on a view’s row', () => {
 		expect(h.notes()[0]).toBe(graphRow(h));
 	});
 
-	it('gives a phone the same menu, from the armed row’s own control', () => {
+	it('手机上从被触发行自己那个控件调出同一份菜单', () => {
 		// The control is the ONLY door on a phone, and a view's row used to have
 		// none at all — which left a view unpinnable where most readers pin.
 		const h = harness(spots(), 1, files, [], {}, {}, true);
@@ -4647,7 +4647,7 @@ describe('RecentFilesModal — the pin on a view’s row', () => {
 	});
 });
 
-describe('RecentFilesModal — the name a row calls the note', () => {
+describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 	// ONE property the reader named in the settings, and the file's own name
 	// where a note has none of it: that is the whole of the rule, which is why
 	// there is no second setting saying which to prefer (see reads.ts's titleOf).
@@ -4658,7 +4658,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 	const names = (h: ReturnType<typeof harness>) =>
 		h.notes().map(r => r.querySelector('.nav-row-name')?.textContent);
 
-	it('prints the property the reader named, and the file name where it is missing', () => {
+	it('印出读者指定的那个属性，缺了就退回文件名', () => {
 		const h = harness(spots(), 1, files, [], {}, {
 			'a.md': cacheWith({ title: '每周回顾' }),
 			'b.md': cacheWith({}),
@@ -4668,7 +4668,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		expect(names(h)).toEqual(['每周回顾', 'b']);
 	});
 
-	it('prints file names while the setting is empty, however the notes are written', () => {
+	it('设置还空着时一律印文件名，笔记里怎么写都不管', () => {
 		// OFF is the default and it has to mean OFF: a vault that names its notes
 		// in their file names owes this row nothing, and a `title` sitting in a
 		// note is then just another name it can be SEARCHED by (see the suite
@@ -4680,7 +4680,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		expect(names(h)).toEqual(['a', 'b']);
 	});
 
-	it('takes only a single piece of text as a name', () => {
+	it('只认单段文本当名字', () => {
 		// A list, a year or an emptied property is not a name: a row that guessed
 		// would print "[object Object]" or "2024" where the reader's note goes.
 		const h = harness([
@@ -4696,7 +4696,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		expect(names(h)).toEqual(['a', 'c', 'b']);
 	});
 
-	it('finds a note by the name it PRINTS, and tells two same-named notes apart', () => {
+	it('按它印出来的名字能搜到，两篇同名的也能分辨', () => {
 		// What is searched and what is disambiguated is the same name the row
 		// prints: a note renamed in frontmatter is one name everywhere on it.
 		const h = harness([
@@ -4726,7 +4726,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		expect(names(h)).toEqual(['周会']);
 	});
 
-	it('still says which file it is, once its name is borrowed', () => {
+	it('名字是借来的之后，仍然说得出它是哪个文件', () => {
 		// A row printing every path says no MORE than a row printing none: the folder
 		// alone names no file, and under a borrowed name neither does the name cell —
 		// so both "always" modes owe the file its own name, on the same row, or the
@@ -4753,7 +4753,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 			.toBe('a.md');
 	});
 
-	it('redraws when the name it prints changes, and not for any other edit', () => {
+	it('印出来的名字变了才重画，别的编辑不重画', () => {
 		// The reader is TYPING that property, in the note, while the row stands
 		// there printing the old name. An edit anywhere in a note re-parses it,
 		// so what earns a redraw is the name being different now — a full
@@ -4779,7 +4779,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 		expect(h.notes()[0]).toBe(same);
 	});
 
-	it('redraws the name it prints when the reader picks a different property', () => {
+	it('读者换一个属性时，重画它印出来的名字', () => {
 		// The property is a READER and not a value, and the settings tab asks a
 		// standing panel to draw again the moment it changes (see BROWSER_PREF_KEYS).
 		// What has to go with it is the memory of the names: those are kept PER PATH
@@ -4809,7 +4809,7 @@ describe('RecentFilesModal — the name a row calls the note', () => {
 // body cannot answer is greyed rather than answered with nothing, and that the strip is
 // drawn in every shell — there is no switch for it, four buttons at the foot of a list
 // cost that list nothing and a reader with no keyboard has no other way to ask.
-describe('RecentFilesModal — the four arrows', () => {
+describe('RecentFilesModal —— 那四个箭头', () => {
 	const files = { 'a.md': '', 'b.md': '' };
 	const two = (): NavEntry[] => [visit('a.md', NOW - MINUTE), visit('b.md', NOW)];
 
@@ -4823,7 +4823,7 @@ describe('RecentFilesModal — the four arrows', () => {
 	const press = (button: HTMLButtonElement) =>
 		button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-	it('runs the act the plugin named, and closes the dialog to do it', () => {
+	it('执行插件指定的那个动作，为此关掉这个对话框', () => {
 		// One press each, and the dialog goes FIRST: it stands over the note these act
 		// on, so a move the reader cannot see is a move that did not happen.
 		for (const [at, act] of [[0, 'back'], [1, 'forward'], [2, 'top'], [3, 'bottom']] as const) {
@@ -4835,7 +4835,7 @@ describe('RecentFilesModal — the four arrows', () => {
 		}
 	});
 
-	it('names each button by the command it runs', () => {
+	it('每个按钮都用它运行的命令来命名', () => {
 		// The same words as in the palette, and the only place on the panel that says
 		// WHOSE ends the last two go to: "top of note", not "top of this list".
 		const h = harness(two(), 1, files);
@@ -4847,7 +4847,7 @@ describe('RecentFilesModal — the four arrows', () => {
 		]);
 	});
 
-	it('is not a row of the list it stands beside', () => {
+	it('它虽然挨着列表，自己不是列表里的一行', () => {
 		// The whole difficulty of four arrows over a list: the strip belongs to the
 		// panel, and it is the listbox that is the list.
 		const h = harness(two(), 1, files);
@@ -4860,7 +4860,7 @@ describe('RecentFilesModal — the four arrows', () => {
 		expect(bands.indexOf(strip(h))).toBeGreaterThan(bands.indexOf(h.list()));
 	});
 
-	it('greys an arrow that would do nothing, and asks again on every draw', () => {
+	it('做不了事的箭头置灰，每次重画都再问一次', () => {
 		const h = harness(two(), 1, files);
 		const [back, forward, top, bottom] = buttons(h);
 		expect([back.disabled, forward.disabled, top.disabled, bottom.disabled])
@@ -4875,7 +4875,7 @@ describe('RecentFilesModal — the four arrows', () => {
 		expect(bottom.classList.contains('is-disabled')).toBe(true);
 	});
 
-	it('leaves an arrow key to the control that holds the focus', () => {
+	it('方向键留给拿着焦点的那个控件', () => {
 		// The list's walking is the filter box's: a button with the focus answers an
 		// arrow key itself, and Enter is its own press.
 		const h = harness(two(), 1, files);
