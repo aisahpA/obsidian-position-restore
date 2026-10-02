@@ -125,6 +125,18 @@
 - **疑问 / 建议**：要么译成中文（`// 已过期`），要么它是有意保留的短标记。译与否都是一处
   一字改动，随时可做；只是想先确认不是「有意留的英文标记」再动。
 - **状态**：待议
+
+### 8. `check-comment-only.py` 不认 `#` 注释（`.sh` / `.yml`）
+
+- **在哪**：`scripts/check-comment-only.py:22`（`COMMENT_PREFIXES`）
+- **现状**：守卫只认 `//`、`/*`、`*`、`*/`。2026-10-02 中文化补齐 `reload.sh` 与
+  `.github/workflows/release.yml` 时，这两个文件的注释是 `#` ⇒ 过不了守卫（`#` 注释行会被
+  判成代码改动）。
+- **疑问 / 建议**：当时没当场改守卫（按 §2 第 8 条），改用「剥掉纯注释行后逐行比对」自证
+  零代码改动（两文件都过、`bash -n` / `ruby -ryaml` / `tsc` 均绿）。修法同 `BLOCK_COMMENT_EXTS`
+  的思路：加一个 `#` 前缀集（或按扩展名分流 `HASH_EXTS = {'.sh','.yml','.yaml'}`）；`.json`
+  （JSONC）走现有 `//` 路即可。改脚本属工具改动，进不进由仓库主人定。
+- **状态**：待议
 ---
 
 ## 附：怎么一眼看出谁在用、谁在改
@@ -237,8 +249,13 @@ rg -n 'settings:\s*(Partial<)?PluginSettings' src/
     ⚠️ `recent-files-browser-dom` 那 4 条行尾经复查确认是 `// c.md` 这类纯文件名 token，保留。
   - ✅ 收尾：`eslint.config.mjs` 3 块（早先全仓统计的 glob 漏了根目录 `*.mjs`，`57f0f1a`）·
     `sampler-scroll-capture` 唯一一处英文 `it.each` 标题与三个标签（阶段 5 漏网，`d1c283c`）。
-- **状态**：已改（**4-D 完成**）。`tests/**` 与 `eslint.config.mjs` 已无英文注释散文；按口径
-  保留的只剩纯代码名 `describe`/`it`（如 `resolveAnchorLine`、`loadLeafStates`）与文件名 token。
+  - ✅ 阶段表外补漏（2026-10-02，`95d24e5`）：`tsconfig.json`（2 行）· `reload.sh`（4 块）·
+    `.github/workflows/release.yml`（5 块）—— 早先全仓统计的 glob 只扫了 `src/**`、`tests/**`、
+    根 `*.mjs`，漏了 `.json`（JSONC）/ `.sh` / `.yml` 这三种面。
+- **状态**：已改（**4-D 完成** + 阶段表外补漏）。`src/**`、`tests/**`、根脚本、`tsconfig.json`、
+  `reload.sh`、`.github/workflows/` 均已无英文注释散文；按口径保留的只剩纯代码名 `describe`/`it`
+  （如 `resolveAnchorLine`、`loadLeafStates`）与文件名 token。⚠️ 守卫 `check-comment-only.py`
+  只认 `//` 与 `/* */`、**不认 `#`** ⇒ `reload.sh` / `release.yml` 靠「剥注释比对」自证（见待议 8）。
 
 ## 不改
 
