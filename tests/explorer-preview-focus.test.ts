@@ -1,15 +1,13 @@
-// Unit tests for the hover-preview aim the plugin gives the APP'S OWN file
-// list (ExplorerPreviewFocus). The app asks core for that preview without a
-// position — `trigger("hover-link", { linktext: path })`, no state — so the
-// card draws at the note's top; this is the one place that may add one.
+// 插件给 **app 自己的**文件列表（ExplorerPreviewFocus）那个悬停预览瞄准点的单元测试。
+// app 向 core 要那个预览时不带位置 —— `trigger("hover-link", { linktext: path })`，
+// 没有 state —— 所以卡片画在笔记顶部；这里是唯一可以给它补一个位置的地方。
 //
-// What each case pins down:
-//  - the note's top is what ships, so a default install changes nothing;
-//  - asked for the line, the payload carries the position recorded for the
-//    FILE — not a landing out of the list, and not a re-derived line;
-//  - every case that cannot answer leaves the ask exactly as the app made it;
-//  - the patch is a patch: everything it does not mean to change is forwarded,
-//    and unload hands the trigger back.
+// 各用例钉住的东西：
+//  - 出厂的就是笔记顶部，所以默认安装什么都不改变；
+//  - 被索要行号时，载荷携带的是为那个**文件**记下的位置 —— 不是从列表里取的一个落点，
+//    也不是重新推导出来的行号；
+//  - 每一个答不出来的情形，都让这次索要和 app 发出时一模一样；
+//  - 这个补丁就是个补丁：它无意更改的一切都被转发，而 unload 会把 trigger 交回去。
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { App, MarkdownPreviewRenderer } from 'obsidian';
@@ -18,8 +16,7 @@ import { ExplorerPreviewFocus } from '@/position/hover/explorer-preview';
 import { CursorPositionDatabase } from '@/position/storage/database';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
-// What the app's file list puts in its hover ask, and all this module may touch
-// in it.
+// app 的文件列表在它的悬停索要里放的东西，也是本模块在它里面唯一能碰的东西。
 interface Ask {
 	source: string;
 	linktext: string;
@@ -28,21 +25,21 @@ interface Ask {
 
 type PreviewFocusMode = PluginSettings['fileExplorerPreviewFocus'];
 
-// What a preview's renderer is asked to do: move to a line, and — core's own
-// call bakes this in — flag it on arrival.
+// 一个预览的渲染器被要求做的事：移到某一行，并在抵达时把它标出来 —— 后者是 core 自己
+// 那次调用烤进去的。
 interface Move {
 	line: number;
 	opts?: { highlight?: boolean; center?: boolean };
 }
 
-// The method is not in the typings — core's own delayed scroll, internal — so
-// both the patch and these tests meet it through this shape.
+// 这个方法不在类型声明里 —— 它是 core 自己那个延迟滚动，是内部的 —— 所以补丁和这些
+// 测试都经由这个形状去碰它。
 const rendererProto = () => MarkdownPreviewRenderer.prototype as unknown as {
 	applyScrollDelayed?: (line: number, opts?: Move['opts']) => void;
 };
 
-// Stands in for core's delayed scroll so a test can read the options the patch
-// passes down, and only those: the recorded move is the whole assertion.
+// 替代 core 的延迟滚动，好让测试读到补丁往下传的那些选项，而且只读那些：记下来的那次
+// 移动就是全部断言。
 const restorers: (() => void)[] = [];
 
 function recordingRenderer() {
@@ -98,7 +95,7 @@ function installed(
 		calls,
 		cleanups,
 		flash,
-		// The ask the app itself sends: a path and no position.
+		// app 自己发出的那种索要：一个路径，没有位置。
 		fileList: (linktext: string, state?: { scroll: number }): Ask => {
 			const ask: Ask = { source: 'file-explorer', linktext };
 			if (state)
@@ -111,8 +108,7 @@ function installed(
 
 const note = { 'a.md': 'md', 'scan.pdf': 'pdf' };
 
-// Every install stacks a patch on the renderer's prototype; hand it back before
-// the next test stacks another on top of it.
+// 每次安装都会在渲染器的原型上叠一个补丁；在下一个测试在它上面再叠一个之前交回去。
 afterEach(() => {
 	while (restorers.length)
 		restorers.pop()?.();
@@ -143,7 +139,7 @@ describe('app 文件列表的悬停预览', () => {
 	});
 
 	it('记下的位置就是顶部时也不说', () => {
-		// A scroll-0 record would buy the whole wait and move nowhere.
+		// 一条 scroll 为 0 的记录会买下整段等待，却哪儿都不挪。
 		const h = installed('line', { 'a.md': { scroll: 0 } }, note);
 
 		expect(h.fileList('a.md').state).toBeUndefined();
@@ -190,9 +186,9 @@ describe('app 文件列表的悬停预览', () => {
 	});
 });
 
-// Core hangs a flash on the move to a line: `applyScrollDelayed` is called with
-// `{highlight:true, center:true}` and a hover ask carries no field to say no.
-// The move this plugin's line causes is the one move that runs without it.
+// core 在「移到某一行」上挂了一次闪：`applyScrollDelayed` 被调用时带着
+// `{highlight:true, center:true}`，而一次悬停索要没有任何字段能说不。本插件的行号引起
+// 的那次移动，是唯一一次不带它跑的移动。
 describe('随这次移动而来的高亮', () => {
 	it('本插件指定行号引起的那次移动，高亮被丢掉', () => {
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
@@ -205,8 +201,8 @@ describe('随这次移动而来的高亮', () => {
 	});
 
 	it('本插件没有指定目标的移动，高亮保留', () => {
-		// The note's top is what ships, so the preview never asked for a line —
-		// and a flash on a move nobody here caused is not ours to drop.
+		// 出厂的就是笔记顶部，所以这次预览压根没索要行号 —— 而一次不是这里引起的移动上的闪，
+		// 轮不到我们来丢。
 		const h = installed('head', { 'a.md': { scroll: 12 } }, note);
 		h.fileList('a.md');
 
@@ -221,8 +217,7 @@ describe('随这次移动而来的高亮', () => {
 	});
 
 	it('只被第一次会闪的那次移动花掉', () => {
-		// One aim, one dropped flash: a second move to the same line is a move
-		// this plugin no longer stands behind.
+		// 一次瞄准，丢一次闪：第二次移到同一行的移动，已经不是本插件还站在它背后的那次了。
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		h.fileList('a.md');
 
@@ -231,8 +226,7 @@ describe('随这次移动而来的高亮', () => {
 	});
 
 	it('别的列表已经问过就别再动它', () => {
-		// The last ask wins: a hover from anywhere else means the next flash
-		// belongs to that ask.
+		// 最后一次索要赢：从别处来的一次悬停意味着下一次闪属于那次索要。
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		h.fileList('a.md');
 		h.workspace.trigger('hover-link', { source: 'search', linktext: 'a.md' });
@@ -241,9 +235,8 @@ describe('随这次移动而来的高亮', () => {
 	});
 
 	it('一次从没要求闪的移动不会花掉它', () => {
-		// Hover Editor calls the same method on resize, with no options at all:
-		// that move wants no flash, so it must not use up the aim behind the one
-		// that does.
+		// Hover Editor 在 resize 时会用完全不给选项的方式调用同一个方法：那次移动不要闪，所以
+		// 它绝不能把后面那次要闪的移动所依靠的这次瞄准用掉。
 		const h = installed('line', { 'a.md': { scroll: 12 } }, note);
 		h.fileList('a.md');
 

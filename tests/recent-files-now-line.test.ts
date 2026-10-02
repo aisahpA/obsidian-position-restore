@@ -1,13 +1,12 @@
-// What a row's line number means TODAY (see src/recent-files/browser/now-line.ts).
+// 一行上的行号**今天**意味着什么（见 src/recent-files/browser/now-line.ts）。
 //
-// A line number is an ADDRESS, and a note is edited: a paragraph written above a
-// spot moves every line below it, and the address that used to name the spot names
-// something else. The list goes on printing the number it recorded — that is what
-// the row is about — but anything that OPENS the note has to be handed the number
-// the note answers to now, or none at all.
+// 行号是一个**地址**，而笔记是会被编辑的：在某处上面写下一段，就把它下面每一行都挪了
+// 位置，而从前给那一处命名的地址，改去命名别的东西了。列表继续印它记下的那个数字 ——
+// 那一行讲的就是这件事 —— 但任何**打开**这篇笔记的东西，都必须拿到笔记**现在**认的那个
+// 数字，要么就一个都不给。
 //
-// The three ways this module knows, and the one way it admits it does not, are all
-// answered here against hand-built facts: no workspace, no file, no vault.
+// 本模块知道的三种办法、以及它承认自己不知道的那一种，全都在这儿对着手工搭出的事实
+// 回答：没有工作区、没有文件、没有 vault。
 
 import { describe, it, expect } from 'vitest';
 import type { CachedMetadata } from 'obsidian';
@@ -17,7 +16,7 @@ import type { NavEntry } from '@/nav/entry';
 import type { NavEntryDescription } from '@/recent-files/browser/model';
 import type { NavEntryState } from '@/types';
 
-// A file's parsed headings, in the shape the metadata cache hands them over.
+// 一个文件解析出来的标题，按元数据缓存交过来的形状。
 const cache = (...at: [string, number][]): CachedMetadata =>
 	({
 		headings: at.map(([heading, line]) => ({
@@ -25,8 +24,8 @@ const cache = (...at: [string, number][]): CachedMetadata =>
 		})),
 	}) as CachedMetadata;
 
-// Facts a test can answer by hand. Every one of them is "nothing to go on" by
-// default, so each case below says exactly what it is a case OF.
+// 测试可以手工作答的那些事实。它们默认全都是「无从下手」，所以下面每个用例都确切地说出
+// 它是关于**什么**的用例。
 const facts = (over: Partial<NowLineFacts> = {}): NowLineFacts => ({
 	mtimeOf: () => undefined,
 	cacheFor: () => null,
@@ -34,8 +33,8 @@ const facts = (over: Partial<NowLineFacts> = {}): NowLineFacts => ({
 	...over,
 });
 
-// A jump with a landing, as the store keeps one: the line it landed on, and the
-// text that stood on that line when it did.
+// 一个带落点的 jump，按 store 保存它的样子：它落到的那一行，以及它落地时立在那行上的
+// 文字。
 const jump = (st: NavEntryState, key?: string, keyLine?: number): NavEntry => ({
 	kind: 'jump', path: 'a.md', leafId: 'leaf-1', t: 0, st,
 	key: key ?? 'outline:## Beta',
@@ -46,18 +45,18 @@ const at = (line: number): NavEntryDescription => ({ name: 'a', line: `L${line +
 
 describe('nowLineFor', () => {
 	it('文件此后没被写过就沿用记下的行号', () => {
-		// The record's own clock and the file's say the same thing: nothing has been
-		// written since the words were taken, so the number is still the address.
+		// 记录自己的时钟和文件的时钟说的是同一件事：那些字被取走之后没再写过东西，所以这个数字
+		// 仍然是那个地址。
 		const entry = jump({ scroll: 40, anchor: '正文', mtime: 7 });
 		expect(nowLineFor(entry, at(40), facts({ mtimeOf: () => 7 }))).toBe(40);
-		// …and no line of the file is read to prove it: the clock answered.
+		// ……而且不去读文件的任何一行来证明它：时钟已经答了。
 		const linesOf = () => linesSource(['nothing', 'like', 'it']);
 		expect(nowLineFor(entry, at(40), facts({ mtimeOf: () => 7, linesOf }))).toBe(40);
 	});
 
 	it('带 key 的跳转靠自己的 anchor 重新定位，隔多远都行', () => {
-		// The heading the jump was made to has moved down by fifty lines — further than
-		// a text scan would ever look — and its own line is still authoritative.
+		// 这次跳转所指向的标题往下挪了五十行 —— 远过任何文字扫描会去够的距离 —— 而它自己的
+		// 那一行仍然是权威。
 		const entry = jump({ scroll: 40, anchor: '正文' }, 'outline:## Beta', 30);
 		const got = nowLineFor(entry, at(40), facts({
 			mtimeOf: () => 9,
@@ -77,8 +76,8 @@ describe('nowLineFor', () => {
 	});
 
 	it('anchor 文本没了就沉默以对', () => {
-		// The note was rewritten: nothing in it is the line the record names. A number
-		// this module does not have is not a number it guesses at.
+		// 这篇笔记被重写了：里面没有任何东西是记录所指名的那一行。一个本模块没有的数字，不是
+		// 它会去猜的数字。
 		const entry = jump({ scroll: 40, anchor: 'the line that was there' });
 		expect(nowLineFor(entry, at(40), facts({
 			mtimeOf: () => 9,
@@ -87,23 +86,22 @@ describe('nowLineFor', () => {
 	});
 
 	it('文件被改过、又没有 anchor 可依时，什么都不说', () => {
-		// An old record, a file the clock says has been touched since: there is nothing
-		// here that could re-find it, and a number known to have moved is not a number
-		// worth handing to anything that opens the note.
+		// 一条旧记录、一个时钟说此后被动过的文件：这里没有任何东西能把它重新找回来，而一个
+		// 已知挪过位置的数字，不值得交给任何会打开这篇笔记的东西。
 		const entry = jump({ scroll: 40, mtime: 3 });
 		expect(nowLineFor(entry, at(40), facts({ mtimeOf: () => 9 }))).toBeUndefined();
 	});
 
 	it('没有任何东西能重新定位时，就保留手上那个数字', () => {
-		// No anchor, and no clock that says anything has changed: the recorded number is
-		// the best thing anyone knows about the spot, and it is what the row prints.
+		// 没有 anchor，也没有哪个时钟说有什么变了：记下的那个数字是所有人对这一处所知道的最好
+		// 的东西，也正是那一行印出来的。
 		const entry = jump({ scroll: 40 });
 		expect(nowLineFor(entry, at(40), facts())).toBe(40);
 	});
 
 	it('为一次悬停可以去读文件，为一次重画绝不可以', () => {
-		// `prime` is the difference between one hover waiting one await and fifty rows
-		// reading fifty files (see RecentFilesReads.linesFor).
+		// `prime` 就是「一次悬停等一次 await」与「五十行读五十个文件」之间的差别
+		// （见 RecentFilesReads.linesFor）。
 		const seen: boolean[] = [];
 		const entry = jump({ scroll: 40, anchor: 'the line that was there' });
 		const lines = Array.from({ length: 60 }, (_, i) => `第 ${i} 行`);
