@@ -2,16 +2,13 @@ import { SettingDefinitionItem } from 'obsidian';
 import { SettingsPageContext, intro, hotkeys } from '@/settings/page';
 import { t } from '@/i18n';
 
-// THE "BACK AND FORWARD" PAGE — the stack's own face in the settings. All three
-// knobs on it are gates the stack itself consults (see stack.ts): how many steps
-// it keeps, and which kinds of step it records at all. It stands beside the
-// stack rather than in the settings folder for that reason — the file you change
-// when you wonder why a step was or was not recorded is the same one you read
-// here.
+// 「前进与后退」页——栈在设置里的那张脸。上面的三个旋钮都是栈自己要问的闸门
+// （见 stack.ts）：留多少步、以及到底记哪几种步。它站在栈旁边、而不是放进设置目录，
+// 原因就在这：你琢磨「这一步为什么记/没记」时要去改的那个文件，就是你在这里读到的
+// 这个。
 //
-// One group with no heading, deliberately: the page is already named "Back and
-// forward", and a group heading saying it again under itself is a line of chrome
-// that names nothing the page has not.
+// 刻意只有一个分组、且没有分组名：本页已经叫「前进与后退」，再在下面写一遍分组名
+// 只是一行没说出任何新东西的装饰。
 export function navHistorySettingsPage(ctx: SettingsPageContext): SettingDefinitionItem[] {
 	return [
 		{

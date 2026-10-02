@@ -1,17 +1,15 @@
 import { App } from 'obsidian';
 import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 
-// Device-local, per-vault navigation-history persistence: the startup read,
-// the debounced write, and the per-entry shape check.
+// 本机、按库各一份的导航历史持久化：启动时的读取、防抖写入，以及逐条目的形状校验。
 
-// A mismatched stored blob is dropped whole on load — the history is
-// disposable, no migrations. It lives here, with the blob it describes, not in
-// the shared entry vocabulary: the recent-files list has its own version in
-// its own store, and either list must stay droppable without the other.
+// 版本对不上的存档整份丢弃——历史可以不要，不做迁移。它住在这里、和自己描述的那块
+// 存储待在一起，不放进去共用的条目词汇表：最近文件列表在自己那份 store 里有自己的
+// 版本号，两份列表必须各自能丢，互不牵连。
 export const NAV_HISTORY_VERSION = 3;
 
-// Desktop localStorage is shared across vaults (same app origin); appId is
-// the per-vault discriminator. Not in the public typings.
+// 桌面端 localStorage 是所有库共用的（同一个 app 源）；appId 是按库区分的标记。
+// 公开类型定义里没有它。
 export function navHistoryStorageKey(app: App): string {
 	const appId = (app as unknown as { appId?: string }).appId ?? app.vault.getName();
 	return `position-restore:nav-history:${appId}`;
@@ -23,24 +21,21 @@ export function loadNavHistory(app: App): { entries: NavEntry[]; index: number }
 		if (!raw)
 			return { entries: [], index: -1 };
 		const parsed = JSON.parse(raw) as { v?: unknown; entries?: unknown; index?: unknown };
-		// Version gate: a pre-versioned or foreign blob is dropped whole. Bump
-		// NAV_HISTORY_VERSION on format changes.
+		// 版本闸门：没有版本号的、或来路不明的存档整份丢弃。格式一改就升
+		// NAV_HISTORY_VERSION。
 		if (parsed.v !== NAV_HISTORY_VERSION)
 			return { entries: [], index: -1 };
 		const entries = Array.isArray(parsed.entries)
 			? parsed.entries.filter((e): e is NavEntry => isNavEntry(e))
 			: [];
-		// What a view entry CLAIMS about itself — state, name, icon — is read
-		// back into a replay and into the DOM, and a hand edit, a sync or a
-		// truncation can put anything here. Fields that are not what they claim
-		// are dropped while the ENTRY stays: all three have a working fallback
-		// (view rebuilt at defaults, row prints its own view type), so a bad
-		// field costs a detail, never the place.
+		// 视图条目「自称」的东西——state、名字、图标——会被读回去重放、也会进 DOM，而手工
+		// 改过、同步下来或被截断的数据什么都能塞进来。不像样的字段丢弃，但「条目」留着：
+		// 三者都有可用的兜底（视图按默认值重建、行印它自己的视图类型），所以坏字段丢的是一个
+		// 细节，绝不是那个地点。
 		for (const entry of entries)
 			pruneViewSnapshot(entry);
-		// A whole number in range: the stack truncates itself with
-		// `entries.length = index + 1`, and a fractional index that got in turns
-		// that into `RangeError: Invalid array length` on the next push.
+		// 必须是在范围内的整数：栈用 `entries.length = index + 1` 截断自己，混进来的小数
+		// 下标会让下一次 push 变成 `RangeError: Invalid array length`。
 		const index = typeof parsed.index === 'number' && Number.isInteger(parsed.index)
 			&& parsed.index >= -1 && parsed.index < entries.length
 			? parsed.index
@@ -52,11 +47,9 @@ export function loadNavHistory(app: App): { entries: NavEntry[]; index: number }
 	}
 }
 
-// Per-entry shape check (the storage may hold hand-edited or truncated data):
-// the kind tag first, then that variant's required fields — an untagged or
-// junk entry drops instead of passing a property coincidence. `t` is required
-// too: the browser labels every row with a relative time, so an unstamped
-// entry is junk.
+// 逐条目的形状校验（存储里可能是手工改过或截断的数据）：先看 kind 标签，再看那一型
+// 必填的字段——没标签的、垃圾的条目丢出去，而不是靠字段碰巧对上来蒙混过关。`t` 也是
+// 必填：面板会给每一行标相对时间，没盖时间戳的条目就是垃圾。
 export function isNavEntry(e: unknown): e is NavEntry {
 	if (!e || typeof e !== 'object')
 		return false;
@@ -79,29 +72,25 @@ export function isNavEntry(e: unknown): e is NavEntry {
 }
 
 export function serializeNavHistory(entries: NavEntry[], index: number): string {
-	// The one place a step leaves its landing's words behind: they are the recent-files
-	// list's quote, and a step is restored by POSITION and reads none of it. Destructured
-	// out rather than deleted — `delete` moves an object to dictionary mode, and the
-	// stringify below then costs more than the bytes it saves. Nothing else is
-	// stripped: the stamp a record carries (`time`) is put there by the position
-	// store, which this history never goes through.
+	// 步把落点的文字留下的唯一一处：那是最近文件列表的引文，而步是按「位置」恢复的，
+	// 一个字都不读。用解构摘掉、不用 delete——`delete` 会把对象打成字典模式，下面
+	// stringify 多花的比省下的字节还多。别的都不剥：记录带的戳（`time`）是位置 store
+	// 盖的，这份历史从不经过那里。
 	const steps = entries.map(e => {
 		if (e.kind === 'view' || !e.st)
 			return e;
 		const { context, ...st } = e.st;
 		return { ...e, st };
 	});
-	// entries is a plain array of plain objects — JSON-safe as is.
+	// entries 就是一个普通对象组成的普通数组——原样就是 JSON 安全的。
 	return JSON.stringify({ v: NAV_HISTORY_VERSION, entries: steps, index });
 }
 
-// Writes the history unless the blob is byte-identical to `previous` — the
-// dedup that lets the 5s flush round cost one stringify when nothing moved.
-// Returns the blob now on disk, which the CALLER keeps and passes back: the
-// dedup state belongs to the owner of the history (one per plugin instance).
-// Held here it would be shared by every instance in the page — a second vault
-// would inherit the first one's blob and skip a write it owes.
-// A failed write returns `previous` unchanged, so the next round retries.
+// 存档与 `previous` 逐字节相同时不写——这个去重让 5s 一轮的 flush 在什么都没动时只
+// 花一次 stringify。返回现在盘上的存档，由「调用方」持有并回传：去重状态属于这份
+// 历史的持有者（每个插件实例一份）。放在这里会被页面里每个实例共用——第二个库会继承
+// 第一个的存档，跳过它该写的那一次。
+// 写失败原样返回 `previous`，下一轮再试。
 export function persistNavHistory(
 	app: App,
 	entries: NavEntry[],
