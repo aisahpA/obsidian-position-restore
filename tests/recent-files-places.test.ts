@@ -215,7 +215,7 @@ describe('NavPlaces —— 什么算一个地点', () => {
 
 		// 之后的一次访问把两者都重读了。
 		places.remember(thino({ filter: 'week' }, 'calendar'));
-		expect(places.entries).toHaveLength(1); // still one place: the type is the identity
+		expect(places.entries).toHaveLength(1); // 仍是一个地点：类型就是身份
 		expect(stateAt(0)).toEqual({ filter: 'week' });
 		expect(iconAt(0)).toBe('calendar');
 
@@ -416,7 +416,7 @@ describe('NavPlaces —— 它自己的文件夹规则', () => {
 		const { places } = makePlaces({ recentFilesExcludeFolders: ['私人', '归档/旧'] });
 		places.remember(visit('笔记/a.md'));
 		places.remember(visit('私人/b.md'));
-		places.remember(visit('私人')); // the folder path itself
+		places.remember(visit('私人')); // 文件夹路径本身
 		places.remember(visit('归档/旧/c.md'));
 		places.remember(visit('.trash/d.md'));
 		places.remember(visit('.obsidian/workspace.json'));
@@ -1348,7 +1348,7 @@ describe('NavPlaces —— 变更通知', () => {
 		expect(seen).toHaveBeenCalledTimes(1);
 
 		places.remember(visit('b.md'));
-		places.remember(visit('c.md')); // the trim drops 'z.md'
+		places.remember(visit('c.md')); // 裁剪把 'z.md' 丢掉
 		expect(seen).toHaveBeenCalledTimes(3);
 
 		places.deleteFile('b.md');
