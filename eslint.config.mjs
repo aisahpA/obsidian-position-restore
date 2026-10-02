@@ -6,8 +6,8 @@ export default defineConfig(
 	globalIgnores([
 		'node_modules',
 		'dist',
-		// The vitest suite lives outside the build tsconfig (excluded there), so
-		// the type-checked rules can't resolve it; lint covers shipped sources.
+		// vitest 套件在构建用的 tsconfig 之外（被它排除），所以带类型检查的
+		// 规则解析不了它；lint 只覆盖发布出去的源码。
 		'tests/',
 		'vitest.config.mts',
 		'main.js',
@@ -32,13 +32,13 @@ export default defineConfig(
 		},
 	},
 	{
-		// Node-only build scripts: Obsidian runtime rules don't apply.
+		// 只在 Node 里跑的构建脚本：Obsidian 运行时规则不适用。
 		files: ['esbuild.config.mjs', 'version-bump.mjs'],
 		languageOptions: {
 			globals: { ...globals.node },
 		},
 		rules: {
-			// Preset aliases core `no-console` under this name.
+			// 预设在把 core 的 `no-console` 改名到这个名下。
 			'obsidianmd/rule-custom-message': 'off',
 			'obsidianmd/no-nodejs-modules': 'off',
 		},
