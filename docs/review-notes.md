@@ -224,10 +224,21 @@ rg -n 'settings:\s*(Partial<)?PluginSettings' src/
   - ✅ 批次 B5 `recent-files-browser.test.ts` —— 浏览器纯部件（model / listing / list /
     shared/headings），94 块 / 242 行，拆 2 次（48 + 46）；块与行尾拆两个提交（`0817302`
     94 块 + `637ccfd` 行尾 2 条）
-  - ⏭️ 剩：C 其余 ~26 个文件（约 1025 行注释块 + ~105 条行尾英文）。其中最大的三个是
-    `recent-files-places`（87 块）、`nav-funnel`（37）、`note-edges`（39）。若只想先做
-    一刀：各文件的**导言块**。
-- **状态**：已改（进行中）
+  - ✅ 批次 C 长尾 —— 其余文件逐文件落地，每个有行尾的文件都拆成「块 → 行尾」两个提交
+    （守卫的成组边界，见待议第 6 条）：`recent-files-places`（87 块）· `note-edges`（39）·
+    `nav-funnel`（37）· `database`（41）· `ephemeral-nav-display`（24）· `anchor`（14）·
+    `patcher-inject`（16）· `recent-files-hover-settle`（17）· `explorer-preview-focus`+
+    `recent-files-now-line` · `settings-hotkeys-row`+`ephemeral-remap`+`nav-view-snapshot`+
+    `view-state-poll` · 七个小组件（`headings` 等）· `teleport-event`（23）·
+    `sampler-scroll-capture`（23）· `position-store`（21）· `restorer-injected-activate`（20）·
+    `path-bookkeeping`（18）· `manager-path-bookkeeping`（18）· `landing-absorb`（14）·
+    `background-settle`+`restorer-leaf-run`+`hover-settle`+`restorer-dedup`。
+    另修掉三处此前口径没抓到的「中文块里夹整段英文」（`recent-files-browser{,-dom}`）。
+    ⚠️ `recent-files-browser-dom` 那 4 条行尾经复查确认是 `// c.md` 这类纯文件名 token，保留。
+  - ✅ 收尾：`eslint.config.mjs` 3 块（早先全仓统计的 glob 漏了根目录 `*.mjs`，`57f0f1a`）·
+    `sampler-scroll-capture` 唯一一处英文 `it.each` 标题与三个标签（阶段 5 漏网，`d1c283c`）。
+- **状态**：已改（**4-D 完成**）。`tests/**` 与 `eslint.config.mjs` 已无英文注释散文；按口径
+  保留的只剩纯代码名 `describe`/`it`（如 `resolveAnchorLine`、`loadLeafStates`）与文件名 token。
 
 ## 不改
 
