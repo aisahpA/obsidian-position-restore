@@ -5,27 +5,22 @@ import { ESCAPE_HATCH_PROPERTY } from './policy/frontmatter';
 import { dbSyncState, DbPathModal } from './ui/db-path-modal';
 import { t } from '@/i18n';
 
-// THE "LAST POSITION" PAGE — the position feature's own face in the settings.
-// It configures the three things this feature is: what a note remembers and how
-// it comes back (Open & restore), which notes are left alone (Recording rules),
-// and where the records live (Data storage). It belongs here, next to the
-// capture/restore code it talks about, rather than in a folder named after the
-// layer it happens to render into — the same rule position/ui and
-// recent-files/browser already follow.
+// 「最后位置」页 —— 位置功能在设置里的那张脸。它配置这个功能的三件事：
+// 一篇笔记记住什么、又怎么回来（打开与恢复），哪些笔记不去碰（记录规则），
+// 以及记录住在哪儿（数据存储）。它属于这里，紧挨着它谈论的采集/恢复代码，
+// 而不是放进一个按它恰好渲染进的那一层命名的文件夹 —— position/ui 与
+// recent-files/browser 已经遵循同一条规则。
 //
-// The three groups are NOT three pages: they are one answer to one question
-// ("where was I"), which is why they share an intro and a page title. The page
-// writes nothing itself — every row that changes a list hands the value to
-// ctx.setValue, and what the key owes in consequence is applied in one place
-// (see SettingsPageContext).
+// 三个分组不是三个页面：它们是同一个问题（「我刚才在哪儿」）的一个答案，
+// 所以共用一个引言和一个页面标题。这个页面自己不写任何东西 —— 每一行改列表
+// 都把值交给 ctx.setValue，这个键随之该承担什么统一在一处施加
+// （见 SettingsPageContext）。
 export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitionItem[] {
 	return [
 		{
-			// The intro gets a group of its own, and not a first item inside
-			// "Open & restore": it introduces the whole page, and sitting
-			// under one group's heading would make it that group's sentence.
-			// No heading here, for the reason the other two pages have none —
-			// the page is already named "Last position".
+			// 引言独占一个分组，而不是当「打开与恢复」里的第一个条目：它介绍整页，
+			// 坐在某个分组的标题下就成了那个分组的一句话。这里不加标题，
+			// 理由与另外两页一样 —— 页面已经叫「最后位置」了。
 			type: 'group',
 			items: [intro(t('lastPosition.intro'))],
 		},
@@ -57,10 +52,9 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						},
 					},
 				},
-				// WHERE THE APP'S OWN FILE LIST OPENS ITS HOVER PREVIEW. Its own
-				// setting, not the recent-files list's row merged into it: the two
-				// are different ground, and a reader may well want different
-				// answers on each. The note's top ships — see PreviewFocusMode.
+				// app 自己的文件列表把悬停预览开在哪里。它是自己的一项设置，
+				// 不与最近文件列表的那一行合并：两者是不同的地界，读者很可能想
+				// 让两者各给不同答案。默认采用笔记顶部 —— 见 PreviewFocusMode。
 				{
 					name: t('previewFocus.fileExplorer.name'),
 					desc: t('previewFocus.fileExplorer.desc'),
@@ -179,14 +173,11 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 					desc: (() => {
 						const frag = createFragment();
 						frag.createDiv({ text: t('recordingRules.frontmatterExclude.desc') });
-						// The two forms get a line each instead of sharing a
-						// paragraph: almost every reader arrives to check
-						// which of the two they should type, and that is a
-						// question to scan for, not to read for. Muted, so
-						// they read as detail under the sentence above rather
-						// than as a third list — the list of what is already
-						// excluded follows right below, and two bullet lists
-						// of look-alike property names would be one too many.
+						// 两种形态各占一行，而不是共用一段：几乎每个读者都是来查
+						// 该打哪一种的，那是个拿来扫的问题、不是拿来读的。弱化显示，
+						// 好让它们读起来是上面那句话下的细节，而不是第三个列表 ——
+						// 已排除项的列表紧接着就在下面，两份长得像的属性名列表
+						// 就太多了。
 						frag.createDiv({
 							cls: 'mod-muted',
 							text: t('recordingRules.frontmatterExclude.formName'),
@@ -267,11 +258,10 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						const frag = createFragment();
 						frag.createDiv({ text: t('dataStorage.dbFileName.desc') });
 						frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.dbFileName.current', current) });
-						// Where the file is, in one muted line. The default sits
-						// inside the plugin folder, which most sync setups do not
-						// carry whole — the fact a reader needs before the records
-						// silently fail to follow them to another device. It names
-						// no sync client: that rule belongs to the dialog.
+						// 文件在哪，一行弱化说明。默认位置在插件文件夹里，
+						// 而多数同步方案不会整个带着它 —— 这是记录悄悄跟不上
+						// 用户到另一台设备之前，读者需要知道的事实。
+						// 它不点名任何同步客户端：那条规则属于对话框。
 						frag.createDiv({
 							cls: 'mod-muted',
 							text: state === 'config'
@@ -295,9 +285,8 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						const count = Object.keys(ctx.plugin.database.db).length;
 						const frag = createFragment();
 						frag.createDiv({ text: t('dataStorage.entries.desc', String(count)) });
-						// The count alone invites the wrong question ("am I about
-						// to lose positions?") — the split is what makes it
-						// readable, and it is only worth saying when it is so.
+						// 光一个数字会招来错的问题（「我要丢位置了吗？」）——
+						// 拆开才让它可读，而这个拆分只在确有其事时才值得说。
 						const atDefault = ctx.plugin.database.countDefaultPosition();
 						if (atDefault > 0)
 							frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.entries.atDefault', String(atDefault)) });
