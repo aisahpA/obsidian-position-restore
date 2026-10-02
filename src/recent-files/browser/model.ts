@@ -1,52 +1,50 @@
-// The recent-files browser's pure model layer: what a row SAYS (display pieces, heading chain)
-// derived from an entry, with the two things only the caller can answer — the file's saved
-// position, and its mtime now — coming in as predicates. No DOM and no `this`.
+// 最近文件浏览器的纯模型层：一行**说什么**（显示碎片、标题链），由条目派生，而只有调用方
+// 能回答的两件事 —— 文件保存的位置、以及它现在的 mtime —— 以谓词的形式传进来。
+// 无 DOM、也没有 `this`。
 
 import { landedLine, NavEntry, NavView } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 
-// The display name of a path: its last segment.
+// 一个 path 的显示名：它最后的一段。
 export function baseName(path: string): string {
 	return path.split('/').pop() ?? path;
 }
 
-// What a row PRINTS as the note's name: the last path segment without its extension. The extension
-// is not part of what a reader calls a note — "meeting-notes.md" is the note "meeting-notes" — and
-// a row that spelled the suffix out spent its narrowest space on the one part that never
-// distinguishes two notes in a vault of markdown. The TYPE does distinguish (`x.canvas` next to
-// `x.md`), and that is what the badge beside the name says (see badgeOf).
+// 一行拿来**显示**笔记名字的东西：最后一段 path、去掉扩展名。扩展名不是读者所称笔记的一部分
+// —— "meeting-notes.md" 这篇笔记叫 "meeting-notes" —— 而一行若把后缀拼出来，就是在它最窄的
+// 空间里，把地方花在一个在一个满是 markdown 的 vault 里永远不区分两篇笔记的部分上。
+// **类型**确实会区分（`x.canvas` 挨着 `x.md`），而那正是名字旁边那个徽标所说的（见 badgeOf）。
 //
-// A leading dot is not an extension: ".gitignore" is a name, not a file called "" — the `cut > 0`
-// is what keeps it whole.
+// 开头的一个点是名字的一部分、不是扩展名：".gitignore" 是一个名字，不是一个叫 "" 的文件 ——
+// `cut > 0` 就是让它保持完整的东西。
 export function displayName(path: string): string {
 	const name = baseName(path);
 	const cut = name.lastIndexOf('.');
 	return cut > 0 ? name.slice(0, cut) : name;
 }
 
-// The type badge beside the name: the extension in capitals. Markdown has NO badge, because in a
-// vault it is the unmarked default — a badge on every ordinary note would be a column of noise —
-// and the eye then reads the odd ones ("PDF", "CANVAS") as the exceptions they are. A file with no
-// extension at all gets "FILE", which closes the rule: every name printed without an extension is
-// either markdown or marked.
+// 名字旁边的类型徽标：大写的扩展名。markdown 没有徽标，因为在一个 vault 里它是无标记的默认 ——
+// 给每一篇普通笔记都加徽标会成一条噪音列 —— 而眼睛于是会把那些不寻常的（"PDF"、"CANVAS"）
+// 读成它们本就是的例外。一个完全没有扩展名的文件得到 "FILE"，这收拢了那条规则：
+// 每一个不带扩展名显示的名字，要么是 markdown、要么是被标记过的。
 //
-// An empty path is the PATHLESS group (a view — see listing.ts's NO_PATH): no file, no type.
+// 一个空的 path 就是那**没有 path** 的组（一个视图 —— 见 listing.ts 的 NO_PATH）：没有文件，
+// 没有类型。
 export function badgeOf(path: string): string | undefined {
 	if (!path)
 		return undefined;
 	const cut = path.lastIndexOf('.');
-	// The dot has to be IN the last segment: "notes.v2/readme" has no extension.
+	// 那个点必须在最后一段**里面**："notes.v2/readme" 没有扩展名。
 	if (cut <= path.lastIndexOf('/') + 1)
 		return 'FILE';
 	const ext = path.slice(cut + 1).toLowerCase();
 	return ext === 'md' ? undefined : ext.toUpperCase();
 }
 
-// The folder a path sits in: "" at the vault root, undefined for the pathless group (a view), whose
-// name is a label rather than a path segment. Printed ONLY where the name collides — two notes
-// called "index" are otherwise one row that cannot be told from the other, while on every other row
-// the folder is the same folder repeated.
+// 一个 path 所在的文件夹：在 vault 根是 ""，对没有 path 的组（一个视图）是 undefined，
+// 它的名字是一个标签、而不是一段 path。只在名字撞车的地方显示 —— 两篇都叫 "index" 的笔记
+// 否则就是两行无法彼此分辨，而在其它每一行上，那个文件夹只是同一个文件夹的重复。
 export function folderOf(path: string): string | undefined {
 	if (path === '')
 		return undefined;
@@ -54,12 +52,11 @@ export function folderOf(path: string): string | undefined {
 	return cut === -1 ? '' : path.slice(0, cut);
 }
 
-// What a row prints where its note sits, once it has decided to print anything at all (see
-// PathDisplayMode): the FOLDER — its own name cell already names the file — or the file's WHOLE
-// path where the name cell names something else, since a row that took its name from a frontmatter
-// property says nowhere else which file it is. The root prints "/" either way: an empty span looks
-// exactly like a note whose folder was not printed, a different fact. Asked only for a note that
-// HAS a path — a view's group has none.
+// 一行在决定要显示任何东西之后，显示它的笔记在哪儿（见 PathDisplayMode）：**文件夹** ——
+// 它自己的名字格已经命名了那个文件 —— 或在名字格命名的是别的东西时显示文件的**完整** path，
+// 因为一行若从 frontmatter 属性取了名字，就再没有别的地方说明它是哪个文件。根两种情况都
+// 显示 "/"：一个空 span 看起来与「一个文件夹没有被显示的笔记」一模一样，而那是另一个事实。
+// 只对**有** path 的笔记问 —— 视图的组没有。
 export function pathLabel(path: string, name: string): string {
 	const folder = folderOf(path);
 	if (folder === undefined)
@@ -69,14 +66,12 @@ export function pathLabel(path: string, name: string): string {
 	return folder === '' ? '/' : `${folder}/`;
 }
 
-// Which of these names are PRINTED twice, so the list can put the folder on exactly those rows.
-// Built from the rows ON THE LIST rather than from the whole history: a colliding name the filter
-// dropped is not on screen to be confused with anything.
+// 这些名字里哪些被**显示**了两次，好让列表恰好把文件夹放在那几行上。是**从列表上的**那些行
+// 建出来的、而不是从整段历史：一个被过滤器丢掉的重名，并不在屏幕上、不会与什么东西混淆。
 //
-// Names and not paths, because what can collide is the name as PRINTED — which is not always the
-// file's own: two notes called `index` collide, and so do two notes whose frontmatter gives them
-// the same title. The badge tells files apart too, but only to a reader who already knows to look;
-// the folder answers "which one is this".
+// 是名字、不是 path，因为可能撞车的是**显示出来的**那个名字 —— 它不总是文件自己的：
+// 两篇都叫 `index` 的笔记会撞，frontmatter 给它们同名 title 的两篇也会撞。徽标也能分辨文件，
+// 但只对一个已经知道要去看的读者；文件夹回答的是「这是哪一个」。
 export function duplicateNames(names: Iterable<string>): Set<string> {
 	const seen = new Set<string>();
 	const twice = new Set<string>();
@@ -88,40 +83,37 @@ export function duplicateNames(names: Iterable<string>): Set<string> {
 	return twice;
 }
 
-// What a ROW needs to know about one entry. Pure (the one thing only the caller can answer — the
-// file's saved position — comes in as a predicate), so the browser's labels are testable without a
-// DOM. A place whose FILE is gone is never described: the list filters it out before asking (see
-// RecentFilesList.render).
+// 一行关于一条条目需要知道的东西。纯（只有调用方能回答的那一件事 —— 文件保存的位置 ——
+// 以谓词的形式传进来），所以浏览器的标签不用 DOM 就能测试。一个**文件**没了的地点永远不会被
+// 描述：列表在问之前就把它滤掉了（见 RecentFilesList.render）。
 export interface NavEntryDescription {
-	// The note's display name (see displayName), or the view's own name for a pathless entry (see
-	// viewName). The group's header prints it, with the badge and the folder beside it.
+	// 笔记的显示名（见 displayName），或对一个没有 path 的条目用视图自己的名字（见 viewName）。
+	// 组的表头显示它，旁边是徽标和文件夹。
 	name: string;
-	// The row's caption: "L412". A step with no recorded line prints "—" instead.
+	// 这一行的附注文字："L412"。一个没有记录行号的步改为显示 "—"。
 	line?: string;
-	// The same landing as a 0-based index — what groupByFile keys two steps as one spot, and what
-	// the section chain is looked up against.
+	// 同一个落点的 0-based 下标 —— groupByFile 据以把两步当作一个地点的东西，
+	// 也是标题链据以被查找的东西。
 	lineIndex?: number;
 }
 
-// The name a row prints for a PATHLESS entry — a view rather than a place in a note. It is the
-// view's OWN, recorded when the reader went there: Obsidian's `getDisplayText` is what that view's
-// tab header says, so the row agrees with the title the reader clicked, in the app's own language,
-// and a third-party view names itself without this plugin having to know it exists (see
-// shared/leaf.ts's viewLabel). With no label the view answers for itself: anything else prints its
-// bare view type — the honest name when the view never offered one.
+// 一行为一个**没有 path** 的条目 —— 一个视图，而不是笔记里的某个地点 —— 显示的名字。
+// 它是视图**自己的**，在读者去那里时记下：Obsidian 的 `getDisplayText` 就是那个视图的标签页
+// 表头所说的，所以这一行与读者点过的那个标题一致、用 app 自己的语言，而一个第三方视图
+// 无需本插件知道它存在就能自报名字（见 shared/leaf.ts 的 viewLabel）。没有标签时视图自答：
+// 其它任何情况都显示它光秃秃的视图类型 —— 当视图从未提供过名字时，那是诚实的名字。
 export function viewName(entry: NavView): string {
 	if (entry.label)
 		return entry.label;
 	return entry.viewType === 'graph' ? t('recentFiles.graphView') : entry.viewType;
 }
 
-// One entry as its row prints it. The fallbacks are for a state that never went through the nav
-// read: the file's saved position below, or a teleport whose landing never settled.
+// 一条条目，按它那一行的显示方式。那些兜底是给一种从未走过导航读取的状态的：下面文件保存的
+// 位置，或一次落点从未落定的 teleport。
 //
-// `titleOf` is the reader's own name for the note (see reads.ts's titleOf): the vault's answer to
-// "what is this note called", asked here so that everything downstream — the row, the search, the
-// folder that tells two same-named notes apart — prints one name without knowing where it came
-// from. Its undefined is the file name's turn rather than an absence.
+// `titleOf` 是读者给笔记起的名字（见 reads.ts 的 titleOf）：vault 对「这篇笔记叫什么」的回答，
+// 在这里问出来，好让下游的一切 —— 那一行、搜索、把两篇同名笔记分辨开的文件夹 —— 显示
+// 一个名字而无需知道它从哪儿来。它的 undefined 是轮到文件名，而不是缺席。
 export function describeNavEntry(
 	entry: NavEntry,
 	savedPosition?: (path: string) => EphemeralState | undefined,
@@ -133,14 +125,12 @@ export function describeNavEntry(
 	if (entry.st) {
 		n = landedLine(entry);
 	} else {
-		// The entry carries no position of its own (a tab/pane activation predating the
-		// leave-refresh, or a legacy persisted entry): fall back to the file's saved record — the
-		// spot a reopen would restore, which is exactly this step's "where I was".
+		// 这条条目自身不携带位置（一次早于「离开时刷新」的标签页/窗格激活，或一条遗留的持久化
+		// 条目）：退回文件保存的记录 —— 一次重新打开会恢复的位置，也就是这一步的「我刚才在哪儿」。
 		const saved = savedPosition?.(entry.path);
 		n = saved?.cursor?.from.line ?? saved?.scroll;
 		if (n === undefined && entry.kind === 'teleport')
-			// A landing that never settled: the recorded target line is still where the restore
-			// will aim.
+			// 一次从未落定的落点：记录下来的目标行仍然是恢复会瞄准的地方。
 			n = entry.line;
 	}
 	return {
@@ -150,26 +140,25 @@ export function describeNavEntry(
 	};
 }
 
-// ===== How old a row is =====
+// ===== 一行有多旧 =====
 
-// The units a row's age is printed in, coarsest-last.
+// 一行的「多久之前」所用的单位，最粗的在后。
 export type AgeUnit = 'now' | 'm' | 'h' | 'd' | 'w' | 'mo' | 'y';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const WEEK = 7 * DAY;
-// A month and a year as FIXED lengths, deliberately: this is a magnitude a reader scans ("roughly a
-// month ago"), not a date. A calendar-accurate month would make the label jump for no one's benefit
-// and would need the wall clock the stamp is read without.
+// 月与年**有意**用固定长度：这是一个读者拿来扫的量级（「大约一个月前」），不是一个日期。
+// 一个按日历精确的月会让标签跳动、对谁都没好处，而且会需要那个读出时间戳时并不用的挂钟。
 const MONTH = 30 * DAY;
 const YEAR = 365 * DAY;
 
-// How old a record is, as a number and a unit. Truncated rather than rounded, so a label never
-// claims more time than has passed ("4w" is between four and five weeks, never a rounded-up five).
+// 一条记录有多旧，以一个数字加一个单位表示。是截断、不是四舍五入，所以标签从不声称比已经过去
+// 的更多的时间（"4w" 是在四周到五周之间，绝不会被进位成五）。
 //
-// A stamp in the FUTURE is clamped to `now`: a clock that moved backwards (a machine waking from
-// sleep with a corrected time, two devices syncing) would otherwise print "-3m".
+// 一个在**未来**的时间戳被夹到 `now`：否则一个倒退了的时钟（一台从睡眠中醒来、时间被校正的
+// 机器，两台正在同步的设备）会显示 "-3m"。
 export function ageOf(at: number, now: number): { n: number; unit: AgeUnit } {
 	const d = Math.max(0, now - at);
 	if (d < MINUTE)
@@ -187,13 +176,12 @@ export function ageOf(at: number, now: number): { n: number; unit: AgeUnit } {
 	return { n: Math.floor(d / YEAR), unit: 'y' };
 }
 
-// What a row prints as its age: the number and the unit's own word (`5m ago`, `5分钟`) — spelled out
-// far enough to be read at a glance rather than decoded. The exact moment is a tooltip away (see
-// list.ts's fileRow).
+// 一行拿来当它的「多久之前」显示的东西：数字加上单位自己的词（`5m ago`、`5分钟`）——
+// 拼得够完整，能一眼读出而不用解码。确切的时刻是一次悬停之遥（见 list.ts 的 fileRow）。
 //
-// The unit goes through an exhaustive switch rather than into a template string: t()'s signature is
-// keyed by the locale's own key union, which a built string cannot satisfy — and the switch is what
-// makes a unit added later a compile error rather than a missing word at run time.
+// 单位走一个穷尽的 switch、而不是塞进模板串：t() 的签名以 locale 自己的键联合为键，
+// 而一个拼出来的字符串满足不了它 —— 这个 switch 也是让「以后加的一个单位」变成编译错误、
+// 而不是运行时少一个词的东西。
 export function ageLabel(at: number, now: number): string {
 	const { n, unit } = ageOf(at, now);
 	switch (unit) {
@@ -207,10 +195,9 @@ export function ageLabel(at: number, now: number): string {
 	}
 }
 
-// WHEN a group was last visited: the newest stamp among the records it holds. Not the anchor's own
-// stamp, although the anchor usually IS the note's last visit: the anchor can have been evicted
-// while the jumps made inside the note survive (see activeRep), and a group's `indices` are in LINE
-// order (see groupByFile) rather than in time order.
+// 一组**上次**被访问是什么时候：它持有的那些记录里最新的那个时间戳。不是锚点自己的时间戳，
+// 尽管锚点通常**就是**这篇笔记的上次访问：锚点可能已经被淘汰，而在笔记内部做出的那些跳转
+// 还活着（见 activeRep），而且一组的 `indices` 是**行号**顺序（见 groupByFile）、不是时间顺序。
 export function newestStamp(
 	entries: NavEntry[],
 	indices: number[],
@@ -230,27 +217,25 @@ export function newestStamp(
 	return newest;
 }
 
-// The chain as a ROW prints it: the deepest `depth` levels only, outermost first (a row has one line
-// of width). The deepest level is KEPT even when it is the heading the landing line itself carries:
-// nothing else on the row names the landing's own text, and dropping it left the row naming its
-// PARENT section instead.
+// 一条**行**显示的那条链的样子：只要最深的 `depth` 个层级，最外层在前（一行只有一行的宽度）。
+// 最深的那一层**保留**，即便它正是落点行自身所携带的那个标题：这一行上没有别的东西命名
+// 落点自己的文字，而把它丢掉会让这一行改为命名它的**父**分节。
 export function rowTrail(trail: string[], depth = 2): string[] {
 	return trail.slice(-depth);
 }
 
-// Whether a row has to give up the OUTER level of the chain it prints: less than HALF of the level
-// survived the row's width. `whole` is the width the level asks for, `shown` what the row could give
-// it — both read off a laid-out row by the one caller that has one (see RecentFilesList.fitTrails).
+// 一行是否必须放弃它所显示链的**外层**层级：这个层级存活下来的不到**一半**。`whole` 是这个层级
+// 所要的宽度，`shown` 是这一行能给它的 —— 两者都由唯一持有「已排版的这一行」的那个调用方
+// 从那一行上读出（见 RecentFilesList.fitTrails）。
 //
-// Half, and not "any of it was cut": a clipped level that is still mostly there names its section
-// (`面板设计与信息架…`), while what a squeezed one leaves is a FRAGMENT that names nothing
-// (`新插件 Positi…`) — so the line is drawn where the level stops being READABLE, not where it stops
-// being whole.
+// 是一半，不是「被切掉了一点」：一个被裁剪、但大体还在的层级仍然命名它的分节
+// （`面板设计与信息架…`），而一个被挤扁的层级留下的是一个什么都不命名的**碎片**
+// （`新插件 Positi…`）—— 所以这条界线画在层级不再**可读**的地方，而不是它不再完整的地方。
 //
-// Not about the deepest level's width: that level takes the width its own text needs whatever stands
-// beside it (see styles.css's `flex: 0 0 auto`), so taking the outer level off buys it not a pixel.
-// What it buys is the READING — and the section a row let go of is one hover away either way. A
-// level that fits at all is never dropped (`whole === 0` means nothing is clipped).
+// 这与最深层的宽度无关：那一层不管旁边站着什么，都取它自己文字所需的宽度（见 styles.css 的
+// `flex: 0 0 auto`），所以把外层拿掉连一个像素都买不到。它买到的是**可读性** —— 而一行放掉的
+// 那个分节，反正都是一次悬停之遥。一个多少放得下的层级永远不会被丢掉（`whole === 0` 表示
+// 什么都没被裁）。
 export function dropsOuterLevel(shown: number, whole: number): boolean {
 	return whole > 0 && shown * 2 < whole;
 }
