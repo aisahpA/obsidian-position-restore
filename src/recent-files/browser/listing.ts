@@ -1,53 +1,49 @@
-// The list's pure bookkeeping: how the filtered steps group into notes and which ones the search box
-// keeps. No DOM — the search box is testable through these predicates alone.
+// 列表的纯记账：过滤后的步怎么归成笔记，以及搜索框保留哪些。无 DOM —— 搜索框单靠这些谓词
+// 就能测试。
 
 import { isCallerKey, NavEntry, navGroupKey } from '@/nav/entry';
 import { baseName, viewName } from './model';
 
-// One FILE on the list: the note, and the steps that landed in it (by line, ascending). One per note
-// — which is what makes a note opened ten times one row — and under the 'all' setting its landings
-// are printed beneath it. A pathless view step is a group of its own with no path.
+// 列表上的一个**文件**：那篇笔记，以及落在它里面的那些步（按行、升序）。每篇笔记一个 ——
+// 这正是「一篇被打开十次的笔记是一行」的原因 —— 而在 'all' 设置下，它的落点显示在它下面。
+// 一个没有 path 的视图步是它自己的一组、没有 path。
 //
-// The landings under a note are SPOTS, not steps (see landingKey): a note returned to at the same
-// line five times has one row to pick. Every spot is a row — a spot ten lines from another is a
-// different place to go.
+// 一篇笔记下的落点是**地点**，不是步（见 landingKey）：一篇被五次回到同一行的笔记只有一个
+// 可挑的行。每个地点都是一行 —— 一个离另一个十行的地点，是一个不同的可去之处。
 export interface NavFileGroup {
-	// NO_PATH for a pathless group, which cannot collide with a real path.
+	// 没有 path 的组用 NO_PATH，它不可能与一个真实 path 撞上。
 	path: string;
-	// The group's IDENTITY (nav/entry.ts's navGroupKey): its path, or the view type for a pathless
-	// one. Carried because a pathless group's key cannot be recovered from `path`, and a caller
-	// holding the list's order has nothing else stable to hold — indices are the list's current shape.
+	// 这一组的**身份**（nav/entry.ts 的 navGroupKey）：它的 path，或对没有 path 的那一组的视图类型。
+	// 带着它是因为没有 path 的组，其 key 无法从 `path` 复原，而一个持有列表顺序的调用方
+	// 没有别的东西可稳定地持 —— 下标是列表当前的形态。
 	key: string;
-	// Stack indices of the note's landings, top of the note first. One per distinct line, standing
-	// for the NEWEST step that landed on it — or for the reader's own step where the current entry
-	// shares the line (see currentRep). Every one is a DESTINATION: a note whose file is gone is not
-	// grouped at all.
+	// 这篇笔记各落点在栈里的下标，笔记顶部的在前。每个不同的行一个，代表落在它上面的**最新**
+	// 那一步 —— 或者，在当前条目共用该行时，代表读者自己的那一步（见 currentRep）。
+	// 每一个都是一个**目的地**：文件没了的笔记根本不被归组。
 	indices: number[];
-	// The note's OWN record — the place that stands for the file rather than for a spot inside it,
-	// and the row that opens the file the plain way. Deliberately NOT one of `indices`: a note is not
-	// a landing under itself.
+	// 这篇笔记**自己**的记录 —— 代表文件本身、而不是它里面某个地点的那个地点，也是以普通方式
+	// 打开文件的那些行。有意**不**是 `indices` 之一：一篇笔记不是它自己底下的一个落点。
 	anchor?: number;
-	// The current entry's own group. Not an ordering fact: the list is in recency order whatever the
-	// reader is standing in, so this only says where to paint the mark.
+	// 当前条目自己所在的组。这不是一个排序事实：无论读者站在什么里，列表都按新鲜度排序，
+	// 所以这只说明把标记画在哪儿。
 	current: boolean;
-	// The landing that holds the CURRENT entry — the row carrying the "you are here" dot. Undefined
-	// when the reader is in the note but on no listed landing: their own record is the ANCHOR.
+	// 托着**当前**条目的那个落点 —— 带着「你在这里」小点的那些行。读者在笔记里、但不在任何一个
+	// 已列出的落点上时为 undefined：那时他们自己的记录就是**锚点**。
 	currentRep?: number;
 }
 
-// How much of one note the list prints. Re-exported because the browser's modules take it from here
-// (the settings record it is stored in is types.ts).
+// 列表显示一篇笔记的多少。这里再导出，因为浏览器的各模块从这儿取它（它被存进的那个设置记录
+// 在 types.ts）。
 export type { LandingsMode } from '@/types';
 
-// The path a pathless group (a view) carries: giving it one would let it merge with a note of the
-// same name.
+// 一个没有 path 的组（视图）所携带的 path：给它一个，就会让它与同名的笔记合并。
 export const NO_PATH = '';
 
-// The key that makes two steps ONE landing: the line they landed on. How the step was made is not
-// part of where it is, so a note returned to at L412 five times by five routes holds one spot.
+// 让两步成为**一个**落点的键：它们落在的那一行。这一步是怎么做的不是「它在哪」的一部分，
+// 所以一篇被五条不同路线五次回到 L412 的笔记只持有一个地点。
 //
-// A step that recorded NO line gets the one `none` key: a file without coordinates — a `.base` view,
-// a PDF, an image — has exactly one place to be. A VIEW step gets the one constant key.
+// 一个没有记录行号的步得到那一个 `none` 键：一个没有坐标的文件 —— `.base` 视图、PDF、图片 ——
+// 只有一个可待的地方。一个**视图**步得到那一个常量键。
 const NO_LINE = 'none';
 
 function landingKey(entry: NavEntry, line: number | undefined): string {
@@ -56,32 +52,29 @@ function landingKey(entry: NavEntry, line: number | undefined): string {
 	return line === undefined ? NO_LINE : `L${line}`;
 }
 
-// The filtered steps as one group per note. Groups come out by the recency of their NEWEST step;
-// INSIDE a group the order is the note's own: by line, ascending, every distinct line a row of its
-// own. `keep` applies the filter, so a dropped step's note may disappear with it.
+// 过滤后的步，每篇笔记一组。组按它们**最新**那一步的新鲜度排出；**组内**的顺序是笔记自己的：
+// 按行、升序，每个不同的行都是它自己的一行。`keep` 施加那个过滤器，所以被丢掉的步，
+// 它的笔记也可能随之消失。
 //
-// `lineOf` resolves the line a step landed on, INJECTED because the line a row prints is not always
-// the entry's own: a step recorded before the block was captured falls back to the file's saved
-// position. Whatever the caller passes must be the same number the row shows, or the list would
-// collapse steps the reader can still tell apart.
+// `lineOf` 解答一个步落在哪一行，是**注入**的，因为一行显示的行号不总是条目自己的：
+// 一个在引文块被拍下之前记录的步，会退回到文件保存的位置。调用方传什么，就必须是这一行
+// 显示的那个数字，否则列表会把它读者仍能分辨的步给并掉。
 //
-// The current entry gets no special place in the order: it is included where its recency puts it and
-// the dot is painted on the row that holds it. Lifting it to the top would re-arrange the list under
-// the hand that clicked a row.
+// 当前条目在顺序上没有特殊位置：它被算在它新鲜度所属的地方，小点画在托着它的那一行上。
+// 把它抬到顶部，会在那只点过一行的手底下把列表重新排列。
 export function groupByFile(
 	entries: NavEntry[],
 	currentIndex: number,
 	keep: (index: number) => boolean = () => true,
 	lineOf: (index: number) => number | undefined = () => undefined,
-	// The group order to hold the list at, by key; undefined orders by recency. A caller that passes
-	// one is saying "the reader is USING this list". Keys rather than indices because the group order
-	// is derived afresh every time.
+	// 把列表按组顺序固定在哪个顺序，按 key；undefined 表示按新鲜度排序。传了它的调用方是在说
+	// 「读者**正在用**这份列表」。用 key 而不是下标，因为组顺序每次都是重新推导的。
 	order?: readonly string[],
 ): NavFileGroup[] {
 	const groups = new Map<string, NavFileGroup>();
 	const seen = new Map<string, Map<string, number>>();
-	// The distinct landings of a note as the reverse scan meets them — newest step first, which is
-	// the order the step standing for each line is chosen in.
+	// 一篇笔记的各不相同落点，按反向扫描遇到它们的顺序 —— 最新的步在前，这正是「代表每个行的
+	// 那个步」据以被选出的顺序。
 	const found = new Map<string, { line: number | undefined; index: number }[]>();
 	const open = (entry: NavEntry): NavFileGroup => {
 		const key = navGroupKey(entry);
@@ -99,18 +92,17 @@ export function groupByFile(
 		}
 		return group;
 	};
-	// Reverse order: the first time a note is seen is its newest surviving step, and Map insertion
-	// order preserves exactly that as the group order. The CURRENT entry is included with the rest —
-	// the list marks the landing that holds it rather than holding it out.
+	// 反向顺序：一篇笔记第一次被看到时，看到的就是它存活下来的最新那一步，而 Map 的插入顺序
+	// 恰好把这一点保留下来作为组的顺序。**当前**条目与其余的一起被算进去 —— 列表标记的是
+	// 托着它的那个落点，而不是把它排除在外。
 	for (let i = entries.length - 1; i >= 0; i--) {
 		if (!keep(i))
 			continue;
 		const entry = entries[i];
 		const key = navGroupKey(entry);
 		const group = open(entry);
-		// A visit or view names the FILE rather than a spot in it, so it becomes the ANCHOR and adds
-		// NO landing: a row standing for the file's own record would be a row whose click does nothing
-		// visible.
+		// 一个 visit 或 view 点名的**是文件**、而不是它里面的某个地点，所以它成为**锚点**、
+		// 不添加任何落点：一个代表文件自己记录的行，会是一个点了也看不出什么的行。
 		if (entry.kind === 'visit' || entry.kind === 'view') {
 			if (group.anchor === undefined)
 				group.anchor = i;
@@ -123,8 +115,7 @@ export function groupByFile(
 		const at = seen.get(key)?.get(landing);
 		const landings = found.get(key)!;
 		if (at !== undefined) {
-			// Already on the list: the step adds no destination, but it is still the step the reader
-			// is ON when it is the current entry.
+			// 已经在列表上了：这一步不添加目的地，但当它是当前条目时，它仍是读者**正踩在**上面的步。
 			if (i === currentIndex) {
 				landings[at].index = i;
 				group.current = true;
@@ -136,13 +127,12 @@ export function groupByFile(
 		if (i === currentIndex)
 			group.current = true;
 	}
-	// Under one note the rows come out by LINE, ascending — the order of the document they are places
-	// in. Between notes recency decides ("where was I"), but inside one nothing is learned from the
-	// order the spots were visited in. A step with no recorded line keeps its recency place at the
-	// END.
+	// 在一篇笔记下，各行按**行号**、升序排出来 —— 也就是它们作为地点身处的那份文档的顺序。
+	// 笔记之间由新鲜度决定（「我刚才在哪儿」），但在笔记内部，从地点被访问的顺序里学不到什么。
+	// 一个没有记录行号的步，把它的新鲜度位置留在**最后**。
 	//
-	// The step standing for a line is the NEWEST one that landed there, or the reader's own where the
-	// current entry shares it — so the line a row prints IS the line its click lands on.
+	// 代表某一行的步，是落在那里**最新**的那一步；或在当前条目共用它时，是读者自己的那一步 ——
+	// 所以一行显示的行号**就是**它点击时落到的行。
 	const rank = (line: number | undefined) => line === undefined ? Number.MAX_SAFE_INTEGER : line;
 	for (const [key, group] of groups) {
 		const landings = found.get(key)!;
@@ -151,39 +141,36 @@ export function groupByFile(
 		if (landings.some(l => l.index === currentIndex))
 			group.currentRep = currentIndex;
 	}
-	// The current note reaches the list by the same scan as every other: its own step has to survive
-	// `keep` — a note the query dropped is not this list's business, current or not.
+	// 当前这篇笔记与其它一样，经由同一次扫描到达列表：它自己的步必须熬过 `keep` ——
+	// 一篇被查询丢掉的笔记不归这份列表管，无论它是不是当前的。
 	const current = entries[currentIndex];
 	if (current && keep(currentIndex) && !groups.has(navGroupKey(current)))
 		open(current).current = true;
 	const out = Array.from(groups.values());
-	// `out` is ALREADY the recency order: the reverse scan inserted a group at its newest step, and
-	// Map preserves insertion order.
+	// `out` **已经**是新鲜度顺序：反向扫描是在一篇笔记最新那一步处插入它的组，而 Map 保留插入顺序。
 	if (order) {
-		// Held still. Groups this order has never heard of appeared since it was taken, so by recency
-		// they are the NEWEST: they take rank -1 and land at the front, keeping their own recency
-		// order among themselves (the sort is stable).
+		// 按住不动。这个顺序从没听说过的组，是自它被拍下之后才出现的，所以按新鲜度它们是最新的：
+		// 它们取得 -1 的排名、落在最前面，并在彼此之间保持自己的新鲜度顺序（排序是稳定的）。
 		const rank = new Map(order.map((k, i): [string, number] => [k, i]));
 		out.sort((a, b) => (rank.get(a.key) ?? -1) - (rank.get(b.key) ?? -1));
 	}
 	return out;
 }
 
-// The query as the search box reads it: one token per run of whitespace, lower cased, empties
-// dropped. Two callers and the same split in both — the filter that decides what stays, and the one
-// that says WHICH line a query hit — because a row answering "why am I on this list" with a different
-// notion of a word than the filter answers a question the reader did not ask.
+// 搜索框读取查询的方式：每一段空白一个 token，转小写，空串丢掉。两个调用方、同一个切法 ——
+// 决定哪些留下的过滤器，以及说出查询命中了**哪一行**的那个 —— 因为一行若用一个与过滤器
+// 不同的「词」概念来回答「我为什么在这份列表上」，回答的就是一个读者没问的问题。
 export function queryTokens(query: string): string[] {
 	return query.toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-// Pure filter predicate: every token must appear (case-insensitively) somewhere in the entry's
-// searchable text. Two sources, composed here because only the caller knows both: the entry's OWN
-// text (navSearchText), and `extra`, everything the caller derives from the VAULT.
+// 纯过滤谓词：每个 token 都必须（不区分大小写地）出现在条目可搜索的文字里某个地方。
+// 两个来源，在这里合成，因为只有调用方两者都认识：条目**自己**的文字（navSearchText），
+// 以及 `extra`，即调用方从 **vault** 派生的一切。
 //
-// "Everything a match can hit is on the row" is NOT the rule: a hit is text the READER could have
-// written about that file, which is what the extra sources have in common. An alias is the clearest
-// case — finding a note by a name the reader half-remembers is the whole reason a search box is here.
+// 「一次匹配能命中的一切都在行上」**不是**规则：一次命中是**读者**可能写过的、关于那个文件的
+// 文字，而这正是那些额外来源的共同点。别名是最清楚的一例 —— 用一个读者隐约记得的名字
+// 找到一篇笔记，就是搜索框在这里的全部理由。
 export function matchesNavFilter(entry: NavEntry, query: string, extra?: string): boolean {
 	const tokens = queryTokens(query);
 	if (tokens.length === 0)
@@ -192,9 +179,9 @@ export function matchesNavFilter(entry: NavEntry, query: string, extra?: string)
 	return tokens.every(tok => hay.includes(tok));
 }
 
-// The entry's own searchable text: name and path, the recorded context block, and the remap anchor on
-// top (it belongs to the viewport's top line, which the block — built around the landing — does not
-// always reach). All joined into one haystack, so the order of the parts carries nothing.
+// 条目自己的可搜索文字：名字和 path、记录下来的 context 块，再加上重映射锚点
+// （它属于视口顶部那一行，而那个围绕着落点建起来的块并不总能覆盖到）。全部并成一个
+// 大杂烩，所以各部分之间的顺序不携带任何信息。
 export function navSearchText(entry: NavEntry): string {
 	if (entry.kind === 'view')
 		return `${entry.viewType} ${viewName(entry)}`;
@@ -204,21 +191,21 @@ export function navSearchText(entry: NavEntry): string {
 		parts.push(...(st.context ?? []));
 		parts.push(st.anchor ?? '');
 	}
-	// The jump's key: for an outline click the heading's text, for an anchor link the target the
-	// reader picked. A caller target's synthetic key is a timestamp, not words (see isCallerKey).
+	// 跳转的 key：大纲点击时是标题的文字，锚点链接时是读者选的目标。caller 目标的合成 key
+	// 是一个时间戳、不是词（见 isCallerKey）。
 	if (entry.kind === 'jump' && !isCallerKey(entry.key))
 		parts.push(entry.key.startsWith('outline:') ? entry.key.slice('outline:'.length) : entry.key);
 	return parts.filter(Boolean).join(' ');
 }
 
-// WHICH LINE OF A LANDING'S CONTEXT THE QUERY HIT — the answer to "why is this row on my list",
-// which the row cannot answer on its own: the block is what the search box matched and is printed
-// nowhere, so a row that matched on a sentence looks exactly like one that matched on its name.
+// 查询命中了落点 context 的**哪一行** —— 也就是「我这一行为什么在我的列表上」的答案，
+// 而这一行自己答不了它：那个块正是搜索框匹配到的东西、且在任何地方都不显示，所以一个靠一句话
+// 匹配上的行，长得与一个靠名字匹配上的行一模一样。
 //
-// The first line carrying ALL the tokens; failing that, the first line carrying the FIRST token — the
-// filter matched over the block joined together, so two tokens may sit on two lines. Undefined when
-// the query hit none of the block: a row may match on its name, path, an alias or its section, and
-// every one of those is already on the row or one hover away.
+// 第一条携带着**全部** token 的行；没有的话，就是第一条携带着**第一个** token 的行 ——
+// 过滤器是在拼在一起的块上匹配的，所以两个 token 可能分别坐在两行上。查询没有命中这个块的
+// 任何一处时为 undefined：一行可能靠它的名字、path、别名或它所在的分节匹配上，
+// 而这些都是行上已有的、或一次悬停就能看到的。
 export function matchedContextLine(entry: NavEntry, query: string): string | undefined {
 	const tokens = queryTokens(query);
 	if (!tokens.length || entry.kind === 'view')

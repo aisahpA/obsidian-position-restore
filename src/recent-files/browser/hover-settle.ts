@@ -1,82 +1,75 @@
 import { HoverParent, HoverPopover } from 'obsidian';
 import { nextPaint } from '@/shared/wait';
 
-// THE JUMP AND THE FLASH THE APP'S OWN PREVIEW MAKES WHEN IT IS ASKED FOR A LINE, and what this
-// module is: not a task that waits for them, but an OBSERVER simply watching when they happen.
+// app 自己的预览在被要求去某一行时所做的那个跳转与那一闪，以及本模块是什么：
+// 不是一个等它们完成的任务，而是一个**观察者**，只看着它们什么时候发生。
 //
-// Asked `state: { scroll: n }`, the core's markdown popover does NOT open at that line — it cannot.
-// Its loader draws the whole note first and only afterwards asks the renderer for the scroll:
-// `applyScrollDelayed(scroll, {highlight:!0, center:!0})`. The immediate attempt always fails (the
-// text has not rendered yet), so it waits for `onRendered` and applies the scroll when the note
-// lands — and with it a three-second `.is-flashing` highlight, the mark upstream puts on a SEARCH
-// hit. So the note is seen at its head, then jumps, then flashes.
+// 当被要求 `state: { scroll: n }` 时，core 的 markdown 弹出层**不会**开在那一行 —— 它做不到。
+// 它的加载器先把整篇笔记画出来，之后才向渲染器要那个滚动：
+// `applyScrollDelayed(scroll, {highlight:!0, center:!0})`。立即的那次尝试总是失败
+// （文字还没渲染出来），于是它等 `onRendered`、在笔记落地时才施加滚动 —— 随之而来的是一个
+// 三秒的 `.is-flashing` 高亮，那是上游给**搜索命中**打的标记。所以笔记先在其头部被看见，
+// 然后跳一下，然后闪一下。
 //
-// The cover is the same idea as the one that hides this plugin's own restores (see
-// position/ui/cover.ts), but the popover is not a leaf, so what is hidden here is the app's element,
-// borrowed back through the one handle the app handed us: a HoverParent's `hoverPopover`, written by
-// the core when the preview opens. Nothing private is reached for — `hoverEl` is a documented member
-// — and when anything here fails to be found the popover stands uncovered.
+// 遮罩与藏住本插件自己那些恢复的是同一个思路（见 position/ui/cover.ts），但弹出层不是 leaf，
+// 所以这里藏的是 app 的元素，是经由 app 交给我们的那个唯一把手借回来的：HoverParent 的
+// `hoverPopover`，由 core 在预览打开时写入。不伸手去够任何私有东西 —— `hoverEl` 是有文档
+// 记载的成员 —— 而这里任何东西找不到时，弹出层就不加遮罩地立着。
 //
-// WHY AN OBSERVER AND NOT A WAIT: when the app answers is not bounded. This panel's registration
-// requires the Mod key (see main.ts), so the popover appears when the reader PRESSES it — ten
-// seconds after the row was asked if they like, by which time a wait with any deadline has gone
-// home, taking the cover and the "it opened" news with it. So an asking ARMS a loop that watches the
-// parent's field for as long as the hover lasts; the only deadlines left are the ones about the
-// note's own journey, which IS bounded — a render, then a scroll.
+// 为什么用观察者而不是等待：app 什么时候作答是没有边界的。这个面板的注册要求按 Mod 键
+// （见 main.ts），所以弹出层是在读者**按下**它时才出现的 —— 只要他们愿意，问过那一行之后
+// 十秒钟才出现也行，到那时任何带截止时间的等待早已回家，把遮罩和「它开了」这条消息也一起带走。
+// 所以一次询问**武装**一个循环，在悬停持续的整个期间盯着父级那个字段；剩下的唯一截止时间
+// 是关于笔记自己那趟旅程的，而那是**有界**的 —— 一次渲染，然后一次滚动。
 
-// How long, once the cover is on, to wait for the delayed scroll before showing whatever is there.
-// Only ever paid when the flash never comes — the render itself is a blank card with or without the
-// cover — so it stays short: a note seen at its head and then flashed beats a card held blank.
+// 遮罩盖上之后，为那次延迟的滚动等多久、然后就展示那里的东西。只有在那一闪始终不来时才付这笔时间
+// —— 渲染本身无论有没有遮罩都是一张空白卡片 —— 所以它保持很短：一篇先被看到头部、然后闪一下的
+// 笔记，胜过一个被按住空白的卡片。
 const LAND_MAX_MS = 600;
 
-// What the core calls the section the delayed scroll landed on, for three seconds.
+// core 给「延迟滚动落到的那个分节」起的名字，持续三秒。
 const FLASH = 'is-flashing';
 
 export class PreviewSettle {
 	private parent?: HoverParent;
-	// Said the moment the app HAS answered, once per popover: whether anything opened at all is the
-	// app's decision — its delay, its key rule, its own switch. The CARD is handed over with the
-	// news, because nothing outside this module has another handle on what the app drew (see
-	// RecentFilesBrowser.liftPreview: a preview asked from a dialog has to clear that dialog).
+	// 在 app **已经**作答的那一刻说出，每个弹出层一次：到底有没有东西打开是 app 的决定 ——
+	// 它的延迟、它的按键规则、它自己的开关。卡片随这条消息一起交出去，因为本模块之外
+	// 没有别的东西另有把手够得到 app 画了什么（见 RecentFilesBrowser.liftPreview：
+	// 从对话框里要来的预览必须把那个对话框清掉）。
 	private onOpen?: (el: HTMLElement) => void;
-	// The paint loop, while it runs (see start).
+	// 绘制循环，在它运行期间（见 start）。
 	private running = false;
-	// Whether the pointer is ON THE LIST: the asking is live, and a popover that appears belongs to
-	// it. Cleared by hoverEnded — which is not the popover's end (the pointer may have moved ONTO
-	// it), only the end of new askings.
+	// 指针是否**在列表上**：询问是活的，此时出现的弹出层属于它。由 hoverEnded 清除 ——
+	// 那不是弹出层的结束（指针可能已经移到**它上面**去了），只是新询问的结束。
 	private session = false;
-	// Whether the NEWEST asking named a line. A section is drawn where it stands and has no journey
-	// to cover; a line is drawn whole first and moved after.
+	// 最新的那次询问是否点名了一行。分节就在它所在的地方被画出来、没有旅程要盖；
+	// 而一行是先被整篇画出来、之后才被移动的。
 	private wantCover = false;
-	// The popover being tracked, while one is open — kept even after the hover ends, so a pointer
-	// coming back to the list meets an old friend rather than "discovering" it a second time (which
-	// would re-report the opening and, for a line-asking, cover a note already standing at its line).
-	// It can outlive the popover itself: once the loop has stood down nothing clears it, and the
-	// next look is what finds out.
+	// 正在被跟踪的弹出层，在一个开着时 —— 即便悬停结束后也留着，好让一个回到列表的指针
+	// 遇见一位老朋友，而不是第二次「发现」它（那会重报一次打开，而且对一次点名行的询问来说，
+	// 会盖住一篇已经站在它那一行上的笔记）。它可能比弹出层本身活得还久：循环一旦停下，
+	// 就没有东西清它，而弄清这一点的是下一次查看。
 	private popover?: HoverPopover;
-	// The element under the cover right now, and what exactly was hidden in it: nothing here guesses
-	// at another element's opacity.
+	// 此刻正在遮罩下面的那个元素，以及它里面到底被藏了什么：这里不去猜另一个元素的不透明度。
 	private coveredEl?: HTMLElement;
 	private hidden: HTMLElement[] = [];
-	// When the cover stops waiting for the scroll (see LAND_MAX_MS).
+	// 遮罩什么时候不再等那次滚动（见 LAND_MAX_MS）。
 	private deadline = 0;
 
-	// The two things this panel knows and this module cannot: WHO to watch (the parent handed to the
-	// app with every asking), and WHO TO TELL when the app answers.
+	// 这个面板知道、而本模块不知道的两件事：**盯谁**（每次询问都交给 app 的那个父级），
+	// 以及 app 作答时**告诉谁**。
 	attach(parent: HoverParent, onOpen: (el: HTMLElement) => void): void {
 		this.parent = parent;
 		this.onOpen = onOpen;
 	}
 
-	// A row was just handed to the app (see RecentFilesBrowser.hoverRow): whether the asking named a
-	// LINE is all that has to be said here. The loop this arms outlives the asking by design and
-	// stands down when the hover does.
+	// 一行刚被交给 app（见 RecentFilesBrowser.hoverRow）：这里要说的全部，就是这次询问
+	// 有没有点名一个**行**。这里所武装的循环有意比询问活得久，并在悬停结束时停下。
 	ask(line: boolean): void {
 		this.session = true;
 		this.wantCover = line;
-		// A popover already standing (the pointer crossed over from another row): the note about to
-		// load into it makes the same journey, so the cover starts NOW rather than one visible frame
-		// of the note's head late.
+		// 一个已经立着的弹出层（指针从另一行横穿过来）：即将载入它的那篇笔记要走同一趟旅程，
+		// 所以遮罩**现在**就盖上，而不是迟上一帧、让人瞥见笔记的头部。
 		if (line) {
 			const el = this.parent?.hoverPopover?.hoverEl;
 			if (el && el.isConnected)
@@ -85,8 +78,8 @@ export class PreviewSettle {
 		this.start();
 	}
 
-	// The pointer left the LIST: no asking is live any more, and a cover still on comes off. The
-	// popover itself stays tracked: it is the app's to close, and the reader may be reading it.
+	// 指针离开了**列表**：不再有活的询问，还盖着的遮罩就揭下来。弹出层本身仍被跟踪：
+	// 关它是 app 的事，而读者可能正在读它。
 	hoverEnded(): void {
 		this.session = false;
 		this.wantCover = false;
@@ -96,15 +89,14 @@ export class PreviewSettle {
 		}
 	}
 
-	// Whether a preview is standing open right now, asked of the app's own handle rather than
-	// remembered here: a remembered answer would go stale exactly when it mattered.
+	// 此刻是否有预览正立着开着，是问 app 自己的把手、而不是在这里记住：一个记下来的答案
+	// 恰恰会在它要紧的那一刻过期。
 	isOpen(): boolean {
 		const el = this.parent?.hoverPopover?.hoverEl;
 		return !!el && el.isConnected;
 	}
 
-	// The panel is going away: a popover left covered would be a bug that outlives the rows that
-	// caused it.
+	// 面板要走了：一个被留在遮罩下的弹出层，会是个比引起它的那些行活得还久的 bug。
 	stop(): void {
 		this.running = false;
 		this.session = false;
@@ -121,15 +113,13 @@ export class PreviewSettle {
 		void this.loop();
 	}
 
-	// One look per paint, for as long as there is anything to AWAIT: a live asking, or a cover
-	// waiting on the note's own journey. An idle panel runs nothing — and neither does a hover that
-	// has ENDED, however long the popover it asked for stands open afterwards. What the loop would
-	// still be looking for is a NEW answer from the app, and with no asking live there cannot be
-	// one: the app opens its preview off the pointer, and the pointer has left the list.
+	// 每次绘制看一眼，只要有东西可**等**：一次活的询问，或一个正在等笔记自己那趟旅程的遮罩。
+	// 空闲的面板什么都不跑 —— 一个**已经结束**的悬停也不跑，无论它要来的那个弹出层之后
+	// 立着多久。循环若还开着，它会找的也是来自 app 的一个**新**答案，而没有活的询问
+	// 就不可能有：app 是依据指针打开它的预览的，而指针已经离开了列表。
 	//
-	// The tracking popover is therefore not what keeps it alive. Standing down costs nothing to
-	// restore: the next asking starts the loop again, and its first look is the one that notices
-	// the old popover has since closed.
+	// 所以那个被跟踪的弹出层不是维持它活着的东西。停下要恢复起来不费什么：下一次询问会
+	// 重新启动循环，而它第一眼就会注意到那个旧弹出层已经关掉了。
 	private async loop(): Promise<void> {
 		while (this.running && (this.session || this.coveredEl)) {
 			this.tick();
@@ -142,17 +132,15 @@ export class PreviewSettle {
 		const pop = this.parent?.hoverPopover ?? undefined;
 		const el = pop?.hoverEl;
 		if (!pop || !el || !el.isConnected) {
-			// Closed — or never there. Uncovering is bookkeeping here (the element is the app's to
-			// take away), but restoring costs nothing and leaves nothing to chance if the app re-uses
-			// the node.
+			// 关了 —— 或者从来就不在。这里揭开只是记账（那个元素是 app 拿走的东西），
+			// 但恢复不费什么，而且万一 app 复用了这个节点，也不留任何侥幸。
 			this.popover = undefined;
 			this.coveredEl = undefined;
 			this.reveal();
 			return;
 		}
 		if (pop !== this.popover) {
-			// THE APP HAS ANSWERED. Said first, because it is true whether or not there is anything to
-			// cover.
+			// **app 已经作答了**。先说这句，因为无论有没有东西要盖它都成立。
 			this.reveal();
 			this.popover = pop;
 			this.coveredEl = undefined;
@@ -162,20 +150,19 @@ export class PreviewSettle {
 			return;
 		}
 		if (this.coveredEl && this.coveredEl !== el) {
-			// The same popover wearing new content: the journey starts over.
+			// 同一个弹出层换上了新内容：这趟旅程重新开始。
 			this.reveal();
 			this.beginCover(el);
 		}
 		if (!this.coveredEl)
 			return;
-		// Re-applied every look rather than once: the content node arrives later than the card it
-		// belongs to, and a node only ever hidden before it exists is not hidden at all.
+		// 每次查看都重新施加、而不是只做一次：内容节点比它所属的那张卡片到得晚，
+		// 而一个在它存在之前就被藏过的节点根本没被藏住。
 		this.hideNew(this.coveredEl);
-		// The delayed scroll landed. Its own mark is the answer: the highlight is put on the line in
-		// the same call that moves the scroller, so its arrival and the arrival of the position are
-		// the same instant — and taken off in the same look, so the flash is never seen. There is
-		// deliberately no second witness: a covered popover still takes the wheel (opacity hides, it
-		// does not disable), and the reader's own scroll is not the scroll being waited for.
+		// 那次延迟的滚动落地了。它自己的标记就是答案：高亮是在移动滚动容器的同一次调用里
+		// 被放到那一行上的，所以它的到达与那个位置的到达是同一瞬间 —— 而在同一次查看里
+		// 就被拿掉，所以那一闪永远不会被看见。这里有意不要第二个见证：一个盖着遮罩的弹出层
+		// 仍然会接管滚轮（opacity 是隐藏，不是禁用），而读者自己的滚动不是被等待的那次滚动。
 		if (this.coveredEl.querySelector(`.${FLASH}`)) {
 			this.unflash(this.coveredEl);
 			this.reveal();
@@ -189,19 +176,18 @@ export class PreviewSettle {
 	}
 
 	private beginCover(el: HTMLElement): void {
-		// One cover at a time, and exactly one: an asking can arrive while another card is still
-		// under ours, and a hidden list dropped without restoring is a node left invisible for good.
+		// 一次只有一个遮罩，而且恰好一个：一次询问可能在另一张卡片还在我们的遮罩下时到达，
+		// 而一份被丢掉、又没有恢复的隐藏列表，是一个永久留在不可见状态的节点。
 		this.reveal();
 		this.coveredEl = el;
 		this.deadline = Date.now() + LAND_MAX_MS;
 		this.hideNew(el);
 	}
 
-	// Everything the popover is showing, hidden WITHOUT hiding the popover: the card appears the
-	// instant it appears, with the note's own space already reserved, so what the reader sees is a
-	// note being uncovered rather than a card arriving late. Only opacity moves — nothing about
-	// layout may change while it is hidden, or the card would be sized for content that is not there
-	// yet.
+	// 弹出层正在显示的一切，在**不**隐藏弹出层本身的前提下藏起来：卡片在它出现的那一瞬
+	// 就出现，且笔记自己的空间已经预留好，所以读者看到的是「一篇笔记被揭开」而不是
+	// 「一张卡片迟到」。只有 opacity 动 —— 隐藏期间布局不许有任何变化，否则卡片就会
+	// 按还不存在的内容来定尺寸。
 	private hideNew(el: HTMLElement): void {
 		for (const child of Array.from(el.children)) {
 			if (child.instanceOf(HTMLElement) && !this.hidden.includes(child)) {
@@ -211,7 +197,7 @@ export class PreviewSettle {
 		}
 	}
 
-	// Take the search hit's highlight off the line: nothing in this panel ever asked for a search.
+	// 把搜索命中的高亮从那一行上拿掉：这个面板里没有任何东西要过搜索。
 	private unflash(el: HTMLElement): void {
 		for (const marked of Array.from(el.querySelectorAll(`.${FLASH}`)))
 			marked.classList.remove(FLASH);
