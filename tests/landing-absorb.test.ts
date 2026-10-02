@@ -114,7 +114,7 @@ function setCursor(view: MarkdownView, line: number, ch: number) {
 		() => ({ line, ch });
 }
 
-describe('OpenPatcher —— 在 setViewState 那一刻撑开落地吸收窗口', () => {
+describe('OpenPatcher —— 在 setViewState 那一刻撑开落点吸收窗口', () => {
 	it('派发带 caller 目标的打开（搜索命中）时撑开一个有限吸收窗口', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
@@ -152,7 +152,7 @@ describe('OpenPatcher —— 在 setViewState 那一刻撑开落地吸收窗口'
 	});
 });
 
-describe('Sampler 轮询 —— 撑开期间吸收落地', () => {
+describe('Sampler 轮询 —— 撑开期间吸收落点', () => {
 	it('把 lastEphemeralState 的重置基准挪到落点，且不写库', () => {
 		const { sampler, state, database, view } = makePollHarness();
 
@@ -203,7 +203,7 @@ describe('Sampler 轮询 —— 撑开期间吸收落地', () => {
 	});
 });
 
-describe('Sampler.installSearchAnchor —— 失焦宽限计时器与落地吸收之争', () => {
+describe('Sampler.installSearchAnchor —— 失焦宽限计时器与落点吸收之争', () => {
 	let cleanups: (() => void)[];
 
 	beforeEach(() => {
@@ -242,7 +242,7 @@ describe('Sampler.installSearchAnchor —— 失焦宽限计时器与落地吸�
 		input.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }));
 	}
 
-	it('为落地撑开的有限锚不会提前过期', () => {
+	it('为落点撑开的有限锚不会提前过期', () => {
 		const { state } = makeAnchorHarness();
 		const input = makeSearchInput();
 

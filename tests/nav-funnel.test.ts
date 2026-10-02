@@ -140,7 +140,7 @@ describe('NavFunnel —— 采集点发布些什么', () => {
 		]);
 	});
 
-	it('teleport 带着它瞄准的那一行，落地到了再带上落点', () => {
+	it('teleport 带着它瞄准的那一行，落定之后再带上落点', () => {
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordTeleport('a.md', 'leaf-1', 300);
