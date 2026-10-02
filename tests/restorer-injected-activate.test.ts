@@ -228,7 +228,7 @@ describe('Restorer.completeInjectedRestore', () => {
 
 		await restorer.completeInjectedRestore(leaf);
 
-		expect(state.lastLoadedFilePath).toBe('a.md'); // restore ran and anchored
+		expect(state.lastLoadedFilePath).toBe('a.md'); // 恢复跑了并锚定
 		expect(show).not.toHaveBeenCalled();
 
 		// 期限已过：下一次普通恢复又会显示徽标。
@@ -247,10 +247,10 @@ describe('Restorer.completeInjectedRestore', () => {
 		const second = restorer.restoreEphemeralState();
 		await Promise.all([first, second]);
 
-		expect(state.restoreRun).toBe(1); // no supersession from the duplicate
-		expect(state.injectedOpenLeafIds.size).toBe(0); // marker consumed once
+		expect(state.restoreRun).toBe(1); // 重复那次没有取代
+		expect(state.injectedOpenLeafIds.size).toBe(0); // 标记只消费一次
 		expect(state.lastLoadedFilePath).toBe('a.md');
-		expect(state.inFlightRestoreLeafRuns.size).toBe(0); // cleaned up
+		expect(state.inFlightRestoreLeafRuns.size).toBe(0); // 清理干净
 	});
 
 	it('同一个 leaf 上换了文件，不被正在飞的那一对挡住', async () => {
@@ -258,14 +258,14 @@ describe('Restorer.completeInjectedRestore', () => {
 		// b.md 打开。把 a.md 那一对种成「飞行中」；同一个 leaf 上的 b.md 打开
 		// 仍然必须恢复。
 		const { state, restorer } = makeHarness({ filePath: 'b.md' });
-		state.injectedOpenLeafIds.delete('leaf-1'); // a.md's marker consumed
-		state.handledLeafIdMap.delete('leaf-1'); // fresh b.md open, no dedup
+		state.injectedOpenLeafIds.delete('leaf-1'); // a.md 的标记已消费
+		state.handledLeafIdMap.delete('leaf-1'); // 全新的 b.md 打开，不去重
 		state.inFlightRestoreLeafRuns.set('leaf-1', { filePath: 'a.md', run: 1 });
 
 		await restorer.restoreEphemeralState();
 
 		expect(state.lastLoadedFilePath).toBe('b.md');
-		expect(state.restoreRun).toBe(1); // the b.md open actually restored
+		expect(state.restoreRun).toBe(1); // b.md 那次打开真的恢复了
 		// b.md 的恢复取代了种下的 a.md 那条，并做了清理。
 		expect(state.inFlightRestoreLeafRuns.size).toBe(0);
 	});
