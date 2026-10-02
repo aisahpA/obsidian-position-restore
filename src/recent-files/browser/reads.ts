@@ -4,101 +4,86 @@ import { EphemeralState } from '@/types';
 import { HeadingRef, headingsFromLines } from '@/shared/headings';
 import { NavEntryDescription, describeNavEntry } from './model';
 
-// Everything the browser reads out of the vault, cached: an entry's display pieces
-// (one render's worth) and, per path, what the file's metadata cache answers — its
-// headings and the other names it goes by. None of these needs the file's text.
+// 浏览器从 vault 里读出来的一切，带缓存：一条条目的显示碎片（一帧渲染的量），
+// 以及按 path 分，文件元数据缓存所回答的东西 —— 它的各标题、和它另有的那些名字。
+// 这些都不需要文件的文本。
 //
-// TWO questions may go to the text, and only after the cache has been asked and said
-// nothing: the section chain of a note the app has not re-parsed (see headingsFor),
-// and the line a stale number has moved to (see linesFor).
+// **两个**问题可能要去问文本，而且只在缓存被问过、且什么都没说之后：一篇 app 还没重新解析
+// 的笔记的标题链（见 headingsFor），以及一个过期数字所移动到的行（见 linesFor）。
 
 export interface RecentFilesReadsOptions {
-	// A file record carries no position of its own, so the line such a row prints is
-	// the line a plain open will land on — which is the promise the row makes.
+	// 文件记录自身不携带位置，所以这样一行显示的行号，就是一次普通打开会落到的行 ——
+	// 这正是这一行所做的承诺。
 	savedPosition?: (path: string) => EphemeralState | undefined;
-	// A reader, not a snapshot: a resident panel is re-pointed on every render.
+	// 是一个读取器，不是一个快照：常驻面板每次渲染都会被重新指向。
 	entries: () => NavEntry[];
-	// A reading that was not there when a row was drawn has landed. The list is the
-	// only thing that can show it, and only a redraw does.
+	// 一次在一行被画出来时还不存在的读取已经落地。列表是唯一能展示它的东西，
+	// 而只有一次重画才能做到。
 	onLateRead?: () => void;
-	// The frontmatter property a row prints as the note's name, EMPTY for none
-	// (see PluginSettings.recentFilesTitleProperty). Read per asking rather than
-	// taken once: a reader switching it on in the settings is looking at the
-	// panel that has to change under them.
+	// 一行拿来当作笔记名字显示的 frontmatter 属性，没有时为**空**
+	// （见 PluginSettings.recentFilesTitleProperty）。每次询问都读、而不是只取一次：
+	// 一个在设置里把它打开的读者，正看着那个必须在他们手底下变的面板。
 	titleProperty?: () => string;
-	// A note's PRINTED NAME changed. The list is the only thing that shows it,
-	// and only a redraw does. Fired sparingly on purpose: an edit anywhere in a
-	// note re-parses it, so the metadata event alone says nothing about the
-	// name — what fires this is the name being different now.
+	// 一篇笔记**显示的名字**变了。列表是唯一展示它的东西，而只有一次重画才能做到。
+	// 有意少发：笔记里任何地方的一次编辑都会让它重新解析，所以单看那个元数据事件
+	// 说不出关于名字的任何事 —— 触发它的是「现在这个名字不一样了」。
 	onTitleChange?: () => void;
 }
 
-// What one file's metadata says: the section chain a landing row prints, and the
-// other names the file goes by, which the search box matches on. One record for both
-// because `getFileCache` answers both in a single call.
+// 一个文件的元数据说了什么：落点行显示的标题链，以及这个文件另有的、搜索框据以匹配的
+// 那些名字。两者共一个记录，因为 `getFileCache` 一次调用就把两者都答了。
 export interface FileMeta {
-	// Undefined while Obsidian has not parsed the file — which is not the same answer
-	// as a file whose chain is empty (see readMeta).
+	// Obsidian 还没解析这个文件时为 undefined —— 这与「链是空的文件」不是同一个答案
+	// （见 readMeta）。
 	headings?: HeadingRef[];
-	// Obsidian's OWN property and only it: "alias" is the app's word, and every
-	// other place the reader meets it — the quick switcher, `[[`, the backlinks —
-	// means these names.
+	// Obsidian **自己**的属性，且只有它：app 专有词就叫「别名」，而读者遇到它的其它任何地方
+	// —— 快速切换器、`[[`、反向链接 —— 指的都是这些名字。
 	aliases: string[];
-	// The `title` property, a community convention and not a native one. KEPT APART
-	// from the aliases because it is not one of them: it is the name the note gives
-	// itself, and a row may be printing it (see `title`).
+	// `title` 属性，一个社区惯例、不是原生的。与别名**分开**存，因为它不是其中之一：
+	// 它是笔记给自己起的名字，而一行可能正在显示它（见 `title`）。
 	frontTitle?: string;
-	// What the row prints as the note's name, from the property the reader named —
-	// undefined when there is no such property or its value is not a name, which
-	// is the file's own name's turn.
+	// 一行拿来当笔记名显示的东西，取自读者所命名的属性 —— 没有这样的属性、或它的值不是一个
+	// 名字时为 undefined，那时就轮到文件自己的名字了。
 	title?: string;
 }
 
-// The names a note goes by BESIDES the one its row prints, asked as one question and
-// answered as TWO: only one of the two is what the app calls an alias, and a `title`
-// filed under "aliases" was an answer to a question the reader did not ask.
+// 一篇笔记**除了**它那一行所显示的那个之外另有的名字，作为一个问题问出、作为**两个**来回答：
+// 两者中只有一个是 app 所称的别名，而一个被归档到「别名」下的 `title`，
+// 是对一个读者没问的问题的回答。
 export interface FileNames {
-	// What the note calls itself; absent when the row is already printing it.
+	// 笔记自称什么；当这一行已经在显示它时不存在。
 	frontTitle?: string;
 	aliases: string[];
 }
 
 export class RecentFilesReads {
-	// Filtering re-renders on every keystroke, so the vault lookups behind
-	// describeNavEntry are not repeated per row.
+	// 筛选每敲一个键就重渲染一次，所以 describeNavEntry 背后那些 vault 查询不会按行重复。
 	private descCache = new Map<number, NavEntryDescription>();
-	// Keyed by PATH, so unlike the cache above it survives the list being filtered and
-	// rebuilt.
+	// 按 **path** 为键，所以与上面的缓存不同，它会熬过列表被筛选、被重建。
 	//
-	// NOTHING IS KEPT UNTIL THE CACHE ANSWERS: `getFileCache` is null while a file is
-	// unparsed — exactly the moment a sync is replacing one — and a rename fires no
-	// 'changed', so a remembered miss would have no event left to invalidate it; it
-	// would outlive the sync itself and cost the row its chain until the body died. So
-	// a miss is asked again next render, which is one map lookup, while the work this
-	// map spares only happens once there is an answer to spare it on.
+	// **缓存作答之前什么都不留**：文件未解析时 `getFileCache` 是 null —— 恰恰是同步正在
+	// 替换一个文件的时刻 —— 而改名不触发 'changed'，所以一个被记住的「未命中」没有事件
+	// 剩下来可以作废它；它会比那次同步本身活得还久，并让这一行失去它的链，直到主体死掉。
+	// 所以一次未命中的会在下一次渲染时再问一遍，那只是一次 map 查询，而这份 map 省下的
+	// 工作量，只在有一个答案可省时才发生。
 	private meta = new Map<string, FileMeta>();
-	// The property the remembered names were read under. COMPARED ON EVERY ASKING
-	// rather than invalidated by an event: the property is a reader this cache cannot
-	// subscribe to, and the reader who changed it in the settings is looking at the
-	// panel that has to change under them (see RecentFilesBrowserPrefs.titleProperty).
+	// 那些被记住的名字是在哪个属性下读的。**每次询问都比对**，而不是靠事件作废：
+	// 那个属性是一个这个缓存订阅不了的读取器，而那个在设置里改了它的读者，
+	// 正看着那个必须在他们手底下变的面板（见 RecentFilesBrowserPrefs.titleProperty）。
 	private titledFor?: string;
-	// The file's own TEXT, for the two questions the cache cannot answer: the chain of
-	// a note it has not re-parsed (see headingsFor), and the line a stale number has
-	// moved to (see linesFor). One reading serves both — a note's lines are the lines
-	// its headings sit on.
+	// 文件**自己的文本**，供缓存答不了的那两个问题：一篇它还没重新解析的笔记的链
+	// （见 headingsFor），以及一个过期数字所移动到的行（见 linesFor）。一次读取同时服务两者
+	// —— 一篇笔记的各行，就是它各标题所在的行。
 	//
-	// TWO records, because the two answers have different lifetimes and one reading fills both.
-	// A chain is asked for by EVERY landing row of every render, and is kept for as long as the
-	// body lives; the lines are asked for by the line fallback alone, and whether they are worth
-	// keeping at all is still an open question. Kept apart so that dropping them cannot take the
-	// chain with them (see ensureText's `want`).
+	// **两个**记录，因为这两个答案的生命期不同，而一次读取把两者都填上。链被每一帧的每一个
+	// 落点行问，且只要主体活着就留着；行则只被行号兜底问，而它们到底值不值得留，仍是一个
+	// 悬而未决的问题。分开存，好让丢掉它们不会把链也带走（见 ensureText 的 `want`）。
 	//
-	// Remembered against mtime rather than invalidated by an event: what makes such a
-	// reading stale is an EXTERNAL change, and an external change fires no 'changed' —
-	// that is the whole reason this fallback exists.
+	// 对着 mtime 记住、而不是靠事件作废：让这样一次读取过期的是**外部**变更，
+	// 而外部变更不触发 'changed' —— 这正是这个兜底存在的全部理由。
 	private heads = new Map<string, { mtime: number; headings: HeadingRef[] }>();
 	private lines = new Map<string, { mtime: number; lines: string[] }>();
-	// Paths being read right now: however many renders ask, the file is read once.
+	// 此刻正在读的 path：无论多少帧来问，文件只被读一次。
 	private reading = new Set<string>();
 	private metaRef?: EventRef;
 
@@ -106,15 +91,13 @@ export class RecentFilesReads {
 		private app: App,
 		private opts: RecentFilesReadsOptions,
 	) {
-		// A renamed alias is when a stale memory is worst — the reader is typing the
-		// name they just changed. What a change invalidates is ONE file's record, not
-		// the whole map.
+		// 改掉一个别名，正是过期记忆最糟的时候 —— 读者正在敲他们刚改的那个名字。
+		// 一次变更作废的是**一个**文件的记录，不是整张 map。
 		//
-		// A NAME THE READER IS TYPING changes under them too, and the row is standing
-		// there printing the old one. Compared rather than assumed: an edit anywhere in
-		// the note re-parses it, so this event alone says nothing about the name, and
-		// a redraw for every keystroke is a full rebuild of the list (see the caller's
-		// render) for a row that reads the same.
+		// 一个**读者正在敲的名字**也会在他们手底下变，而那一行正站在那儿显示着旧的。
+		// 是对比、而不是假定：笔记里任何地方的一次编辑都会让它重新解析，所以单看这个事件
+		// 说不出关于名字的任何事，而每敲一个键就重画一次，是对一份读起来一模一样的行
+		// 做整份重建（见调用方的 render）。
 		this.metaRef = app.metadataCache?.on?.('changed', (file: TFile) => {
 			const before = this.meta.get(file.path)?.title;
 			this.meta.delete(file.path);
@@ -125,34 +108,30 @@ export class RecentFilesReads {
 		});
 	}
 
-	// Both shells close through the browser's destroy, and a dialog is a new reads
-	// object every time it opens.
+	// 两个外壳都经由浏览器的 destroy 关闭，而对话框每次打开都是一个新的 reads 对象。
 	dispose(): void {
 		if (this.metaRef)
 			this.app.metadataCache?.offref?.(this.metaRef);
 		this.metaRef = undefined;
 	}
 
-	// The browser's ONE question about a file's existence, and RecentFilesList is its
-	// only asker: a place whose file is gone is filtered out before a row is drawn, so
-	// nothing downstream has to wonder. The store prunes such a place itself on the
-	// vault's delete event; this covers the window before that lands. An arrow field so
-	// it can be handed over as a plain predicate.
+	// 浏览器关于「文件是否存在」的**唯一**一个问题，而 RecentFilesList 是它唯一的提问者：
+	// 一个文件没了的地点会在画出一行之前被滤掉，所以下游什么都不必费心。store 会在 vault 的
+	// delete 事件里自己修剪这样一个地点；这个覆盖的是那件事落地之前的窗口期。
+	// 做成箭头字段，好让它作为一个普通谓词被交出去。
 	hasFile = (path: string): boolean =>
 		this.app.vault.getAbstractFileByPath(path) instanceof TFile;
 
-	// Half of landingNote's comparison: the record keeps the mtime the quoted words
-	// were taken at, and the file keeps the one it has now. Read off the vault's own
-	// file object rather than remembered, because what matters is the one that changed.
+	// landingNote 那次比对的一半：记录留着引文被拍下时的 mtime，文件则留着它现在的那个。
+	// 从 vault 自己的文件对象上读、而不是记住，因为要紧的是那个变了的东西。
 	mtimeOf(path: string): number | undefined {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		return file instanceof TFile ? file.stat.mtime : undefined;
 	}
 
-	// What a row calls the note: the property the reader named, when the note has it.
-	// Undefined is not an answer about this note — it is the file's own name's turn
-	// (see describeNavEntry). Skipped entirely while the setting is empty: a vault
-	// that never asked for this is asked no metadata question for it.
+	// 一行怎么称呼那篇笔记：读者所命名的属性，当笔记有这个属性时。undefined 不是关于这篇
+	// 笔记的一个答案 —— 那是轮到文件自己的名字了（见 describeNavEntry）。设置为空时整个
+	// 跳过：一个从未要过这个的 vault，不会为它被问任何元数据问题。
 	titleOf = (path: string): string | undefined => {
 		if (!path || !this.opts.titleProperty?.())
 			return undefined;
@@ -172,13 +151,11 @@ export class RecentFilesReads {
 		this.descCache.clear();
 	}
 
-	// Mapped once per path — and only once the cache has answered (see `meta`).
+	// 每个 path 只映射一次 —— 而且只在缓存作答之后（见 `meta`）。
 	//
-	// A record whose NAME was read under the property the reader has since changed is an
-	// answer to a question nobody is asking, and it is kept PER PATH — so it would outlive
-	// the redraw that has to print the new one. The rest of the record goes with it: each
-	// of its parts is one cache lookup, and half a reading under two questions is a second
-	// rule to reason about.
+	// 一个「名字是在读者后来改掉的那个属性下读的」记录，是对没人问的问题的回答，而它是按
+	// **path** 留的 —— 所以它会比那次必须显示新名字的重画活得还久。记录的其余部分随之一起走：
+	// 它的每一部分都只是一次缓存查询，而「两个问题下只读一半」是多出来的一条要推理的规则。
 	metaFor(path: string): FileMeta {
 		const prop = this.opts.titleProperty?.() ?? '';
 		if (prop !== this.titledFor) {
@@ -195,21 +172,17 @@ export class RecentFilesReads {
 		return read;
 	}
 
-	// WHETHER THIS NOTE HAS BEEN PARSED YET — the difference between "that heading is gone" and
-	// "nobody has asked the app for it yet", which only the CACHE can tell apart: a note a sync has
-	// just put back has no headings here for as long as the app takes to re-read it (and on a phone
-	// it may not be re-read at all while the reader never opens it). Read off the cache alone,
-	// deliberately without the text fallback below: the question is whether there was ever an
-	// answer, not whether this list could build one.
+	// 这篇笔记到底**有没有被解析过** —— 「那个标题没了」与「还没人向 app 要过它」之间的区别，
+	// 而只有**缓存**能分辨：一篇同步刚放回来的笔记，在 app 重新读它所需的这段时间里，这里没有
+	// 任何标题（而在手机上，只要读者从没打开它，它可能根本不会被重新读）。只从缓存上读，
+	// 有意不用下面的文本兜底：问题是有没有过一个答案，而不是这份列表能不能造一个。
 	hasHeadings(path: string): boolean {
 		return !!this.metaFor(path).headings?.length;
 	}
 
-	// TWO ways to know a chain: the metadata cache, already parsed, and the note's own
-	// text. The text is only for when the first says nothing — and "nothing" includes
-	// an EMPTY chain: a note a sync has just put back can have been parsed while it was
-	// still being written, and on a phone that record can stand for the rest of the
-	// session.
+	// 得知一条链的**两种**办法：已经解析好的元数据缓存，以及笔记自己的文本。文本只在第一种
+	// 什么都没说时才用 —— 而「什么都没说」包括**空**链：一篇同步刚放回来的笔记，可能在它还在
+	// 被写的时候就被解析过了，而在手机上那个记录可能就此代表整个会话剩下的部分。
 	headingsFor(path: string): HeadingRef[] | undefined {
 		const fromCache = this.metaFor(path).headings;
 		if (fromCache && fromCache.length)
@@ -217,37 +190,33 @@ export class RecentFilesReads {
 		return this.textHeadings(path);
 	}
 
-	// ASKING IS FREE AND ANSWERING IS NOT: the text sits behind an await, so the row
-	// being drawn now is drawn without the chain. Until the reading lands, what shows
-	// is the last reading taken at this mtime — a chain one sync old still names the
-	// section, which is more than a line number does.
+	// **提问免费、作答不免费**：文本在一个 await 之后，所以现在正被画的这一行是没带链画的。
+	// 在这次读取落地之前，显示的是在这个 mtime 下上次拍的那次读取 —— 一条旧一次同步的链
+	// 仍然说得出那一分节，比一个行号能做的还多。
 	//
-	// …which is why this answers with the record whatever mtime it was taken at, while
-	// linesFor below may not.
+	// ……所以这个不管那条记录是在哪个 mtime 下拍的都拿它作答，而下面的 linesFor 不行。
 	private textHeadings(path: string): HeadingRef[] | undefined {
 		this.ensureText(path, true, 'heads');
 		return this.heads.get(path)?.headings;
 	}
 
-	// The lines a stale line number is re-found in (see nowLineFor). Never a reading
-	// taken at an older mtime: the lines are the thing being compared against, so a
-	// stale copy of them is not an approximation of the answer but its absence.
+	// 一个过期的行号被重新找到时所依据的那些行（见 nowLineFor）。绝不用在一个更旧的 mtime 下
+	// 拍的读取：这些行正是被拿来比较的东西，所以它们的一份过期拷贝不是答案的近似，而是答案的
+	// 缺席。
 	//
-	// `prime` is whether a reading may be STARTED. One hover may — the answer is one
-	// await away. A render of fifty rows may not: fifty files read to label fifty rows
-	// is not a price a redraw pays.
+	// `prime` 是「是否可以**开始**一次读取」。一次悬停可以 —— 答案只隔一个 await。
+	// 一次五十行的渲染不行：为给五十行贴标签而读五十个文件，不是一次重画付得起的价钱。
 	linesFor(path: string, prime: boolean): string[] | undefined {
 		const mtime = this.ensureText(path, prime, 'lines');
 		const known = this.lines.get(path);
 		return known && known.mtime === mtime ? known.lines : undefined;
 	}
 
-	// Start reading a note's text, unless the record the asker is here for is already in hand at
-	// the file's CURRENT mtime. `want` names that record, because the two have different lifetimes
-	// (see the field): the chain being in hand never stands in for the lines, so the day the lines
-	// are dropped, a note already read for its chain is not read again for a question it has
-	// nothing to do with. Answered with the mtime such a reading is for — what the caller compares
-	// its own record against — or undefined for a path with no file behind it.
+	// 开始读一篇笔记的文本，除非提问者来这里要的那个记录已经在文件**当前**的 mtime 下到手了。
+	// `want` 点名那个记录，因为两者生命期不同（见该字段）：链到手永远不能代替行，
+	// 所以到了行被丢掉的那天，一篇已经为它的链读过一次的笔记，不会为一个与它无关的问题
+	// 被再读一遍。作答时给出这次读取所对应的 mtime —— 也就是调用方拿自己记录去比对的
+	// 那个 —— 或对没有文件在背后的 path 给出 undefined。
 	private ensureText(path: string, prime: boolean, want: 'heads' | 'lines'): number | undefined {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		if (!(file instanceof TFile))
@@ -261,19 +230,18 @@ export class RecentFilesReads {
 		return mtime;
 	}
 
-	// Remembered against the mtime it was read at. A read that FAILS is remembered as
-	// no headings and no lines rather than left open: a file that will not read is one
-	// this list is about to stop drawing anyway (see hasFile), and an open question
-	// would be asked again on every redraw for as long as the body lived.
+	// 对着它被读时的 mtime 记住。一次**失败**的读取被记成「没有标题、也没有行」，
+	// 而不是留着悬空：一个读不了的文件，是这份列表反正即将停止绘制的（见 hasFile），
+	// 而一个悬空的问题会在主体活着的整个期间、每次重画都被再问一遍。
 	private async readText(path: string, file: TFile, mtime: number): Promise<void> {
 		let headings: HeadingRef[] = [];
 		let lines: string[] = [];
 		try {
-			// Split ONCE: the headings are found among the very lines the line fallback reads.
+			// 只切**一次**：各标题正是在行号兜底所读的那些行里找到的。
 			lines = (await this.app.vault.cachedRead(file)).split('\n');
 			headings = headingsFromLines(lines);
 		} catch {
-			// Nothing to say about it, then: the row keeps its line number.
+			// 那就没什么可说：这一行保留它的行号。
 		}
 		this.reading.delete(path);
 		this.heads.set(path, { mtime, headings });
@@ -281,21 +249,18 @@ export class RecentFilesReads {
 		this.opts.onLateRead?.();
 	}
 
-	// Read LIVE from the cache rather than stored on a place: an alias is the vault's
-	// word for a file NOW, not part of a visit that happened last week — and a frozen
-	// list would be wrong exactly when the reader looks for a name they just changed.
-	// Empty for a pathless view, which is not a file.
+	// 从缓存里**实时**读、而不是存在某个地点上：一个别名是 vault 对某个文件**现在**的说法，
+	// 不是上周发生的一次访问的一部分 —— 而一份冻结的列表，恰恰会在读者去找一个他们刚改的
+	// 名字时出错。对没有 path 的视图为空，因为它不是一个文件。
 	//
-	// `printed` is the name the row is showing, which is not one of the note's OTHER
-	// names. Only the caller knows it: the property the reader chose, or the file's own
-	// name where there is none (see describeNavEntry).
+	// `printed` 是这一行正在显示的名字，它不是这篇笔记**另有的**名字之一。只有调用方知道它：
+	// 读者选的那个属性，或没有属性时文件自己的名字（见 describeNavEntry）。
 	otherNamesFor(path: string, printed?: string): FileNames {
 		if (!path)
 			return { aliases: [] };
 		const meta = this.metaFor(path);
-		// …minus the name the row PRINTS, which is not one of the note's other
-		// names: a tooltip reading "aka 读书笔记" under a row that says 读书笔记
-		// is saying the same thing twice.
+		// ……减去这一行**显示**的那个名字，它不是笔记另有的名字之一：一个写着「又名 读书笔记」
+		// 的提示框，出现在一行写着 读书笔记 的行下面，是把同一件事说了两遍。
 		const aliases = printed ? meta.aliases.filter(a => a !== printed) : meta.aliases;
 		return {
 			frontTitle: meta.frontTitle === printed ? undefined : meta.frontTitle,
@@ -304,20 +269,17 @@ export class RecentFilesReads {
 	}
 }
 
-// Read one path's metadata, through the cache and never the disk. `path` is empty for
-// a pathless view: there is no file to look up.
+// 读一个 path 的元数据，经由缓存、绝不碰磁盘。`path` 对没有 path 的视图为空：没有文件可查。
 //
-// NULL means "Obsidian has not parsed this file yet" — one it is still indexing, or
-// one a sync has just put back — which is NOT the same answer as a file with no
-// headings: that is a real reading, and it is kept (see metaFor).
-// What the reader asked a row to CALL the note: one frontmatter property, read only
-// where it holds a NAME. A list, a number, a date or an emptied value is not one —
-// a vault that put `title: [a, b]` in a note was naming something else, and a row
-// that guessed would print a list or a year where a name goes.
+// NULL 的意思是「Obsidian 还没解析这个文件」—— 一个它还在建索引的、或一个同步刚放回来的
+// —— 这与「一个没有标题的文件」不是同一个答案：后者是一次真实的读取，而且会被留下
+// （见 metaFor）。
+// 读者要求一行把笔记**叫作**什么：一个 frontmatter 属性，只在这个属性持有一个**名字**时才读
+// 它。一个列表、一个数字、一个日期或一个被清空的值都不是 —— 一个在笔记里写了 `title: [a, b]`
+// 的 vault 命名的是别的东西，而一个靠猜的行会在本该是名字的地方显示一个列表或一个年份。
 //
-// The CASE is tried only after the written one misses: the reader naming the property
-// in the settings does not remember whether the note wrote `title` or `Title`, and a
-// miss is a row that silently prints its file name instead.
+// 大小写只在写下的那个没命中之后才试：在设置里命名这个属性的读者，不记得笔记里写的是 `title`
+// 还是 `Title`，而一次未命中就是一行默默改为显示它的文件名。
 function frontmatterName(
 	fm: Record<string, unknown> | undefined,
 	prop: string,
@@ -353,8 +315,8 @@ function readMeta(app: App, path: string, titleProperty: string): FileMeta | nul
 	const fm: Record<string, unknown> | undefined = cache.frontmatter;
 	const aliases: string[] = [];
 	const seen = new Set<string>();
-	// One level of nesting, which is all this property's shapes need: a list may hold
-	// strings, and a hand-edited one may hold a list of lists.
+	// 一层嵌套，这就是这个属性的各种形态所需的全部：一个列表可能装字符串，
+	// 而一个手工编辑的可能装列表的列表。
 	const push = (value: unknown): void => {
 		if (typeof value === 'string') {
 			const text = value.trim();
@@ -367,13 +329,11 @@ function readMeta(app: App, path: string, titleProperty: string): FileMeta | nul
 				push(item);
 		}
 	};
-	// `aliases` is Obsidian's own property and may be a string OR a list — a
-	// hand-written `aliases: weekly` is as valid as the block list. It is the same
-	// vocabulary the quick switcher and `[[` suggestions match on: this search agrees
-	// with the app rather than inventing a second rule.
-	// `title` is not native but a community convention (Front Matter Title), and it is
-	// read APART from the aliases because it is not one: it is the name the note gives
-	// itself, which the tooltip says on a line of its own (see otherNamesFor).
+	// `aliases` 是 Obsidian 自己的属性，可能是一个字符串**或**一个列表 —— 手写的
+	// `aliases: weekly` 与块列表一样有效。它与快速切换器和 `[[` 建议所匹配的是同一套词汇：
+	// 这次搜索是与 app 一致的，而不是另发明一条规则。
+	// `title` 不是原生的，而是一个社区惯例（Front Matter Title），它**分开**于别名来读，
+	// 因为它不是别名之一：它是笔记给自己起的名字，提示框会让它占单独一行（见 otherNamesFor）。
 	push(fm?.aliases);
 	return {
 		headings,
@@ -383,8 +343,7 @@ function readMeta(app: App, path: string, titleProperty: string): FileMeta | nul
 	};
 }
 
-// The reading for a file Obsidian has not parsed yet. Fresh each time, and
-// deliberately NOT put in the map (see metaFor).
+// 给一个 Obsidian 还没解析的文件的那次读取。每次都新建，而且有意**不**放进 map（见 metaFor）。
 function noMeta(): FileMeta {
 	return { headings: undefined, aliases: [] };
 }
