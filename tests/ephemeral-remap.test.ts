@@ -1,9 +1,7 @@
-// Tests for ephemeral.ts: remapAnchoredState (a recorded position whose
-// anchor line text moved re-maps to the line that now carries the anchor
-// text; the copy carries the shift, the input stays untouched) and
-// readEphemeralState's invalid-scroll guard (a null/NaN/undefined getScroll()
-// readback — e.g. the preview renderer not caught up yet — must yield
-// undefined, never a bogus "top of file" state).
+// ephemeral.ts 的测试：remapAnchoredState（一条记下的位置，若它的 anchor 行文字挪了，
+// 就重新映射到**现在**携带那段 anchor 文字的那一行；副本带着位移，输入原封不动）以及
+// readEphemeralState 的非法 scroll 守卫（getScroll() 回读出 null/NaN/undefined —— 比如
+// 预览渲染器还没追上 —— 必须给出 undefined，绝不能给出一个假的「文件顶部」状态）。
 
 import { describe, it, expect } from 'vitest';
 import { MarkdownView } from 'obsidian';
@@ -20,8 +18,7 @@ function editor(lines: string[]) {
 
 const BASE_LINES = ['alpha', 'bravo', 'charlie', 'delta', 'echo'];
 
-// Minimal view stub: readEphemeralState only touches currentMode.getScroll()
-// and (when present) the editor.
+// 最小的视图桩：readEphemeralState 只碰 currentMode.getScroll() 和（在场时的）editor。
 function viewWithScroll(scroll: unknown): MarkdownView {
 	const view = new MarkdownView(undefined as never) as MarkdownView & Record<string, unknown>;
 	view.currentMode = { getScroll: () => scroll as number } as never;
@@ -30,10 +27,8 @@ function viewWithScroll(scroll: unknown): MarkdownView {
 
 describe('readEphemeralState', () => {
 	it('预览渲染器报告 scroll 为 null 时返回 undefined', () => {
-		// Regression: isNaN(null) is false and Math.round(null) is 0, so the
-		// old guard turned "renderer not caught up yet" into {scroll: 0} —
-		// a state the scroll capture / poll would then write over the
-		// saved record.
+		// 回归：isNaN(null) 是 false，而 Math.round(null) 是 0，所以旧的守卫把「渲染器还没追上」
+		// 变成了 {scroll: 0} —— 一个滚动采集 / 轮询随后会盖到已存记录上的状态。
 		expect(readEphemeralState(viewWithScroll(null))).toBeUndefined();
 	});
 
@@ -63,7 +58,7 @@ describe('remapAnchoredState', () => {
 	});
 
 	it('上方插入了行时 scroll 与 cursor 一起平移', () => {
-		// anchor was line 2; two lines inserted above moved it to line 4
+		// anchor 本来在第 2 行；上面插了两行，把它挪到了第 4 行
 		const lines = ['x1', 'x2', 'alpha', 'bravo', 'charlie', 'delta', 'echo'];
 		const st: NavEntryState = {
 			scroll: 2,
@@ -76,7 +71,7 @@ describe('remapAnchoredState', () => {
 			from: { line: 5, ch: 1 },
 			to: { line: 6, ch: 2 },
 		});
-		// entry stays immutable; the applied copy drops the anchor
+		// 记录保持不可变；被应用的那份副本把 anchor 丢掉
 		expect(st.scroll).toBe(2);
 		expect(st.cursor?.from.line).toBe(3);
 		expect(out.anchor).toBeUndefined();
@@ -93,8 +88,8 @@ describe('remapAnchoredState', () => {
 	});
 
 	it('平移量为负时把 scroll 夹在 0', () => {
-		// anchor was line 2; lines above deleted, it moved to line 0; a
-		// cursor at line 1 would land before the file top
+		// anchor 本来在第 2 行；上面的行被删掉，它挪到了第 0 行；一个在第 1 行的光标会落到文件
+		// 顶部之前
 		const lines = ['charlie', 'delta', 'echo'];
 		const st: NavEntryState = {
 			scroll: 2,
@@ -119,16 +114,16 @@ describe('remapAnchoredState', () => {
 	});
 
 	it('anchor 那一行被轻微编辑过（大小写 / 空白 / 标点）仍能重映射', () => {
-		// anchor recorded as "Bravo Line"; the line now reads "bravo line!" —
-		// normalized forms match, so the position still re-maps.
+		// anchor 记的是 "Bravo Line"；那一行现在读作 "bravo line!" —— 归一化之后两者相符，所以
+		// 这个位置仍然重映射得成。
 		const lines = ['alpha', 'bravo line!', 'charlie', 'delta', 'echo'];
 		const st: NavEntryState = { scroll: 2, anchor: 'Bravo  Line' };
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(1);
 	});
 
 	it('精确副本优先于更近、但只是归一化后才命中的候选', () => {
-		// 'charlie!' (distance 1) only normalizes to the anchor; 'charlie'
-		// (distance 2) is an unedited copy — the plain pass wins first.
+		// 'charlie!'（距离 1）只有在归一化之后才落在 anchor 上；而 'charlie'（距离 2）是没被
+		// 改动过的副本 —— 朴素那趟先赢。
 		const lines = ['charlie', 'charlie!', 'bravo', 'x', 'echo'];
 		const st: NavEntryState = { scroll: 2, anchor: 'charlie' };
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(0);
@@ -141,11 +136,11 @@ describe('remapAnchoredState', () => {
 	});
 
 	it('窗口内有重复时取最近的那个', () => {
-		// recorded line 3 holds 'b'; closer duplicate at -1 wins over -3
+		// 记下的第 3 行放着 'b'；-1 处那个更近的重复项赢过 -3 处那个
 		let lines = ['dup', 'a', 'dup', 'b', 'c'];
 		let st: NavEntryState = { scroll: 3, anchor: 'dup' };
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(2);
-		// equal distance: line+d is checked before line-d
+		// 距离相等时：先查 line+d，再查 line-d
 		lines = ['dup', 'a', 'x', 'b', 'c', 'dup'];
 		st = { scroll: 3, anchor: 'dup' };
 		expect(remapAnchoredState(editor(lines), st).scroll).toBe(5);
