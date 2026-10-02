@@ -217,8 +217,16 @@ rg -n 'settings:\s*(Partial<)?PluginSettings' src/
     `7554cb8` 行尾 30 条）—— 拆开的原因见下面待议第 6 条。⚠️ 行尾另有 **4 条纯文件名 token**
     （`// c.md` ×2 · `// b.md` · `// a.md`）按「写着代码名的别翻」原样保留（沿用阶段 5
     的 describe 口径），它们不是英文散文。
-  - ⏭️ 剩：B3 `nav-history-stack`（325）、B4 `sidebar`（284）、B5 `browser`（249）、
-    C 其余 30 个文件（1393）。若只想先做一刀：38 个文件的**导言块**共 410 行。
+  - ✅ 批次 B3 `nav-history-stack.test.ts` —— 单点次大。124 个连续 `//` 块 / 325 行，拆 3 次
+    落地（43 + 43 + 38）；块与行尾拆两个提交（`2acf2c0` 124 块 + `964a919` 行尾 60 条）
+  - ✅ 批次 B4 `recent-files-sidebar.test.ts` —— 常驻面板外壳（`browser/view.ts`），95 块 /
+    284 行，拆 2 次（50 + 45），本文件无行尾注释（`40b5da3`）
+  - ✅ 批次 B5 `recent-files-browser.test.ts` —— 浏览器纯部件（model / listing / list /
+    shared/headings），94 块 / 242 行，拆 2 次（48 + 46）；块与行尾拆两个提交（`0817302`
+    94 块 + `637ccfd` 行尾 2 条）
+  - ⏭️ 剩：C 其余 ~26 个文件（约 1025 行注释块 + ~105 条行尾英文）。其中最大的三个是
+    `recent-files-places`（87 块）、`nav-funnel`（37）、`note-edges`（39）。若只想先做
+    一刀：各文件的**导言块**。
 - **状态**：已改（进行中）
 
 ## 不改
