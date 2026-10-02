@@ -688,7 +688,7 @@ describe('RecentFilesModal —— 当前位置', () => {
 		search('zzz');
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent).toBe(t('recentFiles.noMatch'));
 
-		search('b.md'); // the current note alone
+		search('b.md'); // 只有当前笔记一行
 		expect(h.el.querySelector('.position-restore-nav-empty')).toBeNull();
 		h.clickRow(h.note('b'));
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
@@ -703,7 +703,7 @@ describe('RecentFilesModal —— 当前位置', () => {
 		box.value = '落点';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 
-		expect(h.notes()).toHaveLength(1); // the anchor carried the word
+		expect(h.notes()).toHaveLength(1); // 锚点带上了那个词
 		const tip = h.hover(h.note('a'))!;
 		expect(tip).not.toBeNull();
 		expect(tip.textContent).not.toContain(t('recentFiles.matchedLine'));
@@ -744,7 +744,7 @@ describe('RecentFilesModal —— 当前位置', () => {
 		const jbox = jump.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		jbox.value = '预览';
 		jbox.dispatchEvent(new Event('input', { bubbles: true }));
-		expect(jump.notes()).toHaveLength(1); // the chain carried the word
+		expect(jump.notes()).toHaveLength(1); // 标题链带上了那个词
 	});
 
 	it('行上印着的坐标本身不参与搜索', () => {
@@ -759,7 +759,7 @@ describe('RecentFilesModal —— 当前位置', () => {
 			entries, 1, { 'a.md': SPREAD_DOC.join('\n') }, [], {}, SPREAD_HEADINGS,
 		);
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent))
-			.toContain('L7'); // the row does print it
+			.toContain('L7'); // 这一行确实印出了它
 
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = 'L7';
@@ -930,8 +930,8 @@ describe('RecentFilesModal —— 键盘', () => {
 		const entries = [visit('a.md', NOW - 5 * MINUTE), visit('b.md', NOW - 2 * MINUTE), visit('c.md', NOW)];
 		const h = harness(entries, 2, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
-		h.key('ArrowDown'); // c.md — the newest note, and the one the reader is in
-		h.key('ArrowDown'); // b.md, the newest back note
+		h.key('ArrowDown'); // c.md —— 最新的笔记，也是读者所在的那篇
+		h.key('ArrowDown'); // b.md，后退栈里最新的那篇
 		h.key('Enter');
 
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
@@ -981,22 +981,22 @@ describe('RecentFilesModal —— 键盘', () => {
 
 		// **一次点击什么都不挪**：它打开它落着的那一行，而列表是读者自己的视口 ——
 		// 对一个别人指过的行，只要可读就够了，而那次走动跳到正中间的不是。
-		h.clickRow(h.notes()[3]); // d.md, below the box
+		h.clickRow(h.notes()[3]); // d.md，在框的下方
 		expect(listEl.scrollTop).toBe(0);
-		h.clickRow(h.notes()[0]); // c.md, in sight
+		h.clickRow(h.notes()[0]); // c.md，在视野内
 		expect(listEl.scrollTop).toBe(0);
-		spy.mockClear(); // …and from here on, the walk alone moves the list
+		spy.mockClear(); // ……而从这里起，只有走位会挪动列表
 
-		h.key('ArrowDown'); // c.md — the newest note, in sight
-		h.key('ArrowDown'); // b.md, in sight
+		h.key('ArrowDown'); // c.md —— 最新的笔记，在视野内
+		h.key('ArrowDown'); // b.md，在视野内
 		expect(listEl.scrollTop).toBe(0);
-		h.key('ArrowDown'); // a.md, flush with the foot of the list — still IN sight
+		h.key('ArrowDown'); // a.md，紧贴列表脚边 —— 仍在**视野内**
 		expect(listEl.scrollTop).toBe(0);
 
-		h.key('ArrowDown'); // …and out of it: the list brings the row to its MIDDLE
+		h.key('ArrowDown'); // ……而出了视野：列表把这一行带到它的**正中间**
 		expect(listEl.scrollTop).toBe(40);
-		expect(160 - listEl.scrollTop).toBe(120); // the row's top, at the box's middle
-		expect(spy).not.toHaveBeenCalled(); // no browser scroll: the walk is the list's own
+		expect(160 - listEl.scrollTop).toBe(120); // 这一行的顶边，正在框的正中间
+		expect(spy).not.toHaveBeenCalled(); // 没有浏览器滚动：走位是列表自己的
 	});
 
 	it('只有按键会挪位置，指针光是划过什么都不挪', () => {
@@ -1018,7 +1018,7 @@ describe('RecentFilesModal —— 键盘', () => {
 
 		// ……而键盘自己那个位置被原样留在原处：无论是指向它走到的那一行的指针报告，还是
 		// 指向任何别处的，都拿不走它。
-		h.key('ArrowDown'); // c.md — the newest note, and the one the reader is in
+		h.key('ArrowDown'); // c.md —— 最新的笔记，也是读者所在的那篇
 		expect(selected()).toEqual(['c']);
 		h.movePointer(b, { x: 44, y: 41 });
 		h.movePointer(h.el.querySelector<HTMLElement>('.position-restore-nav-list')!, { x: 200, y: 90 });
@@ -1041,7 +1041,7 @@ describe('RecentFilesModal —— 键盘', () => {
 		const h = harness(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '' });
 
 		h.key('ArrowDown'); // c.md
-		h.key('ArrowDown'); // b.md — one row, whatever the note holds
+		h.key('ArrowDown'); // b.md —— 一行，无论笔记里有什么
 		expect(h.rows()).toHaveLength(0);
 		expect(h.note('b').classList.contains('is-selected')).toBe(true);
 
@@ -1096,7 +1096,7 @@ describe('RecentFilesModal —— 键盘', () => {
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L41', 'L401']);
 		h.key('ArrowDown'); // c.md
 		h.key('ArrowDown'); // b.md
-		h.key('ArrowDown'); // …into its landings, the older one first (line order)
+		h.key('ArrowDown'); // ……走进它的那些落点，较旧的那个在前（行序）
 		expect(h.rows()[0].classList.contains('is-selected')).toBe(true);
 		h.key('Enter');
 		expect(h.jumpTo).toHaveBeenCalledWith(1, undefined);
@@ -1383,13 +1383,13 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 		expect(h.cacheReads()).toBe(2);
 
 		search(h, 'weekly');
-		expect(h.cacheReads()).toBe(2); // the query added nothing
+		expect(h.cacheReads()).toBe(2); // 这次查询没多读任何东西
 		search(h, '');
-		expect(h.cacheReads()).toBe(2); // nor does clearing it
+		expect(h.cacheReads()).toBe(2); // 清空它也没多读
 
 		h.changeFile('a.md');
 		search(h, 'weekly');
-		expect(h.cacheReads()).toBe(3); // one path re-read, the other still remembered
+		expect(h.cacheReads()).toBe(3); // 一个路径被重读，另一个仍记得
 	});
 
 	it('缓存还没回答过的文件会再问一次', () => {
@@ -1406,10 +1406,10 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 		], 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' }, [], {}, headings);
 		const trail = () => h.place('L7').querySelector('.nav-row-trail')?.textContent ?? '';
 
-		expect(trail()).toBe(''); // nothing parsed yet: the row is its line alone
+		expect(trail()).toBe(''); // 还没解析出任何东西：这一行就只剩它那条线
 
 		headings['a.md'] = SPREAD_HEADINGS['a.md'];
-		h.changed(); // any redraw will do — nothing told the panel the file changed
+		h.changed(); // 随便一次重画都行 —— 没有任何东西告诉面板文件变了
 
 		expect(trail()).toBe('呈现方案›预览');
 	});
@@ -1428,7 +1428,7 @@ describe('RecentFilesModal —— 按笔记的别的名字搜', () => {
 		const trail = () => h.place('L7').querySelector('.nav-row-trail')?.textContent ?? '';
 		const reads = (path: string) => h.cachedRead.mock.calls.filter(c => c[0].path === path);
 
-		expect(trail()).toBe(''); // the cache says nothing, and the row is drawn anyway
+		expect(trail()).toBe(''); // 缓存什么都没说，这一行照样被画出来
 
 		// 这次读取落地，而它欠列表的那次重画随之而来（见 LATE_READ_REDRAW_MS）。
 		for (let i = 0; i < 10; i++)
@@ -1583,7 +1583,7 @@ describe('RecentFilesModal —— 键盘的无障碍声明', () => {
 		// 打开时什么都没选中，所以还没有东西可宣告。
 		expect(input?.hasAttribute('aria-activedescendant')).toBe(false);
 
-		h.key('ArrowDown'); // the first row: the newest note, which is the one the reader is in
+		h.key('ArrowDown'); // 第一行：最新的笔记，也就是读者所在的那篇
 		const first = h.notes()[0];
 		expect(input?.getAttribute('aria-activedescendant')).toBe(first.id);
 		expect(first.getAttribute('aria-selected')).toBe('true');
@@ -1622,7 +1622,7 @@ describe('RecentFilesModal —— 一篇笔记，多个落点', () => {
 		// ……而按要求，这篇笔记的地点沿笔记往下出，不是按被访问的时间：L101（第 0 步）
 		// 在 L413（后面那三步，一个地点）之前。
 		const h = harnessAll(entries, 4, files);
-		expect(h.notes()).toHaveLength(2); // x.md, then y.md
+		expect(h.notes()).toHaveLength(2); // x.md，然后是 y.md
 		expect(h.rows().map(r => r.querySelector('.nav-row-line')?.textContent)).toEqual(['L101', 'L413']);
 		expect(h.el.textContent).not.toContain('×');
 	});
@@ -2643,7 +2643,7 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 		// 焦点从不离开过滤框，所以一行的修饰键点击够不到：键盘自己的那个答案才是 app 里
 		// 每份列表都接受的手势。修饰键按没按着由 app 说了算（见 Keymap.isModifier）。
 		const h = harness(entries(), 1, files);
-		h.key('ArrowDown'); // b.md, the current note — and, being the newest, the first row
+		h.key('ArrowDown'); // b.md，当前笔记 —— 也是最新的，所以是第一行
 		h.key('ArrowDown'); // a.md
 		KeymapKnobs.modifier = true;
 		h.key('Enter');
@@ -2660,7 +2660,7 @@ describe('RecentFilesModal —— 一行开到哪儿，以及右键菜单', () =
 		const h = harness(entries(), 1, files);
 		const ev = h.rightClick(h.note('a'));
 
-		expect(ev.defaultPrevented).toBe(true); // the long-press callout must not rise
+		expect(ev.defaultPrevented).toBe(true); // 长按的浮层绝不能升起
 		const menu = menuOf(h.trigger);
 		expect(menu.items.map(i => i.title))
 			.toEqual([t('recentFiles.openInNewTab'), t('recentFiles.pin')]);
@@ -2794,7 +2794,7 @@ describe('RecentFilesModal —— 同名的笔记', () => {
 		], 2, files);
 
 		const folders = h.notes().map(r => r.querySelector('.nav-row-path')?.textContent ?? '');
-		expect(folders).toEqual(['', 'b/', 'a/']); // notes.md (current) first, then the two index.md, newest first
+		expect(folders).toEqual(['', 'b/', 'a/']); // notes.md（当前）在前，然后是两篇 index.md，最新的在前
 		expect(h.note('notes').querySelector('.nav-row-path')).toBeNull();
 		// 文件夹排在它所消歧的名字**前面** —— 靠一个 **class**，不是靠插入次序：这一行
 		// 是名字先建的，好让它无论怎么画都**读**得一样，而把路径放到前面的是样式表的
@@ -3803,7 +3803,7 @@ describe('RecentFilesModal —— 悬停向 app 要这篇笔记', () => {
 		// 顶行的名字 —— 一个数字，用的是视图所读的那套词汇（见 EphemeralState）—— 而它
 		// 是 0-based 的，正如一行所印的行号是 1-based 的。
 		const h = harnessAll(jumped(), 3, files);
-		expect(h.place('L12')).toBeDefined(); // the row whose line is the one asked about
+		expect(h.place('L12')).toBeDefined(); // 印着被询问那个行号的那一行
 
 		movedOnto(h.place('L12'));
 
