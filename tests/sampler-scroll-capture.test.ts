@@ -33,7 +33,7 @@ function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownV
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path },
 		containerEl,
-		currentMode: { getScroll: () => 42.3 }, // quantizes to 42
+		currentMode: { getScroll: () => 42.3 }, // 量化为 42
 		editor: {
 			lineCount: () => 100,
 			getCursor: () => ({ line: 3, ch: 7 }),
@@ -273,7 +273,7 @@ describe('Sampler.onScrollCapture —— 非 markdown 视图', () => {
 				iterateAllLeaves: () => undefined,
 				containerEl,
 			},
-			metadataCache: { getFileCache: () => null }, // no frontmatter by default
+			metadataCache: { getFileCache: () => null }, // 默认没有 frontmatter
 		};
 		const settings = { ...DEFAULT_SETTINGS, recordBaseScroll: true } as PluginSettings;
 		const state = new PositionState(settings);
@@ -329,7 +329,7 @@ describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
 				iterateAllLeaves: () => undefined,
 				containerEl: document.createElement('div'),
 			},
-			metadataCache: { getFileCache: () => null }, // no frontmatter by default
+			metadataCache: { getFileCache: () => null }, // 默认没有 frontmatter
 		};
 		const store = new PositionStore(app as never, database as never);
 		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
@@ -377,7 +377,7 @@ describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
 			h.state.lastLoadedFilePath = 'a.md';
 			h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
 			h.poll();
-			h.state.lastTouchAt = 0; // no touch: the next delta is passive reflow
+			h.state.lastTouchAt = 0; // 无触摸：下一个增量是被动重排
 
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
 			h.poll();
@@ -407,7 +407,7 @@ describe('Sampler.sampleActiveView —— 搜索锚的宽限窗口', () => {
 				iterateAllLeaves: () => undefined,
 				containerEl: document.createElement('div'),
 			},
-			metadataCache: { getFileCache: () => null }, // no frontmatter by default
+			metadataCache: { getFileCache: () => null }, // 默认没有 frontmatter
 		};
 		const store = new PositionStore(app as never, database as never);
 		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
@@ -467,7 +467,7 @@ describe('Sampler.sampleActiveView —— 同步重写不是读者的移动', ()
 				containerEl: document.createElement('div'),
 			},
 			metadataCache: { getFileCache: () => null },
-			vault: { getName: () => 'vault' }, // the store's overlay key needs it
+			vault: { getName: () => 'vault' }, // store 的叠加键需要它
 		};
 		const store = new PositionStore(app as never, database as never);
 		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn(), settled: vi.fn() } as never);
