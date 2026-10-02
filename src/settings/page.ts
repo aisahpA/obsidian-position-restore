@@ -2,36 +2,27 @@ import { App, Notice, SettingGroupItem, Hotkey, Modifier, Platform } from 'obsid
 import type PositionRestorePlugin from '@/main';
 import { t } from '@/i18n';
 
-// A SETTINGS PAGE IS A FUNCTION OF ITS CONTEXT. Each page is built by a
-// function living beside the feature it configures (position/, nav-history/,
-// recent-files/), so `src/settings/` keeps only what is about the settings
-// SURFACE itself: the tab, these two row builders, and the pickers a page
-// reaches for.
+// 设置页是它那份上下文的函数。每个页面由住在它所配置的功能旁边的函数建起来
+// （position/、nav-history/、recent-files/），所以 `src/settings/` 只留与设置
+// 「界面」本身有关的东西：这个 tab、下面两个行构造器，以及页面伸手去取的选择器。
 //
-// The context is deliberately small, and every member is a permission a page
-// cannot do without: read the settings, put a modal up, write ONE setting,
-// and — for the one modal that writes without going through a row — draw the
-// page again.
+// 这份上下文刻意做得小，每个成员都是页面少不了的许可：读设置、弹出一个模态框、
+// 写「一个」设置，以及——对那个不走行、自己写库的模态框——把页面再画一次。
 export interface SettingsPageContext {
 	app: App;
 	plugin: PositionRestorePlugin;
-	// Write one setting and draw the page again. Every caller is a row that
-	// just edited a list standing on this page. What the KEY owes in
-	// consequence is deliberately NOT here: a lowered ceiling trims, a new
-	// folder rule drops, and both are applied in one place —
-	// PositionManager.applyChangedSettings, diffed off the tab's snapshot.
+	// 写一个设置，再把页面画一次。调用它的全是刚改过本页某个列表的行。某个键该带来
+	// 什么后果，刻意「不」放在这里：调低上限要修剪、新增文件夹规则要丢弃，两者都只在
+	// 一个地方施加——`PositionManager.applyChangedSettings`，拿 tab 的快照做差分。
 	setValue(key: string, value: unknown): Promise<void>;
-	// Draw the page again without writing anything. Only the database path
-	// modal needs this: it edits the setting itself and then asks the page to
-	// catch up (see DbPathModal's onApply). Every other redraw follows a
-	// write, so it comes through setValue.
+	// 不写任何东西，只把页面画一次。只有数据库路径模态框需要它：它自己改完设置，再让
+	// 页面跟上（见 DbPathModal 的 onApply）。其余的重画都发生在一次写入之后，走 setValue。
 	refresh(): void;
 }
 
-// A PAGE'S OWN SENTENCE, standing above every row that asks something of the
-// reader: what this page is about, which none of its rows can say. It is not
-// a row's help text, so it has no control beside it and no name of its own.
-// `searchable: false` keeps a nameless hit out of the settings search.
+// 页面自己的那句话，立在本页每一个向读者提问的行之上：这一页在说什么——任何一行都
+// 替不了。它不是某一行的帮助文字，所以身边没有控件、自己也没有名字。
+// `searchable: false` 让这条无名命中不进设置搜索。
 export function intro(desc: string): SettingGroupItem {
 	return {
 		name: '',
@@ -43,18 +34,14 @@ export function intro(desc: string): SettingGroupItem {
 	};
 }
 
-// ONE HOTKEY ROW, built for a page: its own sentence, then the commands
-// belonging to THAT page and the key each is bound to, as the app reports
-// them. A command with nothing bound says so, which is the whole point of the
-// row — this is where a reader learns whether the feature has a key. The
-// button beside it opens the app's own hotkey settings, filtered to this
-// plugin.
+// 一行快捷键，为某个页面而建：先是它自己那句话，然后是「属于该页」的命令，以及每条
+// 命令被绑到哪个键（以 app 报告的为准）。一条什么都没绑的命令也直说，这正是这一行
+// 存在的意义——读者在这里知道这个功能到底有没有快捷键。旁边的按钮打开 app 自己的
+// 快捷键设置，并预先筛到本插件。
 //
-// The hint is printed ONCE, after the list — two commands would otherwise
-// repeat the same instruction, which reads as nagging. It names the button by
-// what it LOOKS like, never by which side it stands on: on a phone-width
-// screen the app's CSS wraps it BELOW the row, so a sentence pointing right
-// would point at nothing. A bound key only fires from a physical keyboard.
+// 提示只在列表之后印一次——否则两条命令会各重复一遍同样的话，读起来像唠叨。它按
+// 按钮「长什么样」来指认它，绝不说它在哪一侧：手机窄屏上 app 的 CSS 会把按钮换行到
+// 这一行「下方」，这时说「右边的按钮」就指向了空气。绑好的键只有物理键盘才按得出来。
 export function hotkeys(
 	plugin: PositionRestorePlugin,
 	desc: string,
@@ -80,8 +67,8 @@ export function hotkeys(
 	};
 }
 
-// Formats one hotkey: modifier symbols on macOS, text elsewhere, in
-// Obsidian's canonical modifier order.
+// 把一条快捷键格式化：macOS 上用修饰键符号、别处用文字，次序按 Obsidian
+// 规定的修饰键顺序。
 function formatHotkey(hk: Hotkey): string {
 	const isMac = Platform.isMacOS;
 	const symbol: Record<Modifier, string> = {
@@ -105,7 +92,7 @@ function formatHotkey(hk: Hotkey): string {
 	return text ? `${text}${isMac ? ' ' : '+'}${keyShow}` : keyShow;
 }
 
-// (hotkeyManager is runtime API absent from the public typings.)
+// （hotkeyManager 是运行时 API，公开类型定义里没有。）
 function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): string {
 	const manager = (plugin.app as unknown as {
 		hotkeyManager?: { getHotkeys(id: string): Hotkey[] | null };
@@ -116,17 +103,14 @@ function currentHotkeyText(plugin: PositionRestorePlugin, commandId: string): st
 	return hotkeys.map(formatHotkey).join(' / ');
 }
 
-// Opens Obsidian's hotkey settings on this plugin's commands.
+// 把 Obsidian 的快捷键设置打开在本插件的命令上。
 //
-// open() first, then take the tab openTabById hands back — what the app's own
-// plugin rows do. open() is a no-op on a window already showing (it guards on
-// its container having a parent), so it cannot stack a second modal; it is the
-// difference between switching tabs on a window nobody can see and opening one.
-// openTabById answers at once with the tab, or null when there is no such tab.
-// Nothing waits for it: a retry timer would outlive a settings window the
-// reader had already closed, and then report a failure that never happened.
-// A tab that really never arrives is said out loud: a button that does nothing
-// is worse than no button.
+// 先 open()，再取 openTabById 交回的 tab——app 自己的插件行就是这么做的。open() 对
+// 已经显示着的窗口是纯 no-op（它看自己容器的 parent 在不在），所以不会叠出第二个
+// 模态框；它划开的是「在一个谁也看不见的窗口上切 tab」和「真正把它打开」。openTabById
+// 当场返回那个 tab，没有就返回 null。不等它：重试定时器会活得比读者已经关掉的那个设置
+// 窗口还久，然后报一个从未发生的失败。真就一直没来的 tab 就明说：点了不动的按钮，比
+// 没有按钮更糟。
 function openHotkeySettings(plugin: PositionRestorePlugin): void {
 	const setting = (plugin.app as unknown as {
 		setting?: {
@@ -134,8 +118,7 @@ function openHotkeySettings(plugin: PositionRestorePlugin): void {
 			openTabById(id: string): { setQuery?(query: string): void } | null;
 		};
 	}).setting;
-	// Same sentence either way: what was promised was a way to bind a key,
-	// and it is the outcome — not the reason — the reader is left looking at.
+	// 两种情形同一句话：当初许诺的是一条绑键的门路，读者眼前剩下的是结果，不是原因。
 	if (!setting) {
 		new Notice(t('hotkeys.openFailed'));
 		return;
@@ -146,7 +129,6 @@ function openHotkeySettings(plugin: PositionRestorePlugin): void {
 		new Notice(t('hotkeys.openFailed'));
 		return;
 	}
-	// Prefilling the search is a convenience, not the job: a tab that arrived
-	// without a way to do it is still a tab the reader was sent to.
+	// 预填搜索是顺手之便，不是本职：就算这个 tab 没法预填，读者要去的也还是它。
 	tab.setQuery?.(plugin.manifest.name);
 }
