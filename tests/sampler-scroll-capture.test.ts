@@ -1,13 +1,11 @@
-// Unit tests for the scroll-capture guards added for dynamically-rendered
-// dashboards (dataviewjs embeds):
-//  - embed-boundary guard: scrolls originating inside embedded renderers
-//    (.internal-embed / .cm-embed-block / .block-language-*) must never be
-//    recorded as the HOST view's position;
-//  - desktop user-intent guard: scroll deltas with no recent user input
-//    (programmatic re-render layout shifts, plugin scrolls) must be absorbed.
-// The onScrollCapture pipeline's pre-existing guards (restore bracket, search
-// anchor, exclusion gate) are covered too, as regression anchors for guard
-// ordering.
+// 为动态渲染的仪表盘（dataviewjs 嵌入）新加的滚动采集守卫的单元测试：
+//  - 嵌入块边界守卫：源自嵌入渲染器内部的滚动
+//    （.internal-embed / .cm-embed-block / .block-language-*）绝不能
+//    记成宿主视图的位置；
+//  - 桌面用户意图守卫：没有近期用户输入的滚动增量
+//    （程序化重绘的版面抖动、插件滚动）必须被吸收。
+// onScrollCapture 流水线原有的几道闸门（恢复 bracket、搜索
+// 锚、排除门）也一并覆盖，作为守卫次序的回归锚。
 
 import { describe, it, expect, vi } from 'vitest';
 
@@ -16,10 +14,10 @@ import { Sampler } from '@/position/capture/sampler';
 import { PositionState } from '@/position/state';
 import { PositionStore } from '@/position/storage/position-store';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
-// leafStates is private on the store; this is the test seam.
+// leafStates 在 store 上是私有的；这是测试接缝。
 import { leafStatesOf } from './support/position-store-seam';
 
-// onScrollCapture is private; tests drive it directly through this alias.
+// onScrollCapture 是私有的；测试直接通过这个别名驱动它。
 type ScrollCapture = (ev: Event) => void;
 
 type DatabaseStub = {
@@ -28,9 +26,9 @@ type DatabaseStub = {
 	deleteFile: ReturnType<typeof vi.fn>;
 };
 
-// A fake markdown view: real prototype chain (so instanceof passes) with the
-// minimal surface readEphemeralState / the sampler touch, attached in one
-// untyped assign to dodge the obsidian typings.
+// 假的 markdown 视图：真原型链（好让 instanceof 通过），只带
+// readEphemeralState / sampler 会碰的最小接口，用一次无类型赋值挂上去，
+// 绕开 obsidian 的类型声明。
 function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownView {
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path },
@@ -42,7 +40,7 @@ function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownV
 		},
 		getViewType: () => 'markdown',
 	}) as MarkdownView;
-	// The leaf references its view back (findOwnerLeaf resolves leaf.view).
+	// leaf 反向引用它的视图（findOwnerLeaf 会解析 leaf.view）。
 	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1', view };
 	return view;
 }
@@ -53,8 +51,8 @@ function makeEvent(target: HTMLElement): Event {
 	return ev;
 }
 
-// Builds the DOM a live-preview dashboard produces: the host editor scroller
-// containing an embedded renderer with its own inner scroller.
+// 造出实时预览仪表盘会产生的 DOM：宿主编辑器滚动容器里
+// 套着一个带自己内层滚动容器的嵌入渲染器。
 function makeDashboardDom() {
 	const containerEl = document.createElement('div');
 	const hostScroller = document.createElement('div');
@@ -101,13 +99,13 @@ function makeHarness(options?: {
 	const store = new PositionStore(app as never, database as never);
 		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn() } as never);
 	const capture = (sampler as unknown as { onScrollCapture: ScrollCapture }).onScrollCapture;
-	// Simulate "user just interacted": by default the intent guard is satisfied.
+	// 模拟「用户刚交互过」：默认让意图守卫得到满足。
 	state.lastUserInputAt = Date.now();
 	return { sampler, state, database, store, view, dom, capture };
 }
 
-// Appends one more embedded renderer (with an inner scroller) to the host
-// scroller of a harness's dashboard DOM.
+// 往某个 harness 仪表盘 DOM 的宿主滚动容器里
+// 追加一个嵌入渲染器（带内层滚动容器）。
 function appendEmbed(h: ReturnType<typeof makeHarness>, embedClass: string): HTMLElement {
 	const embed = document.createElement('div');
 	embed.className = embedClass;
@@ -145,7 +143,7 @@ describe('Sampler.onScrollCapture —— 嵌入块边界的守卫', () => {
 		const h = makeHarness();
 		const inner = appendEmbed(h, 'block-language-dataviewjs');
 
-		// Embed scroll (noise), then host scroll (signal): the signal must record.
+		// 先嵌入块滚动（噪声），再宿主滚动（信号）：信号必须被记录。
 		h.capture(makeEvent(inner));
 		h.capture(makeEvent(h.dom.hostScroller));
 		expect(h.database.setState).toHaveBeenCalledTimes(1);
@@ -185,7 +183,7 @@ describe('Sampler.onScrollCapture —— 桌面的用户意图守卫', () => {
 		expect(h.state.lastUserInputAt).toBeGreaterThanOrEqual(afterPointer);
 
 		cleanups.forEach(fn => fn());
-		// After cleanup the listeners are gone: no further stamping.
+		// 清理之后监听器没了：不会再盖章。
 		const frozen = h.state.lastUserInputAt;
 		h.dom.containerEl.dispatchEvent(new Event('wheel'));
 		expect(h.state.lastUserInputAt).toBe(frozen);
@@ -290,7 +288,7 @@ describe('Sampler.onScrollCapture —— 非 markdown 视图', () => {
 	});
 });
 
-// Sanity: the mock routing used by the capture setup still matches desktop.
+// 自检：采集 setup 用的那套 mock 路由仍然匹配桌面端。
 describe('环境自检', () => {
 	it('打桩的 Platform 与桌面采集的假设一致', () => {
 		expect(Platform.isDesktopApp).toBe(true);
@@ -298,13 +296,13 @@ describe('环境自检', () => {
 	});
 });
 
-// sampleActiveView is the mobile-only writer of per-tab records
-// (the leaf records): on mobile there is no scroll-capture listener, so the
-// 100ms poll must feed the per-tab baseline too, or the same file open in
-// two tabs restores both to the same per-file record after a restart.
+// sampleActiveView 是手机端专属的按标签页记录写入者
+// （leaf 记录）：手机上没有滚动采集监听器，所以 100ms 轮询也必须喂
+// 按标签页的基线，否则同一个文件在两个标签页里打开、重启后
+// 两者都会恢复到同一条按文件记录。
 describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
-	// A markdown view whose scroll is settable, so one harness can simulate
-	// two tabs of the same file at different positions.
+	// 滚动值可设的 markdown 视图，好让一个 harness 模拟
+	// 同一文件的两个标签页停在不同位置。
 	function makeScrollingView(path: string, scroll: number, leafId: string): MarkdownView {
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
 			file: { path },
@@ -349,16 +347,16 @@ describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
 		try {
 			const h = makeMobileHarness();
 			h.state.lastLoadedFilePath = 'a.md';
-			// Seed a baseline that differs from both tabs so the first poll
-			// records tab 1 instead of only seeding the baseline.
+			// 种一个与两个标签页都不同的基线，好让第一次轮询
+			// 记录的是标签页 1，而不是只给基线播种。
 			h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
 			h.state.lastAnchorAt = Date.now();
-			// The reader just flicked the view: a recent touch is what makes
-			// the delta theirs rather than a re-render's.
+			// 读者刚划过视图：正是近期的一次触摸让这个增量
+			// 算他们的、而不是一次重绘造成的。
 			h.state.lastTouchAt = Date.now();
 			h.poll();
 
-			// Second tab of the same file scrolled to 99, now active.
+			// 同一文件的第二个标签页滚到了 99，现在是活动页。
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
 			h.state.lastTouchAt = Date.now();
 			h.poll();
@@ -384,8 +382,8 @@ describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
 			h.activate(makeScrollingView('a.md', 99, 'leaf-2'));
 			h.poll();
 
-			// Absorbed: no touch accounts for either delta, so no record is
-			// written at all — the reflow is not the reader's movement.
+			// 被吸收：没有触摸能解释这两个增量中的任何一个，所以干脆不写记录 ——
+			// 这次重排不是读者的移动。
 			expect(leafStatesOf(h.store).has('leaf-2')).toBe(false);
 			expect(h.database.setState).not.toHaveBeenCalled();
 		} finally {
@@ -394,10 +392,10 @@ describe('Sampler.sampleActiveView —— 手机端按标签页记录', () => {
 	});
 });
 
-// The stuck-anchor safety net in sampleActiveView must not run
-// during the post-blur grace window: a normal blur also leaves activeElement
-// on body, and clearing the Infinity there would cut SEARCH_ANCHOR_GRACE_MS
-// short, letting the search jump's landing overwrite the saved position.
+// sampleActiveView 里那张「卡住的锚」安全网在失焦后的
+// 宽限窗口内绝不能跑：普通失焦也会把 activeElement 留在 body 上，
+// 此时清掉那个 Infinity 会把 SEARCH_ANCHOR_GRACE_MS 截短，
+// 让搜索跳跃的落点覆盖掉已存的位置。
 describe('Sampler.sampleActiveView —— 搜索锚的宽限窗口', () => {
 	function makeAnchorHarness() {
 		const database: DatabaseStub = { db: {}, setState: vi.fn(), deleteFile: vi.fn() };
@@ -419,9 +417,9 @@ describe('Sampler.sampleActiveView —— 搜索锚的宽限窗口', () => {
 	it('失焦之后的宽限窗口里一直把锚撑着', () => {
 		const h = makeAnchorHarness();
 		h.state.searchAnchorUntil = Number.POSITIVE_INFINITY;
-		// A normal blur scheduled the grace timer; activeElement has already
-		// reverted to body, but the pending timer must keep the anchor armed
-		// until the search jump registers.
+		// 一次普通失焦排了宽限计时器；activeElement 已经
+		// 退回 body，但那个待定的计时器必须让锚保持武装，
+		// 直到搜索跳跃登记进来。
 		(h.sampler as unknown as { searchGraceTimer: number }).searchGraceTimer = 1;
 
 		h.poll();
@@ -440,11 +438,10 @@ describe('Sampler.sampleActiveView —— 搜索锚的宽限窗口', () => {
 	});
 });
 
-// A file a sync client replaced under the open tab — the case behind "the last
-// position gets lost after a sync, reopening lands at the top". The doc swap
-// re-measures the viewport AND re-maps the cursor with the reader doing
-// nothing, and either half alone was enough to overwrite the saved record with
-// the top of the note.
+// 同步客户端在打开的标签页底下替换掉的文件 —— 正是「同步后最后
+// 一个位置丢了、重开落在页顶」背后的那种情况。文档换掉会重新
+// 测量视口**并**在读者什么都没做的情况下重新映射光标，而任一半
+// 单独就足以把已存记录覆盖成笔记顶部。
 describe('Sampler.sampleActiveView —— 同步重写不是读者的移动', () => {
 	function makeSyncView(path: string, leafId: string, scroll: number, cursorLine: number): MarkdownView {
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
@@ -476,14 +473,14 @@ describe('Sampler.sampleActiveView —— 同步重写不是读者的移动', ()
 		const sampler = new Sampler(app as never, store, settings, state, { recordOpen: vi.fn(), recordTeleport: vi.fn(), refreshTop: vi.fn(), settled: vi.fn() } as never);
 		return {
 			state, database, store,
-			// What the swap does to the open view: the viewport falls back to
-			// the top while CodeMirror maps the selection onto the new doc.
+			// 替换对打开视图做了什么：视口退回顶部，
+			// 同时 CodeMirror 把选区映射到新文档上。
 			rewrite: () => { activeView = makeSyncView('a.md', 'leaf-1', 0, 120); },
 			poll: () => sampler.sampleActiveView(),
 		};
 	}
 
-	// A reader parked at line 300 who last did anything at `inputAt`.
+	// 一个停在 300 行、最后一次动静发生在 `inputAt` 的读者。
 	function seated(h: ReturnType<typeof makeSyncHarness>, inputAt: number) {
 		h.state.lastLoadedFilePath = 'a.md';
 		h.state.lastEphemeralState = { scroll: 300, cursor: { from: { line: 300, ch: 0 }, to: { line: 300, ch: 0 } } };
@@ -513,8 +510,8 @@ describe('Sampler.sampleActiveView —— 同步重写不是读者的移动', ()
 		Platform.isMobileApp = true;
 		try {
 			const h = makeSyncHarness();
-			// lastTouchAt > lastAnchorAt used to be the whole test, and it
-			// stays true for good once the reader has touched the screen once.
+			// `lastTouchAt > lastAnchorAt` 过去就是整个判据，而读者一旦
+			// 碰过一次屏幕，它就永远为真。
 			const touchedAt = Date.now() - 600000;
 			seated(h, touchedAt);
 			h.state.lastAnchorAt = touchedAt - 1000;
