@@ -855,8 +855,8 @@ describe('revealDelta', () => {
 	it('离开列表的行被带回列表中间，不管它是从哪一边离开的', () => {
 		// 不是让行回到视野的最小滚动：那会把它停在紧贴边缘处，而走位随后会在一个
 		// 永不移动的标记底下滚动列表。
-		expect(revealDelta(320, 28, box.top, box.height)).toBe(134); // 320 → the middle
-		expect(revealDelta(60, 28, box.top, box.height)).toBe(-126); // …and from above
+		expect(revealDelta(320, 28, box.top, box.height)).toBe(134); // 320 → 中间
+		expect(revealDelta(60, 28, box.top, box.height)).toBe(-126); // ……以及从上方
 	});
 
 	it('比列表还高的行让它居中，而不是硬塞进去', () => {
