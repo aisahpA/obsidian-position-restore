@@ -1,18 +1,13 @@
-// Unit tests for the setViewState-patch open classification in OpenPatcher
-// (injectEphemeralStateOnOpen). The logic this pins down — each with a
-// debugged regression behind it:
-//  - a fresh open injects the saved position and records the leaf+file pair
-//    (seeded handled marker), so pairs whose open never fires 'file-open'
-//    (background opens, startup restore) still dedup later switches;
-//  - a REPLAY (setViewState for an already-handled leaf+file) must never read
-//    the leaf's own cached eState as a caller target — that misjudgment
-//    skipped the first-paint cover on the deferred rebuild after restart
-//    (visible flicker) and left the pair unrecorded (the next switch
-//    re-restored visibly);
-//  - a replay re-injects ONLY when the replayed eState echoes the saved
-//    record. An eState-less re-assert (quick switcher re-picking the current
-//    file: setViewState, no following file-open) must stay native — covering
-//    it leaves the mask up until the safety timer (~2s blank).
+// OpenPatcher 里 setViewState 补丁那次「这是一次什么打开」判定的单元测试
+// （injectEphemeralStateOnOpen）。这里钉住的逻辑 —— 每一条背后都有一次排查过的回归：
+//  - 一次全新打开注入已存位置，并记下 leaf+file 这一对（预置已处理标记），好让那些
+//    打开时从不触发 'file-open' 的对（后台打开、启动恢复）仍然能在之后的切换里去重；
+//  - 一次**回放**（对一个已处理过的 leaf+file 再发 setViewState）绝不能把 leaf 自己
+//    缓存的 eState 当成 caller 目标来读 —— 那个误判会让重启后在延迟重建上跳过首帧盖布
+//    （肉眼可见的闪），并让这一对没被记下（下一次切换会再可见地恢复一次）；
+//  - 回放只在被回放的 eState 与已存记录相符时才重新注入。一次不带 eState 的重申
+//    （快速切换器再次选中当前文件：setViewState，后面没有 file-open）必须保持原生 ——
+//    盖住它会让遮罩一直挂着，直到安全定时器（约 2s 空白）。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
@@ -22,10 +17,10 @@ import { OpenPatcher } from '@/position/restore/patcher';
 import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { TabStateRecord,DEFAULT_SETTINGS } from '@/types';
-// leafStates is private on the store; this is the test seam.
+// leafStates 在 store 上是私有的；这就是那道测试接缝。
 import { setLeafStates } from './support/position-store-seam';
 
-// injectEphemeralStateOnOpen is private; tests drive it through this alias.
+// injectEphemeralStateOnOpen 是私有的；测试经由这个别名驱动它。
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };
 type InjectFn = (
 	leaf: WorkspaceLeaf,
@@ -33,8 +28,8 @@ type InjectFn = (
 	eState: Record<string, unknown> | undefined,
 ) => unknown;
 
-// OpenCover styles leaf DOM via Obsidian's HTMLElement.setCssStyles
-// extension, which jsdom lacks.
+// OpenCover 经 Obsidian 对 HTMLElement 的 setCssStyles 扩展来给 leaf 的 DOM 加样式，
+// 而 jsdom 缺这个。
 beforeEach(() => {
 	Object.defineProperty(HTMLElement.prototype, 'setCssStyles', {
 		value(this: HTMLElement, styles: Record<string, string>) {
@@ -71,25 +66,25 @@ function makeHarness(
 	db: Record<string, unknown> = {},
 	lastStateByLeaf: Map<string, TabStateRecord> = new Map(),
 	layoutReady = true,
-	// Where the leaf lives decides what it is: the default is a main-area pane,
-	// and a test about a leaf hosted by a popover passes its own.
+	// leaf 住在哪儿决定它是什么：默认是一个主区窗格，而讲「被浮层托着的 leaf」的测试会
+	// 传自己的那个。
 	leaf: WorkspaceLeaf & { containerEl: ParentNode } = makeLeaf('leaf-1'),
 ) {
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const app = {
 		workspace: {
 			layoutReady,
-			// Main area = the container this test leaf lives in.
+			// 主区 = 这个测试 leaf 所住的那个容器。
 			rootSplit: { containerEl: { contains: (el: unknown) => el === leaf.containerEl } },
 		},
 	} as never;
 	const store = new PositionStore(app, { db } as never);
-	// The store constructor seeds leafStates from storage; tests with a preset
-	// map replace it after construction (private member → the seam cast).
+	// store 的构造函数会从存储里播下 leafStates；带预置映射的测试在构造之后替换它
+	// （私有成员 → 走接缝 cast）。
 	setLeafStates(store, lastStateByLeaf);
 	const recordOpen = vi.fn();
-	// The patcher is a pure CAPTURE point: it writes to the funnel and reads no
-	// reader, so spies for what it calls are all it needs.
+	// patcher 是一个纯粹的**采集点**：它往漏斗里写，不读任何读取方，所以它需要的全套东西
+	// 就是对它调用的那些探子。
 	const funnel = { recordOpen, recordTeleport: vi.fn(), leave: vi.fn(), settled: vi.fn(), landing: vi.fn() };
 	const flushOnLeave = vi.fn();
 	const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, funnel as never, { flushOnLeave } as never);
@@ -130,10 +125,8 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 	});
 
 	it('悬停浮层托着的 leaf 什么都不注入', () => {
-		// A preview that happens to be an editable pane is a preview: it opens
-		// where the app opens one. Restoring there lands the card on a line no
-		// one pointed at, and the cover that comes with it holds the card blank
-		// for as long as the settle takes.
+		// 一个碰巧是可编辑窗格的预览仍然是预览：它在 app 打开预览的地方打开。在那里恢复会把
+		// 卡片落到没人指过的行上，而随之而来的盖布会让卡片一直空着，直到落定为止。
 		const popover = document.createElement('div');
 		popover.className = 'hover-popover';
 		const host = document.createElement('div');
@@ -147,7 +140,7 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 		expect(result).toBeUndefined();
 		expect(state.cover.isCovered(leaf)).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
-		// Not a pane the reader opened, so not a step in their navigation either.
+		// 不是读者打开的窗格，所以也不是他们导航里的一步。
 		expect(recordOpen).not.toHaveBeenCalled();
 		popover.remove();
 	});
@@ -187,9 +180,8 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 		expect(result).toMatchObject({ scroll: 10 });
 		expect(state.cover.isCovered(leaf)).toBe(true);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
-		// The replay keeps the handled marker and sets no open kind: the
-		// follow-up file-open must reach the injected body, not the openKind
-		// early return.
+		// 回放保住已处理标记，也不设 open kind：随后那次 file-open 必须走到注入过的正文里，
+		// 而不是在 openKind 提前返回那里停住。
 		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
 		expect(state.pendingOpenKind.has(leaf)).toBe(false);
 	});
@@ -218,11 +210,9 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 	});
 	
 	it('启动时带着没有位置的 eState 的回放（{focus:true} 重建）重新注入', () => {
-		// Debugged 2026-09: before layout-ready, core re-asserts the ACTIVE
-		// leaf with a second setViewState whose eState carries only
-		// {focus:true} — the rebuilt editor loses the injected position and
-		// lands at the top. Pre-layout-ready an empty eState is always that
-		// rebuild, so the saved position must be injected again.
+		// 2026-09 排查过：在 layout-ready 之前，core 会用第二次 setViewState 重申**活动的**
+		// leaf，它带的 eState 里只有 {focus:true} —— 重建后的编辑器丢掉注入的位置、落到顶部。
+		// 在 layout-ready 之前，空的 eState 永远就是那次重建，所以已存位置必须再注入一次。
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD }, new Map(), false);
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 
@@ -274,13 +264,13 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 
 		const result = inject(leaf, SOURCE_OPEN_A('b.md'), undefined);
 
-		// No record for b.md, default position: nothing to inject.
+		// b.md 没有记录，默认位置：没有什么可注入的。
 		expect(result).toBeUndefined();
 		expect(state.handledLeafIdMap.has('leaf-1')).toBe(false);
 	});
 
 	it('按标签页的记录胜过按文件的记录', () => {
-		// Per-file says scroll 10; this tab was at scroll 99 when Obsidian quit.
+		// 按文件的记录说是 scroll 10；而 Obsidian 退出时这个标签页在 scroll 99。
 		const { leaf, inject } = makeHarness(
 			{ 'a.md': RECORD },
 			new Map([['leaf-1', { filePath: 'a.md', st: { scroll: 99 } }]]),
@@ -315,8 +305,8 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 	it('侧边栏面板重新声明 state（大纲带着它所跟踪的文件）不算一次记录', () => {
 		const { leaf, inject, recordOpen } = makeHarness();
 
-		// The outline panel re-asserts its view state with the tracked file
-		// in state.file; its leaf is not in the main area → no record.
+		// 大纲面板重申自己的 view state，把所跟踪的文件放在 state.file 里；它的 leaf 不在主区
+		// → 不记录。
 		inject(
 			makeLeaf('outline-leaf', document.createElement('aside')),
 			{ type: 'outline', state: { file: 'a.md' } },
@@ -324,7 +314,7 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 		);
 		expect(recordOpen).not.toHaveBeenCalled();
 
-		// Control: a main-area open records.
+		// 对照：一次主区的打开会记录。
 		inject(leaf, SOURCE_OPEN_A(), undefined);
 		expect(recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
