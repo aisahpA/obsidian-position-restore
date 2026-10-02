@@ -230,7 +230,7 @@ describe('PositionManager 的导航历史维护', () => {
 		expect(h.stack.index).toBe(1);
 	});
 
-	it('the startup sweep drops a missing file\'s history but keeps its position record', async () => {
+	it('启动时那一轮清扫丢掉已经不在了的文件的步，却留住它的位置记录', async () => {
 		vi.useFakeTimers();
 		const h = makeHarness();
 		h.files.add('a.md');

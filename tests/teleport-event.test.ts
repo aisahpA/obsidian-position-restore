@@ -275,7 +275,7 @@ describe('Sampler.onEditorSelection —— 逐事件的跳变检测', () => {
 		expect(h.funnel.recordTeleport).not.toHaveBeenCalled(); // 5-line move, baseline rolled to 800
 	});
 
-	it('ignores editors that are not the active view\'s editor', () => {
+	it('不是活动视图那个 editor 的编辑器，一概无视', () => {
 		const h = makeHarness();
 		h.state.lastEphemeralState = { scroll: 1, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 
