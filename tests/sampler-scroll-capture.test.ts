@@ -127,10 +127,10 @@ describe('Sampler.onScrollCapture —— 嵌入块边界的守卫', () => {
 	});
 
 	it.each([
-		['interactive ![[embed]]', 'internal-embed markdown-embed'],
-		['live-preview code widget', 'cm-embed-block'],
-		['dataview rendered block', 'block-language-dataviewjs'],
-	])('skips a scroll whose target sits inside a %s', (_label, embedClass) => {
+		['交互式 ![[embed]]', 'internal-embed markdown-embed'],
+		['实时预览代码组件', 'cm-embed-block'],
+		['dataview 渲染块', 'block-language-dataviewjs'],
+	])('跳过目标落在 %s 内部的滚动', (_label, embedClass) => {
 		const h = makeHarness();
 		const inner = appendEmbed(h, embedClass);
 
