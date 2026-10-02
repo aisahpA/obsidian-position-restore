@@ -89,7 +89,7 @@ describe('NavFunnel —— 公共闸门', () => {
 		vi.useFakeTimers();
 		try {
 			const { funnel, visits } = makeFunnel();
-			void funnel.runBracketed(() => new Promise<void>(() => undefined)); // never settles
+			void funnel.runBracketed(() => new Promise<void>(() => undefined)); // 永不落定
 			expect(funnel.isMoving()).toBe(true);
 
 			// 在 bracket 里按下的一条命令，绝不能开启第二个 bracket。
@@ -218,7 +218,7 @@ describe('NavFunnel —— 采集点发布些什么', () => {
 		// 被离开的那个标签页无论如何都保留它的位置 —— 只有那半截会把新视图变成**一步**的东西
 		// 被跳过，而空标签页是唯一不算地点的视图。
 		const { funnel, visits, leaves } = makeFunnel();
-		const empty = leafWithFile('leaf-2'); // view type 'empty'
+		const empty = leafWithFile('leaf-2'); // 视图类型 'empty'
 
 		funnel.recordActivation(empty);
 
@@ -538,8 +538,8 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 
 describe('Sampler 的文件内跳变检测', () => {
 	it('一次 ≥10 行的光标跳跃经 selection 事件记录，并刷新那条离开记录', () => {
-		const h = makeSamplerHarness(); // view cursor sits at line 60; poll read at line 3
-		h.onSelection(h.view.editor); // baseline: line 60
+		const h = makeSamplerHarness(); // 视图光标停在第 60 行；轮询读到的是第 3 行
+		h.onSelection(h.view.editor); // 基线：第 60 行
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor);
 		expect(h.recordTeleport).toHaveBeenCalledTimes(1);
@@ -562,7 +562,7 @@ describe('Sampler 的文件内跳变检测', () => {
 		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.database.setState).not.toHaveBeenCalled();
 		// 事件这条路：导航记录从不查排除规则。
-		h.onSelection(h.view.editor); // baseline: line 60
+		h.onSelection(h.view.editor); // 基线：第 60 行
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor);
 		expect(h.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 3, expect.anything());
@@ -575,7 +575,7 @@ describe('Sampler 的文件内跳变检测', () => {
 		const origMobile = Platform.isMobileApp;
 		Platform.isMobileApp = true;
 		try {
-			const h = makeSamplerHarness(); // view cursor at 60, poll read at 3
+			const h = makeSamplerHarness(); // 视图光标在 60，轮询读到的是 3
 			// 读者点了这篇笔记：是他们的触摸让这次移动属于他们，而不是属于一次重渲染。
 			h.state.lastTouchAt = Date.now();
 			h.sampler.sampleActiveView();
@@ -589,9 +589,9 @@ describe('Sampler 的文件内跳变检测', () => {
 
 	it('阈值为 0 时，selection 事件这条路径完全沉默', () => {
 		const h = makeSamplerHarness({ navHistoryTeleportMinLines: 0 });
-		h.onSelection(h.view.editor); // baseline: line 60
+		h.onSelection(h.view.editor); // 基线：第 60 行
 		h.cursor.line = 3;
-		h.onSelection(h.view.editor); // 57-line jump, threshold 0
+		h.onSelection(h.view.editor); // 57 行的跳跃，阈值 0
 		expect(h.recordTeleport).not.toHaveBeenCalled();
 		expect(h.leave).not.toHaveBeenCalled();
 	});
