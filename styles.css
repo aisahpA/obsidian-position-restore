@@ -1,6 +1,6 @@
-/* Database-path modal (DbPathModal): plain DOM controls, so two layout rules.
-   Only block/flex on fixed-width parents — no percentage sizing that could
-   feed back into a flex container. */
+/* 数据库路径模态框（DbPathModal）：纯 DOM 控件，所以只有两条布局规则。
+   固定宽度的父元素上只用 block/flex —— 不用百分比尺寸，免得反过来
+   影响 flex 容器。 */
 .position-restore-db-path-input {
 	width: 100%;
 }
@@ -16,23 +16,19 @@
 	justify-content: flex-end;
 }
 
-/* The picker row on a phone: three labels nothing like the same length, so the
-   wrap lands them ragged — the long one ("pick an existing JSON file in the
-   vault") takes a row to itself while the two short ones pair up above it. One
-   button per row gives each the full width to be hit, which is what a control
-   in a modal wants under a thumb. Scoped to `is-pickers`: the action row below
-   shares the base class and keeps its inline pair (`.is-actions`). */
+/* 手机上的选择器行：三个标签长短悬殊，换行后参差不齐 —— 长的那句（“在库中
+   挑一个已有的 JSON 文件”）独占一行，两个短的挤在它上方。每行一个按钮，
+   每个都能占满整行宽度供点击，这正是模态框里的控件在拇指下想要的。
+   限定在 `is-pickers`：下面的动作行共用基类，保留自己的并排一对（`.is-actions`）。 */
 body.is-phone .position-restore-db-path-row.is-pickers > button {
 	flex: 1 1 100%;
 }
 
-/* The database-path dialog's sync note (DbPathModal), folded away by default:
-   it answers a question only the reader who came here to make positions follow
-   them to another device is asking, and would be four lines of noise above the
-   input for everyone else. Plain type size, not fine print — it is meant to be
-   read once it is opened, and shrinking it would only shrink a touch device's
-   tap target with it — and it keeps its distance from the field and buttons
-   below, which are a different thing to act on. */
+/* 数据库路径对话框的同步说明（DbPathModal），默认折起：它回答的问题，只有
+   为了让位置跟着自己走到另一台设备才来这里的人才会问；对其他人来说，它就是
+   输入框上方的四行噪音。用正文的字号、不用小字 —— 它是展开了才读的，缩小它
+   只会把触屏设备的点击区一起缩小 —— 并与下面的输入框和按钮保持距离，
+   那两样是要动手操作的另一回事。 */
 .position-restore-db-path-hint {
 	margin: 12px 0 20px;
 }
@@ -47,21 +43,19 @@ body.is-phone .position-restore-db-path-row.is-pickers > button {
 	margin: 4px 0 0 1.4em;
 }
 
-/* A page's opening sentence (see settings/page.ts's intro): help text for the PAGE
-   rather than for one row, so it carries no control and no name. The app still
-   prints the name element above the description — empty here, and left in place
-   rather than removed from the DOM because the row is re-rendered from its
-   definition on every `update()` — so dropping it here is what keeps the row
-   from opening with a blank line above its paragraph. */
+/* 一个页面的开场白（见 settings/page.ts 的 intro）：是给整个**页面**的说明
+   文字，而不是给某一行的，所以它不带控件、也没有名字。app 仍会在描述上方打出
+   名字元素 —— 这里它是空的，而且留在原位、不从 DOM 里删掉，因为这一行每次
+   `update()` 都会按定义重绘 —— 所以在这里把它藏掉，才能让这一行不是顶着
+   一行空白开场。 */
 .position-restore-page-intro .setting-item-name {
 	display: none;
 }
 
-/* Restore cue (RestoreCue): a transient chip naming the landing section,
-   centered in the note so it clears the editor's chrome and the mobile bars,
-   and allowed to wrap to two lines for deep heading chains. Long unbreakable
-   heading words must wrap inside their span, or overflow:hidden clips them
-   at the chip edge. */
+/* 恢复提示（RestoreCue）：一枚转瞬即逝的提示条，报出落点所在的小节，居中
+   显示在笔记里，好避开编辑器的外框和手机上的条栏，深标题链允许折成两行。
+   过长而不可断的标题词必须在自己的 span 内换行，否则 overflow:hidden 会在
+   提示条边缘把它裁掉。 */
 .position-restore-cue {
 	position: absolute;
 	top: 30%;
@@ -87,11 +81,9 @@ body.is-phone .position-restore-db-path-row.is-pickers > button {
 	pointer-events: none;
 }
 
-/* Mobile pins both horizontal insets instead of using a percentage
-   max-width: on mobile WebViews the percentage never took effect on
-   this absolutely-positioned shrink-to-fit chip, so a long breadcrumb
-   chain stayed on one line and got clipped at the screen edges. With
-   left+right both set the used width is exactly 92% of the note. */
+/* 手机上把左右两个内边都钉死，而不是用百分比 max-width：在移动端 WebView
+   里，百分比在这枚绝对定位、按内容收缩的提示条上从未生效，于是一长串面包屑
+   挤在一行、在屏幕边缘被裁掉。左+右都定下来，实际宽度就正好是笔记的 92%。 */
 body.is-mobile .position-restore-cue {
 	left: 4%;
 	right: 4%;
@@ -103,8 +95,8 @@ body.is-mobile .position-restore-cue {
 	position: relative;
 }
 
-/* " / " separators never wrap; heading segments may. Non-deepest segments
-   are dimmed, the deepest is bolded — it names the target section. */
+/* " / " 分隔符永不换行；标题段可以。非最深的几段变淡，最深的一段加粗
+   —— 它报出目标小节。 */
 .position-restore-cue-sep {
 	opacity: 0.5;
 	white-space: nowrap;
@@ -120,63 +112,59 @@ body.is-mobile .position-restore-cue {
 	font-weight: 600;
 }
 
-/* Recent-files browser (RecentFilesModal): a list of notes with their landings. TWO shells
-   stand around one body (see body.ts): the dialog and the resident sidebar panel
-   (RecentFilesView), and everything they share is written against
-   .position-restore-nav-panel — the class BOTH roots carry. Only what is genuinely a
-   dialog (its width, its pinned height, the compaction a short window needs) is
-   written against the modal's own class. */
-/* The dialog is a LIST and nothing else: the details panel that used to stand beside it
-   is gone (see body.ts), so the width it used to take is not missed. `min()` keeps
-   phones near-full. */
+/* 最近文件浏览器（RecentFilesModal）：一列笔记，以及各自的落点。**两个** shell
+   围着一个 body（见 body.ts）：对话窗口与常驻侧栏面板（RecentFilesView），两者
+   共用的东西都写在 .position-restore-nav-panel 上 —— **两个**根都带这个类。
+   只有真正属于对话窗口的（它的宽度、钉死的高度、矮窗口需要的压缩）才写在
+   模态框自己的类上。 */
+/* 对话窗口是一个**列表**、别无其它：曾经立在它旁边的详情面板已经没了
+   （见 body.ts），所以它占掉的那份宽度并不亏。`min()` 让手机上接近满宽。 */
 .modal.position-restore-nav-modal {
 	width: min(23em, 94vw);
 	max-width: min(23em, 94vw);
 }
 
-/* THE DESKTOP DIALOG IS SIZED THE WAY THE APP SIZES ITS OWN ANSWER to the same question —
-   the quick switcher. Every number below is therefore READ OUT OF THE APP rather than
-   measured here: `--prompt-width` is what its prompt takes (700px, capped at 80vw),
-   `--nav-modal-top` where that prompt stands, `--prompt-max-height` how tall it may grow,
-   `--font-ui-medium` the type its suggestions are set in. A theme that retunes any of them
-   retunes this dialog with it, and a number of ours would have been a second answer to a
-   question the app already answered.
-   A PHONE IS LEFT ALONE (`is-touch`): the width above stays its own. */
+/* **桌面端的对话窗口，是按 app 对同一个问题的答案来定尺寸的** —— 也就是快速
+   切换器。因此下面每一个数字都是从 app 里**读出来的**、而不是在这里量出来的：
+   `--prompt-width` 是它的 prompt 取的宽（700px，上限 80vw），`--nav-modal-top`
+   是那个 prompt 站的位置，`--prompt-max-height` 是它最多能长多高，
+   `--font-ui-medium` 是它的建议项所用的字号。任何主题只要重调其中任一个，就会连
+   这个对话窗口一起重调；而我们若自己写一个数字，就等于对一个 app 已经答过的
+   问题给出第二个答案。
+   手机则**不动**（`is-touch`）：上面那个宽度保持它自己的。 */
 .modal.position-restore-nav-modal:not(.is-touch) {
 	--nav-modal-top: 80px;
 	width: var(--prompt-width, 700px);
 	max-width: min(var(--prompt-max-width, 80vw), 94vw);
-	/* UP, AND NOT CENTRED: the container centres its child vertically, so asking for the
-	   START of that line is what puts the dialog where the app's own prompt stands — a
-	   question asked of a note the reader is already looking at. */
+	/* **向上，且不居中**：容器把子元素竖直居中，所以索要那一行的**起点**，才能把
+	   这个对话窗口放到 app 自己 prompt 站的位置 —— 一个针对读者正看着的那篇笔记
+	   提出的问题。 */
 	align-self: flex-start;
 	margin-top: var(--nav-modal-top);
-	/* A ROW IS SET IN THE TIER THE APP SETS ITS OWN LISTS IN, asked for the tier it gives
-	   them on a PHONE rather than a fourth number of ours: `--nav-item-size` is 13px here
-	   and 15px there (see the fallback in the row's own rule). This dialog is twice the
-	   width of the sidebar panel it shares its rows with, and it is read from further off. */
+	/* 一行的字号取的是 app 给自己那些列表的档位，而且问的是它在**手机**上给的那
+	   一档、而不是我们自己再写第四个数字：`--nav-item-size` 在这里是 13px、在那里
+	   是 15px（见行自己那条规则里的兜底）。这个对话窗口的宽度是它与之共用行的侧栏
+	   面板的两倍，读它的距离也更远。 */
 	--nav-item-size: var(--font-ui-medium);
 }
 
-/* …and THE HEIGHT THE READER TYPES AGAINST, pinned on a desktop whatever the list holds
-   (see modal.ts): the alternative is a dialog that shrinks under every keystroke and drags
-   itself back toward the middle as the filter narrows the results. `100vh` less the top
-   inset is what keeps the foot off the window in a SHORT window, where 70vh alone would
-   overhang it. */
+/* ……以及**读者打字所依的那个高度**，桌面端钉死、无论列表里有什么（见 modal.ts）：
+   另一条路是一个每次按键都缩一下、并随着筛选收窄结果而把自己拽回中间的对话窗口。
+   `100vh` 减去顶部内边，是让脚在**矮窗口**里不越过窗口下沿的做法 —— 那里单靠
+   70vh 会探出去。 */
 .modal.position-restore-nav-modal.is-fixed:not(.is-touch) {
 	height: min(var(--prompt-max-height, 70vh), calc(100vh - var(--nav-modal-top) - 24px));
 }
 
-/* THE ROW'S SHARE of that step up: its own RIB of padding — the app's two numbers for a
-   suggestion (`--size-2-3`, `--size-4-3`), which is what the row is being compared with —
-   and the fine print one tier behind its text rather than two, or a 15px name is read over
-   a 12px folder. */
+/* **行分到的那一份**：它自己的一道内边肋条 —— app 给一个建议项的两个数字
+   （`--size-2-3`、`--size-4-3`），也就是拿这一行去比的东西 —— 以及比它的文字低
+   一档、而不是低两档的小字，否则一行 15px 的名字上面会压着一个 12px 的文件夹。 */
 .modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row {
 	padding: 6px 12px;
 }
 
-/* …and the row's own controls come off the edge WITH the row's own inset, rather than
-   standing 4px off it as they do in the narrow panel. */
+/* ……而行自己的控件，是**随着行自己的内边**一起离开边缘的，而不是像在窄面板里
+   那样离边缘还站 4px。 */
 .modal.position-restore-nav-modal:not(.is-touch) .nav-row-actions {
 	inset-inline-end: 10px;
 }
@@ -191,111 +179,95 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-small);
 }
 
-/* A NAME MAY BE AS LONG AS IT IS: the 20em cap was written against a third of this
-   width, and every name past it was cut with two thirds of the line standing empty. */
+/* **名字可以有多长就多长**：20em 的上限是对着这个宽度的三分之一写的，超过它的
+   每个名字都被切掉，而三分之二的行空着。 */
 .modal.position-restore-nav-modal:not(.is-touch) .nav-row-name {
 	max-width: 34em;
 }
 
-/* THE BOX ANSWERS WITH ROOM AND NOT WITH A HEAVIER RULE — it stays one underline the
-   caret sits on (see the toolbar below). The pad above the caret is what a 15px line
-   wants; the pad BELOW is left alone, and deliberately so: it is what the × measures
-   its own place on the line from (see the clear button below). */
+/* **这个框用留白、而不是用更重的线来作答** —— 它保持为一条插入符所站的下划线
+   （见下方工具栏）。插入符上方的内边是一行 15px 想要的；**下方**的内边则不动，
+   而且是刻意的：那是 × 赖以量出自己在这一行上的位置的依据（见下方清除按钮）。 */
 .position-restore-nav-modal:not(.is-touch) input.position-restore-nav-filter[type='text'] {
 	font-size: var(--font-ui-medium);
 	padding-top: 8px;
 }
 
-/* WHAT THE DESKTOP DIALOG OPENS ON IS THE BOX ITSELF: its own name goes, the way the app's
-   answer to this same question carries no heading — a quick switcher is a filter box and a
-   list, nothing standing over them. `display: none` and not an empty title, because the
-   header keeps its own row either way (see its margin-bottom). The dialog is still NAMED
-   for assistive tech: the list below carries the same string (see body.ts). Nothing below
-   needs lifting with it — the dialog's own padding and the box's pad come to the 24px the
-   app gives its own prompt box. */
+/* **桌面端对话窗口打开时所对的就是这个框本身**：它自己的名字去掉，正如 app 对
+   同一个问题的答案不带标题 —— 快速切换器就是一个筛选框加一张列表，上面不站任何
+   东西。用 `display: none` 而不是一个空标题，因为无论哪种情况头部都占着它自己
+   那一行（见它的 margin-bottom）。对话窗口**仍然**对辅助技术有名：下面的列表带着
+   同一个字符串（见 body.ts）。它下面没有东西需要跟着一起抬起来 —— 对话窗口自己的
+   内边 + 这个框自己的内边，正好是 app 给它自己的 prompt 框的 24px。 */
 .modal.position-restore-nav-modal:not(.is-touch) .modal-header {
 	display: none;
 }
 
-/* …and THAT HEADER WAS WHAT STOOD BETWEEN THE APP'S × AND EVERYTHING ELSE — so rather than give
-   the dialog's corner up to a second glyph, THAT × GOES and the box's own takes both jobs: it
-   empties a box with a query in it, and closes the dialog with none (see RecentFilesBrowser
-   .toolbar), which is the one-stop trade the app's own prompt makes. A phone keeps both its name
-   and the × beside it, having no such corner to share. */
+/* ……而**那个头部正是隔在 app 的 × 与其它一切之间的东西** —— 所以与其把对话
+   窗口的那个角让给第二个字形，不如**让那个 × 走开**、由这个框自己的 × 一肩挑两职：
+   框里有查询时它清空，没有查询时它关掉对话窗口（见 RecentFilesBrowser.toolbar）——
+   这正是 app 自己的 prompt 所做的一步到位的交换。手机保留自己的名字和它旁边的 ×，
+   它没有这样一个角可以分享。 */
 .modal.position-restore-nav-modal.is-dismissive:not(.is-touch) .modal-header-button,
 .modal.position-restore-nav-modal.is-dismissive:not(.is-touch) .modal-close-button {
 	display: none;
 }
 
-/* This panel's two quiet tiers, defined on the shell both forms share and used by
-   every rule below in place of --text-faint / --text-muted. Those two are ordinary
-   theme variables: a theme may re-hue them to anything, and then the QUIETEST tier
-   comes out LOUDER than the row's own text — under Soft Paper (Catppuccin)
-   --text-faint is a saturated cyan and --text-muted a second hue, so every
-   coordinate, age and section read as a coloured highlight while the note's
-   name stayed gray. Mixing the theme's own PRIMARY text colour toward
-   transparent cannot go wrong: the result is always the same hue as the text
-   it sits under, always lighter against the background, in any palette, light
-   or dark (55% reproduces the stock theme's --text-faint grey almost exactly,
-   so nothing changes where those were sane to begin with). The section column
-   is the one secondary text a reader actually scans by, so this tier sits
-   higher than the stock --text-muted did: 88%, still clearly under the note's
-   name (100%) but no longer washed out. */
+/* 这个面板的两档弱墨，定义在两种形态共用的 shell 上，下面每条规则都用它来代替
+   --text-faint / --text-muted。那两个是普通的主题变量：主题可以把它们重新调成任何
+   色相，于是**最弱**的一档反而比行自己的文字还**响** —— 在 Soft Paper（Catppuccin）
+   下 --text-faint 是饱和度很高的青色、--text-muted 又是另一个色相，于是每个坐标、
+   时间和小节都读起来像一块彩色高亮，而笔记的名字却是灰的。把主题自己的**主**文本色
+   往透明方向调绝不会出错：结果永远与它所衬托的文字同色相，在任何配色、明暗下都永远
+   相对背景更浅（55% 几乎精确地复现了官方主题的 --text-faint 灰，所以在那两个本来就
+   合理的地方什么都不会变）。小节这一列是读者真正会靠它去扫读的那一种次要文字，
+   所以这一档比官方的 --text-muted 要高：88%，仍在笔记名字（100%）之下、但不再洗白。 */
 .position-restore-nav-panel {
 	--nav-muted: color-mix(in srgb, var(--text-normal) 88%, transparent);
 	--nav-faint: color-mix(in srgb, var(--text-normal) 55%, transparent);
-	/* THE PANEL OWNS THE INK ITS OWN ICONS ARE DRAWN IN. The app's icon skin reads
-	   `--icon-color`, which a theme is free to point anywhere — its faintest tier on a
-	   tinted ground being the common case — and a glyph drawn in a colour the panel did
-	   not choose is a glyph that can disappear under the reader's own theme. Naming it
-	   here puts every icon in the panel on ONE ink, the panel's own primary text, as
-	   above: what makes an icon quiet in this panel is its SIZE and WHEN it appears,
-	   never a colour the reader has to hunt for. */
+	/* **这个面板拥有它自己那些图标所用的墨色**。app 的图标皮肤读 `--icon-color`，
+	   而主题可以把它指向任何地方 —— 在有色底上取它最弱的一档是常见情形 —— 一个用
+	   面板没有选定的颜色画出来的字形，就是可能消失在读者自己的主题下的字形。在这里
+	   给它命名，就能让面板里每个图标都落在**一种**墨色上，即面板自己的主文本色，如上
+	   所述：在这个面板里让一个图标安静下来的是它的**大小**和它**何时**出现，绝不是
+	   一种要读者去找的颜色。 */
 	--icon-color: var(--text-normal);
 	--icon-color-hover: var(--text-normal);
-	/* …and the app FADED them besides, which a knob of its own decides:
-	   `.clickable-icon svg` paints at `--icon-opacity`, and 0.85 is only the stock
-	   theme's answer — a theme that turns it down turns every icon in this panel down
-	   with it, however strong the ink underneath. An icon here is a control and not
-	   decoration, so none of them is painted at anything less than itself. */
+	/* ……而 app 另外还把它们**调淡了**，这由它自己的一个旋钮决定：
+	   `.clickable-icon svg` 按 `--icon-opacity` 上色，而 0.85 只是官方主题的答案 ——
+	   一个把它调低的主题会把这个面板里每个图标一起调低，无论底下的墨色多强。这里的
+	   图标是控件而不是装饰，所以没有一个会被画得比它本身更弱。 */
 	--icon-opacity: 1;
 	--icon-opacity-hover: 1;
-	/* WHAT A FINGER HAS TO LAND IN: the width of ONE of the row's controls on a
-	   touch device, and — twice over — the room the armed row gives up for them
-	   (see the armed row below). ONE NUMBER, because the room and the target are
-	   the same measurement taken from opposite ends: reserve less than the two
-	   controls take and they stand on the name again, which is what a strip
-	   painted over the row did.
-
-	   Smaller than the app's own --touch-size-m (44px), which wraps an icon in so
-	   much air that two of them read as two separate buttons with a lane between
-	   them; 36px keeps the pair a PAIR, and is still a box a thumb lands in
-	   rather than a glyph it has to aim at — the row's whole height is behind it
-	   besides (see `align-self: stretch`). */
+	/* **一根手指必须落进去的东西**：触屏设备上行控件之一的宽度，以及 —— 两倍 ——
+	   武装起来的行让给它们的地方（见下方武装行）。**一个数字**，因为留出的地方和要点
+	   的目标是从两端量同一件事：留得比两个控件所占还少，它们就又会站到名字上，而正是
+	   一条涂在行上的横带这么干过。
+	
+	   比 app 自己的 --touch-size-m（44px）小 —— 那个把图标裹在太多空气里，两个读起来
+	   像被一条通道隔开的两个按钮；36px 让这一对仍是**一对**，而且仍是一个拇指能落进去
+	   的盒子、而不是一个要瞄准的字形 —— 何况行的整个高度都在它背后（见
+	   `align-self: stretch`）。 */
 	--nav-action-target: 36px;
-	/* …and the arrows' own: a box a finger lands in rather than a glyph it has to aim at,
-	   which on a phone is the app's touch size (see the arrows' own rule). Roomy enough
-	   for the glyph at `--icon-m` to keep its air inside it. */
+	/* ……以及箭头自己的：一个手指能落进去的盒子，而不是一个要瞄准的字形，在手机上
+	   就是 app 的触控尺寸（见箭头自己那条规则）。足够宽绰，让 `--icon-m` 的字形在里面
+	   保住自己的空气。 */
 	--nav-arrow-target: 28px;
-	/* THE PANEL OWNS ITS TOOLTIPS, and this is how it says so. The app hangs a tooltip
-	   off every element that carries an `aria-label` (see its own tooltip listener),
-	   and an accessible name is not a hover hint: the listbox is named "Recent files"
-	   so a screen reader can say what the list is, and that name was being painted
-	   under the pointer — over the rows, with no relation to the row being read — the
-	   moment the reader hovered anything inside the list. The setting groups are named
-	   for the same reason and had the same problem. `--no-tooltip` is the app's own
-	   switch for exactly this case (its CSS sets it where a name must stay quiet), and
-	   it INHERITS, so one declaration covers the whole panel. Nothing here loses a
-	   tooltip it wanted: the rows' own is the panel's, drawn on the document (see
-	   tip.ts), and the chrome that wants one carries a `title` of its own. */
+	/* **这个面板拥有自己的 tooltip**，这就是它把这件事说清楚的方式。app 会给每个带
+	   `aria-label` 的元素挂一个 tooltip（见它自己的 tooltip 监听器），而一个无障碍名
+	   并不是悬停提示：listbox 被命名为 "Recent files" 是为了让屏幕阅读器说出这张列表
+	   是什么，而那个名字一直被画在指针底下 —— 压在那些行上、与正在被读的那一行毫无
+	   关系 —— 只要读者悬停在列表里任何东西上就会这样。那几个设置分组也是同样的理由
+	   被命名，也遇到了同样的问题。`--no-tooltip` 是 app 自己为正好这种情形准备的开关
+	   （它的 CSS 在名字必须保持安静的地方设了它），而且它**可继承**，所以一条声明就
+	   覆盖整个面板。这里不会丢掉任何一个它想要的 tooltip：行自己的那个是面板的、画在
+	   文档上（见 tip.ts），而想要 tooltip 的外框自带一个 `title`。 */
 	--no-tooltip: true;
 }
 
-/* A long history pins the height and scrolls the list inside it: otherwise
-   the auto-sized modal would shrink/grow as the filter narrows the results,
-   re-centering and jerking up and down on every keystroke. Short histories
-   size to their content (see FIXED_HEIGHT_MIN_ENTRIES) — a three-entry list
-   in a 640px box was mostly dead space. */
+/* 一段长历史会钉死高度、让列表在里面滚动：否则自动定高的模态框会随着筛选收窄
+   结果而缩/长、每次按键都重新居中并上下跳。短历史则按内容定高（见
+   FIXED_HEIGHT_MIN_ENTRIES）—— 一个三项的列表放在 640px 的盒子里，大半是死空间。 */
 .modal.position-restore-nav-modal.is-fixed {
 	display: flex;
 	flex-direction: column;
@@ -310,20 +282,18 @@ body.is-mobile .position-restore-cue {
 	overflow: hidden;
 }
 
-/* The pinned-height dialog: the list scrolls inside it, so the list has to be allowed
-   to be shorter than its content and to take the height the toolbar left (min-height:
-   0 — without it the list grows past the dialog and takes whatever sits under it out of
-   view). `max-height: none` undoes the 60vh cap of the short-history case: a cap
-   measured against a window is wrong in a box that has already been given its height. */
+/* 钉死高度的对话窗口：列表在它里面滚动，所以必须允许列表比它的内容短、并拿到
+   工具栏剩下的高度（min-height: 0 —— 没有它，列表会长过对话窗口、把它下面的东西
+   挤出视野）。`max-height: none` 撤销短历史情形的 60vh 上限：在一个已经拿到高度的
+   盒子里，对着窗口量出来的上限是错的。 */
 .modal.position-restore-nav-modal.is-fixed .position-restore-nav-list {
 	flex: 1 1 auto;
 	min-height: 0;
 	max-height: none;
 }
 
-/* THE LIST, and the only thing in the panel. It used to share a row with a details
-   column, and every rule around this one existed to divide the width between them; with
-   the column gone the list takes the whole of it. */
+/* **列表**，也是面板里唯一的东西。它曾与一列详情共用一行，这一条周围的每条规则
+   都是为了在两者之间分宽度；那列一走，列表就全占了。 */
 .position-restore-nav-list {
 	position: relative;
 	flex: 1 1 auto;
@@ -332,66 +302,59 @@ body.is-mobile .position-restore-cue {
 	overflow-y: auto;
 	max-height: 60vh;
 	padding-bottom: 4px;
-	/* A PHONE SCROLLS THIS LIST WITH A FINGER, and the app reads a finger on a
-	   pane by walking up from the element it landed on, looking for something it
-	   can scroll, to decide whether the drag is a scroll or one of its own
-	   gestures (a phone's sidebar is a drawer a finger folds away sideways). So
-	   the list answers that walk itself instead of leaving it to be measured:
-	     - `pan-y` — a vertical drag belongs to THIS scroller, and a horizontal
-	       one is not a scroll at all, so the two gestures cannot be read as each
-	       other;
-	     - `contain` — a drag that reaches either end of the list stops there
-	       instead of being handed on to whatever scrolls around the panel (in a
-	       sidebar that is the drawer's own scroller, which would then move the
-	       whole pane while the reader is still holding a row);
-	     - the momentum flag iOS still wants told about a scroller it owns.
-	   Pinch is left alone: zooming is the reader's business, not the panel's. */
+	/* **手机用手指滚这张列表**，而 app 判断一根手指落在某个窗格上时的做法，是从
+	   它落到的那个元素往上走、找一个能滚的东西，来决定这次拖动是滚动还是它自己的
+	   某个手势（手机的侧栏是一条手指往侧向一折就收起的抽屉）。所以这张列表自己
+	   来回答这次上溯，而不是等着被量：
+	     - `pan-y` —— 竖直拖动属于**这个**滚动器，横向拖动则根本不是滚动，于是这
+	       两个手势不会被互相读错；
+	     - `contain` —— 拖到列表任一端就停在那里，而不是被交给面板周围那个能滚的
+	       东西（在侧栏里那是抽屉自己的滚动器，于是读者还握着一行的时候整个窗格
+	       就被它带着动）；
+	     - iOS 至今仍要被告知的那个惯性标志，针对它自己拥有的滚动器。
+	   捏合则不动：缩放是读者的事，不是面板的。 */
 	touch-action: pan-y pinch-zoom;
 	overscroll-behavior: contain;
 	-webkit-overflow-scrolling: touch;
 }
 
-/* WHERE THE PINNED ROWS STOP. A LINE and nothing else: a heading would spend a
-   row's height saying what the line already says, and an icon on each row has
-   nowhere to stand — the row's far end belongs to its own controls. */
+/* **钉住的行停在哪**。一条**线**、别无其它：一个标题会花掉一行的高度去说这条线
+   已经说了的东西，而每行放个图标又没处可站 —— 行的远端属于它自己的控件。 */
 .position-restore-nav-pinned-sep {
 	height: 0;
 	margin: 5px 8px 6px;
 	border-top: 1px solid var(--background-modifier-border);
 }
 
-/* THE ARROWS — four buttons for a device with no keyboard: a step back and forward, and
-   the two ends of the note standing open. TWO CAPSULES AND NOT ONE ROW OF FOUR (see
-   body.ts), because the pairs are two different things and a row of four arrows beside a
-   list reads as four ways to scroll that list. What keeps them from being read as part of
-   it is the capsule: a row of that list is a full-width line that tints under the
-   pointer, and nothing here is. */
-/* THEY STAND UNDER THE LIST, ON EVERY DEVICE — and that is one answer, not two. Under the
-   list is the foot of the panel, which is where a thing that ACTS belongs (above the line
-   is the list, and this is not it), while at the top they stood beside the filter box,
-   where a hand going for the box lands on an arrow instead. It is also where a thumb
-   reaches: the top of a phone screen is the last place it does. LAST IN THE DOM TOO (see
-   body.ts), so no `order` is needed and the keyboard reaches them where the eye does. */
+/* **箭头** —— 给没有键盘的设备用的四个按钮：后退一步、前进一步，以及正开着的那篇
+   笔记的两端。**两个胶囊、而不是四个一行**（见 body.ts），因为两对是不同的东西，
+   而列表旁边的四个箭头一行读起来像四种滚那张列表的方式。让它们不被读成它的一部分
+   的，是那个胶囊：那张列表的一行是一条整宽的线、指上去会染色，而这里没有一样东西
+   是这样的。 */
+/* **它们站在列表下方，在每种设备上** —— 而且这是一个答案、不是两个。列表下方是
+   面板的脚，而一个**能起作用**的东西属于那里（线以上是列表，而这个不是）；站在顶部
+   时它们就立在筛选框旁边，一只手去够那个框就会落到一个箭头上。那里也是一根拇指能够到
+   的地方：手机屏幕的顶部是它最后才够得着的。**在 DOM 里也放最后**（见 body.ts），
+   所以不需要 `order`，键盘够到它们的位置与眼睛一致。 */
 .position-restore-nav-arrows {
 	display: flex;
 	align-items: center;
-	/* CENTRED, and not laid against the list's left edge: buttons that line up with the
-	   rows above them read as one of those rows. The gap between the two capsules is
-	   WIDE — it is the whole of what says the pairs are two different things, and a gap
-	   the width of a button leaves them looking like one row of four. */
+	/* **居中**，而不是贴着列表左缘排：与上方各行对齐的按钮，读起来像那些行里的一行。
+	   两个胶囊之间的间隙很**宽** —— 它就是全部用来表明这两对是不同东西的东西，而一个
+	   按钮宽的间隙会让它们看起来像一行四个。 */
 	justify-content: center;
 	gap: 22px;
 	flex: 0 0 auto;
 	padding: 8px 2px 6px;
-	/* …and a line above them, so a strip standing under fifty rows is not read as one of
-	   them: this is a control that acts on the note behind the list. */
+	/* ……以及它们上方的一条线，好让一条站在五十行下面的横带不被读成它们中的一行：
+	   这是一个作用于列表背后那篇笔记的控件。 */
 	border-top: 1px solid var(--background-modifier-border);
 	margin-top: 4px;
 }
 
-/* A capsule: the app's own quiet tier as its ground, one hairline round it, and the two
-   buttons meeting almost edge to edge inside — a gap wide enough to separate them would
-   be a gap wide enough to read them as two controls that are not one group. */
+/* 一个胶囊：以 app 自己的安静档为底、一圈发丝般的边，里面两个按钮几乎边挨着边 ——
+   一个足够宽、能把它们分开的间隙，也会是一个足够宽、让它们被读成两个不属于同一组的
+   控件的间隙。 */
 .position-restore-nav-arrow-group {
 	display: flex;
 	align-items: center;
@@ -402,13 +365,11 @@ body.is-mobile .position-restore-cue {
 	background: var(--background-secondary);
 }
 
-/* The button: the app's own icon-button skin, and one number of this strip's own — a box
-   a finger lands in rather than a glyph it has to aim at. Nothing of a form field's.
-   FULL-STRENGTH INK, and not the panel's quiet tier: these four are the panel's only
-   buttons, and a glyph the reader cannot find is not a quiet control but no control at
-   all — what keeps them from shouting is the capsule's ground and their number, never a
-   colour washed out. Both the app's variable and `color` are named, because which of the
-   two the glyph ends up reading is the theme's to decide (see the row's controls below). */
+/* 按钮：app 自己的图标按钮皮肤，加这条横带自己的一个数字 —— 一个手指能落进去的
+   盒子，而不是一个要瞄准的字形。不要表单字段的任何东西。**满强度的墨色**，不是
+   面板那个安静档：这四个是面板仅有的按钮，一个读者找不到的字形不是安静的控件、而是
+   根本没有控件 —— 让它们不喧闹的是胶囊的底和它们的尺寸数字，绝不是被洗淡的颜色。
+   app 的变量和 `color` 都写了，因为字形最终读的是哪一个由主题决定（见下面的行控件）。 */
 .position-restore-nav-arrow {
 	display: flex;
 	align-items: center;
@@ -425,10 +386,10 @@ body.is-mobile .position-restore-cue {
 	--icon-size: var(--icon-m);
 }
 
-/* …and one element further down, for the reason the row's own controls give (see
-   nav-row-actions): the app's icon rule NAMES a colour of its own, so an ink written on
-   the button alone is an ink the glyph may never see — and a shape carrying its stroke
-   width as an ATTRIBUTE does not take one from the element above it either. */
+/* ……以及再往下一个元素，理由与行自己那些控件给出的相同（见 nav-row-actions）：
+   app 的图标规则会**指名**它自己的一个颜色，所以只写在按钮上的墨色，是字形可能永远
+   看不到的墨色 —— 而一个把描边宽度作为**属性**带在身上的形状，也不会从它上面的元素
+   取值。 */
 .position-restore-nav-arrow svg,
 .position-restore-nav-arrow svg * {
 	color: var(--text-normal);
@@ -441,67 +402,60 @@ body.is-mobile .position-restore-cue {
 	color: var(--text-normal);
 }
 
-/* An arrow that would do nothing goes quiet rather than answering with nothing: an end of
-   the stack already reached, or the two ends with no note open at all. That last one is
-   also the panel's standing answer about WHOSE ends they are — it is the note they follow,
-   not this list. */
+/* 一个什么都不会做的箭头，安静下来、而不是用“什么都没发生”来作答：栈的一端已经
+   到头，或者两端在完全没有打开笔记的时候。后者也是这个面板关于**这些是谁的**端所
+   给出的一贯答案 —— 它们跟着的是那篇笔记，不是这张列表。 */
 .position-restore-nav-arrow.is-disabled {
 	opacity: 0.35;
 	cursor: default;
 }
 
-/* THE BANDS THE PANEL IS MADE OF — the filter, the list, the arrows — are a flex column,
-   so the list is the one that GROWS and the strip the one that keeps its height: a strip
-   pinned under a scrolling list is the whole of what this buys. */
+/* **面板由之构成的几条带** —— 筛选、列表、箭头 —— 是一个 flex 列，所以列表是
+   **会长的**那一个、横带是**保住自己高度的**那一个：一条钉在滚动列表下面的横带，
+   就是这买到的一切。 */
 .position-restore-nav-host {
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 }
 
-/* THE FOOT OF A PANE IS NOT THE FOOT OF THE WINDOW — THE APP'S STATUS BAR IS THAT, and it
-   is a FLOATING one: pinned to the bottom-right corner of the window and drawn OVER
-   whatever stands there (app.css: `position: fixed; bottom: 0; right: 0`), which in a
-   resident panel is these four. This is the room that lifts them clear of it. A DIALOG
-   needs none: it is centred, and its own foot is nowhere near the window's. (A phone's
-   room is the app's own toolbar's, below — one `is-touch` rule, and it wins on
-   specificity whatever the order here.)
+/* **一个窗格的脚不是窗口的脚 —— app 的状态栏才是**，而且它是**浮动**的：钉在窗口的
+   右下角、画在站在那里的一切**之上**（app.css：`position: fixed; bottom: 0; right: 0`），
+   在常驻面板里压在的就是这四个。这就是把它们从它下面抬开的留白。**对话窗口**不需要：
+   它居中，它自己的脚离窗口的脚远得很。（手机的留白是 app 自己工具栏的，见下面 ——
+   一条 `is-touch` 规则，无论这里的顺序如何它都靠特异性取胜。）
    */
 .position-restore-nav-view .position-restore-nav-arrows {
 	padding-bottom: 34px;
 }
 
-/* …EXCEPT IN THE LEFT RAIL, WHICH THE BAR NEVER REACHES: it is pinned to the window's
-   bottom-RIGHT corner and sized to its own content (`right: 0`, `width: auto`), so a pane
-   standing on the left has a foot that is the screen's own — and 34px of nothing under
-   these four is 34px of pane given away for a bar on the far side of the window. So there
-   the strip takes the pane's own foot inset back (the 8px the list's rows keep at its
-   foot) and sits down where the pane ends. (The vault switcher the left rail keeps at ITS
-   foot is a SIBLING in the split's column: it takes room, it does not cover any.)
-   TWO CLASSES ONLY, so the phone's rule below outranks it on specificity. */
+/* ……**除了左栏，那条栏永远到不了那里**：它钉在窗口的右下角、按自己的内容定尺寸
+   （`right: 0`、`width: auto`），所以立在左边的一个窗格，它的脚就是屏幕自己的脚 ——
+   而在这四个下面留 34px 的空，等于为了窗口另一侧的一条栏白送 34px 窗格。所以在那里
+   横带收回窗格自己的脚内边（列表各行在脚上留的那 8px），贴着窗格结束的地方坐下。
+   （左栏在**它自己的**脚上留的仓库切换器，是分栏那一列里的**兄弟**：它占地方，
+   不遮任何东西。）**只有两个类**，所以下面手机那条规则靠特异性赢过它。 */
 .mod-left-split .position-restore-nav-arrows {
 	padding-bottom: 8px;
 }
 
-/* A PHONE GIVES THEM THE APP'S OWN TOUCH SIZE, and ROOM UNDER THEM: the app's own toolbar
-   stands at the foot of a phone screen, and a strip that touches it reads as part of it.
-   The gap is the phone's home inset — the strip of screen a gesture owns — plus a plain
-   12px of air, so the two never meet on a phone without one either. */
+/* **手机给它们 app 自己的触控尺寸，并在它们下面留出地方**：app 自己的工具栏站在
+   手机屏幕的脚上，紧贴它的横带读起来像它的一部分。间隙是手机的主屏内边 —— 手势所
+   拥有的那条屏幕带 —— 加上平白的 12px 空气，所以两者在手机上永远不会相接、
+   少掉任何一个都不行。 */
 .position-restore-nav-panel.is-touch .position-restore-nav-arrows {
 	padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
 	--nav-arrow-target: var(--touch-size-m);
 }
 
-/* Toolbar above the list: the filter box and the keyboard hint — the strip holds
-   nothing else now that the panel's own settings are rows of the plugin's settings
-   tab (see RecentFilesBrowserPrefs). A deliberately QUIET strip — the list below is what
-   the eye should land on — so the box recedes: the filter is a ruled line the caret
-   sits on rather than Obsidian's filled, bordered form field.
-   The field is quietened by RETUNING the variables the app's input skin reads
-   (--background-modifier-form-field, the border widths) rather than by out-
-   specifying it: this is the app's own move for quiet fields (see its
-   .search-input-container and .bases-search-row), and it keeps working whatever
-   the theme sets those variables to. */
+/* 列表上方的工具栏：筛选框和键盘提示 —— 面板自己的设置已经是插件设置页里的行之后
+   （见 RecentFilesBrowserPrefs），这条横带不再装别的东西。一条刻意**安静**的横带
+   —— 下面那张列表才是眼睛该落下的地方 —— 所以那个框退后：筛选是一条插入符所站的
+   下划线，而不是 Obsidian 那种填充、带边框的表单字段。
+   这个字段是被**重调 app 输入皮肤所读的变量**（--background-modifier-form-field、
+   边框宽度）变安静的，而不是用更高的特异性压过它：这是 app 自己对安静字段的做法
+   （见它的 .search-input-container 和 .bases-search-row），而且无论主题把那些变量
+   设成什么它都照常有效。 */
 .position-restore-nav-toolbar {
 	display: flex;
 	align-items: center;
@@ -514,10 +468,9 @@ body.is-mobile .position-restore-cue {
 	--input-border-width-focus: 0;
 }
 
-/* THE BOX AND ITS ×: one control, so one element. The wrapper is the flex item the
-   strip lays out (the box inside it takes the whole of it), and it is what the × is
-   positioned against — the box is a bare rule with no box to hang anything on, and an
-   absolutely positioned × costs the box no layout when it comes and goes. */
+/* **这个框和它的 ×：一个控件，所以一个元素**。外面这层是横带所排布的那个 flex 项
+   （里面的框占满它），也是 × 赖以定位的东西 —— 这个框是一条光秃秃的线、没有盒子
+   可以挂东西，而一个绝对定位的 × 在来去之间不花这个框任何布局成本。 */
 .position-restore-nav-search {
 	position: relative;
 	display: flex;
@@ -526,12 +479,11 @@ body.is-mobile .position-restore-cue {
 	min-width: 0;
 }
 
-/* One rule under the caret, and no focus glow. The shell class in the selector is
-   load-bearing: the app styles inputs as `input[type='text']`, so only a selector
-   at least that specific can take the box away — which is what the [type='text']
-   below adds back, now that the selector is written against the shell both forms
-   carry rather than against `.modal.position-restore-nav-modal` (three class-ish
-   steps then, three now: shell + input class + type attribute). */
+/* 插入符下面一条线，没有聚焦光晕。选择器里那个 shell 类是有承重作用的：app 把输入
+   框样式写成 `input[type='text']`，所以只有一个至少同等特异的选择器才能把这个框的
+   样式拿掉 —— 这正是下面 [type='text'] 补回来的东西；现在选择器写的是两种形态共用
+   的那个 shell、而不是 `.modal.position-restore-nav-modal`（那时是三个类级台阶，
+   现在也是三个：shell + input 类 + type 属性）。 */
 .position-restore-nav-panel input.position-restore-nav-filter[type='text'] {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -544,10 +496,9 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-small);
 }
 
-/* Room for the × at the end of the line, and ONLY while there is a × there: the
-   reserved strip appears with what has to be cleared, so a reader typing into an
-   empty box keeps the full width and the text never runs under the glyph. Where that
-   × never leaves (a shell it dismisses — see above), the room is kept for good. */
+/* 为行尾的 × 留出位置，而且**只在有 × 在那里的时候**：这条预留带是随着需要被清掉的
+   东西一起出现的，所以往空框里打字的读者保住整条宽度、文字也永远不钻到字形底下。
+   在 × 永远不离开的地方（一个由它来关闭的 shell —— 见上），这份位置就一直留着。 */
 .position-restore-nav-panel input.position-restore-nav-filter[type='text']:not(:placeholder-shown),
 .position-restore-nav-modal.is-dismissive:not(.is-touch) input.position-restore-nav-filter[type='text'] {
 	padding-inline-end: 1.6em;
@@ -564,19 +515,17 @@ body.is-mobile .position-restore-cue {
 	color: var(--nav-faint);
 }
 
-/* The × itself: a cross at the end of the line in the panel's faint tier, deepening
-   to full text strength under the pointer. It is drawn the way every other icon in
-   this panel is (see the setting's own button), and painted through the panel's OWN
-   variable for the same reason: `.clickable-icon` reads `--icon-color` and dims with
-   `--icon-opacity` rather than painting with `color`, and a theme is free to set
-   either — the ink therefore travels in a variable nothing else writes, and the glyph
-   takes it one element down. */
+/* × 本身：行尾的一个叉，取面板的弱墨档，指上去加深到满文本强度。它按这个面板里
+   其它每个图标的方式画（见设置里那个按钮自己），并出于同样的理由走面板**自己的**
+   变量来上色：`.clickable-icon` 读 `--icon-color`、用 `--icon-opacity` 变淡，而不是
+   用 `color` 上色，而主题可以随意设其中任一个 —— 所以墨色走一个别处不写的变量，
+   由字形再往下一个元素取值。 */
 .position-restore-nav-panel .position-restore-nav-search .position-restore-nav-clear {
 	position: absolute;
 	inset-inline-end: 0;
 	top: 0;
-	/* The box's own rule is drawn 4px into its height: centring the glyph on the AREA
-	   ABOVE it centres it on the text the reader typed, not on the box. */
+	/* 这个框自己的线是画在它高度内 4px 处的：把字形在**这条线以上的区域**里居中，
+	   才是把它在读者打进去的文字上居中，而不是在这个框上居中。 */
 	bottom: 4px;
 	margin: auto;
 	padding: 2px;
@@ -593,11 +542,11 @@ body.is-mobile .position-restore-cue {
 	stroke: currentColor;
 }
 
-/* There is nothing to clear, and the control says so by not being there: an empty box
-   shows its placeholder, which is the state the reader can SEE (see the note above the
-   button in body.ts). No class, no listener, and nothing to keep in step.
-   `is-dismissive` is what takes it out of that rule: in a shell the × closes, an empty box
-   still has work for it, and the glyph is what stands between the reader and the way out. */
+/* 没有东西可清，控件就用“不出现”来表明这一点：空框显示它的 placeholder，那是读者
+   **能看见**的状态（见 body.ts 里按钮上方那条说明）。没有类、没有监听器，也没有
+   需要保持同步的东西。
+   `is-dismissive` 是把它从这条规则里拿出来的东西：在一个 × 用来关闭的 shell 里，
+   空框对它仍有活儿要干，而这个字形正是站在读者与出路之间的东西。 */
 .position-restore-nav-panel:not(.is-dismissive) .position-restore-nav-search input:placeholder-shown ~ .position-restore-nav-clear {
 	display: none;
 }
@@ -607,19 +556,17 @@ body.is-mobile .position-restore-cue {
 	background-color: var(--background-modifier-hover);
 }
 
-/* A finger is not a pointer: the × keeps a target of its own on a phone, where the
-   line it stands on is barely taller than the glyph (see the desktop rule above — the
-   same glyph, with room around it). */
+/* 手指不是指针：× 在手机上保留自己的点击区，因为那里它所在的那条线只比字形高
+   一点点（见上面桌面端那条规则 —— 同一个字形，但周围有地方）。 */
 .position-restore-nav-panel.is-touch .position-restore-nav-search .position-restore-nav-clear {
 	padding: 5px;
 	--icon-size: var(--icon-s);
 }
 
-/* A ROW, in one of two kinds — a note, or one of its landings. Both are options of the
-   listbox and both take the same position chrome (see .is-selected below); what differs
-   is what a row is made of (see the two rules below). A row is ONE target now: the
-   gutter the travel arrow used to sit in is gone with the details panel it opened, so
-   the text simply has a plate's worth of padding. */
+/* **一行**，分两种 —— 一篇笔记，或它的一个落点。两者都是这个 listbox 的选项、
+   都取同样的位置外框（见下面 .is-selected）；不同的是这一行由什么构成（见下面两条
+   规则）。一行现在就是**一个**目标：行进箭头曾经所在的那条槽，已经随着它打开的详情
+   面板一起没了，所以文字干脆就得到一块板子的内边。 */
 .position-restore-nav-row {
 	column-gap: 8px;
 	align-items: baseline;
@@ -629,194 +576,166 @@ body.is-mobile .position-restore-cue {
 	padding: 4px 8px;
 	border-radius: var(--radius-s);
 	cursor: pointer;
-	/* THE LIST'S OWN TYPE, and not the 15px `body` hands down to every panel in the
-	   app: `--nav-item-size` is the tier the app sets its own sidebar lists in (13px
-	   on a desktop, the text size on a phone — see its .tree-item-self, which is the
-	   file explorer this list stands beside), so a row here reads at the same size as
-	   the row next to it. It is declared on the ROW because the row is the list: the
-	   strip above it names its own, smaller tier. The fallback
-	   is for a theme or a build that never defined the variable. */
+	/* **这张列表自己的字号**，而不是 `body` 传给 app 里每个面板的那 15px：
+	   `--nav-item-size` 是 app 给自己侧栏列表的档位（桌面 13px、手机上是正文大小 ——
+	   见它的 .tree-item-self，也就是这张列表所并排的那个文件浏览器），所以这里的一行
+	   与它旁边那一行同号。它声明在**行**上，因为行就是列表：它上方那条横带另报自己
+	   更小的一档。这里的兜底是给一个从未定义过该变量的主题或构建的。 */
 	font-size: var(--nav-item-size, var(--font-ui-small));
 }
 
-/* ONE ROW UNDER THE POINTER: the app's own hover tint — the wash its file explorer
-   paints its rows with — so the row a click is about to land on says so before the
-   click. A list of
-   things to open is read by aiming, and a row that answers nothing until it is hit
-   leaves the reader guessing which line the pointer is on.
-   It is a TINT and not a MOVE: the position (see .is-selected below) is where the
-   reader IS, and no pointer crossing a row ever changes it (see RecentFilesList's class
-   comment), so the two marks have to be told apart by colour alone — a row may be
-   under the pointer while another one is the position.
-   The POSITION's own row is left out: its accent wash is the louder statement, and the
-   rule below deepens THAT one under the pointer rather than replacing it with this
-   tint.
-   Scoped away from touch, by the same class the panel's own layout reads (see
-   `is-touch`): a finger's tap leaves `:hover` stuck on whatever it last touched, so
-   without this a row stays tinted after the finger is gone — a mark for a pointer that
-   is not there.
-   Left out for a row being PRESSED (see .is-pressed below): a press and a hover are
-   the same pointer on the same row, and the press is the louder of the two, so the
-   tint the press asks for has to be free to win. */
+/* **指针下的一行**：app 自己的悬停底色 —— 它的文件浏览器涂在自己各行上的那层 ——
+   这样一次点击即将落到的那一行，在点击之前就说明了这一点。一张等着被打开的东西的
+   列表是靠瞄准来读的，而一行在被打中之前什么都不回应，会让读者去猜指针在哪一行。
+   它是**染色**而不是**移动**：位置（见下面 .is-selected）是读者**所在**之处，而任何
+   一次经过某一行的指针都从不改变它（见 RecentFilesList 的类注释），所以这两种标记
+   只能靠颜色来区分 —— 一行可能处于指针之下，而另一行才是位置。
+   **位置**自己那一行被排除在外：它的强调色更响，而下面那条规则是在指针下把**那个**
+   加深、而不是用这种染色替换掉它。
+   按面板自己布局所读的那个类（见 `is-touch`）把它挡在触屏之外：手指的一次点击会把
+   `:hover` 粘在它最后碰到的东西上，所以没有这一条，手指离开后一行就一直是染着的
+   —— 一个为并不在那里的指针留的标记。
+   正在**被按**的一行也排除在外（见下面 .is-pressed）：按下和悬停是同一个指针在同一
+   行上，而按下是两者中更响的那个，所以按下所要的染色必须能赢。 */
 .position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover:not(.is-selected):not(.is-pressed) {
 	background-color: var(--background-modifier-hover);
 }
 
-/* THE PRESS ITSELF, which on a phone is the ONLY thing a row can answer a finger
-   with: nothing hovers on a device that has no pointer, and the travel the tap asked
-   for is a moment away and happens somewhere else — a note opening, a drawer folding
-   away (see list.ts's markPressed, and PANEL_EXIT_GRACE_MS) — so until it does, the
-   row says "this one" by taking the tint a hover would have given it, and keeps it
-   for as long as the row is still on screen.
-   DEEPER than that tint where the theme has one, so that a press is not mistaken for
-   the arm's own wash (see .is-armed below), which is the same question a moment
-   later: an arm is what a press becomes when the finger rests.
-   NOT scoped to touch: a desktop's hover already says which row the pointer is on,
-   but a mouse that is DOWN on a row is a press too, and a button held on a row that
-   answered nothing is the one case a hover cannot tell apart from a miss. */
+/* **按下本身**，在手机上它是一行能对一根手指作出的**唯一**回应：在没有指针的设备上
+   什么都不会悬停，而这次点击所要的行进只在一瞬之后、且发生在别处 —— 一篇笔记打开、
+   一条抽屉收起（见 list.ts 的 markPressed，以及 PANEL_EXIT_GRACE_MS）—— 所以在它
+   发生之前，这一行用“接下悬停本会给它的那层染色”来说“就是这个”，并在这行还在屏幕
+   上期间一直留着。
+   在主题有更深一档的地方**更深**，这样一次按下不会被误认成武装自己的那层底色
+   （见下面 .is-armed）—— 那是半秒之后同一个问题：武装就是按下在手指停住之后变成的
+   东西。
+   **不**限定在触屏：桌面的悬停已经说明指针在哪一行，但一只**按在**某一行上的鼠标也是
+   一次按下，而一个按在一行上、那行却什么都没回应的按钮，正是悬停无法与落空区分开的
+   唯一情形。 */
 .position-restore-nav-panel .position-restore-nav-row.is-pressed {
 	background-color: var(--background-modifier-active, var(--background-modifier-hover));
 }
 
-/* …and the POSITION'S OWN ROW deepens under a press exactly as it does under a hover:
-   the accent wash is the louder statement, and a press that replaced it with the
-   neutral tint would take the reader's own place off the screen at the moment they
-   touched it. */
+/* ……而**位置自己那一行**在按下时加深的程度，与它在悬停时完全一样：强调色是更响的
+   那个说法，而一次按下若用中性染色替换它，就会在读者刚碰它的那一刻，把读者自己的
+   位置从屏幕上抹掉。 */
 .position-restore-nav-row.is-selected.is-pressed {
 	background-color: color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }
 
-/* THE POSITION: the row the reader is on, whichever hand put them there — a click
-   sets it and the arrow keys walk it (see RecentFilesList.choose) — so ONE look has to
-   say "this row, right now". An accent wash, deliberately deeper than the hover tint
-   above so that being hovered never disguises it. */
+/* **位置**：读者所在的那一行，无论是哪只手把他们放到那里的 —— 一次点击设它、方向键
+   沿它行走（见 RecentFilesList.choose）—— 所以**一眼**就得说出“这一行，就是现在”。
+   一层强调色，刻意比上面的悬停染色更深，这样被悬停永远不能把它伪装起来。 */
 .position-restore-nav-row.is-selected {
 	background-color: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 }
 
-/* …and it stays legible under the pointer: reaching for the row deepens the wash
-   rather than replacing it, which would make the mark vanish exactly when the
-   reader's hand arrives. */
+/* ……而它在指针下保持可读：去够这一行只会把那层底色加深、而不是替换它，替换会让
+   这个标记恰好在读者的手到达时消失。 */
 .position-restore-nav-row.is-selected:hover {
 	background-color: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
 }
 
-/* A NOTE: its name, and what the name could not say alone. It is NOT indented — the
-   note is the list's own level, and its landings (under 'all') are what step in
-   under it. The row used to lead with a caret that rotated when the note was open, and
-   to end with a count of what a click would print; both went with the expansion, and the
-   gutter control that replaced the caret went with the details panel it opened (see
-   RecentFilesList). The name is the row.
-   A GRID, because the row may hold a second thing that is not part of the name: the
-   age, in a track of its own at the far end (see is-timed below). ONE track until
-   then — an empty second track would still spend its column gap out of the name. */
+/* **一篇笔记**：它的名字，以及这个名字无法独自说出的东西。它**不缩进** —— 笔记是
+   列表自己的层级，它的落点（在 'all' 之下）才是缩进到它下面的东西。这一行曾以一个
+   笔记打开时会旋转的三角打头，并以一次点击会打印出多少东西的数字收尾；两者都随着
+   折叠一起没了，而取代三角的那个槽控件，也随着它打开的详情面板一起没了
+   （见 RecentFilesList）。名字就是这一行。
+   这是一个**网格**，因为这一行可能装着一件不属于名字的第二个东西：时间，在最远端的
+   一条自己的轨道上（见下面 is-timed）。在那之前**只有一条**轨道 —— 空着的第二条轨道
+   仍会从名字里花掉它的列间隙。 */
 .position-restore-nav-row.is-file {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	align-items: baseline;
 }
 
-/* …and WITH an age the row is two tracks: the name cell takes the slack and the age
-   gets the far end, where it is the same x on every row. That track — and not an
-   automatic margin on the label — is what makes the times a column a reader's eye can
-   run down: a margin only right-aligns each label in whatever room its own row
-   happened to have left, and a row whose name and folder filled the line pushed its
-   label past the wrap. A track is stated once and the name gives way instead (it
-   ellipsizes; see the truncation order below). The class is written by
-   RecentFilesList.fileRow exactly when the label is built, so the row's shape and the
-   label cannot disagree about whether one exists. */
+/* ……而**带上**时间时这一行就是两条轨道：名字格拿走余量，时间拿到最远端、在那里它
+   每一行都是同一个 x。是那条轨道 —— 而不是标签上一个自动外边距 —— 让这些时间成为
+   一列读者眼睛可以一路扫下去的东西：外边距只把每个标签在它自己那一行碰巧剩下的空间
+   里右对齐，而一个名字和文件夹占满整行的行会把它的标签挤到换行之后。轨道只声明一次、
+   由名字让路（它省略号化；见下面的截断顺序）。这个类由 RecentFilesList.fileRow 正好
+   在标签被构建时写入，所以行的形状与标签不可能在一个是否存在的问题上互相矛盾。 */
 .position-restore-nav-row.is-file.is-timed {
 	grid-template-columns: minmax(0, 1fr) auto;
 }
 
-/* ONE OF A NOTE'S PLACES: the coordinate, then the section it sits in. Its indent is
-   what says it belongs to the note above: the bar is drawn with a shadow rather than
-   a border so the row keeps its own padding box, and the row is clickable across its
-   whole width. */
+/* **一篇笔记的一个地点**：先是坐标，然后是它所在的小节。它的缩进就是用来表明它
+   属于上面那篇笔记的：那条竖标记用阴影画、而不是用边框，好让这一行保住自己的
+   内边盒，而这一行整宽都可点。 */
 .position-restore-nav-row.is-place {
 	display: grid;
-	/* The coordinate takes the width its own number needs and not a pixel more, so
-	   everything the row has left over is the section's (see .nav-row-pos). */
+	/* 坐标只拿走它自己那个数字需要的宽度、一个像素都不多，所以这一行剩下的全部
+	   都属于小节（见 .nav-row-pos）。 */
 	grid-template-columns: auto minmax(0, 1fr);
 	margin-inline-start: 1.5em;
 	box-shadow: inset 2px var(--background-modifier-border);
-	/* …and it does NOT clip: the ● of "you are here" hangs off the coordinate's START
-	   edge, into the indent this row is set in, and a clip at the row's edge would cut
-	   the 	   marker in half (see .nav-row-here). Nothing here overflows of its own
-	   account — the coordinate is sized to its label and the section is what
-	   ellipsizes — so the clip guarded nothing on this row. */
+	/* ……而它**不裁**：“你在这里”的那个 ● 挂在坐标的**起点**边上、探进这一行所在的
+	   缩进里，若在这一行的边缘裁剪，就会把这个标记切成两半（见 .nav-row-here）。
+	   这里没有任何东西靠自己溢出 —— 坐标按自己的标签定宽，省略号化的是小节 ——
+	   所以这个裁剪在这一行上什么也没守住。 */
 	overflow: visible;
 }
 
-/* …and WITH an age the row is three tracks: the coordinate, the section, and the age
-   at the far end — the very column a note's row puts its own age in (see
-   .is-file.is-timed), so the two kinds of row end their times on one x and the list
-   reads as one column of times whatever the row stands for. The SECTION is what gives
-   way, as it does without the age: a coordinate and a time are both short and both
-   are what a reader compares, while the section is the one thing that can be cut
-   short and still name its place. */
+/* ……而**带上**时间时这一行是三条轨道：坐标、小节，以及最远端的时间 —— 正是笔记那一行
+   放自己时间的那一列（见 .is-file.is-timed），于是两种行的时间都结束在同一个 x，无论
+   这一行代表什么，列表都读成一列时间。让路的是**小节**，与没有时间时一样：坐标和时间
+   都短、都是读者拿来比的东西，而小节是唯一可以被截短、却仍能报出自己所在之处的那个
+   东西。 */
 .position-restore-nav-row.is-place.is-timed {
 	grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
-/* The note cell: what the row names itself with — the name and its mark as ONE
-   piece, and the folder — on one line until it does not fit, and on two when it
-   does not. It takes the row's slack, because the name is what a row that is too
-   narrow gives up first (it ellipsizes; the marks beside it do not).
+/* 笔记格：这一行用来自报身份的东西 —— 名字和它的标记作为**一整块**，以及文件夹 ——
+   一行放得下就一行，放不下就两行。它拿走的余量归它，因为一个太窄的行最先放弃的就是
+   名字（它省略号化；它旁边的标记不会）。
 
-   WHERE it breaks is the reader's setting and not this rule's: the folder's `order`
-   below decides which half is laid out first, and the line then wraps after it, so
-   the other half is what drops (see PathDisplayMode). Nothing here measures
-   anything — a row that fits is one line and a row that does not is two, at whatever
-   width the pane happens to be. WHAT drops is the folder or the name-with-its-mark,
-   never a mark on its own (see .nav-row-head). */
+   **在哪**断行是读者的设置、不是这条规则的事：下面文件夹的 `order` 决定先排哪一半，
+   然后在那之后换行，所以掉下去的才是另一半（见 PathDisplayMode）。这里什么都不测量
+   —— 放得下的行是一行、放不下的行是两行，窗格碰巧多宽就是多宽。掉下去的是文件夹或
+   带标记的名字，从来不是单独一个标记（见 .nav-row-head）。 */
 .position-restore-nav-row .nav-row-file {
 	display: flex;
 	align-items: baseline;
 	min-width: 0;
 	flex-wrap: wrap;
-	/* Between two things ON ONE LINE, and never before one that wrapped: a column gap
-	   separates without indenting, so the second line starts flush with the first. (A
-	   margin would push the wrapped half to the right, and the two lines would read as
-	   unrelated.) */
+	/* 用在**同一行**上两个东西之间，永远不用在换行之后的那个东西之前：列间隙能分开
+	   两边而不会产生缩进，所以第二行与第一行齐平开始。（外边距会把换行掉下来的那一半
+	   往右推，两行读起来就毫不相干了。） */
 	column-gap: 0.5em;
 }
 
-/* THE NAME AND ITS MARK, as one piece (see RecentFilesList.fileRow): this box does
-   NOT wrap — it is the one thing in the cell that would rather be cut in two than
-   moved, because a type printed on a line of its own stops saying what it is a type
-   OF. Being one flex item, it is also one thing for the cell above to break after:
-   a narrow row puts the FOLDER on the second line and keeps these two together.
-   It shrinks (min-width: 0) so that the NAME inside it is what ellipsizes — the mark
-   keeps its own width, see .nav-file-tag below. */
+/* **名字和它的标记，作为一整块**（见 RecentFilesList.fileRow）：这个盒子**不**换行
+   —— 它是这个格里唯一一个宁可被切成两段、也不愿被挪走的东西，因为一个印在独立一行
+   上的类型标记，就不再说明它是**谁**的类型。作为一个 flex 项，它也是上面这个格在它
+   之后断行的**一件事**：窄行把**文件夹**放到第二行、把这两样留在一起。它会缩
+   （min-width: 0），好让里面那个**名字**去省略号化 —— 标记保住自己的宽度，见下面
+   .nav-file-tag。 */
 .position-restore-nav-row .nav-row-head {
 	display: flex;
 	align-items: baseline;
 	flex-wrap: nowrap;
 	min-width: 0;
-	/* Between the name and the mark, the same gap the cell uses between its halves. */
+	/* 名字与标记之间，用的就是上面那个格在它两半之间用的同一个间隙。 */
 	column-gap: 0.5em;
 }
 
-/* The type, where the type is worth saying at all (see model.ts's badgeOf): the
-   app's OWN tag class, the one the file explorer puts beside a file's name, so the
-   mark needs no drawing of ours — and a theme that restyles the app's tags restyles
-   this one, which a look of our own could never be. Two things come with that class
-   which are right for the explorer and wrong here, and both are taken back:
-   `margin-inline-start: auto`, which in the explorer pushes the tag to the FAR END of
-   its line (there it stands for the whole row; here it belongs to a name), and a
-   shrinkable box — a tag squeezed below its own text reads "PD / F", and the NAME is
-   the half that gives way (see .nav-row-name). */
+/* 类型，在类型有说出来的价值时才说（见 model.ts 的 badgeOf）：app **自己的**标签类，
+   就是文件浏览器放在文件名旁边的那个，所以这个标记不需要我们自己画 —— 而一个重绘 app
+   标签的主题会连它一起重绘，那是我们自己的一套装扮永远做不到的。这个类带来两样对
+   浏览器合适、在这里不对的东西，两样都被收回：`margin-inline-start: auto`，在浏览器里
+   它把标签推到那一行的**最远端**（在那里它代表整行；在这里它属于一个名字），以及一个
+   可收缩的盒子 —— 一个被压到自己文字以下的标签会读成 "PD / F"，而让路的那一半是
+   **名字**（见 .nav-row-name）。 */
 .position-restore-nav-row .nav-file-tag {
 	margin-inline-start: 0;
 	flex: 0 0 auto;
 }
 
-/* A view row's mark: the icon the view itself uses, the one its tab header showed
-   (see list.ts's fileRow). It takes the badge's slot and never stands beside one —
-   a view has no path, so it has no type badge. Sized and coloured like the badge's
-   text rather than like a toolbar button: this is an annotation ON the name, and
-   the name is what the reader is scanning. */
+/* 视图行的标记：视图自己用的那个图标，也就是它的标签页头曾经显示的那个（见 list.ts
+   的 fileRow）。它占据标记的那个位置、从不与一个标记并排 —— 视图没有路径，所以它没有
+   类型标记。大小和颜色按标记的文字、而不是按工具栏按钮来定：这是**压在**名字上的一个
+   注记，而名字才是读者在扫读的东西。 */
 .position-restore-nav-row .nav-row-view-icon {
 	flex: 0 0 auto;
 	display: inline-flex;
@@ -829,11 +748,9 @@ body.is-mobile .position-restore-cue {
 	height: 1em;
 }
 
-/* The folder a note sits in: the FAINTEST tier, because it is the disambiguator and
-   not the identity — a reader scans names, and the folder only decides between two
-   of them. It is also the half that ellipsizes when even a line of its own is not
-   enough: a long path ends in an ellipsis rather than in a row of dots where its
-   middle used to be. */
+/* 一篇笔记所在的文件夹：最弱的一档，因为它是消歧者而不是身份 —— 读者扫读的是名字，
+   文件夹只用来在两个名字之间取舍。它也是连独立一行都不够时被省略号化的那一半：
+   一条长路径以省略号收尾，而不是在它中间曾经的位置变成一排点。 */
 .position-restore-nav-row .nav-row-path {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -843,82 +760,68 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* WHICH HALF GIVES WAY. A flex line wraps at the end it is laid out in, so the item
-   ordered LAST is the one that ends up on the second line. Ordered first, the folder
-   keeps the line and the NAME drops below it — one long line, the whole path read
-   before the note's own name. Without the order, the folder is last in the DOM and
-   the FOLDER drops: the name stays in the left column and the path becomes a second
-   line under it. (The app's quick switcher is that second shape, though not by
-   wrapping one line — it gives the path a row of its own under the title, see its
-   .suggestion-note.) The DOM order is the same either way (the name's own box, then the
-   folder), so this one declaration is the whole of the difference between the two
-   "always" modes. */
+/* **哪一半让路**。一条 flex 行在它被排布的那一端换行，所以被排到**最后**的那个项，
+   才是最终落到第二行的那个。排在最前时，文件夹占住这一行、**名字**掉到它下面 ——
+   一条长行，整条路径都在笔记自己的名字之前被读完。不写 order 时，文件夹在 DOM 里
+   最靠后，于是掉下去的是**文件夹**：名字留在左列，路径成为它下面的一行。（app 的
+   快速切换器就是第二种形状，虽然并不是靠把一行折开 —— 它给路径在标题下面单独一行，
+   见它的 .suggestion-note。）两种情况下 DOM 顺序都一样（先是名字自己的盒子，然后是
+   文件夹），所以这一条声明就是两种「总是」模式之间的全部差别。 */
 .position-restore-nav-row.is-file.is-path-before .nav-row-path {
 	order: -1;
 }
 
-/* THE WIDE DIALOG LETS A LONG PATH WRAP instead of cutting it off: in a box this roomy an
-   ellipsis removes the answer to the question the row exists to answer (which note is this),
-   and the row has the lines to spend. WHERE the folder stands is not this rule's to say —
-   the reader picked a side and this obeys it (see the order above) — only whether the path
-   may be TALLER THAN A LINE is. The app wraps the same text in its own suggestions.
-   Scoped to the dialog and off touch: it is WIDTH talking, and a narrow panel has none. */
+/* **这个宽的对话窗口让长路径折行**、而不是把它切掉：在一个这么宽绰的盒子里，省略号
+   会抹掉这一行存在所要回答的那个问题的答案（这是哪篇笔记），而这一行有的是行可以花。
+   文件夹**站在哪**不是这条规则说了算 —— 读者选了哪一边，这条就照办（见上面的 order）
+   —— 它只管路径可不可以**比一行更高**。app 在它自己的建议项里也把同样的文字折行。
+   限定在对话窗口上、且不作用于触屏：说话的是**宽度**，而窄面板没有宽度。 */
 .modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row .nav-row-path {
-	/* The row sets `nowrap` for itself; this takes it back for the one cell that may wrap. */
+	/* 这一行为自己设了 `nowrap`；这里替唯一可以折行的那个格把它收回来。 */
 	white-space: normal;
 	overflow-wrap: break-word;
 	overflow: visible;
 	text-overflow: clip;
-	/* …and PRINTED IN FRONT OF THE NAME rather than faintly behind it, the faintest tier is
-	   too quiet to read: one step up, still clearly under the name's own. */
+	/* ……并且**印在名字前面**而不是淡淡地衬在它后面 —— 最弱的一档太安静、读不了：
+	   升一档，仍明显在名字那档之下。 */
 	color: var(--nav-muted);
 }
 
-/* HOW LONG AGO the note was last visited (see model.ts's ageLabel). It never
-   shrinks and never gives way: the name is what a row is scanned by, and the age is
-   what the scan is comparing, so a narrow row trims the NAME and keeps the time —
-   the reverse would leave a list of full names and no way to use them. It is a CELL
-   of the row and not a cell of the name (see RecentFilesList.fileRow): it stands in
-   the row's own second track, so its labels end on one x down the whole list
-   whatever the name and the folder beside it did — that column is the whole point of
-   printing it, and nothing here has to align it. */
+/* 这篇笔记**多久以前**被最后访问（见 model.ts 的 ageLabel）。它永不收缩、永不让路：
+   名字是一行被扫读的依据，而时间是这个扫读所比较的东西，所以窄行修的是**名字**、
+   保住的是时间 —— 反过来会留下一列完整的名字，却没法用。它是这一行的一个**格**、
+   而不是名字的一个格（见 RecentFilesList.fileRow）：它站在这一行自己的第二条轨道上，
+   所以无论它旁边的名字和文件夹怎样，它的标签都结束在整张列表同一个 x 上 —— 那一列
+   正是印它的全部意义，这里没有任何东西需要去对齐它。 */
 .position-restore-nav-row .nav-row-time {
 	color: var(--nav-faint);
 	font-size: var(--font-ui-smaller);
 }
 
-/* THE ROW'S OWN CONTROLS — its removal, and on a phone its second act (see
-   RecentFilesList.fileRow) — over the row's far end, and the only controls this list
-   draws. They are OUT OF THE FLOW, and that is the whole of why they may exist: laid
-   out inside the row, they would take their width from the name and the row would
-   move under the pointer that summoned them — the one thing this list never does
-   (see the hover rule above) — and they would be a second thing the pointer can be
-   aiming at on the gesture a reader makes a thousand times.
-   ONE BOX HOLDS BOTH, and the box is what is placed: two boxes each placed of its
-   own would have to be told apart by the width each happens to take, and a row that
-   carries only one of them would leave the other's strip standing empty.
-   They say nothing until the row is pointed at: a reader aiming at a row is not
-   asking what can be done with it.
-   `background: inherit` is what keeps it seamless — the strip under the icons is
-   painted with the row's own wash (the hover tint, the arm's own tint, or the
-   position's accent), so a control looks like part of the row rather than a patch
-   laid over it.
+/* **这一行自己的控件** —— 它的移除，在手机上还有它的第二个动作（见
+   RecentFilesList.fileRow）—— 压在这一行的远端上，也是这张列表唯一画出的控件。
+   它们**脱离文档流**，而这正是它们得以存在的全部原因：在行内排布的话，它们会从名字
+   那里拿走宽度，这一行会在召唤它们的指针底下移动 —— 那是这张列表从不做的一件事
+   （见上面的悬停规则）—— 而且它们会成为指针在读者做上千次的那个手势上能够瞄准的
+   第二件东西。
+   **一个盒子装下两者**，被摆放的是这个盒子：两个各自的盒子就得靠各自碰巧占的宽度来
+   区分，而一个只带其中一个的行会让另一个的那条带空着。
+   在行被指到之前它们什么都不说：一个正瞄准某行的读者，并不是在问能对它做什么。
+   `background: inherit` 是让它保持无缝的东西 —— 图标底下那条带用这一行自己的底色画
+   （悬停染色、武装自己的染色，或位置的强调色），所以一个控件看起来像这一行的一部分、
+   而不是一块贴上去的补丁。
 
-   ITS INK IS STATED HERE, and not left to the skin the element already carries. It
-   is built with the app's own icon class (`clickable-icon`, see list.ts), and that
-   skin paints with `--icon-color` at `--icon-opacity` — two ordinary theme knobs
-   tuned for a button on the app's chrome, and free to be anything at all. Left to
-   them, this glyph came out as whatever those happened to be in a sidebar: nearly
-   invisible on one side of the workspace and merely quiet on the other, because the
-   two sidebars are not the same colour under every theme and a TRANSLUCENT ink takes
-   its contrast from whatever it is painted on — which is what `--nav-faint` (55% of
-   the text colour, the tier a folder or a timestamp reads in) was doing here too.
-   88% — the panel's `--nav-muted`, the tier the section column reads in, one step
-   under the name — is the deep end of the same scale: the pane's colour still shows
-   through it, but no longer decides whether the control is there at all, and it is
-   still a mark ON the row rather than a second thing to read on it. Deepening the
-   ink is also what the × deserves over the label it replaces: that label is an
-   annotation, and this is the one control in the list. */
+   **它的墨色在这里明说**，而不是交给这个元素已经带的皮肤。它是用 app 自己的图标类
+   （`clickable-icon`，见 list.ts）构建的，而那个皮肤用 `--icon-color` 在
+   `--icon-opacity` 下上色 —— 两个为 app 外框上的按钮调过的普通主题旋钮，可以随便
+   是什么。交给它们的话，这个字形在侧栏里就成了它们碰巧是的东西：在工作区一侧几乎
+   看不见、在另一侧只是安静，因为两个侧栏在每个主题下都不是同一种颜色，而一个
+   **半透明**的墨色会从它被画在什么上取得对比度 —— 这也正是 `--nav-faint`（文本色的
+   55%，文件夹或时间戳所读的那一档）在这里干的事。
+   88% —— 面板的 `--nav-muted`，小节那一列所读的档位，比名字低一档 —— 是同一标尺的
+   深端：窗格的颜色仍能透过来，但不再决定这个控件到底在不在，而且它仍然是**压在**行上
+   的一个标记、而不是行上第二样要读的东西。加深墨色也正是这个 × 在它替换掉的那个标签
+   面前应得的：那个标签是个注记，而这是列表里唯一的控件。 */
 .position-restore-nav-row .nav-row-actions {
 	position: absolute;
 	inset-inline-end: 4px;
@@ -929,14 +832,11 @@ body.is-mobile .position-restore-cue {
 	justify-content: flex-end;
 	gap: 2px;
 	background: inherit;
-	/* THE STRIP IS THE CONTROLS', and while there are none on screen it is not there
-	   either: it stands over the AGE, which is a cell of the row with something of
-	   its own to say — the moment behind "5m", one hover away (see list.ts's
-	   fileRow). A strip that swallowed the pointer while invisible would answer for
-	   the row instead, and "which file" is not what a reader pointing at a time
-	   asked. It becomes reachable again with the controls themselves (see the rule
-	   below), and for the same reason: a hit inside the strip is a hit on a control,
-	   or it is a miss. */
+	/* **这条带是控件的**，而屏幕上没有控件时它也不在：它站的位置压着**时间**，而时间
+	   是这一行的一个格、有它自己要说的东西 —— "5m" 背后的那一刻，一悬停就到（见 list.ts
+	   的 fileRow）。一条在隐形时还吞掉指针的带，会反过来替这一行作答，而“哪个文件”
+	   并不是一个指着时间看的读者所问的。它会随着控件本身重新变得可点（见下面那条规则），
+	   理由也相同：带里的一次命中要么落在控件上，要么就是一次落空。 */
 	pointer-events: none;
 }
 
@@ -954,16 +854,14 @@ body.is-mobile .position-restore-cue {
 	pointer-events: none;
 }
 
-/* …and one element further down, because the skin reads its OWN variable and not the
-   `color` beside it (see the search box's × above, which says the same thing): a
-   declaration on the wrapper is not a colour the glyph inherits when the app's icon
-   rule names one. The stroke gets a hair more weight for the same reason — at
-   `--icon-xs`, a stroke of 2 inside a 24-unit box is a little over one pixel, and a
-   hairline cross drawn in a muted ink is the first thing a busy pane eats.
-   The SHAPES are named alongside the `<svg>` and not left to inherit it: a shape
-   carrying the stroke width as an ATTRIBUTE of its own does not take the value
-   from the element above it — inheritance only fills in what nothing states — so a
-   width written on the root alone is a width the lines never see. */
+/* ……以及再往下一个元素，因为那个皮肤读**自己的**变量、而不是旁边的 `color`（见上面
+   搜索框的 ×，说的是同一件事）：写在包裹层上的一条声明，并不是 app 的图标规则指名了
+   颜色时字形会继承到的颜色。描边因此多了一点分量，理由相同 —— 在 `--icon-xs` 下，
+   24 单位盒子里 2 的描边略多于一像素，而一个用弱墨画的发丝般的叉，是一个繁忙的窗格
+   最先吃掉的东西。
+   那些**形状**与 `<svg>` 一起被指名、而不留给它去继承：一个把描边宽度作为**自己**属性
+   的形状，不会从它上面的元素取值 —— 继承只补上没有任何东西声明的部分 —— 所以只写在
+   根上的宽度，是那些线永远看不到的宽度。 */
 .position-restore-nav-row .nav-row-actions svg,
 .position-restore-nav-row .nav-row-actions svg * {
 	color: var(--nav-action-ink);
@@ -971,24 +869,21 @@ body.is-mobile .position-restore-cue {
 	stroke-width: 2.25;
 }
 
-/* REACHING THE × ANSWERS: full-strength ink over the app's own hover wash. It was the
-   one control in this panel with no response of its own — pointing at it changed
-   nothing at all, so a reader had no way to tell a control from a mark — and the row
-   could not answer for it either, because `background: inherit` above means the ×
-   wears whatever the row is already wearing. Scoped away from touch for the same
-   reason the row's own hover tint is: a finger's tap leaves `:hover` stuck on the
-   last thing it touched. */
+/* **够到 × 就有回应**：满强度墨色压着 app 自己的悬停底色。它曾是这个面板里唯一一个
+   自己毫无反应的控件 —— 指向它什么都不变，于是读者没有办法把控件和标记区分开 ——
+   而这一行也替它答不了，因为上面的 `background: inherit` 意味着 × 穿的就是这一行已经
+   穿着的。限定在触屏之外，理由与行自己的悬停染色相同：手指的一次点击会把 `:hover`
+   粘在它最后碰到的东西上。 */
 .position-restore-nav-panel:not(.is-touch) .position-restore-nav-row .nav-row-forget:hover {
 	--nav-action-ink: var(--text-normal);
 	background-color: var(--background-modifier-hover);
 }
 
-/* …and it REPLACES the age rather than standing beside it: both are the row's far end,
-   and a × drawn over a timestamp leaves the two of them half-legible. Only the label's
-   COLOUR goes, so the track it stands in keeps its width and nothing moves as the two
-   swap — which is the same reason the × is absolutely positioned in the first place.
-   Scoped away from touch by the panel's own class, exactly as the hover tint is: a
-   finger's tap leaves `:hover` stuck on the row it last touched. */
+/* ……而它**替换**时间、而不是与它并排：两者都是行的远端，一个画在时间戳上的 × 会让
+   两者都半可读。只有标签的**颜色**去掉，所以它所在的那条轨道保住自己的宽度、两者
+   交换时什么都不动 —— 这也正是 × 一开始就要绝对定位的原因。
+   按面板自己的类限定在触屏之外，与悬停染色完全一样：手指的一次点击会把 `:hover` 粘在
+   它最后碰到的那一行上。 */
 .position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-time {
 	color: transparent;
 }
@@ -998,82 +893,65 @@ body.is-mobile .position-restore-cue {
 	pointer-events: auto;
 }
 
-/* …and the STRIP answers with them, on either device and only while they are on
-   screen: a press that landed inside it but on NEITHER control was a MISS, and a miss
-   opens nothing. This is not a nicety. Two small targets side by side are missed by a
-   finger that drifts — and a finger that drifts off one of them and onto the other has
-   clicked neither: the browser hands the click to their nearest common ancestor, which
-   without this rule is the ROW, so a reader aiming at a control would be sent to the
-   note instead (see RecentFilesList.actionStrip, which stops what lands here). */
+/* ……而**这条带**随着它们一起回应，在任何设备上、且只在它们在屏幕上时：一次落在带里、
+   却**两个控件都没**碰上的按下是一次**落空**，而落空什么也不打开。这不是一句客套话。
+   两个并排的小目标会被一根漂移的手指错过 —— 而一根从一个目标漂到另一个上的手指，
+   两个都没点到：浏览器会把这次点击交给它们最近的共同祖先，没有这条规则的话那就是
+   **这一行**，于是瞄准一个控件的读者反而会被送去那篇笔记（见 RecentFilesList.actionStrip，
+   它拦下落在这里的东西）。 */
 .position-restore-nav-panel:not(.is-touch) .position-restore-nav-row:hover .nav-row-actions,
 .position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions {
 	pointer-events: auto;
 }
 
-/* A LONG PRESS ON A ROW IS NOT A SELECTION. On a touch device the press is this
-   panel's own gesture (see long-press.ts), and the platform's answer to a finger
-   resting on text — a selection callout, or a magnifier — would be a second thing
-   happening under the reader's finger while they are waiting for the row to answer it.
-   Nothing on a row is text worth copying either: it is a name, shortened, and the
-   whole of it is one long press away (see tip.ts's speak). */
+/* **长按一行不是一次选择**。在触屏设备上，按下是这个面板自己的手势（见 long-press.ts），
+   而平台对一根停在文字上的手指的回应 —— 选择菜单或放大镜 —— 会在读者等着这一行回应
+   的时候，在他们手指底下另起一件事。一行上也没有值得复制的文字：它是个名字，还是
+   缩短过的，而完整的那个一长按就到（见 tip.ts 的 speak）。 */
 .position-restore-nav-panel.is-touch .position-restore-nav-row {
 	-webkit-touch-callout: none;
 	user-select: none;
 }
 
-/* ON A TOUCH DEVICE THE LONG PRESS IS THE HOVER: what a pointer coming to rest on a
-   row is on a desktop, a finger stopping on one is here (see long-press.ts), and the
-   row answers with the same two things — its controls, and the words it cannot print
-   (see tip.ts's speak). The ONE difference is how long the reader is entitled to
-   them: a hover is over the moment the pointer moves on, while a long press has to
-   OUTLIVE the finger that made it, because the reader lifts that finger in order to
-   reach for what the press put on the row. So the arm is a class the row carries
-   rather than a state of the pointer's, and it comes off only when the reader does
-   something else (see RecentFilesList.disarm).
+/* **在触屏设备上，长按就是悬停**：指针停在某一行上对桌面是什么，手指停在上面在这里
+   就是什么（见 long-press.ts），而这一行以同样的两样东西作答 —— 它的控件，以及它印不
+   出来的那些字（见 tip.ts 的 speak）。**唯一**的差别是读者有权拥有它们多久：悬停在
+   指针移开的那一刻就结束，而长按必须**活得比做它的那根手指更久**，因为读者要抬起那根
+   手指才能去够这次按下放到行上的东西。所以武装是这一行携带的一个类，而不是指针的一种
+   状态，它只在读者做了别的事时才脱下（见 RecentFilesList.disarm）。
 
-   THE × STILL TAKES THE AGE'S PLACE rather than standing beside it, exactly as it
-   does under a hover: both are the row's far end, and a × drawn over a timestamp
-   leaves the two of them half-legible. Only the label's COLOUR goes, so the track it
-   stands in keeps its width and nothing moves as the two swap — which is the same
-   reason the controls are out of the flow in the first place.
+   **× 仍然占据时间的位置**，而不是与它并排，与它在悬停下完全一样：两者都是行的远端，
+   一个画在时间戳上的 × 会让两者都半可读。只有标签的**颜色**去掉，所以它所在的那条轨道
+   保住自己的宽度、两者交换时什么都不动 —— 这也正是这些控件一开始就脱离文档流的
+   原因。
 
-   THE ARMED ROW GIVES THEM THE ROOM, and only the armed row: what is reserved is
-   two targets' worth of the row's own far end, so the icons stand beside the name
-   rather than on top of it. A strip painted over a row is a strip painted over
-   whatever the row was printing there — the folder, and then the name — and two
-   icons legible over text are two things read at once and neither of them read.
-   Nothing is reserved while the row is NOT armed, which is what lets the age have
-   the row's far end to itself (see the rowTime setting): a control that only ever
-   exists on one row at a time does not need a strip of every row kept empty for it.
-   Reserving one on every row was the arrangement this replaces — and it silenced
-   the one setting that puts a time on every row, on the one device where this list
-   IS the reader's history.
+   **武装的行把它们的地方让出来**，而且只有武装的行：留出的是这一行自己远端两个目标的
+   分量，这样图标站在名字**旁边**而不是压在它上面。一条涂在行上的带，就是涂在这一行
+   本来在那里印着的东西上的带 —— 先是文件夹，然后是名字 —— 而两个压在文字上仍可读的
+   图标，是同时被读的两样东西，两样都没读懂。行没被武装时什么都不留，这正是让时间能够
+   独占行远端的东西（见 rowTime 设置）：一个一次只存在于一行上的控件，不需要每一行都为
+   它空出一条带。每一行都留一条，正是这套东西所取代的做法 —— 而且它把那个给每一行都
+   放上时间的唯一设置弄哑了，还是在手机这个这张列表**就是**读者历史的设备上。
 
-   TWO CONTROLS WHERE A DESKTOP HAS ONE, and they are the two things THIS panel knows
-   about a row and the app does not: take it off the list, and open the place the row
-   stands for one tab over (see list.ts's newTabControl — on a desktop that one is the
-   first item of the row's menu). A FINGER-SIZED TARGET each, and not an icon-sized
-   one: a hand that has already held still for half a second is not a hand to make
-   aim, and an icon 16px wide is a target a thumb slides off — which is worse than
-   missing it, because what the thumb lands on is the row (see the rule below).
-   An ARMED row that is still being pressed gives its WASH to the press (see .is-pressed
-   above) — the two are one gesture half a second apart, and the wash is what the row
-   keeps AFTER the finger has gone. It does NOT give up the room: a strip painted over a
-   name that had not stepped aside is two things read at once, and the press's own tint
-   is as thin a wash as the arm's, so neither of them hides what is under it. */
+   **桌面有一个的地方这里有两个**，而且它们是这个面板知道、而 app 不知道的关于一行的
+   两件事：把它从列表上拿掉，以及在旁边一个标签页里打开这一行所代表的地点（见 list.ts
+   的 newTabControl —— 在桌面上那是这一行菜单的第一项）。每一个都是**手指大小的目标**，
+   而不是图标大小的：一只已经静止了半秒的手，不是一只用来瞄准的手，而一个 16px 宽的
+   图标是一个拇指会滑出去的目标 —— 那比错过它更糟，因为拇指落上去的是这一行（见下面
+   那条规则）。
+   一个仍在被按着的**武装**行，把自己的底色交给这次按下（见上面 .is-pressed）—— 两者
+   是相隔半秒的同一个手势，而那层底色是这一行在手指离开**之后**保留的东西。它不会交出
+   那片地方：一条涂在尚未让开的名字上的带是同时被读的两样东西，而按下自己的染色与武装
+   的染色一样薄，所以两者都不会遮住底下的东西。 */
 .position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed {
-	/* Two targets, the 8px between the name and the first of them, and the 4px the
-	   last stands off the row's edge — which is exactly as wide as the strip itself
-	   (see its paddings below), so the room ends where the strip begins and there
-	   is no lane between them for a finger to fall through onto the row. Taken from
-	   the SAME number the targets are: a reservation and a target that disagreed
-	   would put the second icon back on the name, or leave the row showing
-	   through beside it. */
+	/* 两个目标、名字与第一个目标之间的那 8px，以及最后一个离行边缘站开的 4px ——
+	   正好与这条带本身一样宽（见下面它的内边），所以留出的地方止于这条带开始之处，
+	   两者之间没有一条通道让手指漏到行上。取自与那些目标**同一个**数字：一个留白与
+	   一个目标若不一致，就会把第二个图标又放回名字上，或者让行在它旁边露出来。 */
 	padding-inline-end: calc(2 * var(--nav-action-target) + 12px);
 }
 
-/* …and the wash is the one thing that does give way, and only while the finger is
-   still down (see .is-pressed above). */
+/* ……而底色是唯一确实会让路的东西，且只在手指仍按着的时候（见上面 .is-pressed）。 */
 .position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed:not(.is-pressed) {
 	background: var(--background-modifier-hover);
 }
@@ -1082,15 +960,13 @@ body.is-mobile .position-restore-cue {
 	color: transparent;
 }
 
-/* …and while the row is armed the strip IS the row's whole far end: as tall as the row
-   (the row clips it — see its `overflow`), and reaching from the row's very edge to
-   where the reserved room begins, so the strip is the only thing there is to hit
-   there. The paddings are what make it that wide, and they are the strip's own rather
-   than air beside it: a lane between the name and the first control — or between the
-   last one and the row's edge — is a lane a finger falls through onto the ROW, and
-   what the row does with a tap is open the note (see RecentFilesList.actionStrip,
-   which answers a hit inside the strip with nothing). The two controls themselves
-   meet EDGE TO EDGE for the same reason. */
+/* ……而在这一行武装期间，这条带**就是**这一行的整个远端：与行一样高（行会裁它 ——
+   见它的 `overflow`），并从这个行的边缘一直伸到留出的地方开始之处，所以这条带是那里
+   唯一可以打中的东西。那些内边就是让它这么宽的东西，而且它们是带自己的、而不是
+   它旁边的空气：名字与第一个控件之间的一条通道 —— 或最后一个控件与行边缘之间的一条
+   通道 —— 是一条手指漏到**行**上的通道，而这一行对一次点击的反应是打开那篇笔记
+   （见 RecentFilesList.actionStrip，它用“什么都不做”来回应带里的一次命中）。两个控件
+   本身**边挨着边**，理由相同。 */
 .position-restore-nav-panel.is-touch .position-restore-nav-row.is-armed .nav-row-actions {
 	inset-block: 0;
 	inset-inline-end: 0;
@@ -1103,19 +979,16 @@ body.is-mobile .position-restore-cue {
 	opacity: 1;
 	pointer-events: auto;
 	--icon-size: var(--icon-s);
-	/* A target a finger can land in (see --nav-action-target), taken as a MINIMUM
-	   WIDTH and not as padding: the icon keeps its own size and is centred in the
-	   box, so what grew is the box a thumb has to land in and not the mark it
-	   reads. The HEIGHT is the row's — the strip above is stretched to it, and a
-	   button taller than the row is a button the row clips — so the width is the
-	   whole of the difference. */
+	/* 一根手指能落进去的目标（见 --nav-action-target），取作**最小宽度**而不是内边：
+	   图标保住自己的大小、在盒子里居中，所以长大的是拇指必须落进去的那个盒子，而不是
+	   它读的那个标记。**高度**是这一行的 —— 上面那条带被拉伸到它，而一个比行更高的
+	   按钮是行会裁掉的按钮 —— 所以宽度就是全部的差别。 */
 	align-self: stretch;
 	min-width: var(--nav-action-target);
 }
 
-/* The name is capped, not greedy: it ellipsizes at 20em rather than swallowing
-   the row — min-width: 0 lets it shrink below its content when the row is
-   narrow. */
+/* 名字设了上限，不贪心：它在 20em 处省略号化，而不是把这一行吞掉 —— min-width: 0
+   让它在行变窄时可以缩到自己内容以下。 */
 .position-restore-nav-row .nav-row-name {
 	flex: 0 1 auto;
 	max-width: 20em;
@@ -1124,20 +997,17 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 }
 
-/* The landing the current entry recorded, where a note prints its landings: one dot,
-   and only there — the note's own row carries none, because the current note is
-   pinned first and a dot on it would sit on row one saying what the position already
-   says. It never gives way (unlike the folder and the name, which both ellipsize),
-   and it is one glyph, so a pathless view row (the graph) and a note read the same.
-   It HANGS BEFORE THE COORDINATE, off the coordinate box's own start edge, and takes
-   no room at all: the box goes on holding the number alone, and the dot stands in the
-   indent in front of it. That is the whole point of hanging it out of the flow rather
-   than laying it out as the box's first item — a dot in the flow is a dot's worth of
-   width taken from the SECTION, on every landing row, to hold a mark that only one of
-   them ever shows (see .nav-row-pos and .is-place: the row keeps overflow visible for
-   it). Its distance from the number is a margin on its END edge, against the box, so
-   what is fixed is the GAP and not the glyph's width: a font is free to draw ● as
-   wide as it likes without ever touching the number. */
+/* 当前条目所记录的落点，就在笔记打印它那些落点的地方：一个点，且只在那里 —— 笔记
+   自己那一行一个都不带，因为当前笔记被钉在最前，在它上面点一个点会落在第一行上、说出
+   位置已经说过的话。它永不让路（不像文件夹和名字，那两者都会省略号化），而且它是一个
+   字形，所以一个无路径的视图行（关系图谱）与一篇笔记读起来一样。
+   它**挂在坐标之前**，从坐标盒自己的起始边探出，且完全不占地方：盒子继续只装着那个
+   数字，而点站在它前面的缩进里。这就是把它挂到文档流之外、而不是排成盒子第一个项的
+   全部意义 —— 流里的一个点，是每一个落点行上从**小节**那里拿走的、一个点宽的宽度，
+   用来托一个只有其中一行才会显示的标记（见 .nav-row-pos 与 .is-place：那一行为它保持
+   overflow visible）。它与数字的距离是它**末端**边上、对着那个盒子的一条外边距，所以
+   固定下来的是**间隙**而不是字形的宽度：字体可以随意把 ● 画得多宽，而永远碰不到那个
+   数字。 */
 .position-restore-nav-row .nav-row-here {
 	position: absolute;
 	inset-inline-end: 100%;
@@ -1147,48 +1017,40 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* THE COORDINATE. It holds the number and NOTHING ELSE — no reserved width, no
-   gutter — so the box is exactly as wide as the label it prints and every pixel the
-   row has left over belongs to the section beside it (the section's track is the
-   row's only flexible one; see .is-place). The box is measured BY the label, set in
-   the mono font the label is printed in: the column used to reserve a fixed room
-   measured in the row's UI font, which is a couple of characters wider than this one
-   — that, and not the labels, is where the dead space after every number came from.
-   WHAT THIS GIVES UP: the numbers no longer start on one x, because a fixed room for
-   the WIDEST label is the only way to line them up, and that room is spent on every
-   row — including the ones whose labels are short, where it is blank space between
-   the number and the section. The space is the reader's, so the column is the data's
-   size and the sections start where each number ends. */
+/* **坐标**。它装着那个数字、**别无其它** —— 没有预留宽度、没有槽 —— 所以这个盒子
+   正好与它打印出的标签一样宽，而这一行剩下的每一个像素都属于它旁边的小节（小节那条
+   轨道是这一行唯一可伸缩的；见 .is-place）。盒子是**由**标签量出来的，用标签所印的
+   等宽字体设：这一列曾用一个固定的空间，是按这一行的 UI 字体量出来的，而那个字体比
+   这个宽几个字符 —— 死空间来自那里，不是来自标签。
+   **这样失去的是**：数字不再从同一个 x 开始，因为要让它们对齐，唯一的办法就是给
+   **最宽**的标签留一个固定空间，而那个空间每一行都要花 —— 包括标签很短的那些行，
+   那里它就是数字与小节之间的空白。这份空间是读者的，所以这一列取数据的宽度，小节从
+   每个数字结束的地方开始。 */
 .position-restore-nav-row .nav-row-pos {
 	display: flex;
 	align-items: baseline;
 	min-width: 5ch;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
-	/* `position: relative` is what the here-dot hangs from — off this box's START
-	   edge, so the marker stands against the coordinate it marks (see .nav-row-here)
-	   — and there is deliberately no `overflow: hidden` to clip it: the box holds one
-	   short label it is sized to, so nothing here ever overflows it. */
+	/* `position: relative` 是 here 点所挂靠的东西 —— 挂在这个盒子的**起始**边外，所以
+	   标记靠着它所标记的坐标站（见 .nav-row-here）—— 而且刻意不设 `overflow: hidden`
+	   去裁它：这个盒子装着它按之定宽的一个短标签，所以这里没有任何东西会溢出它。 */
 	position: relative;
 }
 
-/* Where the restore will land. Monospace and MUTED DOWN to the faint tier: it is
-   a coordinate the eye uses to place the row by, not something to read — the
-   zone beside it is what carries the meaning, and the note's name is the
-   identity. It is the whole of the box above (see .nav-row-pos), so the section
-   starts one row's gap after the last digit. */
+/* 恢复将落在哪里。等宽，并**减弱**到弱墨档：它是眼睛用来给这一行定位的一个坐标，
+   而不是拿来读的东西 —— 它旁边的区带才承载意义，而笔记的名字是身份。它是上面那个
+   盒子的全部（见 .nav-row-pos），所以小节在最后一个数字之后、隔着一行的间隙开始。 */
 .position-restore-nav-row .nav-row-line {
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
 	color: var(--nav-faint);
 }
 
-/* The section chain, deepest one or two levels: the coarse index a reader scans
-   by, muted and smaller, but a step above the coordinate. It takes the row's own
-   slack, so it starts right after the coordinate — its distance from the number is
-   the row's own column gap and nothing else: a second start margin here spent a
-   second gap between two halves that are already told apart by colour and by the
-   coordinate's own track (see .nav-row-pos). */
+/* 小节链，最深的那个或两个层级：读者扫读所依据的粗索引，变弱、变小，但比坐标高一档。
+   它拿走这一行自己的余量，所以它紧接坐标开始 —— 它与数字的距离就是这一行自己的列间隙、
+   别无其它：这里再写一个起始外边距，会在已经被颜色和坐标自己的轨道区分开的两半之间
+   再花掉一个间隙（见 .nav-row-pos）。 */
 .position-restore-nav-row .nav-row-trail {
 	display: flex;
 	align-items: baseline;
@@ -1198,31 +1060,26 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* ONLY THE OUTER LEVEL GIVES WAY, AND WHAT IT CARRIES IS THE WHOLE DEFICIT: the
-   deepest level takes the width its own text needs — up to what the row has at all —
-   so nothing the level beside it stands in can cost it a single character. The level
-   a reader matches a place against memory by keeps its text while the row has any
-   room for it, and is ellipsized only once it is alone and still too long.
+/* **只有外层让路，而它承载的是全部的亏空**：最深的一层拿走它自己文字所需的宽度 ——
+   至多是这一行总共有的 —— 所以它旁边那层所在之处，不会让它损失一个字符。读者借以把
+   一个地点与记忆对照的那一层，只要这一行还有地方就保住自己的文字，只有在它孤身一人
+   且仍然太长时才被省略号化。
 
-   It used to be a proportions game instead: a shrink weight of 100 against 1, so the
-   outer level took ~99% of a deficit and the deepest level took the rest. MEASURED in
-   a real layout, on a row whose two levels are 141px and 63px wide: at a 260px panel
-   the outer level read 118px of its 141 and the deepest had given up 0.2px. That
-   0.2px is not nothing, which is exactly what a ratio cannot express —
-   `text-overflow: ellipsis` charges a WHOLE glyph for any overflow at all, so the row
-   printed "新插件 Positi… 2026-09-…": a DATE losing the two digits that told this
-   dated section from the one a fortnight earlier, while the fragment in front of it
-   went on standing in ~24px. `flex: 0 0 auto` and `max-width: 100%` are the whole of
-   the difference — the deepest level is not an item that can be SHRUNK at all (its
-   box is its own text, or the trail itself when even that does not fit, which is the
-   one case its own ellipsis is for), and the outer level carries every pixel of the
-   deficit down to nothing.
+   它以前是另一种按比例分的玩法：收缩权重 100 对 1，于是外层承担约 99% 的亏空、最深的
+   一层承担其余。在真实布局里**实测**过，一行两层分别宽 141px 和 63px：在 260px 的
+   面板里，外层读出它 141px 中的 118px，而最深的一层只让出了 0.2px。那 0.2px 不是
+   “什么都没有”，而这正是一个比例无法表达的东西 —— `text-overflow: ellipsis` 对任何
+   溢出都收**整个**字形的代价，于是这一行印成了 “新插件 Positi… 2026-09-…”：一个
+   **日期**丢掉了那两个说明它是这一段、而不是两周前那一段的数字，而它前面那个残片却
+   继续占着约 24px。`flex: 0 0 auto` 与 `max-width: 100%` 就是全部的差别 —— 最深的一层
+   根本不是一个可以被**收缩**的项（它的盒子就是它自己的文字；或者连那也放不下时就是
+   trail 本身，那是它自己的省略号唯一的用武之地），而外层把亏空的每一个像素一路承担
+   到零。
 
-   What the outer level leaves behind as it goes is a FRAGMENT — "新插件 Positi…" —
-   and a pane can squeeze a row past the point where that is worth printing. That is
-   `.is-deep-only` below, and it is a question about what the row SAYS rather than
-   about width (see RecentFilesList.fitTrails): the deepest level no longer needs the
-   width the fragment stands in. */
+   外层一路让下去、留在身后的是一个**残片** —— “新插件 Positi…” —— 而一个窗格可以把
+   一行压到它不再值得印的地步。那就是下面的 `.is-deep-only`，而它是一个关于这一行
+   **说了什么**、而不是关于宽度的问题（见 RecentFilesList.fitTrails）：最深的一层不再
+   需要那个残片所占的宽度。 */
 .position-restore-nav-row .nav-row-trail .nav-trail-seg {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -1239,39 +1096,35 @@ body.is-mobile .position-restore-cue {
 	white-space: nowrap;
 }
 
-/* The outer level, TAKEN OFF the row that could not print it (see
-   RecentFilesList.fitTrails). `display: none` and not a narrower width: a squeezed
-   level is a fragment that names no section, and a narrower one is a fragment still
-   — the level is either readable or it is not on the row at all, and what it said is
-   one hover away. */
+/* 外层，从印不下它的那一行上**拿掉**（见 RecentFilesList.fitTrails）。用
+   `display: none` 而不是一个更窄的宽度：被挤压的一层是一个叫不出任何小节的残片，
+   而更窄的一层仍是个残片 —— 这一层要么可读，要么根本不在行上，而它说过什么一悬停
+   就到。 */
 .position-restore-nav-row.is-deep-only .nav-trail-seg {
 	display: none;
 }
 
-/* A landing whose HEADING THE NOTE NO LONGER HAS, which keeps printing the words it
-   was recorded with (see RecentFilesList.placeRow and the browser's trailFor): struck
-   through, and down a tier. What is struck is not the words — they are the only thing
-   left naming the spot, and dropping them would leave the row about nothing — but the
-   claim that the note carries them, so they read as remembered rather than as a label
-   to look for. The row's tooltip is where that is said in so many words. */
+/* 一个笔记**已经不再拥有那个标题**的落点，它仍继续打印当初记录下的那些字（见
+   RecentFilesList.placeRow 与浏览器的 trailFor）：加删除线，并降一档。被划掉的不是
+   那些字 —— 它们是唯一还在命名这个地点的东西，丢掉它们会让这一行什么都不关于 ——
+   而是“笔记带着它们”这一主张，所以它们读起来像被记着的、而不是一个要去找的标签。
+   这一行的 tooltip 才是把这层意思明说出来的地方。 */
 .position-restore-nav-row .nav-row-trail.is-lost {
 	color: var(--nav-faint);
 	text-decoration: line-through;
 }
 
-/* The separator hangs off the level it FOLLOWS rather than standing between the
-   two levels as a cell of its own (see RecentFilesList.placeRow, which writes it
-   inside that level's span). As a cell it kept its width — the glyph and its 10px
-   of padding, ~15px — after the level in front of it had been squeezed to nothing,
-   so a row that had already given up its outer level still printed a "›" with
-   nothing to its left, standing where the deepest level could have had the room.
-   Inside the level, it goes when the level goes. */
+/* 分隔符挂在它**跟在后面**的那一层上，而不是作为一个自己的格站在两层之间（见
+   RecentFilesList.placeRow，它把分隔符写进那一层的 span 里）。作为一个格，它会在它
+   前面那一层已被挤到什么都没有之后仍保住自己的宽度 —— 那个字形加上 10px 的内边，
+   约 15px —— 于是一个已经放弃外层的行仍会印出一个 "›"，左边什么都没有，就站在最深
+   那层本可以有地方的位置上。写在这一层里面，这一层一走它就走。 */
 .nav-trail-sep {
 	padding: 0 5px;
 	color: var(--nav-faint);
 }
-/* No recorded position (a non-markdown view, or an entry the plugin could
-   not read): a faint dash, so the coordinates never read as an empty cell. */
+/* 没有记录下位置（非 markdown 视图，或插件读不了的条目）：一条淡淡的短横，好让坐标
+   永远不读成一个空格子。 */
 .position-restore-nav-row .nav-row-nopos {
 	color: var(--nav-faint);
 }
@@ -1282,27 +1135,24 @@ body.is-mobile .position-restore-cue {
 	font-size: var(--font-ui-smaller);
 }
 
-/* THE ROW'S TOOLTIP (see tip.ts), and the reason the panel draws its own: this is a
-   PATH, and a path is read character by character. Two decisions follow from that,
-   and neither is available to the native `title` it replaced —
-    - the type is a step LARGER than the app's tooltip, because the reader is here to
-      make out a folder name, not to glance at a label (see the two rules below: the
-      path is set at the panel's own reading size, the line under it a notch smaller);
-    - the separators are drawn, not inherited: a `/` between two long segments is the
-      least visible thing in the string, so it is a span of its own with a weight the
-      font cannot take away, and the folder segments around it sit a step back so the
-      slash has something to stand against.
-   It hangs on the DOCUMENT (see NavRowTip): position: fixed is against the window,
-   which is what "under the row" means once the list may have scrolled. */
+/* **这一行的 tooltip**（见 tip.ts），以及这个面板自己画它的原因：这是一条**路径**，
+   而路径是一个字符一个字符读的。由此有两个决定，而它们都是它替换掉的原生 `title`
+   做不到的 ——
+    - 字号比 app 的 tooltip 大**一档**，因为读者来这里是为了认清一个文件夹名，而不是
+      瞥一眼标签（见下面两条规则：路径用面板自己的阅读字号，它下面那行小一档）；
+    - 分隔符是画出来的、不是继承的：夹在两段长片段之间的一个 `/` 是整个字符串里最不
+      显眼的东西，所以它是自己的一个 span、带一个字体拿不掉的重量，而它周围的文件夹
+      片段退后一档，好让这个斜杠有东西可以靠着站。
+   它挂在**文档**上（见 NavRowTip）：position: fixed 是相对窗口的，而在列表可能已经
+   滚动过之后，“在行的下面”就是这个意思。 */
 .position-restore-nav-tip {
 	position: fixed;
 	z-index: var(--layer-tooltip);
-	/* Never in the pointer's way: the tooltip stands under the row the reader is
-	   reading, and a tooltip that could swallow a click would be a control. */
+	/* 永不挡指针的路：tooltip 站在读者正在读的那一行下面，一个能吞掉点击的 tooltip
+	   会是一个控件。 */
 	pointer-events: none;
-	/* Wide enough for an ordinary vault path on one line, and never wider than the
-	   window it is drawn in: what does not fit wraps, because a path cut off in the
-	   middle says the wrong folder. */
+	/* 宽到足够一行放下一段普通的仓库路径，且永不超过它被画在其中的窗口：放不下的就
+	   折行，因为一条从中间截断的路径说的是错的文件夹。 */
 	max-width: min(56ch, 86vw);
 	padding: 6px 9px;
 	background-color: var(--background-secondary);
@@ -1313,11 +1163,9 @@ body.is-mobile .position-restore-cue {
 	text-align: start;
 }
 
-/* The path: the file's own name is what the reader is looking for, so the folder is
-   the part that steps back — it is context, and the reader already knows which vault
-   they are in. Monospace is not decoration either: a path is a coordinate, and the
-   one place a folder name is unambiguous is when its characters are all the same
-   width. */
+/* 路径：读者要找的是文件自己的名字，所以退后的是文件夹那一部分 —— 它是背景，而读者
+   已经知道自己身在哪个仓库。等宽也不是装饰：路径是一个坐标，而一个文件夹名唯一不含糊
+   的地方，就是它的字符全都一样宽。 */
 .position-restore-nav-tip .nav-tip-path {
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-small);
@@ -1329,10 +1177,9 @@ body.is-mobile .position-restore-cue {
 	color: color-mix(in srgb, var(--text-normal) 78%, transparent);
 }
 
-/* The separator between two segments, and the one glyph this tooltip exists for: a
-   heavier weight at full strength, with a hair of its own room on either side so it
-   cannot be read as part of the name beside it. The padding is in `em` and so follows
-   the path's own size. */
+/* 两个片段之间的分隔符，也是这个 tooltip 为之而存在的那个字形：满强度的更重字重，
+   两侧各留一丝自己的地方，好让它不被读成旁边名字的一部分。内边用 `em`，所以跟着
+   路径自己的字号走。 */
 .position-restore-nav-tip .nav-tip-sep {
 	padding: 0 0.12em;
 	font-weight: 700;
@@ -1342,9 +1189,9 @@ body.is-mobile .position-restore-cue {
 	font-weight: 500;
 }
 
-/* The line under the path: the file's other names, or the one fact a cell holds (see
-   TipContent). A notch smaller than the path — it is a second answer, not the thing
-   the reader hovered for — and allowed to wrap, since a note may go by many names. */
+/* 路径下面那一行：文件其它的名字，或者某个格装着的一个事实（见 TipContent）。比路径
+   小一档 —— 它是第二个答案，不是读者悬停来找的东西 —— 且允许折行，因为一篇笔记可能
+   有很多个名字。 */
 .position-restore-nav-tip .nav-tip-text {
 	font-size: var(--font-ui-smaller);
 	line-height: 1.4;
@@ -1352,13 +1199,11 @@ body.is-mobile .position-restore-cue {
 	overflow-wrap: anywhere;
 }
 
-/* A line quoted out of the note — the words a landing sat on when it was taken, or
-   the line the search box hit (see TipContent.quotes). Set off by a rule down its
-   inline start and not by a typeface: what distinguishes these is that they are the
-   reader's own words rather than a name this panel derived, and quoting them in an
-   italic no font here renders well would only make the one line a reader is looking
-   for harder to read. They wrap rather than being clipped — a line of the note cut
-   off in the middle says something the note never said. */
+/* 从笔记里引出来的一行 —— 落点被采下时所站的那些字，或者搜索框命中的那一行（见
+   TipContent.quotes）。靠它行首一侧的一条竖线把它衬出来，而不是靠字体：让这些字与众
+   不同的是它们是读者自己的话、而不是这个面板派生出的某个名字，而用这里没有一款字体能
+   画好的斜体去引用它们，只会让读者正在找的那一行更难读。它们折行，而不是被裁掉 ——
+   一行从中间截断的笔记，说的是笔记从没说过的话。 */
 .position-restore-nav-tip .nav-tip-quote {
 	margin-top: 2px;
 	padding-inline-start: 6px;
@@ -1369,11 +1214,10 @@ body.is-mobile .position-restore-cue {
 	overflow-wrap: anywhere;
 }
 
-/* The one line a hover says ABOUT the quotes: the note has been written since
-   they were taken. Fainter than the quotes and unquoted, because it is this
-   panel speaking about them and not the note's own words — a reader has to be
-   able to tell the two apart at a glance. Its ink is the panel's own faint tier
-   (see --nav-faint) and not --text-faint, which a theme is free to re-hue. */
+/* 悬停就那些引文说出的那一行：引文被采下之后，笔记又被写过。比引文更淡、且不加引号，
+   因为说话的是这个面板、而不是笔记自己的话 —— 读者必须能一眼把两者区分开。它的墨色
+   是面板自己的弱墨档（见 --nav-faint），而不是 --text-faint，后者主题可以随意重调
+   色相。 */
 .position-restore-nav-tip .nav-tip-note {
 	margin-top: 2px;
 	font-size: var(--font-ui-smaller);
@@ -1383,48 +1227,41 @@ body.is-mobile .position-restore-cue {
 
 .position-restore-nav-panel.is-touch .position-restore-nav-row {
 	row-gap: 2px;
-	/* One line of text is a small target for a finger. */
+	/* 一行文字对一根手指来说是个小目标。 */
 	padding: 6px 8px;
 }
 
-/* THE APP'S OWN PAGE PREVIEW, as asked for from THIS PANEL (see body.ts's liftPreview).
-   The core puts every popover on the document's body and paints it at
-   `--layer-popover`, which is BELOW `--layer-modal` — right for a preview asked for
-   from a note, and fatal for one asked for from the "Open recent files" dialog, whose
-   container then covers the very page it asked for. So a card this panel caused is
-   raised above the dialog layer rather than ONTO it: elements sharing one z-index are
-   ordered by whoever was appended last, and the app decides when that is. Nothing else
-   about the card is said here — it stays the core's popover. */
+/* **app 自己的页面预览，由这个面板请求而来**（见 body.ts 的 liftPreview）。core 把
+   每个 popover 放在文档的 body 上、用 `--layer-popover` 画它，而那一层**低于**
+   `--layer-modal` —— 对一篇从笔记里请求来的预览是对的，对一个从 "Open recent files"
+   对话窗口请求来的预览则是致命的：那个窗口的容器会盖住它请求来的那一页。所以由这个
+   面板引起的卡片，是被抬到对话窗口那一层**之上**、而不是叠在它上面：共用一个 z-index
+   的元素按谁最后被追加来排序，而什么时候追加是 app 定的。关于这张卡片这里不再多说
+   —— 它仍是 core 的 popover。 */
 .popover.hover-popover.position-restore-nav-preview {
 	z-index: calc(var(--layer-modal) + 1);
 }
 
-/* THE RESIDENT SIDEBAR PANEL (RecentFilesView): the same body, standing in a
-   workspace leaf. Everything above applies to it unchanged — the rows, the touch
-   layout — because the shell carries the same .position-restore-nav-panel class. What
-   a dialog never has to say is the HEIGHT: a dialog is given one (is-fixed above), and
-   a leaf hands the panel whatever the reader has dragged the sidebar to, so the panel
-   has to take it — the view content is a flex COLUMN with no scroll of its own, and the
-   list is the one scroller.
-   The pane's own chrome is untouched: its header, its close button and the layout drag
-   all still belong to Obsidian, which is half the reason this is a view rather than a
-   floating panel. */
-/* Written against the pane's OWN class and not against the leaf's `data-type`:
-   that attribute carries the view-type constant of view.ts, and the constant was
-   renamed with the panel — after which this rule went on being written against a
-   string no leaf carries, which nothing in the build or the tests could notice.
-   What the pane lost by it is everything below: `overflow: hidden` (so the app's
-   own `.view-content` skin — a scroller of its own — was left standing around
-   the list, and a finger's drag had two scrollers to be read against) and
-   `padding: 0` (so the app's inset — 12px of side, a 32px foot — stood inside a
-   pane that insets its own toolbar and list, and the foot was the blank band a
-   phone shows above its on-screen keyboard). A class cannot drift: it is added
-   by the same call that builds the pane. */
+/* **常驻侧栏面板（RecentFilesView）**：同一个 body，立在一个工作区 leaf 里。上面的一切
+   都原样适用于它 —— 那些行、触屏布局 —— 因为外壳带着同一个 .position-restore-nav-panel
+   类。对话窗口从不需要说的是**高度**：对话窗口被给定一个（上面的 is-fixed），而一个
+   leaf 把面板交给读者把侧栏拖到多高就是多高，所以面板得接住它 —— 视图内容是一个 flex
+   **列**、自己没有滚动，列表是唯一那个滚动器。
+   窗格自己的外框不动：它的头部、它的关闭按钮和拖动布局都仍然属于 Obsidian，这也是
+   它之所以是一个视图、而不是一个浮动面板的一半原因。 */
+/* 写在这个窗格**自己的**类上，而不是 leaf 的 `data-type` 上：那个属性带着 view.ts 的
+   视图类型常量，而这个常量随面板一起改过名 —— 之后这条规则仍写在一个没有任何 leaf
+   携带的字符串上，而构建或测试里没有任何东西能注意到。窗格因此丢掉的是下面这一切：
+   `overflow: hidden`（于是 app 自己的 `.view-content` 皮肤 —— 一个自己的滚动器 ——
+   继续立在列表周围，一根手指的拖动有两个滚动器要判读）与 `padding: 0`（于是 app 的
+   内边 —— 侧向 12px、脚部 32px —— 立在一个自己给工具栏和列表留内边的窗格里面，而那个
+   脚就是手机在屏键盘上方显示的那条空白带）。类不会漂移：它是由构建这个窗格的同一次
+   调用加上的。 */
 .workspace-leaf-content .view-content.position-restore-nav-view {
 	display: flex;
 	flex-direction: column;
-	/* The leaf's scroll would fight the list's: one scroller, and it is the list
-	   (or the landing panel inside it). */
+	/* leaf 的滚动会和列表的打架：只留一个滚动器，而它就是列表（或者它里面的落点
+	   面板）。 */
 	overflow: hidden;
 	padding: 0;
 }
@@ -1436,58 +1273,51 @@ body.is-mobile .position-restore-cue {
 	min-height: 0;
 }
 
-/* The list takes the height the toolbar left, and the pane's whole width.
-   `max-height: none` undoes the 60vh of the short-history dialog rule — a cap
-   measured against a window is meaningless in a pane that has already been given
-   its height. */
+/* 列表拿走工具栏剩下的高度，以及窗格的整个宽度。`max-height: none` 撤销短历史对话
+   窗口那条规则的 60vh —— 一个对着窗口量出来的上限，在一个已经拿到高度的窗格里毫无
+   意义。 */
 .position-restore-nav-view .position-restore-nav-list {
 	flex: 1 1 auto;
 	width: auto;
 	max-height: none;
-	/* The pane's inset, so the rows are not flush against the splitter. */
+	/* 窗格的内边，这样各行就不会紧贴着分隔条。 */
 	padding: 0 8px 8px;
 }
 
-/* There is no dialog title above the toolbar here — the pane's own header names
-   the panel — so the strip brings its own inset, and the top one is the wider of
-   the two: the header's own rule already sits close above the filter line, and a
-   few px more is what keeps the two lines from reading as one row. */
+/* 这里工具栏上方没有对话窗口标题 —— 窗格自己的头部命名这个面板 —— 所以这条横带
+   自带内边，而且上面那个比下面那个宽：头部自己的线已经紧挨着筛选线之上，再多几个
+   像素，才能让这两条线不被读成同一行。 */
 .position-restore-nav-view .position-restore-nav-toolbar {
 	padding: 12px 8px 8px;
 }
 
-/* A phone held sideways has ~370px of height for everything: the dialog's name, the
-   filter, the list. (It is wide, so the panel stands beside the list there rather than
-   inside it — see RecentFilesModal.inline — but the height is what everything below is
-   about.) So in a short dialog everything that is not the list gives way: the NAME goes,
-   and the list gets its room. */
+/* 横放的手机一共只有约 370px 的高度给所有东西：对话窗口的名字、筛选、列表。（它很宽，
+   所以那里面板站在列表**旁边**而不是里面 —— 见 RecentFilesModal.inline —— 但下面一切
+   都是关于高度的。）所以在一个矮对话窗口里，一切不是列表的东西都让路：**名字**走了，
+   列表拿到它那份地方。 */
 @media (max-height: 520px) {
-	/* The dialog's NAME — "Navigation history", centred in the app's own 24px of header
-	   padding, above the row of text it names — is the largest single thing in a 390px-tall
-	   dialog, and the one thing here that says nothing the dialog does not: the reader
-	   opened it, and the list it names is the whole of it. So it goes, and the list gets
-	   its room. The app's close button is not IN the header (it is its sibling, positioned
-	   absolutely over it — see .modal-header-button), so the way out does not go with the
-	   name; what the button now floats over is the CONTENT, which is what the two rules
-	   below are for. The dialog is still named for assistive tech: the list carries the
-	   same label (see RecentFilesModal.onOpen). */
+	/* 对话窗口的**名字** —— "Navigation history"，居中在 app 自己的 24px 头部内边
+	   里、压在它所命名的那行文字上方 —— 是一个 390px 高的对话窗口里最大的单个东西，也是
+	   这里唯一一个说着对话窗口没说过的内容的东西：是读者自己打开了它，而它命名的列表
+	   就是它的全部。所以它走了，列表拿到它那份地方。app 的关闭按钮**不在**头部里
+	   （它是头部的兄弟、绝对定位在它上面 —— 见 .modal-header-button），所以出路不会
+	   跟着名字一起走；这个按钮现在浮在**内容**之上，这正是下面两条规则要解决的问题。
+	   对话窗口仍对辅助技术有名：列表带着同一个标签（见 RecentFilesModal.onOpen）。 */
 	.position-restore-nav-modal.is-touch .modal-header {
 		display: none;
 	}
 
-	/* So the toolbar takes the header's row, and the close button's with it: the content's
-	   own top padding comes down to the button's inset (--size-4-3, which is what the app
-	   sets its `top` to) and the toolbar is as tall as the button's box (--touch-size-m),
-	   which makes the filter line and the button ONE row and puts the body's first row
-	   under both. Without this the button — a 44px target whose job is to close the
-	   dialog — would hang over the top of the list, and a finger reaching for the first
-	   row would put the dialog away instead. */
+	/* 于是工具栏拿走头部那一行，也拿走关闭按钮那一行：内容自己的顶部内边降到
+	   按钮的内边（--size-4-3，也就是 app 给它的 `top` 设的值），工具栏和按钮的盒子一样
+	   高（--touch-size-m），这就让筛选线和按钮成为**一行**，并把 body 的第一行放到两者
+	   下面。没有这一条，这个按钮 —— 一个负责关闭对话窗口的 44px 目标 —— 会悬在列表顶部
+	   之上，而一根去够第一行的手指会把对话窗口关掉。 */
 	.position-restore-nav-modal.is-touch .modal-content {
 		padding-top: var(--size-4-3, 12px);
 	}
 
-	/* One line, and the box takes it: nothing is left to wrap around it — and the
-	   button's own column on the right, or the box runs straight under it. */
+	/* 一行，由这个框占满：没有东西留给它去绕 —— 还得算上按钮自己在右侧的那一列，
+	   否则这个框会直接从它下面伸过去。 */
 	.position-restore-nav-modal.is-touch .position-restore-nav-toolbar {
 		padding-bottom: 4px;
 		min-height: var(--touch-size-m, 44px);

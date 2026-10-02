@@ -57,9 +57,9 @@ import { describe, expect, it } from 'vitest';
 // vitest runs from the project root; `import.meta.url` is not a file: URL here.
 const css = readFileSync(resolve(process.cwd(), 'styles.css'), 'utf8');
 
-// Only the browser's own rules: the restore cue above the marker and the
+// Only the browser's own rules: the restore cue above this rule and the
 // db-path modal are different surfaces with their own colour decisions.
-const browser = css.slice(css.indexOf('/* Recent-files browser (RecentFilesModal)'));
+const browser = css.slice(css.indexOf('.modal.position-restore-nav-modal'));
 
 describe('最近文件面板的两档弱墨', () => {
 	it('切出面板自己那一段样式', () => {
