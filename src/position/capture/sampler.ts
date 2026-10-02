@@ -448,7 +448,7 @@ export class Sampler {
 				// 落地记下来。只作废本次失焦关掉的那个 Infinity。
 				if (Number.isFinite(this.state.searchAnchorUntil))
 					return;
-				this.state.searchAnchorUntil = Date.now(); // expired
+				this.state.searchAnchorUntil = Date.now(); // 已过期
 			}, this.SEARCH_ANCHOR_GRACE_MS);
 		};
 		document.addEventListener('focusin', onFocusIn, true);
