@@ -66,7 +66,7 @@ function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownV
 		containerEl,
 		contentEl: containerEl,
 		leaf: { id: 'leaf-1', containerEl },
-		currentMode: { getScroll: () => 42.3 }, // quantizes to 42
+		currentMode: { getScroll: () => 42.3 }, // 量化为 42
 		editor: {
 			lineCount: () => 100,
 			getCursor: () => ({ line: 3, ch: 7 }),
@@ -169,7 +169,7 @@ describe('Sampler 轮询 —— 撑开期间吸收落点', () => {
 
 		// 吸收过期：头一次有意的用户移动正常记录。
 		state.searchAnchorUntil = Date.now() - 1;
-		state.lastUserInputAt = Date.now(); // the reader moved the cursor themselves
+		state.lastUserInputAt = Date.now(); // 读者自己挪了光标
 		setCursor(view, 20, 0);
 		sampler.sampleActiveView();
 		expect(database.setState).toHaveBeenCalledTimes(1);
