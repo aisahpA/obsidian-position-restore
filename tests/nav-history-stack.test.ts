@@ -66,7 +66,7 @@ describe('NavStack —— 前往一个这个仓库造不出来的视图', () => 
 			id: 'leaf-new', containerEl: 'main', detach, view: undefined, setViewState: undefined,
 		};
 		built.setViewState = vi.fn((vs: { type: string }) => {
-			built.view = { getViewType: () => vs.type }; // what the placeholder really answers
+			built.view = { getViewType: () => vs.type }; // 占位符真正应答的就是这个
 			return Promise.resolve();
 		});
 		ws.getLeavesOfType = () => [];
@@ -106,7 +106,7 @@ describe('NavStack —— 栈逻辑', () => {
 		const nav = makeNav(app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 		nav.funnel.recordOpen('c.md', 'leaf-1');
 
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'c.md']);
@@ -118,16 +118,16 @@ describe('NavStack —— 栈逻辑', () => {
 	it('去重：同一文件不带 key、或带同一个 key，都不再压栈', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordOpen('a.md', 'leaf-1'); // plain re-open: not a jump
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // 朴素重开：不是一次 jump
 		expect(nav.stack.entries.length).toBe(1);
 
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // keyed by target line
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // 以目标行为 key
 		expect(nav.stack.entries.length).toBe(2);
 
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // same line again: same jump
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // 又是同一行：同一次 jump
 		expect(nav.stack.entries.length).toBe(2);
 
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 300); // different target line
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 300); // 不同的目标行
 		expect(nav.stack.entries.length).toBe(3);
 
 		// 跳变自成一类：一次带着同一个 teleport key 的带名 jump
@@ -135,10 +135,10 @@ describe('NavStack —— 栈逻辑', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'teleport:42' });
 		expect(nav.stack.entries.length).toBe(4);
 
-		nav.funnel.recordOpen('a.md', 'leaf-1', { key: '#other' }); // different anchor target
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: '#other' }); // 不同的锚点目标
 		expect(nav.stack.entries.length).toBe(5);
 
-		nav.funnel.recordOpen('a.md', 'leaf-1', { force: true }); // search match: always
+		nav.funnel.recordOpen('a.md', 'leaf-1', { force: true }); // 搜索命中：总是记
 		expect(nav.stack.entries.length).toBe(6);
 		expect(nav.stack.index).toBe(5);
 	});
@@ -274,7 +274,7 @@ describe('NavStack —— 栈逻辑', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
-		(nav.stack as unknown as { index: number }).index = 0; // a traversal moved off it
+		(nav.stack as unknown as { index: number }).index = 0; // 一次遍历把它移开了
 		nav.funnel.recordOpen('c.md', 'leaf-1');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
 	});
@@ -360,7 +360,7 @@ describe('NavStack —— 栈逻辑', () => {
 		nav.stack.renameFile('b.md', 'renamed.md');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'renamed.md', 'c.md']);
 
-		(nav.stack as unknown as { index: number }).index = 2; // sitting at c.md
+		(nav.stack as unknown as { index: number }).index = 2; // 正坐在 c.md 上
 		nav.stack.deleteFile('c.md');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'renamed.md']);
 		expect(nav.stack.index).toBe(1);
@@ -527,7 +527,7 @@ describe('NavStack —— 记录相关的设置', () => {
 		const nav = makeNav(app);
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
 			nav.funnel.recordOpen(p, 'leaf-1');
-		(nav.stack as unknown as { index: number }).index = 1; // two steps back
+		(nav.stack as unknown as { index: number }).index = 1; // 后退两步
 		setCap(nav, 2);
 
 		nav.stack.applyStackCap();
@@ -568,7 +568,7 @@ describe('NavStack —— 记录相关的设置', () => {
 
 		nav.funnel.recordOpen('a.md', 'leaf-a');
 		nav.funnel.recordOpen('b.md', 'leaf-b');
-		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf); // back to a.md's tab
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf); // 回到 a.md 的标签页
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'b.md']);
 
 		// 关系图谱只能靠激活它的 leaf 进入，所以这道闸门不能管到它：光看原因
@@ -652,12 +652,12 @@ describe('NavStack —— 落盘与读回', () => {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			v: NAV_HISTORY_VERSION,
 			entries: [
-				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }, // ok
-				{ path: 'x.md' }, // no kind, no leafId: dropped
-				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3, t: 1 }, // junk key: dropped
-				{ kind: 'view', viewType: 'thino_view', label: 'Thino', leafId: 'leaf-g', t: 1 }, // ok (a view keeps its own name)
-				{ kind: 'visit', path: 'b.md', leafId: 'leaf-4' }, // no timestamp: dropped
-				{ leafId: 'leaf-3' }, // neither kind nor path/viewType: dropped
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }, // 合法
+				{ path: 'x.md' }, // 没有 kind、没有 leafId：丢掉
+				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3, t: 1 }, // 垃圾 key：丢掉
+				{ kind: 'view', viewType: 'thino_view', label: 'Thino', leafId: 'leaf-g', t: 1 }, // 合法（视图保留自己的名字）
+				{ kind: 'visit', path: 'b.md', leafId: 'leaf-4' }, // 没有采集戳：丢掉
+				{ leafId: 'leaf-3' }, // 既没有 kind 也没有 path/viewType：丢掉
 			],
 			index: 1,
 		}));
@@ -678,7 +678,7 @@ describe('NavStack —— 落盘与读回', () => {
 			first.funnel.recordOpen('a.md', 'leaf-1');
 			first.stack.persist();
 			expect(writes()).toBe(1);
-			first.stack.persist(); // unchanged: deduped
+			first.stack.persist(); // 没变：被去重
 			expect(writes()).toBe(1);
 
 			const second = makeNav();
@@ -721,7 +721,7 @@ describe('NavStack.navigate', () => {
 		await nav.stack.navigate(-1);
 		expect(nav.stack.index).toBe(-1);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		await nav.stack.navigate(-1); // nothing before the first entry
+		await nav.stack.navigate(-1); // 第一个条目之前什么都没有
 		expect(nav.stack.index).toBe(0);
 	});
 
@@ -746,10 +746,10 @@ describe('NavStack.navigate', () => {
 			(app.workspace as unknown as { getActiveViewOfType: () => unknown })
 				.getActiveViewOfType = () => activeView;
 
-			void nav.stack.navigate(1); // hangs inside openFile
-			expect(nav.stack.canNavigate(-1)).toBe(false); // bracket up: traversal gated
+			void nav.stack.navigate(1); // 卡在 openFile 里
+			expect(nav.stack.canNavigate(-1)).toBe(false); // bracket 开着：遍历被闸住
 
-			await vi.advanceTimersByTimeAsync(5000); // watchdog fires
+			await vi.advanceTimersByTimeAsync(5000); // 看门狗触发
 
 			// bracket 松开：新的遍历不再被挡。
 			expect(nav.stack.canNavigate(-1)).toBe(true);
@@ -920,7 +920,7 @@ describe('NavStack.navigate', () => {
 		const nav = makeNav(h.app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
-		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so this is a travel to somewhere else
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步，所以这是一次去别处的前往
 		const at = placeOf(nav, e => e.kind === 'jump');
 		(nav.places.entries[at] as NavJump).keyLine = 60;
 		(nav.places.entries[at] as NavJump).st = { scroll: 5 };
@@ -983,8 +983,8 @@ describe('NavStack.navigate', () => {
 
 		const nav = makeNav(h.app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 60); // recorded with no landing read
-		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 60); // 记下时没有落点读取
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步，好让离开 a.md 不去填补它
 		expect(stOf(nav.stack.entries[1])).toBeUndefined();
 
 		await nav.stack.navigate(-1);
@@ -1002,8 +1002,8 @@ describe('NavStack.navigate', () => {
 
 		const nav = makeNav(h.app, {}, (path) => (path === 'a.md' ? { scroll: 41 } : undefined));
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // no landing ever settled
-		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // 从没有落点落定
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步
 		const at = placeOf(nav, e => e.kind === 'jump');
 		expect(stOf(nav.places.entries[at])).toBeUndefined();
 
@@ -1026,7 +1026,7 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		nav.funnel.recordOpen('a.md', 'leaf-1'); // the note the reader is in, keyless
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // 读者所在的那篇笔记，不带 key
 		const at = placeOf(nav, e => e.kind === 'jump');
 		expect(at).toBeGreaterThanOrEqual(0);
 		const origin = nav.stack.index;
@@ -1145,7 +1145,7 @@ describe('NavStack.navigate', () => {
 
 			expect(armedDuringOpen).toBe(true);
 			vi.advanceTimersByTime(1000);
-			expect(state.pendingHistoryNav).toBe(false); // timeout cleared: no leak onto later opens
+			expect(state.pendingHistoryNav).toBe(false); // 超时清掉了：不漏到之后的打开上
 			// 遍历的恢复期间落点 cue 被抑制
 			expect(state.cueSuppressUntil).toBeGreaterThan(0);
 		} finally {
@@ -1274,7 +1274,7 @@ describe('NavStack.navigate', () => {
 			containerEl: document.createElement('div'),
 			view: { file: { path: 'b.md' } },
 			history: {
-				backHistory: [{ state: { state: { file: 'x.md' } } }], // native disagrees
+				backHistory: [{ state: { state: { file: 'x.md' } } }], // 原生对不上
 				forwardHistory: [],
 			},
 			openFile: vi.fn().mockResolvedValue(undefined),
@@ -1414,7 +1414,7 @@ describe('NavStack.navigate —— 侧边栏拿着焦点时', () => {
 			mostRecentLeafId: 'leaf-2',
 		});
 		const nav = h.nav;
-		nav.funnel.recordOpen('a.md', 'leaf-1'); // leaf-1 has since been closed
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // leaf-1 后来被关了
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		await nav.stack.navigate(-1);
 
@@ -1426,14 +1426,14 @@ describe('NavStack.navigate —— 侧边栏拿着焦点时', () => {
 	it('canNavigate 跟着 navigate 用同一套兜底', () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md' }] });
 		const nav = h.nav;
-		expect(nav.stack.canNavigate(-1)).toBe(false); // empty stack
+		expect(nav.stack.canNavigate(-1)).toBe(false); // 空栈
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		expect(nav.stack.canNavigate(-1)).toBe(false); // bottom of the stack
+		expect(nav.stack.canNavigate(-1)).toBe(false); // 栈底
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		expect(nav.stack.canNavigate(-1)).toBe(true); // sidebar focused, tab resolvable
+		expect(nav.stack.canNavigate(-1)).toBe(true); // 侧边栏拿着焦点，标签页解得出来
 		expect(nav.stack.canNavigate(1)).toBe(false);
 
-		h.ws.setActiveLeaf(h.leaves[0]); // user focuses the file tab again
+		h.ws.setActiveLeaf(h.leaves[0]); // 用户又聚焦到文件标签页
 		expect(nav.stack.canNavigate(-1)).toBe(true);
 	});
 
@@ -1473,10 +1473,10 @@ describe('NavStack —— 视图标签页的步', () => {
 	it('关系图谱的激活记下一个无路径视图步并去重；侧边栏不记', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
-		nav.funnel.recordActivation(graphLeaf('leaf-g')); // re-click same tab: dedup
+		nav.funnel.recordActivation(graphLeaf('leaf-g')); // 再点同一个标签页：去重
 		expect(nav.stack.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) }]);
 
-		nav.funnel.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
+		nav.funnel.recordActivation(graphLeaf('leaf-s', 'sidebar')); // 侧边栏局部图谱：不是一步
 		expect(nav.stack.entries.length).toBe(1);
 	});
 
@@ -1486,7 +1486,7 @@ describe('NavStack —— 视图标签页的步', () => {
 		// 本插件移动到过的一个地点。
 		const nav = makeNav();
 		nav.funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
-		nav.funnel.recordActivation(viewLeaf('leaf-t2', 'empty')); // the empty tab: nothing to return to
+		nav.funnel.recordActivation(viewLeaf('leaf-t2', 'empty')); // 空标签页：没有东西可回
 
 		expect(nav.stack.entries).toEqual([
 			{ kind: 'view', leafId: 'leaf-t', viewType: 'thino_view', label: 'Thino', t: expect.any(Number) },
@@ -1501,11 +1501,11 @@ describe('NavStack —— 视图标签页的步', () => {
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
 		expect(nav.stack.index).toBe(1);
 
-		await nav.stack.navigate(-1); // graph active (no FileView): current entry is the graph step
+		await nav.stack.navigate(-1); // 图谱活跃（没有 FileView）：当前条目就是图谱那一步
 
 		expect(nav.stack.index).toBe(0);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.leaves[0], { focus: true });
-		expect(h.openFile).not.toHaveBeenCalled(); // a.md already in that tab
+		expect(h.openFile).not.toHaveBeenCalled(); // a.md 已经在那标签页里
 	});
 
 	it('从文件标签页前进，重新激活关系图谱标签页，不打开', async () => {
@@ -1515,13 +1515,13 @@ describe('NavStack —— 视图标签页的步', () => {
 		const gLeaf = graphLeaf('leaf-g');
 		h.leaves.push(gLeaf as never);
 		nav.funnel.recordActivation(gLeaf);
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 
 		await nav.stack.navigate(1);
 
 		expect(nav.stack.index).toBe(1);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(gLeaf, { focus: true });
-		expect(h.setViewState).not.toHaveBeenCalled(); // the graph is already showing
+		expect(h.setViewState).not.toHaveBeenCalled(); // 图谱已经显示着了
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
@@ -1534,9 +1534,9 @@ describe('NavStack —— 视图标签页的步', () => {
 			],
 		});
 		const nav = h.nav;
-		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf); // the graph, on x.md
-		nav.funnel.recordOpen('a.md', 'leaf-a'); // …then a note
-		h.ws.setActiveLeaf(h.leaves[0]); // the reader is in the note
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf); // 图谱，开在 x.md 上
+		nav.funnel.recordOpen('a.md', 'leaf-a'); // ……然后一篇笔记
+		h.ws.setActiveLeaf(h.leaves[0]); // 读者在那篇笔记里
 
 		await nav.stack.navigate(-1);
 
@@ -1557,11 +1557,11 @@ describe('NavStack —— 视图标签页的步', () => {
 		});
 		const nav = h.nav;
 		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
-		expect((nav.stack.entries[0] as NavView).state).toEqual({ file: 'x.md' }); // a snapshot, not a reference
+		expect((nav.stack.entries[0] as NavView).state).toEqual({ file: 'x.md' }); // 是快照，不是引用
 		nav.funnel.recordOpen('a.md', 'leaf-a');
 		h.ws.setActiveLeaf(h.leaves[0]);
 
-		live.file = 'y.md'; // the view moved on while the reader was elsewhere
+		live.file = 'y.md'; // 读者在别处时视图往前走了
 
 		await nav.stack.navigate(-1);
 
@@ -1587,8 +1587,8 @@ describe('NavStack —— 视图标签页的步', () => {
 		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
 		expect((nav.stack.entries[1] as NavView).state).toEqual({ file: 'x.md' });
 
-		h.leaves.splice(1, 1); // the graph's tab is closed…
-		h.leaves.push(viewLeaf('leaf-g2', 'graph', { state: after }) as never); // …and the place rebuilt
+		h.leaves.splice(1, 1); // 图谱的标签页被关掉……
+		h.leaves.push(viewLeaf('leaf-g2', 'graph', { state: after }) as never); // ……然后那个地点重建
 
 		// 离开图谱（激活那篇笔记）时，就是读这一步 state 的时机。
 		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
@@ -1629,7 +1629,7 @@ describe('NavStack —— 视图标签页的步', () => {
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 
 		await nav.stack.navigate(1);
 
@@ -1675,7 +1675,7 @@ describe('NavStack —— 视图标签页的步', () => {
 		nav.funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 
-		await nav.stack.navigate(-1); // back to the graph step
+		await nav.stack.navigate(-1); // 回到图谱那一步
 
 		expect(app.commands.executeCommandById).toHaveBeenCalledWith('app:go-back');
 		expect(leaf.setViewState).not.toHaveBeenCalled();
@@ -1692,8 +1692,8 @@ describe('NavStack —— 视图标签页的步', () => {
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		nav.funnel.recordOpen(undefined, 'leaf-gone', { viewType: 'graph' }); // leaf since closed
-		(nav.stack as unknown as { index: number }).index = 1; // simulate having gone back once
+		nav.funnel.recordOpen(undefined, 'leaf-gone', { viewType: 'graph' }); // leaf 后来被关了
+		(nav.stack as unknown as { index: number }).index = 1; // 模拟已经后退过一次
 
 		await nav.stack.navigate(1);
 
@@ -1701,7 +1701,7 @@ describe('NavStack —— 视图标签页的步', () => {
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
 		expect(h.openFile).not.toHaveBeenCalled();
-		expect(h.detach).not.toHaveBeenCalled(); // the view arrived, so the tab stays
+		expect(h.detach).not.toHaveBeenCalled(); // 视图到位了，所以标签页留着
 	});
 
 	it('标签页没了的视图行会把视图再打开一次 —— 读者的真实场景', async () => {
@@ -1729,13 +1729,13 @@ describe('NavStack —— 视图标签页的步', () => {
 		h.leaves.push(other as never);
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // recorded there, tab since closed
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // 记在那儿，标签页后来被关了
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 
 		await nav.stack.navigate(1);
 
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(other, { focus: true });
-		expect(h.ws.getLeaf).not.toHaveBeenCalled(); // nothing had to be built
+		expect(h.ws.getLeaf).not.toHaveBeenCalled(); // 什么都不用建
 		expect(h.setViewState).not.toHaveBeenCalled();
 	});
 
@@ -1746,7 +1746,7 @@ describe('NavStack —— 视图标签页的步', () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		h.leaves.push(viewLeaf('leaf-side', 'thino_view', { containerEl: 'sidebar' }) as never);
 		const nav = h.nav;
-		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // since closed
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // 后来被关了
 		const at = nav.places.entries.findIndex(e => e.kind === 'view');
 
 		await nav.places.travel(at);
@@ -1844,7 +1844,7 @@ describe('NavStack —— 视图标签页的步', () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		h.newLeaf.view = { getViewType: () => 'empty' };
 		const nav = h.nav;
-		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // since closed
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // 后来被关了
 		const at = nav.places.entries.findIndex(e => e.kind === 'view');
 
 		await nav.places.travel(at);
