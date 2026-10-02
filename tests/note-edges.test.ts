@@ -215,7 +215,7 @@ describe('移到笔记的一端', () => {
 
 		moveToEdge(view, 'bottom');
 
-		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three"
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three" 的末尾
 	});
 
 	it('阅读视图也一样移动，它的光标不是用来显示的', () => {
@@ -236,7 +236,7 @@ describe('移到笔记的一端', () => {
 describe('是笔记的末尾，不是标签页的末尾', () => {
 	it('停在面板开始的地方，让最后一行还看得见', () => {
 		const scroller = makeScroller(1000, 200, 0);
-		withBacklinks(scroller, 700); // the pane fills 700..1000 of a 200-tall window
+		withBacklinks(scroller, 700); // 面板填满 200 高窗口的 700..1000 这一段
 		const { view } = makeView({ mode: 'preview', scroller });
 
 		moveToEdge(view, 'bottom');
@@ -260,7 +260,7 @@ describe('是笔记的末尾，不是标签页的末尾', () => {
 		withBacklinks(scroller, 700);
 		const { view } = makeView({ mode: 'preview', scroller });
 
-		expect(atEdge(view, 'bottom')).toBe(false); // the far end is past the note
+		expect(atEdge(view, 'bottom')).toBe(false); // 最远处在笔记之外
 		scroller.scrollTop = 500;
 		expect(atEdge(view, 'bottom')).toBe(true);
 	});
@@ -452,7 +452,7 @@ describe('光标站在那一端', () => {
 	it('只有在移动会把它留在那儿时才算', () => {
 		expect(caretAtEdge(atTop({ line: 0, ch: 0 }), 'top')).toBe(true);
 		expect(caretAtEdge(atTop({ line: 0, ch: 2 }), 'top')).toBe(false);
-		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // end of "three"
+		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // "three" 的末尾
 		expect(caretAtEdge(atBottom({ line: 2, ch: 3 }), 'bottom')).toBe(false);
 	});
 
@@ -554,7 +554,7 @@ describe('到端点这一下算不算一步', () => {
 	});
 
 	it('视图本来就在那一端时不记任何东西', async () => {
-		const { manager, stack } = standingAt(800); // the furthest this view goes
+		const { manager, stack } = standingAt(800); // 这个视图能走到的最远处
 
 		manager.goToEdge('bottom');
 		await Promise.resolve();
