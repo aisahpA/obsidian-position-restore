@@ -2,20 +2,20 @@
 set -euo pipefail
 
 # ------------------------------------------------------------------
-# Vault folder (the vault root directory) is read from reload.local.sh
-# (git-ignored, see .gitignore). Create it once:
+# vault 目录（vault 根目录）从 reload.local.sh 里读（git-ignored，见 .gitignore）。
+# 建一次即可：
 #   echo 'VAULT_DIR=/path/to/vault' > reload.local.sh
-# Env still wins: VAULT_DIR=/path/to/vault bash reload.sh
-# Everything else (vault name, plugin id, plugin dir) is derived.
-# Default (prod) → production build (npm run build, minified, no sourcemap).
-# First arg "dev" → one-shot dev build with inline sourcemap (like npm run dev, but no watch).
+# 环境变量仍然优先：VAULT_DIR=/path/to/vault bash reload.sh
+# 其余（vault 名、插件 id、插件目录）都是推导出来的。
+# 默认（prod）→ 生产构建（npm run build，压缩、无 sourcemap）。
+# 第一参数 "dev" → 一次性 dev 构建、带内联 sourcemap（同 npm run dev，但不 watch）。
 # ------------------------------------------------------------------
 VAULT_DIR="${VAULT_DIR:-}"
 
-# Project directory = directory of this script (the build writes to "dist" below it)
+# 项目目录 = 本脚本所在目录（构建产物写到它下面的 "dist"）
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Local (git-ignored) config: reload.local.sh may set VAULT_DIR etc.
+# 本地（git-ignored）配置：reload.local.sh 可以设置 VAULT_DIR 等。
 if [ -f "$PROJECT_DIR/reload.local.sh" ]; then
   # shellcheck disable=SC1091
   source "$PROJECT_DIR/reload.local.sh"
@@ -53,9 +53,9 @@ fi
 
 echo "→ Copying build outputs to $PLUGIN_DIR ..."
 mkdir -p "$PLUGIN_DIR"
-# `dist/` is the plugin (see esbuild.config.mjs): main.js, manifest.json and the
-# built stylesheet, all made by the build that just ran. The project root holds
-# sources only — styles.css there is the hand-written one, comments and all.
+# `dist/` 就是插件（见 esbuild.config.mjs）：main.js、manifest.json 和构建出的
+# 样式表，全部由刚跑完的那次构建产出。项目根只放源码 —— 那里的 styles.css 是手写
+# 的那个，注释都还在。
 for f in main.js manifest.json styles.css; do
   cp "$PROJECT_DIR/dist/$f" "$PLUGIN_DIR/$f"
 done

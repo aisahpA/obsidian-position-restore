@@ -1,18 +1,15 @@
 name: Build and Release
 
-# A release is cut by hand: merge to main, name the version by running
-# `node version-bump.mjs <major.minor.patch>` (it writes manifest.json and
-# versions.json), commit it, tag it, then push the tag.
+# 发版是手工做的：merge 到 main，用 `node version-bump.mjs <major.minor.patch>`
+# 定版本号（它会写 manifest.json 和 versions.json），提交、打 tag，再 push 那个 tag。
 #
-# Only a TAG starts this workflow — not a push to main. Building every merge
-# to main said nothing new: nothing ships off a branch push, and whatever it
-# would have caught gets caught here anyway, seconds later, by the same checks
-# running against the very commit that is about to be released. One trigger
-# also means one run per release instead of two, which is what pushing the
-# commit and its tag together used to cost.
+# 只有 TAG 会触发这个 workflow —— push 到 main 不会。给每次 merge 到 main 都构建
+# 说不出新东西：分支 push 不上线任何东西，而它本该抓到的问题，几秒后这里也会用同一套
+# 检查、跑在即将发布的那个 commit 上抓到。单一触发还意味着每次发版只跑一次而不是两次 ——
+# 那正是「提交与 tag 一起 push」原来要付的代价。
 #
-# So this workflow never decides a version and never commits: it checks the
-# tag, builds it, and leaves a draft for whoever cut it to publish.
+# 所以这个 workflow 从不决定版本、也从不提交：它校验 tag、构建它，然后留一个草稿
+# 给发版的人去发布。
 on:
   push:
     tags:
@@ -37,12 +34,9 @@ jobs:
         with:
           node-version: 24
 
-      # First, because it is cheap and it is the one mistake that is easier to
-      # fix before anything else has run: the tag and the manifest are typed in
-      # two different places now that the version is named by hand, and a
-      # release whose numbers disagree is worse than no release — Obsidian
-      # reads the manifest, not the tag. The strip forgives a "v" prefix,
-      # either way round.
+      # 放在最前面，因为它便宜、也是那种「趁别的东西还没跑、先修好最省事」的错误：版本号改成
+      # 手工命名后，tag 和 manifest 是在两个地方各写一遍的，而两个数字对不上的发布比不发布
+      # 更糟 —— Obsidian 读的是 manifest，不是 tag。剥掉 "v" 前缀，是让两种写法都认。
       - name: Check the tag matches manifest.json
         run: |
           TAG="${GITHUB_REF_NAME#v}"
@@ -70,8 +64,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      # The three files Obsidian asks for, out of dist/ — that is where the
-      # build puts them now. The assets keep their own names on the release.
+      # Obsidian 要的三个文件，取自 dist/ —— 构建现在把它们放在那里。发版时这些
+      # 附件保持各自的名字。
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:

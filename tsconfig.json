@@ -8,9 +8,8 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": true,
     "moduleResolution": "bundler",
-    // No `baseUrl`: deprecated in TS 6 and gone in 7. These targets are now
-    // relative to THIS file, so `tests/tsconfig.json` (which extends it) keeps
-    // pointing at src/ and not at tests/src/.
+    // 不写 `baseUrl`：TS 6 起弃用、TS 7 移除。这些目标现在相对**本文件**解析，
+    // 所以继承它的 `tests/tsconfig.json` 仍然指向 src/，而不是 tests/src/。
     "paths": {
       "@/*": ["./src/*"]
     },
