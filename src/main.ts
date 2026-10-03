@@ -34,8 +34,7 @@ export default class PositionRestorePlugin extends Plugin {
 		this.registerDbFlush();
 		this.registerSuspendFlush();
 
-		// 这两件清理都不必赶，而且此刻 vault 的索引还在预热 —— 挪到 layoutReady 不额外花
-		// 时间，还能让 prune() 查到一份已经装满的 metadataCache。
+		// 需要等到 layoutReady 后才能执行，因为此刻 metadataCache 还没有准备好。
 		this.app.workspace.onLayoutReady(() => {
 			this.manager.prunePositions();
 			this.manager.sweepMissingHistory();
@@ -71,9 +70,9 @@ export default class PositionRestorePlugin extends Plugin {
 	// （坚果云、iCloud 一类）把另一台设备上的版本换了过来。app 会在**运行中**的这个实例上调
 	// 这里；没有它，改动要等下次重启才生效。
 	//
-	// 值本身只要重新加载就够 —— 两个消费方都是实时读 settings 对象（见 loadSettings）。不会自己发生
-	// 的，是少数几个键改动时欠下的那点活：上限调低了要裁掉超出部分、文件夹规则新增了要丢一批。
-	// 所以把合并前的副本交给 manager 去做差比。
+	// 值本身只要重新加载就够 —— 两个消费方都实时读 settings 对象（见 loadSettings）。但少数键
+	// 改动还欠着善后的活：上限调低了要裁掉超出的记录、文件夹规则新增了要丢掉一批对不上号的。
+	// 把合并前的旧副本交给 manager 做差比，就是为了让它发现这些键。
 	async onExternalSettingsChange() {
 		const before = { ...this.settings };
 		await this.loadSettings();
@@ -84,10 +83,9 @@ export default class PositionRestorePlugin extends Plugin {
 	// 下面是生命周期的注册。每个方法只管 onload 的其中一桩事。
 
 	// 把「最近文件」注册成 app 悬停预览（页预览）体系里的一个来源，id 是 NAV_SOURCE_ID
-	// （见 constants.ts）。注册之后，悬停列表上的某一行，弹出的预览浮窗由 app 来画 —— 本面板
-	// 不自己画，那会让读者多学一套规则。
+	// （见 constants.ts）。注册之后，悬停列表上的某一行，弹出的预览浮窗由 app 来画。
 	//
-	// 副作用是它会**按名字**出现在页预览的设置里，下面这个字段决定那一行初始长什么样：
+	// 它会**按名字**出现在页预览的设置里，下面这个字段决定那一行初始长什么样：
 	// `defaultMod: true` = 默认「要按住 Cmd/Ctrl 悬停才预览」，光悬停不弹窗。这也是文件浏览器、
 	// 搜索那几行在 app 里的默认状态，跟它们保持一致。想改的读者自己在设置里改。
 	private registerPreviewSource(): void {
@@ -97,9 +95,8 @@ export default class PositionRestorePlugin extends Plugin {
 		});
 	}
 
-	// 前进后退。不设默认快捷键 —— 读者自己在 app 的快捷键设置里绑。任何文件视图上都能用，
-	// 焦点在侧栏里时也行（会先激活最近那个文件标签页，再从那里起步）。
 	private registerCommands() {
+		// 前进后退
 		this.addCommand({
 			id: 'navigate-back',
 			name: t('navHistory.commands.navigateBack'),
@@ -120,8 +117,7 @@ export default class PositionRestorePlugin extends Plugin {
 				return true;
 			}
 		});
-		// 跳到当前笔记的开头 / 结尾。app 自带的 Ctrl+Home / Ctrl+End 不记步 —— 读者一问另一端，
-		// 他所站的那处就丢了；这两个命令会把它记下来。
+		// 跳到当前笔记的开头 / 结尾
 		this.addCommand({
 			id: 'go-to-top',
 			name: t('noteEdge.commands.top'),
@@ -142,37 +138,26 @@ export default class PositionRestorePlugin extends Plugin {
 				return true;
 			},
 		});
-		// 打开最近文件列表 —— 一个挑东西用的选择框，问完就关。它**不是**前进后退栈（那个属于上面
-		// 两条命令），而是**地点**列表：一篇笔记一行，点哪行就在那处打开。
-		//
-		// 图标是一口钟：这些行按最后一次坐下的时间排序。不用 'list' —— 那是大纲面板的图标，两样
-		// 在命令面板里会被读成同一个东西。
+		// 打开最近文件列表 —— 一个挑东西用的选择框，问完就关。
 		this.addCommand({
 			id: 'browse-recent-files',
 			name: t('recentFiles.commands.open'),
 			icon: 'clock',
 			callback: () => this.manager.openRecentFilesModal(),
 		});
-		// ……还是那个列表，做成**常驻**的侧栏面板。刻意分成两条命令：一个是挑东西用的选择框，
-		// 一个是放在手边干活的地方，想要哪个只有读者开口那一刻才知道。
+		// 打开最近文件列表 —— 常驻的侧栏面板。
 		this.addCommand({
 			id: 'open-recent-files-sidebar',
 			name: t('recentFiles.commands.openSidebar'),
 			icon: 'panel-right',
 			callback: () => this.manager.openRecentFilesSidebar(),
 		});
-		// ribbon 上的入口：每个平台都是同一枚图标，因为这个列表是本插件唯一有张脸的部分 —— 恢复
-		// 位置是自己发生的，前进后退得读者先绑了快捷键才存在。
-		//
+		// ribbon 上的入口
 		// 图标**打开什么**按平台分：桌面上侧栏是留得住的地，所以打开常驻面板；手机上打开那个问完
-		// 就走的选择框 —— 一次行进会把面板所在的抽屉合上，想让它站在那儿的读者有上面那条命令。
-		//
-		// 不给自己加开关：app 允许读者取消勾选任何一个 ribbon 动作并跨设备记住，再来第二份就是
-		// 在一个早有答案的问题前面又插一个旋钮。
+		// 就走的选择框 —— 一次操作会把面板所在的抽屉合上，想让它站在那儿的读者可以打开侧边栏。
 		const openFromRibbon = Platform.isMobile
 			? () => this.manager.openRecentFilesModal()
 			: () => this.manager.openRecentFilesSidebar();
-		// 图标上的名字是「最近文件」而不是「前进后退」—— 它打开的就是那个列表。
 		this.addRibbonIcon('clock', t('recentFiles.name'), openFromRibbon);
 	}
 
@@ -187,9 +172,9 @@ export default class PositionRestorePlugin extends Plugin {
 		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => this.manager.renameFile(file, oldPath)));
 		this.registerEvent(this.app.vault.on('delete', (file) => this.manager.deleteFile(file)));
 		this.registerEvent(this.app.vault.on('create', (file) => this.manager.fileCreated(file)));
-		// 关窗前把库写下去。app 退出时会把 Tasks 上挂的每一个 promise 都等完 —— 不走这条路，写库
-		// 就是发后不管、跟关窗抢时间，上次周期落盘以来记下的东西全丢（三个内存 store 是同步写的，
-		// 这里是那个文件）。
+		// 关窗前把库写下去。app 退出时会等完 Tasks 上挂的每一个 promise：挂在这里，写库才不会
+		// 发后不管、跟关窗抢时间，否则上次周期落盘以来记下的东西全丢（三个内存 store 平时是同步
+		// 写的，这里补的是落到库文件这一下）。
 		//
 		// 挂上去的 promise **必须 settle**，不能 reject 出去：app 等的是一个 Promise.all，只要有
 		// 一个不落地，它就一直卡在 "Saving..." 那个对话框上。所以写失败也要变成 resolve ——
@@ -201,15 +186,15 @@ export default class PositionRestorePlugin extends Plugin {
 
 	// 两条周期采样，各管一桩事。
 	private registerPolling() {
-		// 位置采样：每 100ms 看一次活动视图。它和桌面上那条滚动监听是**互补的两条输入**，不是二选
-		// 一 —— 轮询只盯活动视图、只调 CodeMirror 的内存 getter，从不触发重排；滚动监听挂在工作区
-	// 根节点上（见 sampler.installScrollCapture），接住轮询看不见的那些面板。还要轮询的另一个
-	// 理由是它拿的是「整份快照」：没人喊它也会看，一处悄悄发生的变动不会漏。
+		// 位置采样：每 100ms 看一次活动视图。它和桌面上那条滚动监听是**互补的两条输入**，不是
+		// 二选一 —— 轮询只盯活动视图、只调 CodeMirror 的内存 getter，从不触发重排；滚动监听挂
+		// 在工作区根节点上（见 sampler.installScrollCapture），接住轮询看不见的那些面板。还要
+		// 轮询的另一个理由：它拿的是「整份快照」，没人喊它也会看，一处悄悄发生的变动不会漏。
 		this.registerInterval(
 			window.setInterval(() => this.manager.sampleActiveView(), 100)
 		);
-		// 视图 state：慢得多的第二个 tick。它调的是视图自己的 getState，代价由写那个视图的人说了
-		// 算（可能触发一次序列化），所以不能跟着 100ms 跑；答得慢的后果也只是把落点知道得晚一点。
+		// 视图状态（getState）：慢得多的第二个 tick。代价由写那个视图的人说了算（可能触发一次
+		// 序列化），所以不能跟着 100ms 跑；答得慢的后果也只是把落点知道得晚一点。
 		this.registerInterval(
 			window.setInterval(() => this.manager.sampleActiveViewState(), VIEW_STATE_POLL_MS)
 		);
