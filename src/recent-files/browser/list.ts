@@ -3,8 +3,10 @@ import { NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
-import { groupByFile, LandingsMode, matchesNavFilter, matchedHeading } from './listing';
-import type { HeadingRef } from '@/shared/headings';
+import {
+	groupByFile, LandingsMode, matchedHeading, matchedOnlyByOutline, matchesNavFilter,
+} from './listing';
+import { headingTrailAtLine, type HeadingRef } from '@/shared/headings';
 import { PathDisplayMode } from '@/types';
 import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
@@ -54,6 +56,22 @@ const ROW_CLASS = 'position-restore-nav-row';
 // 这份列表拥有一个**位置**，`selected`：键盘走它（见 move），重画会重新找到它，
 // Enter 行走至它。**点击**不设它 —— 模态框会在半路上关闭。
 
+// 一行的点击**改道**去往的那一节：这一行之所以在列表上，唯一的理由是这篇笔记里有
+// 个叫这个名字的小节（判据见 render 的 `diversionOf`）。行上印出它，一次点击就去它
+// —— 否则一次按标题词的搜索会把一件读者没要求的事塞给他（见 `goTo`）。
+export interface HeadingHit {
+	// 那一节所在的笔记。
+	path: string;
+	// 小节的原文，也就是行上印出的那几个字。
+	heading: string;
+	// 它**此刻**在笔记里的行号，0-based。现查（`headingsFor`），所以它不是一个快照：
+	// 笔记被改过之后再搜到它，答的仍是它现在在哪。
+	line: number;
+	// 去读者上次读这篇笔记的那个标签页 —— 也就是这一行一贯去往的地方（见
+	// `activeRep`）：一次改道换的是**落点**，不是地方。
+	leafId: string;
+}
+
 // 类所保持的一行：那个元素，以及它所代表的东西。FILE 行的身份是组（从它出发的
 // 一次行走读 `group`；见 activeRep）；它的 `rep` 保持为空。落点行的 `rep` 是它
 // 自己的地点索引。
@@ -61,6 +79,10 @@ interface RowRef {
 	el: HTMLElement;
 	rep?: number;
 	group?: number;
+	// 这一行的点击改道去往的那一节。只有**文件行**会有：落点行印的已经是它自己那一节
+	// 的链，而它从不靠全篇的标题活过过滤（见 render 的 `keepAt`），所以它没有另一个
+	// 「命中的小节」可说。
+	hit?: HeadingHit;
 }
 
 // 落点行的节链，留给那个回读布局的遍历（见 fitTrails）。`note` 是携带而不是重算的，
@@ -116,12 +138,18 @@ export interface RecentFilesListOptions {
 	// 一行被点击了：在它所代表的东西处打开文件。`target` 是 app 对那个手势自己的
 	// 答案（见 PaneTarget），绝不是本模块自己读出的修饰键。
 	onTravel: (rep: number, target?: PaneTarget) => void;
+	// 一次点击去往一篇笔记里的**某个小节**（见 HeadingHit）：改道的那一档。与
+	// `onTravel` 分开，因为它不代表一个**已在列表上**的地点 —— 那一节此刻还没有记录，
+	// 这次行走会为它造出一条（与点大纲面板的标题同类的一步）。
+	onTravelHeading: (hit: HeadingHit, target?: PaneTarget) => void;
 	// 一行被右键点击（或在手机上，它的已武装行的菜单控件被轻点）：**哪个**地点、
 	// 菜单在屏幕上**哪里**打开、以及该行是**笔记本身**还是一个它内部的点 ——
 	// 钉选是给一篇笔记的书签，所以浏览器可以往菜单里加什么取决于它是哪一种。
 	// 是一个**点**而不是事件本身，因为两扇门不一致：右键回答指针在哪，控件轻点
 	// 回答控件**立**在哪 —— 平台为手指投递的一次点击可能携带零坐标。
-	onContextRow: (rep: number, at: MenuPositionDef, note: boolean) => void;
+	// ……以及这一行改道去往的那一节（见 HeadingHit），当它改道时：菜单那一项说的是
+	// 「在新标签页打开**这一行所去的地方**」，而那个地方不一定是它一贯去的那个。
+	onContextRow: (rep: number, at: MenuPositionDef, note: boolean, hit?: HeadingHit) => void;
 	// 从一行升起的菜单是否立着 —— 若立着，则**收回**它（见 body.ts 的
 	// takeMenuBack）。
 	takeMenuBack: () => boolean;
@@ -282,7 +310,12 @@ export class RecentFilesList {
 	private activeRep(row: RowRef): number {
 		if (row.group === undefined)
 			return row.rep ?? -1;
-		const group = this.groups[row.group];
+		return this.activeIndexOf(this.groups[row.group]);
+	}
+
+	// ……同一件事，按**组**发问而不是按行：一次改道必须先知道这一行一贯去往哪里
+	// （它换的是落点，不是地方），而问它的时候那一行还没被画出来。
+	private activeIndexOf(group: ReturnType<typeof groupByFile>[number] | undefined): number {
 		if (!group)
 			return -1;
 		if (group.anchor !== undefined && group.anchor >= 0)
@@ -373,70 +406,31 @@ export class RecentFilesList {
 		// 的事实，而是关于读者碰巧在哪。坐标（"L412"）是位置数据库的，在笔记被阅读
 		// 时被重写；一个**访问**所处的链是从那个坐标读出的，所以它跟着它走。一行
 		// 此刻答得出一个标题、下一刻答不出，是一个搜索框不能信赖的行。
-		const printed = (i: number): string => {
-			const entry = this.opts.entries[i];
-			const d = this.opts.describe(i);
-			// 文件的其它名字走 `extra` 通道（见 matchesNavFilter）；按**路径**读，
-			// 所以一篇笔记的每个落点携带同样的名字 —— 两类都带，因为笔记自称的东西
-			// 与它应答的名字一样值得输入。
-			const other = entry.kind === 'view'
-				? undefined
-				: this.opts.otherNames(entry.path, d.name);
-			const aka = other ? [other.frontTitle ?? '', ...other.aliases] : [];
-			// **跳转的链是记录自己的**：它命名读者挑中的标题，那是该行存在的理由、
-			// 也是落点行打印的东西。一次访问什么都没挑 —— 它携带的行号是上次见到时
-			// 的笔记的行号，而从它读出的链属于那一分钟、不属于那个地点。
-			const chain = entry.kind === 'jump'
-				? this.opts.trailFor(entry, d, i).join(' ')
-				: '';
-			// **打印出来的名字**也进去：一篇读者用它的 frontmatter 标题来称呼的
-			// 笔记，就用那个标题来搜索。（文件自己的名字已经在稻草堆里 —— 见
-			// listing.ts 的 navSearchText。）
-			return `${d.name ?? ''} ${chain} ${aka.join(' ')}`;
-		};
-		// **这一篇的所有小节**，每行一个，按文档顺序。**只**给文件行走（见 keep）：
-		// 落点行已经印着自己那一节的链，再给它全篇的标题只会让「我这一行是哪儿」答不出来。
-		// 而文件行只代表笔记，所以「这篇笔记里有个叫『定价』的小节」对它是对**这篇笔记**
-		// 的回答，不是对某一处的承诺 —— 那一行在 `landings: 'last' | 'none'` 或只有一处
-		// 地点时也仍然只代表笔记。
-		//
-		// 从不存：现查（`headingsFor`），所以它永远是最新的，而体积与笔记长度无关。
-		// 一篇没有标题的笔记、以及无路径的视图，都没有 —— 那是诚实的「没有」而不是空串
-		//（空串会让每个查询都命中它）。
-		const outlineOf = (i: number): string | undefined => {
-			const entry = this.opts.entries[i];
-			return entry.kind === 'view' ? undefined : this.outlineText(entry.path);
-		};
-		// 究竟**什么**可以被列出：一个文件没了的地点会在归组**之前**被丢掉 ——
-		// 没有行、没有落点、没有任何「你在这里」会为一个打不开的名字而立。一个
-		// **视图**地点被豁免（没有文件会没）。
-		const listed = (i: number): boolean => {
-			const entry = this.opts.entries[i];
-			return entry.kind === 'view' || this.opts.noteExists(entry.path);
-		};
-		// 每一行拿到的是**它自己那一档**的搜索面：文件行走 `printed` + 全篇小节，
-		// 落点行只走 `printed`（它自己那条链已经在里面了）。
-		const keep = (i: number) => {
-			if (!listed(i))
-				return false;
-			if (!query)
-				return true;
-			const entry = this.opts.entries[i];
-			const isPlace = entry.kind === 'jump';
-			return matchesNavFilter(
-				entry, query, printed(i), isPlace ? undefined : outlineOf(i),
-			);
-		};
+		// 查询按文本收窄：行打印的内容（它的名字，以及落点的节链）加上从 **vault**
+		// 派生的一切（文件的其它名字、**该文件的全部小节**）。怎么判、以及「这一行凭什么
+		// 留在列表上」，住在 `keepAt` 与 `diversionOf` 里 —— 那两个问题在一次重画之外
+		// 还要再被问一次（改道要问），所以它们不是这里的局部闭包。
 		this.groups = groupByFile(
 			this.opts.entries,
 			this.opts.currentIndex,
-			keep,
+			i => this.keepAt(i, query),
 			// 一行**打印**的行号才是让两步成为一个地点的东西，所以合并与坐标永远
 			// 不会不一致（见 groupByFile）。
 			i => this.opts.describe(i).lineIndex,
 			// 要保持在的次序，当读者正停在列表上时。
 			this.opts.order(),
 		);
+		// 每篇笔记的**改道**目标：它若仅因某个小节才在列表上，一次点击就去那里（见
+		// HeadingHit 与 goTo）。按**组 key** 存，因为钉选行马上会重排这个数组，而一行
+		// 只认自己那篇笔记。
+		const diversions = new Map<string, HeadingHit>();
+		if (query) {
+			for (const group of this.groups) {
+				const hit = this.diversionOf(group, query);
+				if (hit)
+					diversions.set(group.key, hit);
+			}
+		}
 		// **被钉选的行先走**，按读者把它们放进去的次序、而不是地点碰巧所处的次序
 		// —— 那个次序是一个时钟，而一个读者布置好的书架不是。其余一切保持它从归组
 		// 中出来的次序（新近度，或那个被保持住的次序）。
@@ -447,7 +441,7 @@ export class RecentFilesList {
 		const doubles = duplicateNames(this.groups.map(g => this.printedName(g)));
 
 		this.groups.forEach((group, index) => {
-			this.fileRow(group, index, doubles, query);
+			this.fileRow(group, index, doubles, diversions.get(group.key));
 			for (const i of this.shownLandings(group, index))
 				this.placeRow(i, i === group.currentRep);
 			// 块以一条**线**结束、而不是一个标题：被钉选的行与任何其它行一样，
@@ -534,6 +528,120 @@ export class RecentFilesList {
 		return titles?.length ? titles.map(h => h.heading).join('\n') : undefined;
 	}
 
+	// 一行**打印**的东西里，搜索框可以问的那些（见 matchesNavFilter 的 `extra`）。
+	private printedAt(i: number): string {
+		const entry = this.opts.entries[i];
+		const d = this.opts.describe(i);
+		// 文件的其它名字走 `extra` 通道（见 matchesNavFilter）；按**路径**读，
+		// 所以一篇笔记的每个落点携带同样的名字 —— 两类都带，因为笔记自称的东西
+		// 与它应答的名字一样值得输入。
+		const other = entry.kind === 'view'
+			? undefined
+			: this.opts.otherNames(entry.path, d.name);
+		const aka = other ? [other.frontTitle ?? '', ...other.aliases] : [];
+		// **跳转的链是记录自己的**：它命名读者挑中的标题，那是该行存在的理由、
+		// 也是落点行打印的东西。一次访问什么都没挑 —— 它携带的行号是上次见到时
+		// 的笔记的行号，而从它读出的链属于那一分钟、不属于那个地点。
+		const chain = entry.kind === 'jump'
+			? this.opts.trailFor(entry, d, i).join(' ')
+			: '';
+		// **打印出来的名字**也进去：一篇读者用它的 frontmatter 标题来称呼的
+		// 笔记，就用那个标题来搜索。（文件自己的名字已经在稻草堆里 —— 见
+		// listing.ts 的 navSearchText。）
+		return `${d.name ?? ''} ${chain} ${aka.join(' ')}`;
+	}
+
+	// **这一篇的所有小节**，每行一个，按文档顺序。**只**给文件行走（见 `keepAt`）：
+	// 落点行已经印着自己那一节的链，再给它全篇的标题只会让「我这一行是哪儿」答不出来。
+	//
+	// 从不存：现查（`headingsFor`），所以它永远是最新的，而体积与笔记长度无关。
+	// 一篇没有标题的笔记、以及无路径的视图，都没有 —— 那是诚实的「没有」而不是空串
+	//（空串会让每个查询都命中它）。
+	private outlineAt(i: number): string | undefined {
+		const entry = this.opts.entries[i];
+		return entry.kind === 'view' ? undefined : this.outlineText(entry.path);
+	}
+
+	// 究竟**什么**可以被列出：一个文件没了的地点会在归组**之前**被丢掉 ——
+	// 没有行、没有落点、没有任何「你在这里」会为一个打不开的名字而立。一个
+	// **视图**地点被豁免（没有文件会没）。
+	private listedAt(i: number): boolean {
+		const entry = this.opts.entries[i];
+		return entry.kind === 'view' || this.opts.noteExists(entry.path);
+	}
+
+	// 查询留下的那些步。每一行拿到的是**它自己那一档**的搜索面：文件行走打印的东西
+	// 加上全篇小节，落点行只走打印的东西（它自己那条链已经在里面了）。
+	//
+	// 一行知道的两样东西**不被问及**，且出于同一个理由：两者都不是关于**记录**
+	// 的事实，而是关于读者碰巧在哪。坐标（"L412"）是位置数据库的，在笔记被阅读
+	// 时被重写；一个**访问**所处的链是从那个坐标读出的，所以它跟着它走。一行
+	// 此刻答得出一个标题、下一刻答不出，是一个搜索框不能信赖的行。
+	private keepAt(i: number, query: string): boolean {
+		if (!this.listedAt(i))
+			return false;
+		if (!query)
+			return true;
+		const entry = this.opts.entries[i];
+		const isPlace = entry.kind === 'jump';
+		return matchesNavFilter(
+			entry, query, this.printedAt(i), isPlace ? undefined : this.outlineAt(i),
+		);
+	}
+
+	// 这一行的点击是否**改道**去它的某个小节（见 HeadingHit）：这一组之所以还在列表
+	// 上，唯一的理由是那篇笔记里有个叫 X 的小节 —— 拿掉全篇标题那个通道，它再没有
+	// 一条记录进得来。
+	//
+	// 判据必须严到这个地步，因为它换来的是一次**抢**：点击不再去这一行一贯去的地方
+	// （一个被恢复出来的位置，或它最新的那个落点）。一条只靠名字、path、别名、或它
+	// 自己那一节的链就能被找到的记录，说明读者输的那个词本来就把这篇笔记捞出来了
+	// —— 而它里面恰巧有个同样含那个词的小节，不是他把点击交出去的理由：搜「周」找
+	// 「周回顾」的读者，不该被送进「周报」。
+	//
+	// 只有**还活着**的记录有发言权（见 `keepAt`）：被查询丢掉的那一条此刻不在屏幕上，
+	// 它不能让这一行躲过一次改道。
+	private diversionOf(
+		group: ReturnType<typeof groupByFile>[number],
+		query: string,
+	): HeadingHit | undefined {
+		// 一个无路径的视图没有小节可说。
+		if (!group.path)
+			return undefined;
+		let hit: string | undefined;
+		for (const i of this.groupEntries(group)) {
+			if (!this.keepAt(i, query))
+				continue;
+			const entry = this.opts.entries[i];
+			const outline = entry.kind === 'jump' ? undefined : this.outlineAt(i);
+			if (!matchedOnlyByOutline(entry, query, this.printedAt(i), outline))
+				return undefined;
+			hit ??= matchedHeading(outline, query);
+		}
+		// 那一节**此刻**在哪一行：现查，所以它不可能是过期的（见 HeadingHit）。答不出
+		// 就保持沉默 —— 改道去一个说不出位置的地方，比不改道更糟。
+		const at = hit === undefined
+			? undefined
+			: this.opts.headingsFor(group.path)?.find(h => h.heading === hit);
+		if (!at)
+			return undefined;
+		return {
+			path: group.path,
+			heading: at.heading,
+			line: at.line,
+			// 去这一行一贯去往的那个标签页：一次改道换的是落点，不是地方。
+			leafId: this.opts.entries[this.activeIndexOf(group)]?.leafId ?? '',
+		};
+	}
+
+	// 一组所持有的全部记录：笔记自己那一条（若还在）加上它的各个落点。
+	private groupEntries(group: ReturnType<typeof groupByFile>[number]): number[] {
+		const out = group.anchor === undefined ? [] : [group.anchor];
+		for (const i of group.indices)
+			out.push(i);
+		return out;
+	}
+
 	// 一篇**笔记**。名字单元格放**名字**（最后一段路径，不带扩展名，见
 	// displayName），文件不是 markdown 时放类型**徽标**，以及读者所选条件下的
 	// **文件夹**（见 PathDisplayMode）。**时间**立在行的远端、自成一条轨道，所以
@@ -543,9 +651,9 @@ export class RecentFilesList {
 		group: ReturnType<typeof groupByFile>[number],
 		index: number,
 		doubles: Set<string>,
-		// 生效中的查询。这一行用它说出「这篇笔记里被命中的那个小节」（见下面）——
-		// 文件行是唯一走全篇标题的那一档（见 render 的 keep），所以也只有它需要这句话。
-		query: string,
+		// 这一行的点击改道去往的那一节（见 HeadingHit）。查询命中了它，而这一行在列表上
+		// 唯一的理由就是它 —— 所以它印在行上，而点击兑现它。
+		hit?: HeadingHit,
 	): number {
 		const rep = this.groupRep(group);
 		const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
@@ -567,7 +675,7 @@ export class RecentFilesList {
 		row.setAttr('role', 'option');
 		row.setAttr('aria-selected', 'false');
 		// 文件行的身份是**组**：`rep` 保持 undefined（见 activeRep）。
-		const ref: RowRef = { el: row, group: index };
+		const ref: RowRef = { el: row, group: index, hit };
 		row.addEventListener('click', (ev) => this.onClick(ref, ev));
 		row.addEventListener('pointerdown', (ev) => this.onPress(ref, ev));
 		row.addEventListener('contextmenu', (ev) => this.onContextMenu(ev, ref));
@@ -610,6 +718,15 @@ export class RecentFilesList {
 		const printsPath = folder !== undefined && (mode !== 'smart' || doubles.has(name));
 		if (printsPath)
 			file.createSpan({ text: pathLabel(group.path, name), cls: 'nav-row-path' });
+		// **这一行为什么在列表上、以及点下去会去哪儿**：查询命中的那个小节。它是这一行
+		// 唯一的自证 —— 一行被一个它自己不印的词捞出来，是读者无从解释的一行 —— 所以它
+		// 印在自己的一行上，比名字小一档、也更淡：它说的是「点下去会去哪儿」，不是
+		// 「这一行是谁」。
+		if (hit)
+			file.createSpan({
+				text: `${t('recentFiles.matchedHeading')} ${hit.heading}`,
+				cls: 'nav-row-hit',
+			});
 		// 这篇笔记上次被访问是**多久以前**，在读者要求的地方：该组持有的最新时间戳
 		// （见 newestStamp）。它立在行自己的、远端的轨道上 —— 放在名字里面只有对一篇
 		// 没打印文件夹的行才行得通。
@@ -631,11 +748,10 @@ export class RecentFilesList {
 		const tip: TipContent = {};
 		if (group.path && !printsPath)
 			tip.path = group.path;
-		// **关于节什么都不说**，连悬停上也不说 —— 除非这一行的点击**就是**去那个落点
-		// （下面那个分支）。文件行代表**笔记**：它的点击以普通方式打开文件、由位置数据库
-		// 决定读者落在何处，所以这一行并不关于某一个节，而在这里打印一条链会是一个点击
-		// 并不兑现的承诺。该行曾代表的东西（当它确实代表过某个地点时）才是下面那些词的
-		// 目的。
+		// **关于节什么都不说**，连悬停上也不说 —— 除非这一行的点击**就是**去那个小节
+		// （下面那两个分支：改道的那一节，或它自己代表的那个落点）。文件行代表**笔记**：
+		// 它的点击以普通方式打开文件、由位置数据库决定读者落在何处，所以这一行并不关于
+		// 某一个节，而在这里打印一条链会是一个点击并不兑现的承诺。
 		// 然后是这些名字：笔记**自称**的东西单列一行，以及它在自己名下所应答的东西
 		// —— 别名是 app 的词，而一个归在它名下的 `title` 是在回答一个读者没有问的
 		// 问题。
@@ -643,43 +759,35 @@ export class RecentFilesList {
 			tip.frontTitle = `${t('recentFiles.title')} ${other.frontTitle}`;
 		if (other?.aliases.length)
 			tip.text = `${t('recentFiles.aliases')} ${other.aliases.join(' · ')}`;
-		// **这一篇里被查询命中的那个小节**（若有）。它是「搜一个标题词而落点不在那一节」
-		// 那一档唯一的自证 —— 命中是**关于这篇笔记**的，而这一行只代表笔记。
-		// 只在**文件行**说：落点行印的已经是它自己那一节的链，而它自己的 key 就在 haystack
-		// 里，所以它从不靠全篇的标题活过过滤（见 render 的 keep）。
-		//
-		// 与 `trail` 的去重比的是**最深那一层**，不是整条链：链是「面板设计 › 呈现方案 › 预览」，
-		// 命中的标题是「预览」—— 那是同一节，说两遍就是噪音。上面那个分支还没跑，所以这里
-		// 拿不到 `trail`；判重交给它（它在链条已定之后再问一次）。
-		if (query && group.path) {
-			const hit = matchedHeading(this.outlineText(group.path), query);
-			if (hit)
-				tip.matched = hit;
-		}
-		// 当这一行**就是**该笔记的某个地点时（一篇只有一个地点的笔记，或设置不打印
-		// 落点时的任意笔记）：点击去那里（见 activeRep），所以该行必须能说出那个
-		// 位置是什么 —— 包括它**在哪个节**，因为在 `recentFilesLandings: 'last' | 'none'`
-		// 两档里落点行根本不画（见 printsLandings），这里就是这条链唯一会出现的地方。
-		// 少了它，一次按标题词的搜索会得到一行光秃秃的笔记名，而读者无从知道它为什么
-		// 在列表上 —— 命中必须能解释自己。
-		if (!this.printsLandings(index)) {
+		if (hit) {
+			// **改道的这一行**去的是行上印着的那一节，而那一节**在这篇笔记的哪里**由
+			// 悬停说出 —— 行上只印得出那一节自己的名字，链的外层在窄行上会被切掉。
+			// 链是现查的（见 reads.ts 的 headingsFor），所以它与笔记此刻的样子一致。
+			const chain = headingTrailAtLine(this.opts.headingsFor(hit.path), hit.line);
+			if (chain.length)
+				tip.trail = chainText(chain);
+		} else if (!this.printsLandings(index)) {
+			// 当这一行**就是**该笔记的某个地点时（一篇只有一个地点的笔记，或设置不打印
+			// 落点时的任意笔记）：点击去那里（见 activeRep），所以该行必须能说出那个
+			// 位置是什么 —— 包括它**在哪个节**，因为在 `recentFilesLandings: 'last' | 'none'`
+			// 两档里落点行根本不画（见 printsLandings），这里就是这条链唯一会出现的地方。
+			// 少了它，一次按标题词的搜索会得到一行光秃秃的笔记名，而读者无从知道它为什么
+			// 在列表上 —— 命中必须能解释自己。
+			//
+			// 改道的那一行**不**走这里：它去的不是这个地点，而这里那条链会是一个它并不
+			// 兑现的承诺 —— 它要去哪儿已经印在行上了。
 			const at = this.activeRep(ref);
 			const spot = this.opts.entries[at];
 			if (spot?.kind === 'jump') {
 				const chain = this.opts.trailFor(spot, this.opts.describe(at), at);
-				if (chain.length) {
+				if (chain.length)
 					tip.trail = chainText(chain);
-					// 这一行所在的那一节**就是**命中的那一个时，`matched` 没有新的话可说 ——
-					// 链已经说了，而重复一遍只是噪音。
-					if (tip.matched === chain[chain.length - 1])
-						tip.matched = undefined;
-				}
 				const note = this.landingNote(spot, this.opts.describe(at), at);
 				if (note)
 					tip.note = note;
 			}
 		}
-		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.matched || tip.note)
+		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.note)
 			this.tip.attach(row, tip);
 		// **行自己的移除**。它在**这里**而不是在行的菜单里，因为那个菜单是 **app**
 		// 的文件菜单、只有文件才有这样一个 —— 一个无路径视图行永远得不到它。它的事件
@@ -919,7 +1027,9 @@ export class RecentFilesList {
 		}
 		const rep = this.activeRep(ref);
 		if (rep >= 0)
-			this.opts.onContextRow(rep, { x: ev.clientX, y: ev.clientY }, ref.group !== undefined);
+			this.opts.onContextRow(
+				rep, { x: ev.clientX, y: ev.clientY }, ref.group !== undefined, ref.hit,
+			);
 	}
 
 	// **一根手指停在一行上**，在没有悬停的设备上这就是悬停（见 long-press.ts）：
@@ -1080,6 +1190,7 @@ export class RecentFilesList {
 				rep,
 				{ x: box.left + box.width / 2, y: box.bottom },
 				ref.group !== undefined,
+				ref.hit,
 			);
 			// **武装留着**：菜单是一个问题、不是一个答案，而菜单关闭时读者想要的仍
 			// 可能是该行自己的那些答案。
@@ -1169,11 +1280,11 @@ export class RecentFilesList {
 		const target = Keymap.isModEvent(ev) || undefined;
 		const key = this.pressed;
 		this.pressed = undefined;
-		const rep = this.refs.includes(ref)
-			? this.activeRep(ref)
-			: key === undefined ? -1 : this.findByKey(key);
-		if (rep >= 0)
-			this.opts.onTravel(rep, target);
+		const row = this.refs.includes(ref)
+			? ref
+			: key === undefined ? undefined : this.findRowByKey(key);
+		if (row)
+			this.goTo(row, target);
 	}
 
 	// 那些行**没有**回答的点击：浏览器把按下与松开解析到仍在 document 里的最近祖先
@@ -1187,9 +1298,9 @@ export class RecentFilesList {
 		this.pressed = undefined;
 		if (key === undefined)
 			return;
-		const rep = this.findByKey(key);
-		if (rep >= 0)
-			this.opts.onTravel(rep, undefined);
+		const row = this.findRowByKey(key);
+		if (row)
+			this.goTo(row, undefined);
 	}
 
 	// 读者按下了某一行。**主按钮**按下：按身份（见 keyOf）而非按索引记住**哪个**
@@ -1200,9 +1311,7 @@ export class RecentFilesList {
 	private onPress(ref: RowRef, ev: MouseEvent): void {
 		if (ev.button === 1) {
 			ev.preventDefault();
-			const rep = this.activeRep(ref);
-			if (rep >= 0)
-				this.opts.onTravel(rep, Keymap.isModEvent(ev) || undefined);
+			this.goTo(ref, Keymap.isModEvent(ev) || undefined);
 			return;
 		}
 		if (ev.button !== 0)
@@ -1216,41 +1325,52 @@ export class RecentFilesList {
 	}
 
 	// 持有某个地点的那一行，按身份而不是按索引找到 —— 或当这份列表不再展示它时
-	// 返回 -1。一个列表不知何故**两次**持有的地点也被拒绝：身份正是 store 据以对
+	// 返回 undefined。一个列表不知何故**两次**持有的地点也被拒绝：身份正是 store 据以对
 	// 地点去重的东西（见 places.remember），所以两行携带一个 key 意味着列表分不清
 	// 它们。
-	private findByKey(key: string): number {
-		let found = -1;
+	//
+	// 返回**行**而不是它那个地点的索引，因为一次点击要问的还有改道：那一节挂在这一行
+	// 上，而它在下一次重画里被重算（行是新的，问题不是）。
+	private findRowByKey(key: string): RowRef | undefined {
+		let found: RowRef | undefined;
 		for (const ref of this.refs) {
 			const rep = this.activeRep(ref);
 			if (rep < 0 || this.opts.keyOf(rep) !== key)
 				continue;
-			if (found >= 0)
-				return -1;
-			found = rep;
+			if (found)
+				return undefined;
+			found = ref;
 		}
 		return found;
 	}
 
-	// 一行将会打开的栈索引，或当它没有时返回 -1。它**绝不能**拒绝的是读者已经站在
-	// 里面的那个地点：一行是一次**打开**，不是一个步，而一个点击自己所在行的读者
-	// 是在要**文件**回来 —— jumpTo 已经恰好回答了那个（见 NavStack.travelTo）。
-	// 拒绝它曾让列表的第一行 —— 当前笔记，被钉选在最前 —— 成为唯一一行什么都不
-	// 回答的。
-	private targetOf(ref?: RowRef): number {
-		const target = ref ?? this.selected;
-		if (!target)
-			return -1;
-		return this.activeRep(target);
+	// 一次点击（或一次 Enter）所走的那一步。**改道**优先：这一行在列表上唯一的理由是
+	// 它的某个小节时（见 HeadingHit），去那里 —— 而不是去它一贯去的地方。
+	private goTo(ref: RowRef, target?: PaneTarget): void {
+		if (ref.hit) {
+			this.opts.onTravelHeading(ref.hit, target);
+			return;
+		}
+		const rep = this.activeRep(ref);
+		if (rep >= 0)
+			this.opts.onTravel(rep, target);
 	}
 
-	// 行走至一行所代表的落点。公开是因为 Enter 从浏览器的按键处理器进来、没有行
+	// 行走至一行所代表的东西。公开是因为 Enter 从浏览器的按键处理器进来、没有行
 	// 可命名。@returns 是否启动了一次行走。
+	//
+	// 它**绝不能**拒绝的是读者已经站在里面的那个地点：一行是一次**打开**，不是一个步，
+	// 而一个点击自己所在行的读者是在要**文件**回来 —— jumpTo 已经恰好回答了那个（见
+	// NavStack.travelTo）。拒绝它曾让列表的第一行 —— 当前笔记，被钉选在最前 —— 成为唯一
+	// 一行什么都不回答的。
 	travel(ref?: RowRef, target?: PaneTarget): boolean {
-		const rep = this.targetOf(ref);
-		if (rep < 0)
+		const row = ref ?? this.selected;
+		if (!row)
 			return false;
-		this.opts.onTravel(rep, target);
+		// 一个改道的行不需要一个地点：那一节自己就带着它要去哪儿（见 HeadingHit）。
+		if (!row.hit && this.activeRep(row) < 0)
+			return false;
+		this.goTo(row, target);
 		return true;
 	}
 

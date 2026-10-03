@@ -8,7 +8,9 @@ import {
 	badgeOf, displayName,
 	duplicateNames, folderOf, pathLabel, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
-import { groupByFile, matchedHeading, matchesNavFilter, navSearchText } from '@/recent-files/browser/listing';
+import {
+	groupByFile, matchedHeading, matchedOnlyByOutline, matchesNavFilter, navSearchText,
+} from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
 import { headingTrailAtLine, headingsFromText } from '@/shared/headings';
 import { t } from '@/i18n';
@@ -567,6 +569,40 @@ describe('matchedHeading —— 命中的是哪一个标题', () => {
 
 	it('不分大小写，跟匹配它的那个筛选一致', () => {
 		expect(matchedHeading('Alpha Beta\nGamma', 'ALPHA')).toBe('Alpha Beta');
+	});
+});
+
+describe('matchedOnlyByOutline —— 这一行是不是**只**因为那个小节才在列表上', () => {
+	// 它换来的是一次**改道**（见 list.ts 的 HeadingHit）：点击不再去这一行一贯去的地方，
+	// 而去那个小节。所以这里的判据必须严 —— 一个既靠名字也靠标题进得来的行不该被改道：
+	// 搜「周」找「周回顾」的读者，不该被送进「周报」。
+	const entry = (path: string) => ({ kind: 'visit', path, leafId: 'leaf-1', t: 1 }) as NavEntry;
+
+	it('拿掉全篇标题就进不来 ⇒ 是', () => {
+		expect(matchedOnlyByOutline(entry('a.md'), '预览', '', '面板设计\n预览')).toBe(true);
+	});
+
+	it('靠名字就能进来 ⇒ 不是', () => {
+		// 名字里就写着那个词：这一行在列表上不是因为那个小节。
+		expect(matchedOnlyByOutline(entry('预览.md'), '预览', '预览', '面板设计\n预览')).toBe(false);
+	});
+
+	it('靠打印出来的别名进来 ⇒ 不是', () => {
+		expect(matchedOnlyByOutline(entry('a.md'), '周回顾', '周回顾', '周报')).toBe(false);
+	});
+
+	it('一个词命中名字、另一个只命中标题 ⇒ 是（两个词都是必要的）', () => {
+		// 查询的每个词都必须命中（见 matchesNavFilter）：名字给了「周回顾」、标题给了
+		// 「周报」，缺哪一个这一行都进不来 —— 所以那个小节**是**它出现在这里的理由，
+		// 何况那一节的名字是读者亲手打出来的。
+		const e = entry('周回顾.md');
+		expect(matchedOnlyByOutline(e, '周回顾 周报', '周回顾', '周报')).toBe(true);
+	});
+
+	it('没有全篇标题可给时 ⇒ 不是（落点行从不靠它活过过滤）', () => {
+		expect(matchedOnlyByOutline(entry('a.md'), '预览', '', undefined)).toBe(false);
+		// 一个连查询都没有的行也不该被问成「只靠标题」。
+		expect(matchedOnlyByOutline(entry('a.md'), '', '', '预览')).toBe(false);
 	});
 });
 

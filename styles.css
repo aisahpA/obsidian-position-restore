@@ -771,6 +771,29 @@ body.is-mobile .position-restore-cue {
 	order: -1;
 }
 
+/* 查询命中的那个小节 —— 这一行为什么在列表上，以及点下去会去哪儿（见 list.ts 的
+   HeadingHit）。与文件夹同档的小字，却深一档的墨：它不是消歧者（那是文件夹的活），
+   而是这一行此刻的**去处**，所以它得比文件夹读得更清楚一点。
+   独占一行（`flex-basis: 100%`），因为它是第二句话、不是名字的续写 —— 一个紧跟在
+   笔记名字旁边的小节名会读成那个名字的一部分。 */
+.position-restore-nav-row .nav-row-hit {
+	flex: 0 0 100%;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--nav-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* ……而在这个宽的对话窗口里它**折行**，与文件夹同例：一个被省略号切掉的小节名，抹掉的
+   正是这一行为什么在列表上的答案，而这里有的是行可以花。 */
+.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row .nav-row-hit {
+	white-space: normal;
+	overflow-wrap: break-word;
+	overflow: visible;
+	text-overflow: clip;
+}
+
 /* **这个宽的对话窗口让长路径折行**、而不是把它切掉：在一个这么宽绰的盒子里，省略号
    会抹掉这一行存在所要回答的那个问题的答案（这是哪篇笔记），而这一行有的是行可以花。
    文件夹**站在哪**不是这条规则说了算 —— 读者选了哪一边，这条就照办（见上面的 order）
@@ -1204,17 +1227,6 @@ body.is-mobile .position-restore-cue {
    nav-tip-quote）。不加竖线，因为链在一次悬停里是**定位**、不是引用 —— 而竖线在这个
    面板里只留给「这些字是读者自己写的」。折行而不是裁掉：一篇笔记的标题可以是长句。 */
 .position-restore-nav-tip .nav-tip-trail {
-	font-size: var(--font-ui-smaller);
-	line-height: 1.4;
-	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
-	overflow-wrap: anywhere;
-}
-
-/* 「这一篇里有个叫 X 的小节」（见 TipContent.matched）：搜索命中的**不是**这一行所在的
-   那一节。与上面那行同档，因为它同样是这个面板派生的一句话、而不是笔记的原话；同样不加
-   竖线（那个装饰只留给「这些字是读者自己写的」，而这里的话是面板的）。它排在链之后，
-   因为链是这一行**所在**的节、是一个位置的承诺，而这一行是别处的一个标题。 */
-.position-restore-nav-tip .nav-tip-matched {
 	font-size: var(--font-ui-smaller);
 	line-height: 1.4;
 	color: color-mix(in srgb, var(--text-normal) 82%, transparent);

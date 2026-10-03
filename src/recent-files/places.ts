@@ -50,6 +50,15 @@ export interface PlaceList {
 	// （见 NavPlaces.travel）。当读者要求的不是文件已在的那个 tab 时，`target` 决定
 	// 在哪打开（见 PaneTarget）；缺省即普通打开。
 	travel(index: number, target?: PaneTarget): Promise<void>;
+	// 去往一篇笔记里的某个小节：那一节**此刻没有记录** —— 它是读者搜到的（见
+	// list.ts 的 HeadingHit），这次行走按大纲跳转的形状为它造出一条。
+	travelToHeading(
+		path: string,
+		heading: string,
+		line: number,
+		leafId: string,
+		target?: PaneTarget,
+	): Promise<void>;
 	// 丢掉**一行**所代表的一切地点：一篇笔记自己的记录与它内部的每次跳转，
 	// 或无路径视图持有的那一条记录。`key` 是行的身份（见 nav/entry.ts 的
 	// navGroupKey），而这里说的刻意就是行：一篇笔记无论持有多少位置都是
@@ -578,6 +587,33 @@ export class NavPlaces implements PlaceList {
 			return;
 		}
 		await this.open.openFile(entry.path, entry.leafId, target);
+	}
+
+	// 去往一篇笔记里的**某个小节**：与「点大纲面板的标题」同类的一步，只是发起方是这份
+	// 列表 —— 那一节是读者搜到的，而这一行在列表上唯一的理由就是它（见 list.ts 的
+	// HeadingHit）。它此刻还没有记录，所以这里按大纲跳转的形状造出一条：它的 key 叫得出
+	// 那一节的名字，于是落地之后它与任何别处来的落点一样被记住（见 settle）。
+	//
+	// `leafId` 由调用方给出（这一行一贯去往的那个标签页）：一次改道换的是**落点**，
+	// 不是地方。
+	async travelToHeading(
+		path: string,
+		heading: string,
+		line: number,
+		leafId: string,
+		target?: PaneTarget,
+	): Promise<void> {
+		const place: NavJump = {
+			kind: 'jump',
+			path,
+			key: `outline:${heading}`,
+			// 落点就是那一节**此刻**所在的行：它是现查得来的（见 reads.ts 的
+			// headingsFor），所以这一步不必等落定来校准（见 landedLine 的次序）。
+			keyLine: line,
+			leafId,
+			t: Date.now(),
+		};
+		await this.open.openJump(place, target);
 	}
 
 	// 上限变了（设置标签页）：**现在**就修剪，而不是等下次访问 —— 等待会在之后

@@ -60,6 +60,11 @@ list.hoverAt → body.hoverRow → wantsLine? → nowLineFor → previewAsk
 `el.click()` 这种没有 press 的点击**什么都不打开** —— 打不开是能承受的失败，
 打开错笔记不能。
 
+**一次「命中」可以改掉这一行的去处**（改道，判据与红线见 `00-改前必读.md` §5）：一篇笔记
+**仅因**它的某个小节才在列表上时，点击去那一节、行上印出它（`HeadingHit`），而不是去这一行
+一贯去的地点。行走在 `goTo` 一处收口（点击 / 中键 / 重画后按身份重找 / Enter / 右键菜单
+那一项），判据是 `listing.ts` 的 `matchedOnlyByOutline`。
+
 **hover 的判据是「指针真的动了」**（`list.ts:1175`）：`pointerover` 在元素「来到」指针下时
 也会触发，热键在鼠标停住时弹出的面板会给每一行都报一次到达。面板听到的第一个事件不算移动。
 

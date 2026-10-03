@@ -278,6 +278,11 @@ function harness(
 	// jump 则落地 —— 见 places.ts）。这个 spy 保留它原来的名字，好让下面每一条断言读起来
 	// 仍是它一直在问的：「这就是那一行把读者带到的地方」。
 	const jumpTo = vi.fn(async () => {});
+	// ……以及**改道**的那一次行进：面板交给它的不是列表上的一个地点，而是那一节自己的
+	// 名字、它此刻的行号、以及这一行一贯去往的那个标签页（见 list.ts 的 HeadingHit）
+	// —— 那一节此刻还没有记录，这次行走会为它造出一条。单独一个 spy，因为「去了哪个
+	// 地点」与「去了哪个小节」是两个不同的问题。
+	const jumpToHeading = vi.fn(async () => {});
 	const cachedRead = vi.fn(async (file: { path: string }) => files[file.path] ?? '');
 	// 主根分栏，里面每个 leaf 一个元素。如今没有东西再遍历它 —— 那个说出是哪个活标签页
 	// 持有落点的徽标已经没了 —— 但那些 leaf 仍是下面那些编辑器立足的地方，所以假 app 保留
@@ -448,7 +453,8 @@ function harness(
 		}
 	});
 	const places = {
-		entries, index, travel: jumpTo, subscribe: () => () => {}, forget, forgetLanding, pinned,
+		entries, index, travel: jumpTo, travelToHeading: jumpToHeading,
+		subscribe: () => () => {}, forget, forgetLanding, pinned,
 		pin, unpin, movePinned, isPinned: (key: string) => pinned.includes(key), reland,
 	};
 	let modal: RecentFilesModal;
@@ -562,7 +568,8 @@ function harness(
 	const forgetButton = (row: HTMLElement) =>
 		row.querySelector<HTMLElement>('.nav-row-forget')!;
 	return {
-		modal, jumpTo, forget, forgetLanding, reland, cachedRead, el: modal.contentEl, entries, list,
+		modal, jumpTo, jumpToHeading, forget, forgetLanding, reland, cachedRead,
+		el: modal.contentEl, entries, list,
 		pinned, pin, unpin, movePinned, arrows,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile, fileEvent,
 		rows, notes, note, place, clickRow, pressRow, changed, rightClick, longPress, movePointer,
@@ -713,7 +720,7 @@ describe('RecentFilesModal —— 当前位置', () => {
 			.toBe(t('recentFiles.noMatch'));
 	});
 
-	it('某次访问恰好待在某个小节里，那条链不参与搜索 —— 但那一节的名字参与', () => {
+	it('某次访问恰好待在某个小节里，那条链不参与搜索 —— 但那一节的名字参与，且点击就去那儿', () => {
 		// **一次 visit 不是一个地点**。它带的那一行是位置库上次看见笔记时的样子，而笔记
 		// 被读着的时候它会动 —— 所以从**那一行**读出的链是关于这一分钟的事实，而不是关于
 		// 这条记录的事实。一个现在答「是」、读者滚动后答「不」的查询是不可信的搜索框。
@@ -728,18 +735,25 @@ describe('RecentFilesModal —— 当前位置', () => {
 		// 并不兑现的落点。
 		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
 
-		// 搜那一节的名字：**找得到**这一篇（它确实有个叫「预览」的小节），而 tooltip
-		// 说出命中的是哪一个 —— 它不在这一行所在的任何位置上。
+		// 搜那一节的名字：**找得到**这一篇（它确实有个叫「预览」的小节），而这一行在列表
+		// 上唯一的理由就是它 —— 于是它印在行上，且一次点击去它（见 HeadingHit）。少了这个，
+		// 一次按标题词的搜索会得到一行光秃秃的笔记名，而读者无从知道它为什么在这儿。
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '预览';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
 			.toEqual(['a']);
-		const tip = h.hover(h.note('a'))!;
-		expect(tip.textContent).toContain(t('recentFiles.matchedHeading'));
-		expect(tip.textContent).toContain('预览');
-		// 而它仍**不**印链、也不引原文：这一行讲的是那篇笔记。
-		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
+		const row = h.note('a');
+		expect(row.querySelector('.nav-row-hit')?.textContent)
+			.toBe(`${t('recentFiles.matchedHeading')} 预览`);
+		// 悬停补上行上印不下的那半句：那一节**在这篇笔记的哪里**。
+		const tip = h.hover(row)!;
+		expect(tip.querySelector('.nav-tip-trail')?.textContent)
+			.toBe('面板设计 › 呈现方案 › 预览');
+		// ……而点击去的是那一节，不是笔记自己那一行一贯去的地方。
+		h.clickRow(row);
+		expect(h.jumpToHeading).toHaveBeenCalledWith('a.md', '预览', 4, 'leaf-1', undefined);
+		expect(h.jumpTo).not.toHaveBeenCalled();
 
 		// 一个这篇笔记**没有**的小节仍然找不到 —— 全篇标题不是万能的。
 		h.unhover(h.note('a'));
@@ -765,6 +779,71 @@ describe('RecentFilesModal —— 当前位置', () => {
 		const jtip = jump.hover(jump.note('a'))!;
 		expect(jtip).not.toBeNull();
 		expect(jtip.textContent).toContain('预览');
+	});
+
+	it('一个既靠名字也靠标题进得来的行不被改道：这一行在列表上不是因为那个小节', () => {
+		// 改道抢的是读者的点击，所以判据严到「拿掉全篇标题这一行就进不来」为止。搜「预览」
+		// 找到这篇**名字里就写着它**的笔记 —— 它里面恰巧也有个叫「预览」的小节，而那不是
+		// 读者把点击交出去的理由。
+		const h = harness(
+			[visit('预览.md', NOW), visit('plain.md', NOW - MINUTE)], 0,
+			{ '预览.md': A_DOC, 'plain.md': '' }, [], {},
+			{ '预览.md': A_HEADINGS['a.md'] },
+		);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		// 找得到（它的名字就命中了），而**不**印命中的小节、也不改道。
+		const row = h.note('预览');
+		expect(row.querySelector('.nav-row-hit')).toBeNull();
+		h.clickRow(row);
+		expect(h.jumpTo).toHaveBeenCalledWith(0, undefined);
+		expect(h.jumpToHeading).not.toHaveBeenCalled();
+	});
+
+	it('被钉住的行同样改道：它站在同一个搜索框底下', () => {
+		// 钉选是书签，但它不是「用标题搜不到它」的理由 —— 读者在同一个框里输的那个词，
+		// 对这两种行问的是同一个问题。
+		const h = harness(
+			[visit('a.md', NOW), visit('plain.md', NOW - MINUTE)], 0,
+			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS,
+			false, {}, undefined, undefined, ['a.md'],
+		);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(h.note('a').querySelector('.nav-row-hit')?.textContent)
+			.toBe(`${t('recentFiles.matchedHeading')} 预览`);
+		h.clickRow(h.note('a'));
+		expect(h.jumpToHeading).toHaveBeenCalledWith('a.md', '预览', 4, 'leaf-1', undefined);
+	});
+
+	it('键盘走到那一行、按下回车，去的是同一节 —— 改道不只挂在点击上', () => {
+		const h = harness([visit('a.md', NOW)], 0, { 'a.md': A_DOC }, [], {}, A_HEADINGS);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		h.key('ArrowDown'); // 列表只剩这一行
+		h.key('Enter');
+		expect(h.jumpToHeading).toHaveBeenCalledWith('a.md', '预览', 4, 'leaf-1', undefined);
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('菜单里那一项说的也是「在这里打开」—— 改道挂在这一行上，不只是挂在点击上', () => {
+		// 一个写着「在这里打开」却把读者送到别处的菜单，比没有这一项更糟。
+		const h = harness([visit('a.md', NOW)], 0, { 'a.md': A_DOC }, [], {}, A_HEADINGS);
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+
+		h.rightClick(h.note('a'));
+		const menu = Menu.shown.at(-1)!;
+		expect(menu.items[0].title).toBe(t('recentFiles.openHereInNewTab'));
+		menu.items[0].click!();
+		expect(h.jumpToHeading).toHaveBeenCalledWith('a.md', '预览', 4, 'leaf-1', 'tab');
 	});
 
 	it('文件行在它本身就是那个落点时，悬停说出它在哪个节', () => {

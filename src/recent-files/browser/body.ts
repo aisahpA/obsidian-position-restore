@@ -19,7 +19,7 @@ import { markdownViewFor } from '@/shared/leaf';
 import { nowLineFor, NowLineFacts } from './now-line';
 import { NavEntryDescription } from './model';
 import { RecentFilesReads } from './reads';
-import { RecentFilesList, RecentFilesListOptions } from './list';
+import { HeadingHit, RecentFilesList, RecentFilesListOptions } from './list';
 import { PreviewSettle } from './hover-settle';
 import { LATE_READ_REDRAW_MS, NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
 
@@ -268,13 +268,16 @@ export class RecentFilesBrowser {
 			otherNames: (path, printed) => this.reads.otherNamesFor(path, printed),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
+			// 一次按标题词的搜索命中的那一节：去那里（见 list.ts 的 HeadingHit）。那一节
+			// 此刻还没有记录，这次行走会为它造出一条 —— 与点大纲面板的标题同类的一步。
+			onTravelHeading: (hit, target) => this.jumpToHeading(hit, target),
 			// 该行命名的是**哪个文件**，以及该行是笔记本身还是它内部的一个点 —— 交给 app
 			// 自己的预览用。这里没有任何东西为它行走。
 			onHoverRow: (rep, ev, el, file) => this.hoverRow(rep, ev, el, file),
 			tipsQuiet: () => this.settle.isOpen(),
 			onHoverEnd: () => this.settle.hoverEnded(),
 			// 一记右键问 **app** 它能拿这个文件做什么；菜单在这里构建，是因为列表不持有 app。
-			onContextRow: (rep, ev, note) => this.contextRow(rep, ev, note),
+			onContextRow: (rep, ev, note, hit) => this.contextRow(rep, ev, note, hit),
 			takeMenuBack: () => this.takeMenuBack(),
 			// 一行自己的 ×：列表所要求、却无法自己做出的移除，因为地点在这里、不在那里。
 			onForget: key => this.forgetRow(key),
@@ -707,15 +710,27 @@ export class RecentFilesBrowser {
 		return headingTrailAtLine(this.reads.headingsFor(entry.path), at);
 	}
 
-	private jump(i: number, target?: PaneTarget): void {
-		// 在 shell 保持立着的地方，先处理读者的位置：去往一个地点会重排列表，而一次跳转会
-		// 重新压入栈，所以一个留在原处的位置会命名滑进那个槽位的那个东西。
+	// 一次行走之前的那一套，两种行走共用：先在 shell 保持立着的地方处理读者的位置
+	// （去往一个地点会重排列表，而一次跳转会重新压入栈，所以一个留在原处的位置会命名
+	// 滑进那个槽位的那个东西），然后是 shell 自己的反应，好让对话框在它所触发的打开
+	// 之前让开路。
+	private depart(run: () => Promise<void>): void {
 		if (this.opts.collapseOnJump)
 			this.list.collapse();
-		// ……然后是 shell 自己的反应，好让对话框在它所触发的打开之前让开路。
 		this.shellReacts();
-		void this.opts.places.travel(i, target)
-			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
+		void run().catch(e => console.error('Position Restore: recent-files travel failed:', e));
+	}
+
+	private jump(i: number, target?: PaneTarget): void {
+		this.depart(() => this.opts.places.travel(i, target));
+	}
+
+	// 去往这篇笔记里的**某个小节**：这一行在列表上唯一的理由就是它（见 HeadingHit），
+	// 所以它点下去去的是那里 —— 而不是这一行一贯去的那个地方。
+	private jumpToHeading(hit: HeadingHit, target?: PaneTarget): void {
+		this.depart(() => this.opts.places.travelToHeading(
+			hit.path, hit.heading, hit.line, hit.leafId, target,
+		));
 	}
 
 	// 指针**移动到了**的一行，交给 **app**：问一次，它是否愿意被预览。
@@ -866,7 +881,10 @@ export class RecentFilesBrowser {
 	// 两扇门在同一处汇合，这就是为什么菜单按一个**点**摆放、而不是按事件。
 	//
 	// `note` 说出这是**哪一种**行 —— 笔记自己的，还是它内部的一个点。
-	private contextRow(rep: number, at: MenuPositionDef, note: boolean): void {
+	// `hit` 是这一行改道去往的那一节（见 list.ts 的 HeadingHit）。菜单那一项答应的是「在
+	// 新标签页打开这一行所去的地方」，所以改道的那一档也得去那里 —— 一个写着「在这里打开」
+	// 却把读者送到别处的菜单，比没有这一项更糟。
+	private contextRow(rep: number, at: MenuPositionDef, note: boolean, hit?: HeadingHit): void {
 		const entry = this.opts.places.entries[rep];
 		if (!entry)
 			return;
@@ -883,14 +901,15 @@ export class RecentFilesBrowser {
 		// 这份列表知道该行所代表的落点。
 		menu.addItem(item => item
 			.setSection('action')
-			.setTitle(t(entry.kind === 'jump'
+			// 改道的那一档也说「在这里打开」：它去的是一个**地方**，而不只是一个文件。
+			.setTitle(t(entry.kind === 'jump' || hit
 				? 'recentFiles.openHereInNewTab'
 				: 'recentFiles.openInNewTab'))
 			// app 对这个承诺自己的字形（`lucide-file-plus`，在它自己的每一个文件菜单上）：
 			// 这个条目立在 app 的条目会立的地方，而对同一个承诺用第二个字形会读起来像另一个
 			// 承诺。
 			.setIcon('file-plus')
-			.onClick(() => this.jump(rep, 'tab')));
+			.onClick(() => (hit ? this.jumpToHeading(hit, 'tab') : this.jump(rep, 'tab'))));
 		// ……以及钉选，它是关于**行**的、不是关于文件的：只有笔记自己的行才有可给的
 		// （见 pinItems）。
 		if (note)

@@ -217,6 +217,24 @@ export function matchedHeading(outline: string | undefined, query: string): stri
 	return loose;
 }
 
+// 这一行在列表上的**唯一**理由是不是「这篇笔记里有个叫 X 的小节」：拿掉全篇标题那个
+// 通道，它就再也进不来 —— 而带着那个通道时它进得来。
+//
+// 判据要这么严，是因为它换来的是一次**改道**（见 RecentFilesList 的 HeadingHit）：点击将
+// 不再去这一行一贯去的地方，而去那个小节。一个既靠名字也靠标题进得来的行不该被改道 ——
+// 读者搜「周」或许只是想找「周回顾」这篇笔记，而它里面恰巧有个「周报」小节。
+export function matchedOnlyByOutline(
+	entry: NavEntry,
+	query: string,
+	extra?: string,
+	outline?: string,
+): boolean {
+	// `outline` 为 undefined 时两边同真同假 ⇒ 答假：一个没有全篇标题的行（落点行，见
+	// RecentFilesList.render 的 keepAt）没有可以被改道去的「命中的小节」。
+	return !matchesNavFilter(entry, query, extra, undefined)
+		&& matchesNavFilter(entry, query, extra, outline);
+}
+
 // 条目自己的可搜索文字：**只有**名字、path，以及跳转自己的 key（大纲点击时是标题的
 // 文字，锚点链接时是读者选的目标）。全部并成一个字符串，所以各部分之间的顺序不携带
 // 任何信息。

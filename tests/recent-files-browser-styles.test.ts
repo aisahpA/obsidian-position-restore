@@ -611,17 +611,17 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
-	// 「这一篇里有个叫 X 的小节」那一行（见 TipContent.matched）：与链同档 —— 两者都是这个
-	// 面板派生的话、而不是笔记里的原文 —— 且同样不借引文那道竖线（那个装饰只留给「这些字
-	// 是读者自己写的」，而这里的话是面板的）。
-	it('「命中的小节」与链同档，且不借引文那道竖线', () => {
-		const matched = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-matched\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(matched).not.toBe('');
-		expect(matched).toMatch(/font-size: var\(--font-ui-smaller\)/);
-		expect(matched).toMatch(/overflow-wrap: anywhere/);
-		expect(matched).not.toMatch(/border-inline-start/);
-		const trail = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-trail\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(matched.replace('.nav-tip-matched', '.nav-tip-trail')).toBe(trail);
+	// 行上那一行「小节：X」（见 list.ts 的 HeadingHit）：这一行为什么在列表上、以及点下去
+	// 会去哪儿。它比名字小一档、也更淡（它是这一行的去处，不是它的身份），且**独占一行** ——
+	// 一个紧跟在笔记名字旁边的小节名会读成那个名字的一部分。
+	it('行上「命中的小节」：小一档、淡一档，且独占一行', () => {
+		const hit = browser.match(/\.nav-row-hit\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(hit).not.toBe('');
+		expect(hit).toMatch(/font-size: var\(--font-ui-smaller\)/);
+		// 比文件夹（--nav-faint）深一档：文件夹是消歧者，而这是这一行此刻的去处。
+		expect(hit).toMatch(/color: var\(--nav-muted\)/);
+		// 第二句话，不是名字的续写。
+		expect(hit).toMatch(/flex: 0 0 100%/);
 	});
 
 	// 引文那一行（.nav-tip-quote）连同它的竖线在 2026-10-03 撤掉了 —— 落点下面那块正文
