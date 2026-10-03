@@ -1927,23 +1927,24 @@ describe('NavStack —— 要去别处的一次前往', () => {
 });
 
 // 一个地点带着它落点被记下时周围的那句话 —— 最近文件列表的引文，它的搜索框所
-// 匹配的东西。一个步是按**位置**恢复的，所以它在唯一写下它的那个地方把它们留下
-// （见 nav-history/store.ts）。
-describe('NavStack —— 落盘时不留落点上的那句话', () => {
-	it('把它前往的那一步连位置一起写下，那句话一个字不留', async () => {
+// 一个步写下去时**原样**落盘：它携带的就是它带的东西，一个字都不剥。曾经这里有一层
+// 剥离（栈在归档时摘掉 `st.context` —— 落点下面那句话只喂最近文件列表的搜索与引文）；
+// 2026-10-03 那份快照连同它的搜索面一起撤掉之后，这层剥离整个没有存在过了。
+describe('NavStack —— 落盘时不剥任何东西', () => {
+	it('一步带什么就写什么', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const place: NavEntry = {
 			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
-			st: { scroll: 30, context: ['## T'] },
+			st: { scroll: 30, anchor: '### T', mtime: 1_730_000_000_000 },
 		};
 
 		await h.nav.stack.travelTo(place, 'tab');
 		h.nav.stack.persist();
 
 		const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}');
-		expect(stored.entries[stored.entries.length - 1].st).toEqual({ scroll: 30 });
-		// 内存里的那个步就是它前往时所带的状态：那句话是在**写**下去时被丢掉的，
-		// 不是在进来的路上 —— 只有一处，无论一个状态是怎么到达这个列表的。
+		expect(stored.entries[stored.entries.length - 1].st)
+			.toEqual({ scroll: 30, anchor: '### T', mtime: 1_730_000_000_000 });
+		// 内存里的那一步就是它前往时所带的状态：一个字段都没在路上被改。
 		expect(stOf(h.nav.stack.entries[h.nav.stack.index])).toEqual(place.st);
 	});
 });
@@ -2119,22 +2120,25 @@ describe('OpenPatcher —— 导航接入', () => {	it('每一次改动文件的
 });
 
 describe('serializeNavHistory —— 一步在身后留下什么', () => {
-	it('落点上的那句话留在身后；位置本身不带采集戳', () => {
+	it('原样写出：位置、锚点、mtime 都在，步自己的 t 也在', () => {
 		const entries: NavEntry[] = [{
 			kind: 'jump', leafId: 'leaf-1', t: 1000, path: 'a.md', key: 'outline:H',
-			st: { scroll: 42, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } }, context: ['w'] },
+			st: {
+				scroll: 42,
+				cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
+				anchor: '### H',
+				mtime: 1_730_000_000_000,
+			},
 		}];
 
 		const parsed = JSON.parse(serializeNavHistory(entries, 0)) as {
 			entries: { st: Record<string, unknown> }[];
 		};
+		const st = (entries[0] as NavJump).st;
 
 		// 步**自己的** t（它被压栈的时间）留着 —— 行印出的「5 分钟前」就取自它。
 		// 位置不需要自己的采集戳：store 在归档一条记录时给它盖上，而这段历史从
-		// 不经过那里。
-		expect(parsed.entries[0].st).toEqual({
-			scroll: 42,
-			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
-		});
+		// 不经过那里。锚点与 mtime 都是这一步自己的事实，所以一起写下去。
+		expect(parsed.entries[0].st).toEqual(st);
 	});
 });

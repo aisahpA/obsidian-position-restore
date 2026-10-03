@@ -611,17 +611,12 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
-	// 从笔记里引出来的一行（见 TipContent.quotes）：用一条线隔开而不是用字体区分，而且
-	// 从不截断 —— 被拦腰截断的一行笔记，说出的是一句笔记从没说过的话，而这恰恰是落点行上
-	// 读者专门为它本身而读的那样东西。
-	it('被引的那一行按引文的样子画，并允许换行', () => {
-		const quote = browser.match(/\.nav-tip-quote\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(quote).toMatch(/border-inline-start: 2px solid var\(--background-modifier-border\)/);
-		expect(quote).toMatch(/padding-inline-start: 6px/);
-		expect(quote).toMatch(/overflow-wrap: anywhere/);
-		// 没有 line-clamp，也没有 max-height：整行才是答案。
-		expect(quote).not.toMatch(/line-clamp/);
-		expect(quote).not.toMatch(/text-overflow/);
+	// 引文那一行（.nav-tip-quote）连同它的竖线在 2026-10-03 撤掉了 —— 落点下面那块正文
+	// 随它的搜索面一起没了，于是没有任何东西需要「这些字是读者自己写的」这道装饰。
+	// 锁住它**不再有规则**（注释里还会提到它，那句说的是这道装饰的由来）。
+	it('引文那一行与它的竖线已经不在了', () => {
+		expect(browser).not.toMatch(/\.nav-tip-quote\s*\{/);
+		expect(browser).not.toMatch(/border-inline-start:\s*2px solid var\(--background-modifier-border\)/);
 	});
 
 	// 标题链那一行（见 TipContent.trail，`'last' | 'none'` 两档下文件行的唯一解释）：

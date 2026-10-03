@@ -29,13 +29,9 @@ export interface TipContent {
 	// 在这里是兑现的承诺；一句按标题词的搜索得到的正是这样一行，链是它唯一能说出
 	// 「我为什么在列表上」的地方。
 	trail?: string;
-	// **从笔记里引出来**的行：记录落点时它周围的那几个词，以及查询进行中时查询命中的
-	// 那一行（见 landingQuotes）。它们是一次搜索能匹配、却在屏幕上**任何地方**都不出现的
-	// 唯一文字 —— 一行显示的是坐标和分节 —— 而这正是落点的行以前从来答不出来的：
-	// 这一行为什么会在这份列表上。
-	quotes?: string[];
-	// 引文下面**一行**，是关于笔记的、而不是从笔记里来的：这些词被拍下之后文件有没有
-	// 被写过（见 landingNote）。引文是一张照片，而这一行上再没有别的东西说明那是谁的照片。
+	// 关于笔记的、而**不是**从笔记里来的那一行：这些词被记下之后文件有没有被写过
+	//（见 landingNote）。它是这个面板的话、不是笔记的原话，而读者必须能一眼把两者
+	// 分清 —— 所以它比任何一行都淡（见 nav-tip-note）。
 	note?: string;
 }
 
@@ -231,17 +227,11 @@ export class NavRowTip {
 			el.createDiv({ cls: 'nav-tip-text', text: content.frontTitle });
 		if (content.text)
 			el.createDiv({ cls: 'nav-tip-text', text: content.text });
-		// 标题链独占一行，且排在引文**之前**：链说的是「那个地方叫什么」（这一行自己的
-		// 承诺），引文说的是「那里的原话」，而解释「我为什么在列表上」的是前者。
+		// 标题链独占一行，且排在关于笔记的那一行**之前**：链说的是「那个地方叫什么」
+		// （这一行自己的承诺），而下面那行讲的是「那个地方后来变了没有」。
 		if (content.trail)
 			el.createDiv({ cls: 'nav-tip-trail', text: content.trail });
-		// 按调用方给出的顺序 —— 查询命中的那一处在前，落点所在的那一行在后。各自一个元素，
-		// 好让一块笔记自己的文字读起来是一块文字，而不是这个面板写的一句话。
-		for (const quote of content.quotes ?? [])
-			if (quote)
-				el.createDiv({ cls: 'nav-tip-quote', text: quote });
-		// ……而关于它们的那一行放**最后**：它讲的是它上面的引文，而它本身不是引文，
-		// 是这个面板的话、不是笔记的。
+		// 关于笔记的那一行放**最后**：它讲的是上面那些词，而它本身是面板的话。
 		if (content.note)
 			el.createDiv({ cls: 'nav-tip-note', text: content.note });
 		this.el = el;

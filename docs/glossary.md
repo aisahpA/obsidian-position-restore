@@ -22,7 +22,7 @@
 | 落点行 | `keyLine` / `landedLine` | 这一步落在第几行。`jump` 从自己的 `key` 作答；`visit` / `teleport` 走兜底 `st.scroll ?? cursor.from.line`（那时跟标题无关） |
 | 离开位置 | `leftAt` | 离开这一步时读者站的位置。**只有前进后退能兑现它** |
 | 落地 / 落定 | landing settle | 打开笔记后真正滚到位的**那一刻**，`keyLine` 在这时校准。指事件不指位置 —— 位置叫「落点」 |
-| 引文 | `context` | 落点行附近的原文摘录。**只为落点存在**（`visit` 没有） |
+| ~~引文~~ | ~~`context`~~ | **2026-10-03 撤**：落点下面几行正文的快照。搜索与 tooltip 都不再用它，理由见 `navSearchText` 的注释 |
 
 ### 落点 ≠ 标题
 

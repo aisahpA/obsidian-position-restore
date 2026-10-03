@@ -48,87 +48,15 @@ function hotCursor(view: MarkdownView): EphemeralState['cursor'] | undefined {
 	return { from: { ch: from.ch, line: from.line }, to: { ch: to.ch, line: to.line } };
 }
 
-// 供光标可见性检查用的最小 CM6 表面。与 CmLike（restore/pixels.ts）/ Cm6EditorView（ui/cue.ts）
-// 同一族转换 —— (editor).cm 是运行时的，公开类型里没有。在这里自己声明一个接口：像素校正器
-// import 了本模块，直接借它的 CmLike 会成环。
-interface CmView {
-	state: { doc: { lines: number; line(n: number): { from: number } } };
-	viewport: { from: number; to: number };
-	scrollDOM: HTMLElement;
-	coordsAtPos(pos: number): { top: number } | null;
-	defaultLineHeight: number;
-}
-
-// 光标那一行是否真在屏幕上。走 (editor).cm 的像素几何 —— 绝不用 currentMode.getScroll()，后者
-// 会在像素其实在别处时把请求值**回声**回来（pixels.ts:99-102）。未渲染的行（在 cm.viewport 之外、
-// 含 CM 的渲染边距）按定义就不在屏幕上；已渲染的行的 coordsAtPos 是真实的客户端矩形，拿去跟
-// 滚动容器的框比。每一步无法判断的情形（没有编辑器视图、行超出 EOF、坐标还没量到）都返回 true
-// —— 当作可见，维持当前显示；绝不让几何上的一个磕碰把标签弄丢。
-function cursorOnScreen(view: MarkdownView, line: number): boolean {
-	const cm = (view.editor as unknown as { cm?: CmView }).cm;
-	if (!cm?.scrollDOM)
-		return true;
-	if (line + 1 > cm.state.doc.lines)
-		return true;
-	const from = cm.state.doc.line(line + 1).from;
-	if (from < cm.viewport.from || from >= cm.viewport.to)
-		return false;
-	const coords = cm.coordsAtPos(from);
-	if (!coords)
-		return true;
-	const rect = cm.scrollDOM.getBoundingClientRect();
-	const lineHeight = cm.defaultLineHeight || 20;
-	return coords.top >= rect.top - lineHeight && coords.top < rect.bottom;
-}
-
-// 一个落点的上下文记几行，按**非空行**计：一篇每行一句话、用空行分隔的笔记，按原始行数算四行
-// 只会得到两行正文。它只买一件事 —— 搜索框靠跳转下方站过的那些词匹配到某一行（见 listing.ts 的
-// navSearchText）—— 所以它说的是读者还能往里搜多深，与任何东西在哪无关。
-export const NAV_CONTEXT_LINES = 4;
-
-// 一条记录下来的上下文行的单行上限，按字符计。故意比锚点的 80 长：两者职责不同。锚点（见下）要用
-// **精确**匹配在编辑后重新找回一行，那里更长的字符串是更脆的键；而上下文行只被搜索。
-const CONTEXT_LINE_CAP = 120;
-
-// 这段逻辑每侧最多扫多少**原始**行，取该侧半径的倍数。不设上界的话，一个落在笔记末尾、下方有
-// 一长串空行的落点会一直走到第 0 行。
-const CONTEXT_SCAN_FACTOR = 4;
-
-// 这一段存储一行时的样子：trim 过（面板要把文本打出来，一行一条记录的框里，前导缩进是噪音）
-// 并截到上限。
-function contextText(raw: string | undefined): string {
-	return (raw ?? '').trim().slice(0, CONTEXT_LINE_CAP);
-}
-
-// 落点**下方**的 `count` 条非空行，trim 并截断，按文档顺序。上方的一概不要：每个落点都是一次
-// 标题跳转，所以一节从落点自己那一行开始，它前面的词属于上一节 —— 把那些词放进来，正是当初
-// 「搜这一节的词却把本行捞出来」的原因。空行跳过而不存储（空字符串匹配任何查询，还会在面板上
-// 印成一个读者得去解释的空档）。
-function contextBelow(
-	editor: { getLine(line: number): string; lastLine(): number },
-	landing: number,
-	count: number,
-): string[] | undefined {
-	if (landing < 0 || landing > editor.lastLine())
-		return undefined;
-	const out: string[] = [];
-	const limit = count * CONTEXT_SCAN_FACTOR;
-	for (let i = landing + 1; i <= editor.lastLine() && out.length < count && i - landing <= limit; i++) {
-		const text = contextText(editor.getLine(i));
-		if (text)
-			out.push(text);
-	}
-	return out.length ? out : undefined;
-}
-
 // 分割线（"---"、"***"、"___"）指认一个地方的本事不比空行强：重映射扫描从记录行向外找那段记录
 // 文本，而一条分割线与下一条毫无区别，所以一个锚在分割线上的记录可能在读者从未到过的另一条
 // 分割线上找回自己。没有锚胜过那样。
 const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})$/;
 
 // 一个位置周围的导航显示字段：视口顶锚点（有功能 —— remapAnchoredState 在后续编辑后靠它找回那一行）
-// 与文件的 mtime。这里不强制布局：落点的**词**是导航状态里记步那一侧从不读的唯一一部分，
-// 只有当某个地点要记录它们时才读（见下面的 landingContext）。
+// 与文件的 mtime。**不**强制布局，也**不**读文档里的别的行：这两件事是搜索面上一度存在、
+// 如今已撤掉的那块正文快照的全部代价，而它只买到一个「按内容找笔记」的能力 —— 那件事
+// vault 自己的全文搜索做得更好（见 navSearchText 处的说明）。
 function navDisplayFields(
 	view: MarkdownView,
 	topLine: number,
@@ -151,31 +79,6 @@ function navDisplayFields(
 	if (mtime !== undefined)
 		display.mtime = mtime;
 	return display;
-}
-
-// 一个落点身处其中的那些**词**，以及落点到底是其中哪一个。与上面的字段分开读，因为只有地点列表
-// 会读它们 —— 栈的步不带词 —— 所以一步不该为它们付费：既不为那几次文档读取，也不为光标可见性
-// 检查逼出来的那次布局。地点列表只在记录一个落点的那**一个**时刻来问（见 recent-files/places.ts）。
-export function landingContext(
-	view: MarkdownView,
-	st: NavEntryState,
-): Pick<NavEntryState, 'context'> | undefined {
-	const editor = view.editor;
-	if (!editor || typeof editor.getLine !== 'function')
-		return undefined;
-	// 落点是哪一行：源码采集且光标在屏幕上时取光标行，否则取视口顶（阅读模式采集的光标是预览前
-	// 留下的陈旧光标；源码采集的光标可能已被滚出视野）。它只决定下面那个窗口从哪开始 —— 这次把
-	// 读者带到了哪一行，是跳转自己的键该说的（见 landedLine），所以答偏几行只损失几行词，
-	// 别的精度全不受影响。
-	//
-	// 视图模式只在这里读、别处不读。用可选调用：读取绝不能在录制的路径上，因为一个像视图、却没有
-	// getMode 的对象而崩掉。
-	const mode = view.getMode?.();
-	const cursor = st.cursor;
-	const cursorVisible = !!cursor && mode !== 'preview' && cursorOnScreen(view, cursor.from.line);
-	const landingLine = cursorVisible && cursor ? cursor.from.line : (st.scroll ?? -1);
-	const below = contextBelow(editor, landingLine, NAV_CONTEXT_LINES);
-	return below ? { context: below } : undefined;
 }
 
 // 光标落在 `line` 的行首 —— app 自己的大纲把读者带到某个标题时留下的就是这个样子，
@@ -232,19 +135,14 @@ export function readNavEntryState(view: MarkdownView): NavEntryState | undefined
 	return { ...st, scroll, ...navDisplayFields(view, scroll ?? -1) };
 }
 
-// **唯一**会记录落点的读取：一步带的东西，加上落点身处其中的那些词。那些词只属于这一刻、
-// 不属于别处 —— 一步是**按位置**恢复的，一个字都不存（见 nav-history/store.ts）—— 所以这是
-// 唯一付了那几次文档读取、以及光标可见性检查逼出来的那次布局的读取。
+// **落点的落定采集**（遥测跳变的落点、栈的 settle 都走这里）与上面那一次是**同一个**读取：
+// 正文快照撤掉之后，落点身上再没有任何东西是「只有它才读」的 —— 位置、锚点、mtime 三样，
+// 落点与步都一样。所以 `readLandingState` 是 `readNavEntryState` 的别名而不是第二个读法，
+// 留着这个别名是为了**调用点自己说明它在记一条落点**，而那正是 review 时要看的区别。
 //
 // 它带的光标**不是**恢复到这里时会落下的那个光标：跳转落在它点名的标题上、光标在行首
-// （见 caretAtLine），而一次 visit 保留它记下的。这里顺带带的是**跳转**留下的光标 —— 一份
-// 读者从哪来的记录，下游没人读它。
-export function readLandingState(view: MarkdownView): NavEntryState | undefined {
-	const st = readEphemeralState(view);
-	if (!st)
-		return undefined;
-	return { ...st, ...navDisplayFields(view, st.scroll ?? -1), ...landingContext(view, st) };
-}
+// （见 caretAtLine），而一次 visit 保留它记下的。
+export const readLandingState = readNavEntryState;
 
 // 围绕一个**已经读出的**位置重建导航显示字段 —— 遥测跳变时交给 refreshTop 的那个轮询基线。
 // 跳转前的状态没法重读（光标已经跳了；移动端 scroll 可能也已落地），所以显示字段是拿当前视图

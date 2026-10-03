@@ -3,7 +3,7 @@ import { NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
-import { groupByFile, LandingsMode, matchesNavFilter, matchedContextLine } from './listing';
+import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
 import { PathDisplayMode } from '@/types';
 import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
@@ -62,15 +62,14 @@ interface RowRef {
 	group?: number;
 }
 
-// 落点行的节链，留给那个回读布局的遍历（见 fitTrails）。`quotes`/`note` 是携带
-// 而不是重算的，因为 fit 遍历会**重写**这一行的 tooltip，而一个只凭链写出的
-// tooltip 会连同被丢掉的那一层一起把记录下的词带走。
+// 落点行的节链，留给那个回读布局的遍历（见 fitTrails）。`note` 是携带而不是重算的，
+// 因为 fit 遍历会**重写**这一行的 tooltip，而一个只凭链写出的 tooltip 会连同被丢掉的
+// 那一层一起把「笔记被改过」这句话带走。
 interface TrailRow {
 	el: HTMLElement;
 	// 外层 —— 最先离开的那一层（见 rowTrail / dropsOuterLevel）。
 	outer: HTMLElement;
 	chain: string[];
-	quotes: string[];
 	note?: string;
 }
 
@@ -419,9 +418,9 @@ export class RecentFilesList {
 		const doubles = duplicateNames(this.groups.map(g => this.printedName(g)));
 
 		this.groups.forEach((group, index) => {
-			this.fileRow(group, index, doubles, query);
+			this.fileRow(group, index, doubles);
 			for (const i of this.shownLandings(group, index))
-				this.placeRow(i, i === group.currentRep, query);
+				this.placeRow(i, i === group.currentRep);
 			// 块以一条**线**结束、而不是一个标题：被钉选的行与任何其它行一样，
 			// 而唯一说出哪些行是这块的东西，就是它停在哪里。
 			if (this.endsPinnedBlock(index))
@@ -507,10 +506,6 @@ export class RecentFilesList {
 		group: ReturnType<typeof groupByFile>[number],
 		index: number,
 		doubles: Set<string>,
-		// 生效中的查询，行自己的词被引用于它。笔记的行通常没有什么可引，但一篇
-		// 落点未被打印的笔记正站在其中一个落点上（见下），而那个用查询找到它的
-		// 读者，欠他查询命中的那一行。
-		query: string,
 	): number {
 		const rep = this.groupRep(group);
 		const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
@@ -621,15 +616,12 @@ export class RecentFilesList {
 				const chain = this.opts.trailFor(spot, this.opts.describe(at), at);
 				if (chain.length)
 					tip.trail = chainText(chain);
-				const quotes = this.landingQuotes(spot, query);
-				if (quotes.length)
-					tip.quotes = quotes;
 				const note = this.landingNote(spot, this.opts.describe(at), at);
 				if (note)
 					tip.note = note;
 			}
 		}
-		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.quotes || tip.note)
+		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.note)
 			this.tip.attach(row, tip);
 		// **行自己的移除**。它在**这里**而不是在行的菜单里，因为那个菜单是 **app**
 		// 的文件菜单、只有文件才有这样一个 —— 一个无路径视图行永远得不到它。它的事件
@@ -677,16 +669,6 @@ export class RecentFilesList {
 		});
 	}
 
-	// 一个落点记录、却从不打印的唯一一样东西：当查询升起时，查询命中的那个落点下面的
-	// 一行。没有任何东西是为它自己而被引用的 —— 一个落点就是它所在节的标题，这个
-	// tooltip 打印的链已经命名了它，而这些词在这里是为了被**找到**而不是被读到。
-	private landingQuotes(entry: NavEntry, query: string): string[] {
-		if (entry.kind === 'view')
-			return [];
-		const hit = query ? matchedContextLine(entry, query) : undefined;
-		return hit ? [`${t('recentFiles.matchedLine')}${hit}`] : [];
-	}
-
 	// **该行说不出的东西**，而它恰恰是关于它唯一值得一说的东西。
 	//
 	// 不是「行号被取走之后笔记被写过」：每次编辑都会触发那个，包括三次节改动之外的
@@ -724,16 +706,14 @@ export class RecentFilesList {
 	// 要写它 —— 行自己的绘制与 fit 遍历（见 fitTrails）—— 而一个被写两次的 tooltip
 	// 会与自己不一致。
 	private placeTip(
-		chain: string[], trail: string[], quotes: string[], note?: string,
+		chain: string[], trail: string[], note?: string,
 	): TipContent | undefined {
 		const tip: TipContent = {};
 		if (chain.length > trail.length)
 			tip.text = chainText(chain);
-		if (quotes.length)
-			tip.quotes = quotes;
 		if (note)
 			tip.note = note;
-		return tip.text !== undefined || tip.quotes !== undefined || tip.note !== undefined
+		return tip.text !== undefined || tip.note !== undefined
 			? tip
 			: undefined;
 	}
@@ -741,7 +721,7 @@ export class RecentFilesList {
 	// 一篇笔记的**一个**地点：它所落到的坐标，以及它所处的节。只在 'all' 下绘制
 	// （见 shownLandings）—— 每条不同的行号一行，所以该行是**一个**目的地、没有什么
 	// 需要被解释掉。
-	private placeRow(i: number, current: boolean, query: string): number {
+	private placeRow(i: number, current: boolean): number {
 		const entry = this.opts.entries[i];
 		const d = this.opts.describe(i);
 		const row = this.opts.list.createDiv({ cls: `${ROW_CLASS} is-place` });
@@ -797,16 +777,14 @@ export class RecentFilesList {
 		}
 		// **悬停说的话**：整条链，且只在行尚未打印其全部之处 —— 但「已经打印」既
 		// 是链的答案、也同样多的是布局的答案，而一行在任何东西被测量之前就被画出，
-		// 所以 fit 遍历在拿走一层时就给该行这个 tooltip（见 fitTrails）。记录下的
-		// 词两种情况都随行：它们是这一行读者在任何地方都看不见的那一半。
-		const quotes = this.landingQuotes(entry, query);
+		// 所以 fit 遍历在拿走一层时就给该行这个 tooltip（见 fitTrails）。
 		const note = this.landingNote(entry, d, i);
-		const tip = this.placeTip(chain, trail, quotes, note);
+		const tip = this.placeTip(chain, trail, note);
 		if (tip)
 			this.tip.attach(row, tip);
 		// ……而该行加入了 fit 遍历将询问的那些行。只打印过一层的行没有什么可让出的。
 		if (outer)
-			this.trails.push({ el: row, outer, chain, quotes, note });
+			this.trails.push({ el: row, outer, chain, note });
 		// **读者上次在这个地点是多久以前** —— 它自己的时间，不是笔记的：一个读者
 		// 没再回过的位置保留它挣到的时间，而它所引用的块是在那次访问时捕获的。
 		const strip = this.actionStrip(row);
@@ -853,7 +831,7 @@ export class RecentFilesList {
 			// 一个 tooltip，按该行**此刻**打印的东西写出：被布局拿走的一层是悬停必须
 			// 还回去的一层。
 			const tip = this.placeTip(
-				r.chain, rowTrail(r.chain, dropped[i] ? 1 : undefined), r.quotes, r.note,
+				r.chain, rowTrail(r.chain, dropped[i] ? 1 : undefined), r.note,
 			);
 			if (!tip) {
 				this.tip.detach(r.el);

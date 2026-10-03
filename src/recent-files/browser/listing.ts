@@ -179,51 +179,34 @@ export function matchesNavFilter(entry: NavEntry, query: string, extra?: string)
 	return tokens.every(tok => hay.includes(tok));
 }
 
-// 条目自己的可搜索文字：名字和 path、记录下来的 context 块，再加上跳转自己的 key
-// （大纲点击时是标题的文字，锚点链接时是读者选的目标）。全部并成一个大杂烩，
-// 所以各部分之间的顺序不携带任何信息。
+// 条目自己的可搜索文字：**只有**名字、path，以及跳转自己的 key（大纲点击时是标题的
+// 文字，锚点链接时是读者选的目标）。全部并成一个字符串，所以各部分之间的顺序不携带
+// 任何信息。
 //
-// **「重映射锚点」刻意不在这里**（`st.anchor`，见 NavEntryState.anchor）：它记的是采集
-// 那一刻**视口顶行**的文本，而顶行会随窗口高度与滚动位置变（同一个落点换台设备就
-// 换一句），且它常常落在标题**之上**、是上一段的尾巴 ⇒ 它答的不是「这个地方叫什么」。
-// 更要紧的是它命中之后说不清理由：context 命中时 hover 能指出是哪一行，anchor 不能，
-// 而「命中必须能解释自己」是这份列表一直遵守的那条。它作为**字段**照旧留着 ——
-// 文本变动后靠它把行号重新找回来是恢复路径的事（见 ephemeral.ts 的 remapAnchorLine）。
+// **两个字段刻意不在这里，而它们的理由是同一条**：命中必须能解释自己。
+//
+// `st.anchor`（重映射锚点）记的是采集那一刻**视口顶行**的文本。它随窗口高度与滚动位置
+// 变（同一个落点换台设备就换一句），且常落在标题**之上**、是上一段的尾巴 ⇒ 它答的不是
+// 「这个地方叫什么」；它也从来没有被显示在任何地方，所以靠它命中的行答不出自己在列表上
+// 为什么。作为**字段**它留着 —— 文本变动后靠它把行号重新找回来是恢复路径的事
+// （见 ephemeral.ts 的 remapAnchorLine）。
+//
+// 落点下方那几行正文（曾叫 `st.context`，2026-10-03 撤）在一个**更小的副本**上犯同样的
+// 错：只有「按 key 跳进某个标题」的落点带着它（`placeRecord`/`settle` 只给 jump 写 `st`），
+// 单纯读完一篇笔记走人的记录一个字都没有；它是几周前的一次快照，而笔记此后一直在被读；
+// 而它挡在更好的东西前面 —— 无词边界的子串匹配进主过滤路径就是一台没有排名的噪音
+// 发生器（`pro` 命中 `approve`、单字中文命中一切），而按内容找一篇笔记这件事，vault
+// 自己的全文搜索（有排名、有上下文、看得见全 vault）赢得这个面板。
+//
+// 至于**「这篇笔记里有个叫『定价』的小节」**，它不需要快照：各标题从 metadataCache 现查
+// 就行（见 reads.ts 的 headingsFor），永远是最新的，且体积与笔记长度无关。
 export function navSearchText(entry: NavEntry): string {
 	if (entry.kind === 'view')
 		return `${entry.viewType} ${viewName(entry)}`;
 	const parts = [baseName(entry.path), entry.path];
-	const st = entry.st;
-	if (st)
-		parts.push(...(st.context ?? []));
 	// 跳转的 key：大纲点击时是标题的文字，锚点链接时是读者选的目标。caller 目标的合成 key
 	// 是一个时间戳、不是词（见 isCallerKey）。
 	if (entry.kind === 'jump' && !isCallerKey(entry.key))
 		parts.push(entry.key.startsWith('outline:') ? entry.key.slice('outline:'.length) : entry.key);
 	return parts.filter(Boolean).join(' ');
-}
-
-// 查询命中了落点 context 的**哪一行** —— 也就是「我这一行为什么在我的列表上」的答案，
-// 而这一行自己答不了它：那个块正是搜索框匹配到的东西、且在任何地方都不显示，所以一个靠一句话
-// 匹配上的行，长得与一个靠名字匹配上的行一模一样。
-//
-// 第一条携带着**全部** token 的行；没有的话，就是第一条携带着**第一个** token 的行 ——
-// 过滤器是在拼在一起的块上匹配的，所以两个 token 可能分别坐在两行上。查询没有命中这个块的
-// 任何一处时为 undefined：一行可能靠它的名字、path、别名或它所在的分节匹配上，
-// 而这些都是行上已有的、或一次悬停就能看到的。
-export function matchedContextLine(entry: NavEntry, query: string): string | undefined {
-	const tokens = queryTokens(query);
-	if (!tokens.length || entry.kind === 'view')
-		return undefined;
-	let loose: string | undefined;
-	for (const line of entry.st?.context ?? []) {
-		const hay = line.toLowerCase();
-		if (!hay)
-			continue;
-		if (tokens.every(tok => hay.includes(tok)))
-			return line;
-		if (loose === undefined && hay.includes(tokens[0]))
-			loose = line;
-	}
-	return loose;
 }

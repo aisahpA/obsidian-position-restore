@@ -72,18 +72,13 @@ export function isNavEntry(e: unknown): e is NavEntry {
 }
 
 export function serializeNavHistory(entries: NavEntry[], index: number): string {
-	// 步把落点的文字留下的唯一一处：那是最近文件列表的引文，而步是按「位置」恢复的，
-	// 一个字都不读。用解构摘掉、不用 delete——`delete` 会把对象打成字典模式，下面
-	// stringify 多花的比省下的字节还多。别的都不剥：记录带的戳（`time`）是位置 store
-	// 盖的，这份历史从不经过那里。
-	const steps = entries.map(e => {
-		if (e.kind === 'view' || !e.st)
-			return e;
-		const { context, ...st } = e.st;
-		return { ...e, st };
-	});
+	// 步一个字都不额外存：它们按**位置**恢复，而 `NavEntryState` 现在只剩位置、锚点、
+	// mtime 三样 —— 锚点与 mtime 都是这一步自己的事实，不是「落点在笔记里的样子」。
+	// （曾在这里剥掉过 `st.context`：落点下方那几行正文只喂最近文件列表的搜索与引文，
+	// 2026-10-03 连那份快照一起撤了，于是这一层剥离整个没有存在过。）
+	// 记录带的戳（`time`）也不剥：那是位置 store 盖的，这份历史从不经过那里。
 	// entries 就是一个普通对象组成的普通数组——原样就是 JSON 安全的。
-	return JSON.stringify({ v: NAV_HISTORY_VERSION, entries: steps, index });
+	return JSON.stringify({ v: NAV_HISTORY_VERSION, entries, index });
 }
 
 // 存档与 `previous` 逐字节相同时不写——这个去重让 5s 一轮的 flush 在什么都没动时只

@@ -3,18 +3,18 @@
 // doc-string 读取或布局的代价 —— 而导航读取（readNavEntryState / withNavDisplay）
 // 组装一步**携带**的那些字段：视口 anchor 与文件的 mtime。
 //
-// 落点的**文字**是第三级（landingContext），由**一次**读取（readLandingState）读 ——
-// 就是记录落点的那一次。别的读取都不为它们付钱：那些 doc 读取不付，光标可见性检查
-// 逼出来的布局也不付。那些文字是这一行**被搜索**所依据的东西；而它把读者带到了哪一
-// 行，由 jump 自己的 key 来说。
+// 曾有第三级（landingContext）：落点下面那几行正文，由**一次**读取（readLandingState）
+// 读、只供最近文件列表的搜索与引文。2026-10-03 与它的搜索面一起撤掉了 —— 它只有按 key
+// 跳进某个标题的落点带着、是几周前的快照，而无词边界的子串匹配在主过滤路径上就是一台
+// 没有排名的噪音发生器。所以 readLandingState 现在是 readNavEntryState 的别名。
 
 import { describe, it, expect } from 'vitest';
 
 import { MarkdownView } from 'obsidian';
 import {
-	landingContext, readEphemeralState, readLandingState, readNavEntryState, readSampledState, withNavDisplay,
+	readEphemeralState, readLandingState, readNavEntryState, readSampledState, withNavDisplay,
 } from '@/position/capture/ephemeral';
-import { EphemeralState, NavEntryState } from '@/types';
+import { EphemeralState } from '@/types';
 
 // 一个 cm 桩：1-based 的 line(n) 落在偏移 (n-1)*10 处；`to` 界定被渲染的偏移范围。
 // coordsAtPos 把一个偏移映射到一个客户端 top（乘 2）；滚动盒是 [100, 700)，所以一条
@@ -61,14 +61,6 @@ function makeView(opts: {
 }
 
 const cursor = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
-
-// 给某次落点的那几句话，按读者会看到它们的那个状态。
-function words(view: MarkdownView, st: EphemeralState = { scroll: 1, cursor: cursor(0) }): NavEntryState {
-	return { ...st, ...(landingContext(view, st) ?? {}) };
-}
-
-// 这一行被搜索所依据的东西：记在落点**下面**的那些行。
-const below = (st: NavEntryState | undefined): string[] | undefined => st?.context;
 
 describe('readEphemeralState —— 热读取只取位置', () => {
 	it('一个导航显示字段都不带，即便视图给得出', () => {
@@ -185,123 +177,12 @@ describe('readNavEntryState —— 一步带着什么', () => {
 	});
 });
 
-// 一次采集落在**哪一行**决定这扇窗口从哪开始，而它上面一个字都不取 —— 所以记下来的东西
-// 说的就是当时敲定的那一行。这里经由文字而不是经由一个盖了戳的索引来钉：落点**所在**的
-// 那一行该由 jump 的 key 来说（见 nav/entry.ts 的 landedLine），而文字永远只回答
-// 「它下面站着什么」。
-describe('landingContext —— 这扇窗口从哪一行开始', () => {
-	const lines = Array.from({ length: 12 }, (_, i) => `L${i}`);
-	const after = (n: number) => [`L${n + 1}`, `L${n + 2}`, `L${n + 3}`, `L${n + 4}`];
-
-	it('光标行在屏幕上时就从光标行开始（源码模式）', () => {
-		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
-
-		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
-	});
-
-	it('光标行根本没被渲染时就从视口顶行开始', () => {
-		// 第 4 行（1-based）落在偏移 30 处；被渲染的范围到 25 为止。
-		const cm = makeCm({ viewport: { from: 0, to: 25 } });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
-
-		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
-	});
-
-	it('光标的像素落在滚动盒之外时从视口顶行开始', () => {
-		// 偏移 30 处的第 4 行渲染在视口之内；coordsAtPos 读出 top 60（偏移乘 2）—— 滚动盒从
-		// 100 起，所以那一行位于盒子之上：被滚走了，在屏幕外。
-		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 60 });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
-
-		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
-	});
-
-	it('拿不到编辑器视图时假定光标可见', () => {
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines });
-
-		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
-	});
-
-	it('坐标还没量出来时假定光标可见', () => {
-		const cm = makeCm({ viewport: { from: 0, to: 200 } });
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'source', lines, cm });
-
-		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(3));
-	});
-
-	it('阅读模式的采集从视口顶行开始（进预览之前那个光标已经陈了）', () => {
-		const view = makeView({ scroll: 1.2, cursorLine: 3, mode: 'preview', lines });
-
-		expect(below(words(view, { scroll: 1, cursor: cursor(3) }))).toEqual(after(1));
-	});
-
-	it('记下的位置一个行号都没点名时为 undefined', () => {
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['a', 'b'] });
-
-		expect(landingContext(view, {})).toBeUndefined();
-	});
-});
-
-describe('landingContext —— 记下哪些文字', () => {
-	it('只数非空行，到预算为止', () => {
-		// 一行一句、中间隔空行（中文 markdown 笔记的寻常样子）：若照原样取四行，窗口会全花在
-		// 空行上。
-		const lines = [
-			'# 标题', '', '第一段', '', '落点',
-			'', '本节第一段', '', '本节第二段', '', '本节第三段', '', '本节第四段', '', '本节第五段',
-		];
-		const cm = makeCm({ viewport: { from: 0, to: 400 }, coordsTop: 300 });
-		const view = makeView({ scroll: 4, cursorLine: 4, mode: 'source', lines, cm });
-
-		expect(below(words(view, { scroll: 4, cursor: cursor(4) })))
-			.toEqual(['本节第一段', '本节第二段', '本节第三段', '本节第四段']);
-	});
-
-	it('落点之上一行都不取 —— 那些字属于前面那一节', () => {
-		// 每个落点都是一次标题跳转，而标题那一行正是它那一节**开始**的地方：上面的字属于前面
-		// 那一节，而记录它们，正是从前让「搜那一节的字」把这行也捞上来的原因。
-		const lines = ['上一节的正文', '', '## Beta', '本节第一段'];
-		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
-		const view = makeView({ scroll: 2, cursorLine: 2, mode: 'source', lines, cm });
-
-		expect(below(words(view, { scroll: 2, cursor: cursor(2) }))).toEqual(['本节第一段']);
-	});
-
-	it('落点之后只剩空行时为 undefined（标题就在末尾）', () => {
-		const lines = ['a', 'b', '## Last', '', ''];
-		const cm = makeCm({ viewport: { from: 0, to: 200 }, coordsTop: 300 });
-		const view = makeView({ scroll: 2, cursorLine: 2, mode: 'source', lines, cm });
-
-		expect(landingContext(view, { scroll: 2, cursor: cursor(2) })).toBeUndefined();
-	});
-
-	it('单行也有长度上限，免得一行一整段的笔记把列表撑爆', () => {
-		const long = 'x'.repeat(500);
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: [long, long] });
-
-		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))?.[0]).toHaveLength(120);
-	});
-
-	it('行要 trim，记下的文字就是面板印出来的那些', () => {
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines: ['r0', '\t  缩进的段落  '] });
-
-		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))).toEqual(['缩进的段落']);
-	});
-
-	it('找非空行只看有限的距离（这趟读取必须便宜）', () => {
-		// 越过那个界限它就什么都不记，而不是一路走过长长的一片空白、直到笔记末尾。
-		const lines = ['落点', ...Array.from({ length: 400 }, () => '')];
-		const view = makeView({ scroll: 0, cursorLine: 0, mode: 'source', lines });
-
-		expect(below(words(view, { scroll: 0, cursor: cursor(0) }))).toBeUndefined();
-	});
-});
-
-// 落点在它落定的那一刻被记录，而用来搜索它、引用它的那些文字，就在**同一次**读取里读：
-// 这个 state 完整地到达两张列表，而栈在写一步时把它们留在身后。
+// 落点在它落定的那一刻被记录。曾经那一刻还多读一件事：落点下面那几行正文，而它已经和
+// 它的搜索面一起撤掉了（2026-10-03）—— 于是这个读取与「一步带着什么」是**同一个**读法，
+// 保留 `readLandingState` 这个名字是为了让调用点自己说明它在记一条**落点**，而那正是
+// review 时要看的区别。
 describe('readLandingState —— 记录落点的那次读取', () => {
-	it('等于一步带着的东西，再加上落点下面的文字', () => {
+	it('与 readNavEntryState 逐字段相同，且不再读落点下面的正文', () => {
 		const cm = makeCm({ viewport: { from: 0, to: 100 }, coordsTop: 300 });
 		const view = makeView({
 			scroll: 1.2, cursorLine: 3, mode: 'source',
@@ -314,9 +195,10 @@ describe('readLandingState —— 记录落点的那次读取', () => {
 			cursor: cursor(3),
 			anchor: 'viewport line',
 			mtime: 1_730_000_000_000,
-			// 窗口从光标那一行（在屏幕上）开始，取它后面的东西。
-			context: ['a1', 'a2', 'a3', 'a4'],
 		});
+		// 下面那四行 a1..a4 确实在笔记里，而它们**不在**记录里：正文快照撤掉了。
+		expect(readLandingState(view)).not.toHaveProperty('context');
+		expect(readLandingState(view)).toEqual(readNavEntryState(view));
 	});
 });
 

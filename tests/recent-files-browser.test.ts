@@ -8,7 +8,7 @@ import {
 	badgeOf, displayName,
 	duplicateNames, folderOf, pathLabel, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
-import { groupByFile, matchesNavFilter, matchedContextLine } from '@/recent-files/browser/listing';
+import { groupByFile, matchesNavFilter, navSearchText } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
 import { headingTrailAtLine, headingsFromText } from '@/shared/headings';
 import { t } from '@/i18n';
@@ -16,8 +16,6 @@ import { NavEntry } from '@/nav/entry';
 import { NavEntryState } from '@/types';
 
 const line = (n: number) => ({ from: { line: n, ch: 0 }, to: { line: n, ch: 0 } });
-// 采集在**落点之下**记下的那些行，按采集写它们的样子。
-const block = (lines: string[]): NavEntryState => ({ context: lines });
 
 describe('describeNavEntry', () => {
 	it('一条文件步显示它的名字，不带扩展名', () => {
@@ -45,11 +43,10 @@ describe('describeNavEntry', () => {
 
 	it('其它那种步的标题行从它记录的位置读', () => {
 		// 没有结构性的东西可据以作答：一个跳变，它自己的目标行就是这次 jump 的；以及
-		// 一个目标后来被改名改掉的 jump。记在落点之下的那些话，对任何东西站在哪儿
-		// 都什么都说不出来。
+		// 一个目标后来被改名改掉的 jump。
 		const edit = describeNavEntry({
 			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 41,
-			st: { scroll: 42, cursor: line(99), anchor: 'viewport top', ...block(['x', 'y', 'z']) },
+			st: { scroll: 42, cursor: line(99), anchor: 'viewport top' },
 		} as NavEntry);
 		// 记下的视口顶，不是光标
 		expect(edit.line).toBe('L43');
@@ -63,9 +60,8 @@ describe('describeNavEntry', () => {
 		expect(d.line).toBe('L42');
 	});
 
-	it('没有引文的位置状态退回视口顶行', () => {
-		// 对本插件记下的条目不可达（见 NavEntryState.context），但被喂进行里的位置
-		// 记录没有那一块，那时视口顶就是诚实的猜测。
+	it('一条 visit 的行号退回视口顶行', () => {
+		// 文件记录自身不携带位置，所以这一行显示的行号是位置库上次看见笔记时的样子。
 		const d = describeNavEntry({
 			kind: 'visit', path: 'a.md', leafId: 'leaf-1',
 			st: { scroll: 41, cursor: line(3), anchor: 'viewport top' },
@@ -460,8 +456,9 @@ describe('matchesNavFilter', () => {
 	});
 
 	it('每个用空白分开的词都得命中（AND）', () => {
-		const e = visit('notes/project/Alpha.md', { context: ['Chapter One'] });
-		expect(matchesNavFilter(e, 'alpha chapter')).toBe(true);
+		const e = visit('notes/project/Alpha.md', { anchor: 'Chapter One' });
+		expect(matchesNavFilter(e, 'alpha chapter')).toBe(false); // 锚点不进搜索面
+		expect(matchesNavFilter(e, 'alpha project')).toBe(true);
 		expect(matchesNavFilter(e, 'alpha missing')).toBe(false);
 	});
 
@@ -478,15 +475,15 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(thino, 'thino_view')).toBe(true);
 	});
 
-	it('记录下来的引文，任意一行命中就算', () => {
-		// 落点之下的那些行是用户离开时正看着的东西（见 NavEntryState.context）——
-		// 记录它们的全部要点就是一次搜索可以命中其中任意一行。
-		const e = visit('notes/a.md', {
-			context: ['前一段：换行与量化', '落点这一行', '后一段：读取死区'],
-		});
-		expect(matchesNavFilter(e, '读取死区')).toBe(true);
-		expect(matchesNavFilter(e, '换行 落点')).toBe(true);
-		expect(matchesNavFilter(e, '没写过的词')).toBe(false);
+	it('笔记正文不参与搜索（2026-10-03 撤掉 st.context）', () => {
+		// 落点下方那 4 行正文曾是这个搜索面唯一「按内容找笔记」的能力，而它只有「按 key
+		// 跳进某个标题」的落点带着（placeRecord/settle 只给 jump 写 st）、是几周前的一次
+		// 快照、无词边界的子串匹配还会把 `pro` 命中 `approve`。它撤掉了，替代品是各标题
+		// 从 metadataCache 现查（见 navSearchText 的说明）。
+		// 这条锁住**替换后**的形状：一个纯 visit 记录身上没有任何正文字段可搜。
+		const e = visit('notes/a.md');
+		expect(matchesNavFilter(e, '死区')).toBe(false);
+		expect(matchesNavFilter(e, '换行')).toBe(false);
 	});
 
 	it('匹配这一行印出来的东西：标题链和行号标签', () => {
@@ -512,12 +509,9 @@ describe('matchesNavFilter', () => {
 		// 靠它找回行号是恢复路径的事），但不该让一行因为它而出现在列表上。
 		const e = visit('notes/a.md', { anchor: '落点这一行' });
 		expect(matchesNavFilter(e, '落点')).toBe(false);
-		// 同一个词仍然能由它**下面**的那些行命中 —— 那才是这个落点随身带着的词。
-		const withQuote = visit('notes/a.md', {
-			anchor: '落点这一行',
-			context: ['下一段：读取死区'],
-		});
-		expect(matchesNavFilter(withQuote, '死区')).toBe(true);
+		// 词还在同一条记录上、只是那个字段不参与匹配 —— 这正是「字段留着、搜索不用」
+		// 的形状（重映射仍要靠它找回行号）。
+		expect(navSearchText(e)).not.toContain('落点这一行');
 	});
 
 	it('忽略调用方传来的目标 key：那是一串时间戳，不是词', () => {
@@ -527,56 +521,6 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
 	});
 
-});
-
-describe('matchedContextLine', () => {
-	const jump = (st?: NavEntryState): NavEntry =>
-		({ kind: 'jump', path: 'a.md', leafId: 'l', key: 'outline:## H', st } as NavEntry);
-	const visit = (path: string, st?: NavEntryState): NavEntry =>
-		({ kind: 'visit', path, leafId: 'leaf-1', st } as NavEntry);
-	const ctx = jump(block(['前一段：换行与量化', '落点这一行', '后一段：读取死区']));
-
-	it('就是容得下整个查询的那一行', () => {
-		expect(matchedContextLine(ctx, '读取死区')).toBe('后一段：读取死区');
-		// 一个站住一行上的短语，那是读者通常打的东西。
-		expect(matchedContextLine(ctx, '后一段 死区')).toBe('后一段：读取死区');
-	});
-
-	it('几个词散落在引文各处时，退回第一个词所在的那一行', () => {
-		// 筛选器是拿拼起来的整块匹配的（见 matchesNavFilter），所以没有哪单独一行
-		// 携带整个查询 —— 而一个那时什么都不说的行，会是一个靠魔法匹配上的行。
-		expect(matchedContextLine(ctx, '量化 死区')).toBe('前一段：换行与量化');
-	});
-
-	it('查询一个词也没落在引文里时是 undefined', () => {
-		// 一行可能靠它的名字、路径、别名或章节匹配，而这些中的每一个要么已经印在
-		// 行上，要么已经在悬停时说了。
-		expect(matchedContextLine(ctx, '没写过的词')).toBeUndefined();
-		expect(matchedContextLine(ctx, '')).toBeUndefined();
-		expect(matchedContextLine(ctx, '   ')).toBeUndefined();
-		expect(matchedContextLine(jump(), '落点')).toBeUndefined();
-	});
-
-	it('不分大小写，跟匹配它的那个筛选一致', () => {
-		const e = jump(block(['Alpha Beta', 'gamma']));
-		expect(matchedContextLine(e, 'ALPHA')).toBe('Alpha Beta');
-	});
-
-	it('一行不会靠锚点留在列表上、却答不出为什么在', () => {
-		// 曾经有一档是反的：anchor 进搜索面而引文不读它，于是有一行能靠一个**任何地方
-		// 都不印**的词留在列表上、却答不出为什么在（违反「命中必须能解释自己」）。
-		// anchor 退出搜索面之后这个状态消失了。
-		const e = visit('notes/a.md', { anchor: '落点这一行' });
-		expect(matchesNavFilter(e, '落点')).toBe(false);
-		expect(matchedContextLine(e, '落点')).toBeUndefined();
-	});
-
-	it('带引文的 visit 照样引：看的是有没有引文，不是这一步的类型', () => {
-		// 扣住引文的是**块缺席**，不是类型 —— 一个被给了块的 visit 会像任何落点一样
-		// 被引。
-		const e = visit('notes/a.md', { anchor: '落点这一行', ...block(['前一段：换行与量化']) });
-		expect(matchedContextLine(e, '量化')).toBe('前一段：换行与量化');
-	});
 });
 
 describe('folderOf / duplicateNames', () => {

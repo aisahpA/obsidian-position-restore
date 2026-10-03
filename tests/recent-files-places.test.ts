@@ -322,11 +322,12 @@ describe('NavPlaces —— 一个标题一条记录', () => {
 });
 
 describe('NavPlaces —— 标题被记下来时带着的状态', () => {
-	it('交到手上的状态原样保留，里面那几句引文也在', () => {
-		// 那些字是和落点一起读到的（见 ephemeral.ts 的 readLandingState）；这份列表按 state
-		// 到达时的样子收下它，而不是逐字段拼回去。
+	it('交到手上的状态原样保留', () => {
+		// 这个 state 是和落点一起读到的（见 ephemeral.ts 的 readLandingState）；这份列表按
+		// state 到达时的样子收下它，而不是逐字段拼回去。2026-10-03 起它只有位置、锚点、
+		// mtime 三样 —— 落点下面那几句正文（当时的 st.context）随它的搜索面一起撤了。
 		const { places } = makePlaces();
-		const st: NavEntryState = { scroll: 10, context: ['L9'] };
+		const st: NavEntryState = { scroll: 10, anchor: '## One', mtime: 1_730_000_000_000 };
 		places.remember(jump('a.md', 'outline:## One'));
 		places.settle({ ...jump('a.md', 'outline:## One'), st });
 
@@ -1367,7 +1368,7 @@ describe('NavPlaces.reland —— 把一个标题放回它现在站着的位置'
 	// 找到的。
 	const landing = (line: number, mtime: number): NavJump => ({
 		...jump('a.md', 'outline:## T'), keyLine: line,
-		st: { scroll: line, anchor: 'a line', context: ['below it'], mtime },
+		st: { scroll: line, anchor: 'a line', mtime },
 	});
 	const there = (places: NavPlaces) => places.entries[0] as NavJump;
 
@@ -1379,10 +1380,10 @@ describe('NavPlaces.reland —— 把一个标题放回它现在站着的位置'
 
 		expect(there(places).keyLine).toBe(14);
 		expect(there(places).st?.mtime).toBe(500);
-		// 那些**字**留住：它们只读过一次，再读一遍不会让它们更真 —— 反而会丢掉读者离开时带着
-		// 的那些。
+		// 那个**锚点**留住：它只读过一次，再读一遍不会让它更真 —— 反而会丢掉读者离开时
+		// 站在哪一行的凭据。
 		expect(there(places).st?.anchor).toBe('a line');
-		expect(there(places).st?.context).toEqual(['below it']);
+		expect(there(places).st?.mtime).toBe(500);
 		// 既不是一次访问，也不是一次重记：一行按它本来就有的那个采集戳变旧。
 		expect(there(places).t).toBe(aged);
 	});

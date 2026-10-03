@@ -1210,25 +1210,12 @@ body.is-mobile .position-restore-cue {
 	overflow-wrap: anywhere;
 }
 
-/* 从笔记里引出来的一行 —— 落点被采下时所站的那些字，或者搜索框命中的那一行（见
-   TipContent.quotes）。靠它行首一侧的一条竖线把它衬出来，而不是靠字体：让这些字与众
-   不同的是它们是读者自己的话、而不是这个面板派生出的某个名字，而用这里没有一款字体能
-   画好的斜体去引用它们，只会让读者正在找的那一行更难读。它们折行，而不是被裁掉 ——
-   一行从中间截断的笔记，说的是笔记从没说过的话。 */
-.position-restore-nav-tip .nav-tip-quote {
-	margin-top: 2px;
-	padding-inline-start: 6px;
-	border-inline-start: 2px solid var(--background-modifier-border);
-	font-size: var(--font-ui-smaller);
-	line-height: 1.4;
-	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
-	overflow-wrap: anywhere;
-}
-
-/* 悬停就那些引文说出的那一行：引文被采下之后，笔记又被写过。比引文更淡、且不加引号，
-   因为说话的是这个面板、而不是笔记自己的话 —— 读者必须能一眼把两者区分开。它的墨色
-   是面板自己的弱墨档（见 --nav-faint），而不是 --text-faint，后者主题可以随意重调
-   色相。 */
+/* 悬停就着那一行说出的「笔记后来变了没有」（见 TipContent.note）。它是这个面板在就
+   笔记的话发言，读者得能一眼把它与笔记自己的文字分清 —— 所以比链更淡、且不加任何装饰
+   线。这条竖线（2026-10-03 撤）当初是留给引文的：引文已经从搜索面撤掉，而竖线在这
+   个面板里只该留给「这些字是读者自己写的」，那件事现在没有着落了。
+   墨色是面板自己的弱墨档（见 --nav-faint），而不是 --text-faint，后者主题可以随意
+   重调色相。 */
 .position-restore-nav-tip .nav-tip-note {
 	margin-top: 2px;
 	font-size: var(--font-ui-smaller);
