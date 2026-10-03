@@ -9,11 +9,7 @@ import { t } from './i18n';
 
 
 export default class PositionRestorePlugin extends Plugin {
-	// 一上来就铺一份默认值：这个字段不带 `!`，得有个初值（这是 TS 的要求）；而且 loadSettings()
-	// 是 async 的 —— 在它 await 期间，谁读 settings 都得读到一份完整的东西。
-	//
-	// 另外这个对象此后**只改内容、从不换掉**：换掉为什么有害，见 loadSettings。
-	settings: PluginSettings = { ...DEFAULT_SETTINGS };
+	settings!: PluginSettings;
 	database!: CursorPositionDatabase;
 	manager!: PositionManager;
 
@@ -55,11 +51,16 @@ export default class PositionRestorePlugin extends Plugin {
 		// DEFAULT_SETTINGS 铺在前、loaded 盖在后：存档是 Partial —— 旧版本写下的 data.json 里
 		// 没有后来新增的那些键，不先铺一遍就是 undefined。
 		//
-		// 是**合并进**现有对象，绝不 `this.settings = {...}` 整个覆盖掉。NavPlaces 与
-		// PositionManager 都在构造时抓住了这个引用，之后一直透过它实时读（places.cap()、面板的
-		// 那些偏好），换对象会让它们从此读一份旧副本。这条约束在**重新加载**时最容易破 ——
-		// onExternalSettingsChange 也走这里，那时写成赋值，两个消费方读的旧副本要到下次重启才回来。
-		Object.assign(this.settings, DEFAULT_SETTINGS, loaded);
+		// 第一次加载时对象还不存在（字段用 `!` 声明、没有初值），直接建一份。此后只能**合并进**
+		// 现有对象，绝不 `this.settings = {...}` 整个换掉：database 与 manager 在构造时抓住了这个
+		// 引用，之后一直透过它实时读（places.cap()、面板的那些偏好），换对象会让它们从此读一份旧
+		// 副本。这条约束在**重新加载**时最容易破 —— onExternalSettingsChange 也走这里，那时写成
+		// 赋值，两个消费方读的旧副本要到下次重启才回来。
+		if (!this.settings) {
+			this.settings = { ...DEFAULT_SETTINGS, ...loaded };
+		} else {
+			Object.assign(this.settings, DEFAULT_SETTINGS, loaded);
+		}
 	}
 
 	async saveSettings() {
@@ -70,7 +71,7 @@ export default class PositionRestorePlugin extends Plugin {
 	// （坚果云、iCloud 一类）把另一台设备上的版本换了过来。app 会在**运行中**的这个实例上调
 	// 这里；没有它，改动要等下次重启才生效。
 	//
-	// 值本身只要重新加载就够 —— 两个消费方都是实时读 settings 对象（见字段声明）。不会自己发生
+	// 值本身只要重新加载就够 —— 两个消费方都是实时读 settings 对象（见 loadSettings）。不会自己发生
 	// 的，是少数几个键改动时欠下的那点活：上限调低了要裁掉超出部分、文件夹规则新增了要丢一批。
 	// 所以把合并前的副本交给 manager 去做差比。
 	async onExternalSettingsChange() {
