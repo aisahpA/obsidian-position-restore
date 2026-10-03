@@ -624,6 +624,24 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(quote).not.toMatch(/text-overflow/);
 	});
 
+	// 标题链那一行（见 TipContent.trail，`'last' | 'none'` 两档下文件行的唯一解释）：
+	// 与文件的其他名字**同档**，因为两者是同一类东西 —— 这个面板派生的、供分辨用的名字。
+	// 刻意**不给**那条竖线：在这个面板里竖线只留给「这些字是读者自己写的」（nav-tip-quote），
+	// 而链是定位、不是引用。折行而不裁 —— 一篇笔记的标题可以是长句。
+	it('标题链与文件的其他名字同档，且不借引文那条竖线', () => {
+		// 锚在完整的命名空间前缀上：`.nav-tip-trail {` 单独匹配会连
+		// `.position-restore-nav-tip .nav-tip-trail {` 一起命中，那不是「无前缀」而是
+		// 「匹配错了地方」，所以这里要求带上前缀那半截。
+		const block = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-trail\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(block).not.toBe('');
+		expect(block).toMatch(/font-size: var\(--font-ui-smaller\)/);
+		expect(block).toMatch(/overflow-wrap: anywhere/);
+		expect(block).not.toMatch(/border-inline-start/);
+		// 与 nav-tip-text 同一档：链是「这地方叫什么」，而那是同一个问题的另一个形式。
+		const text = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-text\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(block.replace('.nav-tip-trail', '.nav-tip-text')).toBe(text);
+	});
+
 	// ……而悬停**就那些引文**说的那一行 —— 这些引文取下来之后笔记又被写过了 —— 靠**墨色**
 	// 而不是靠一条线区分开：这是本面板在就笔记的话发言，读者得能一眼把两者分清。比引文更
 	// 淡，而且用面板自己的淡档而不是 --text-faint（主题可以随意改它的色相）。

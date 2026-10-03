@@ -1199,6 +1199,17 @@ body.is-mobile .position-restore-cue {
 	overflow-wrap: anywhere;
 }
 
+/* 那一行所代表的地方在哪个节 —— 标题链（见 TipContent.trail）。与上面那行同档，因为它
+   说的是同一类东西：这个面板派生的、供分辨用的名字，而不是笔记的原话（那是下面的
+   nav-tip-quote）。不加竖线，因为链在一次悬停里是**定位**、不是引用 —— 而竖线在这个
+   面板里只留给「这些字是读者自己写的」。折行而不是裁掉：一篇笔记的标题可以是长句。 */
+.position-restore-nav-tip .nav-tip-trail {
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
+}
+
 /* 从笔记里引出来的一行 —— 落点被采下时所站的那些字，或者搜索框命中的那一行（见
    TipContent.quotes）。靠它行首一侧的一条竖线把它衬出来，而不是靠字体：让这些字与众
    不同的是它们是读者自己的话、而不是这个面板派生出的某个名字，而用这里没有一款字体能

@@ -596,10 +596,11 @@ export class RecentFilesList {
 		const tip: TipContent = {};
 		if (group.path && !printsPath)
 			tip.path = group.path;
-		// **关于节什么都不说**，连悬停上也不说。文件行代表**笔记**：它的点击以普通
-		// 方式打开文件、由位置数据库决定读者落在何处，所以这一行并不关于某一个节，
-		// 而在这里打印一条链会是一个点击并不兑现的承诺。该行曾代表的东西（当它确实
-		// 代表过某个地点时）才是下面那些词的目的。
+		// **关于节什么都不说**，连悬停上也不说 —— 除非这一行的点击**就是**去那个落点
+		// （下面那个分支）。文件行代表**笔记**：它的点击以普通方式打开文件、由位置数据库
+		// 决定读者落在何处，所以这一行并不关于某一个节，而在这里打印一条链会是一个点击
+		// 并不兑现的承诺。该行曾代表的东西（当它确实代表过某个地点时）才是下面那些词的
+		// 目的。
 		// 然后是这些名字：笔记**自称**的东西单列一行，以及它在自己名下所应答的东西
 		// —— 别名是 app 的词，而一个归在它名下的 `title` 是在回答一个读者没有问的
 		// 问题。
@@ -609,11 +610,17 @@ export class RecentFilesList {
 			tip.text = `${t('recentFiles.aliases')} ${other.aliases.join(' · ')}`;
 		// 当这一行**就是**该笔记的某个地点时（一篇只有一个地点的笔记，或设置不打印
 		// 落点时的任意笔记）：点击去那里（见 activeRep），所以该行必须能说出那个
-		// 位置是什么。
+		// 位置是什么 —— 包括它**在哪个节**，因为在 `recentFilesLandings: 'last' | 'none'`
+		// 两档里落点行根本不画（见 printsLandings），这里就是这条链唯一会出现的地方。
+		// 少了它，一次按标题词的搜索会得到一行光秃秃的笔记名，而读者无从知道它为什么
+		// 在列表上 —— 命中必须能解释自己。
 		if (!this.printsLandings(index)) {
 			const at = this.activeRep(ref);
 			const spot = this.opts.entries[at];
 			if (spot?.kind === 'jump') {
+				const chain = this.opts.trailFor(spot, this.opts.describe(at), at);
+				if (chain.length)
+					tip.trail = chainText(chain);
 				const quotes = this.landingQuotes(spot, query);
 				if (quotes.length)
 					tip.quotes = quotes;
@@ -622,7 +629,7 @@ export class RecentFilesList {
 					tip.note = note;
 			}
 		}
-		if (tip.path || tip.text || tip.quotes || tip.note)
+		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.quotes || tip.note)
 			this.tip.attach(row, tip);
 		// **行自己的移除**。它在**这里**而不是在行的菜单里，因为那个菜单是 **app**
 		// 的文件菜单、只有文件才有这样一个 —— 一个无路径视图行永远得不到它。它的事件

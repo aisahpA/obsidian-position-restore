@@ -20,6 +20,15 @@ export interface TipContent {
 	// 那下面的一行普通文字：笔记**应答**的那些名字，或者某个格子改为持有的那一条事实
 	// （一个「多久之前」标签所代表的确切时刻）。
 	text?: string;
+	// 那一行所代表的地方**在哪个节**：标题链。
+	//
+	// 只在两种行上出现，理由不同。**落点行**在它打印不下整条链时给出外层那些层级
+	//（见 RecentFilesList.fitTrails）；**文件行**在这一行本身就是某个落点、而落点行
+	// 又没有被打印时给出 —— 也就是 `recentFilesLandings: 'last' | 'none'`，或这篇笔记
+	// 只有一条落点。那种档位下这一行点下去**就是**去那个落点（见 activeRep），所以链
+	// 在这里是兑现的承诺；一句按标题词的搜索得到的正是这样一行，链是它唯一能说出
+	// 「我为什么在列表上」的地方。
+	trail?: string;
 	// **从笔记里引出来**的行：记录落点时它周围的那几个词，以及查询进行中时查询命中的
 	// 那一行（见 landingQuotes）。它们是一次搜索能匹配、却在屏幕上**任何地方**都不出现的
 	// 唯一文字 —— 一行显示的是坐标和分节 —— 而这正是落点的行以前从来答不出来的：
@@ -222,6 +231,10 @@ export class NavRowTip {
 			el.createDiv({ cls: 'nav-tip-text', text: content.frontTitle });
 		if (content.text)
 			el.createDiv({ cls: 'nav-tip-text', text: content.text });
+		// 标题链独占一行，且排在引文**之前**：链说的是「那个地方叫什么」（这一行自己的
+		// 承诺），引文说的是「那里的原话」，而解释「我为什么在列表上」的是前者。
+		if (content.trail)
+			el.createDiv({ cls: 'nav-tip-trail', text: content.trail });
 		// 按调用方给出的顺序 —— 查询命中的那一处在前，落点所在的那一行在后。各自一个元素，
 		// 好让一块笔记自己的文字读起来是一块文字，而不是这个面板写的一句话。
 		for (const quote of content.quotes ?? [])

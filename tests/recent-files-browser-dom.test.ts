@@ -734,11 +734,13 @@ describe('RecentFilesModal —— 当前位置', () => {
 			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS, false, {}, undefined,
 			path => (path === 'a.md' ? { scroll: 6 } : undefined),
 		);
-		// 这一行不印链，它的悬停也不点出小节：这一行代表的是那篇笔记，而它上面的一条链
-		// 会许下一个它的点击并不兑现的落点。
+		// 这一行**不印**链 —— 它代表的是那篇笔记，而它上面的一条链会许下一个它的点击
+		// 并不兑现的落点。
 		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
 		const tip = h.hover(h.note('a'))!;
 		expect(tip).not.toBeNull();
+		// 它的悬停也**不点出小节**：同上，一次 visit 的链是关于这一分钟的，不是关于这条
+		// 记录的事实（activeRep 是 visit 时连落点都不是，见 fileRow）。
 		expect(tip.textContent).not.toContain('预览');
 		h.unhover(h.note('a'));
 
@@ -759,6 +761,58 @@ describe('RecentFilesModal —— 当前位置', () => {
 		jbox.value = '预览';
 		jbox.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(jump.notes()).toHaveLength(1); // 标题链带上了那个词
+		// ⚠️ 而它在 'last' 档下**不能只是一行光秃秃的笔记名**：落点行在这个档位不画，
+		// 这一行点下去**就是**去那个落点（activeRep 是 jump），所以它的悬停必须说出那是
+		// 哪个地方 —— 一句按标题词的搜索否则得到一行、而读者无从知道它为什么在列表上。
+		const jtip = jump.hover(jump.note('a'))!;
+		expect(jtip).not.toBeNull();
+		expect(jtip.textContent).toContain('预览');
+	});
+
+	it('文件行在它本身就是那个落点时，悬停说出它在哪个节', () => {
+		// `'last'` / `'none'` 两档里落点行不画（见 printsLandings），所以这是那条链唯一
+		// 能出现的地方。它不违「文件行不显示链」：那条判据说的是「这一行讲的是笔记」，
+		// 而这里这一行的点击**就是**落在那个节上 —— 链是兑现的，不是许诺。
+		// 整条链给全，不截成两段：截断会让读者拿到一个认不出的地点。
+		const h = harness([visit('a.md', NOW, { scroll: 6 })], 0, { 'a.md': A_DOC },
+			[], {}, A_HEADINGS);
+		const tip = h.hover(h.note('a'))!;
+		expect(tip).not.toBeNull();
+		// A_DOC 的第 6 行在「面板设计 › 呈现方案 › 预览」之下。
+		expect(tip.textContent).toContain('面板设计');
+		expect(tip.textContent).toContain('预览');
+		// 它排在引文**之前**：链说的是「那个地方叫什么」，引文说的是「那里的原话」，
+		// 而解释「我为什么在列表上」的是前者。
+		const trail = tip.querySelector('.nav-tip-trail')!;
+		expect(trail).not.toBeNull();
+		expect(trail.textContent).toContain('预览');
+	});
+
+	it('只有一条落点时也是同一件事（一行就是那个落点）', () => {
+		// 'all' 档、但这篇笔记只有一个落点 ⇒ 不画落点行（printsLandings 要 ≥2 条）⇒
+		// 同样落在那个分支里。这是搜索之后**最常见**的形状：一句标题词把一组收成一条。
+		const h = harnessAll([visit('a.md', NOW, { scroll: 6 })], 0,
+			{ 'a.md': A_DOC }, [], {}, A_HEADINGS);
+		expect(h.rows().filter(r => r.classList.contains('is-place'))).toHaveLength(0);
+		const tip = h.hover(h.note('a'))!;
+		expect(tip).not.toBeNull();
+		expect(tip.textContent).toContain('预览');
+	});
+
+	it('这一行代表的不是某个落点时，悬停不说任何节', () => {
+		// 钉选块里的行永远不画落点（printsLandings），而一次**纯 visit** 的行代表笔记本身 ——
+		// 两种情况下悬停都不该点出一个小节，那会是一个它的点击并不兑现的落点。
+		const files = { 'a.md': A_DOC, 'b.md': A_DOC };
+		const pinned = harness([visit('a.md', NOW, { scroll: 6 }), visit('b.md', NOW, { scroll: 6 })],
+			1, files, [], {}, A_HEADINGS, false, {}, prefs({ landings: 'all' }).browser,
+			undefined, ['a.md']);
+		expect(pinned.notes()[0].querySelector('.nav-row-trail')).toBeNull();
+		const plain = harness([visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 0,
+			files, [], {}, A_HEADINGS, false, {}, prefs({ landings: 'all' }).browser,
+			undefined, ['a.md']);
+		const tip = plain.hover(plain.note('a'))!;
+		expect(tip).not.toBeNull();
+		expect(tip.textContent).not.toContain('预览');
 	});
 
 	it('行上印着的坐标本身不参与搜索', () => {
