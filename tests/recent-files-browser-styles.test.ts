@@ -611,6 +611,19 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
+	// 「这一篇里有个叫 X 的小节」那一行（见 TipContent.matched）：与链同档 —— 两者都是这个
+	// 面板派生的话、而不是笔记里的原文 —— 且同样不借引文那道竖线（那个装饰只留给「这些字
+	// 是读者自己写的」，而这里的话是面板的）。
+	it('「命中的小节」与链同档，且不借引文那道竖线', () => {
+		const matched = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-matched\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(matched).not.toBe('');
+		expect(matched).toMatch(/font-size: var\(--font-ui-smaller\)/);
+		expect(matched).toMatch(/overflow-wrap: anywhere/);
+		expect(matched).not.toMatch(/border-inline-start/);
+		const trail = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-trail\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(matched.replace('.nav-tip-matched', '.nav-tip-trail')).toBe(trail);
+	});
+
 	// 引文那一行（.nav-tip-quote）连同它的竖线在 2026-10-03 撤掉了 —— 落点下面那块正文
 	// 随它的搜索面一起没了，于是没有任何东西需要「这些字是读者自己写的」这道装饰。
 	// 锁住它**不再有规则**（注释里还会提到它，那句说的是这道装饰的由来）。

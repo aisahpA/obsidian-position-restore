@@ -3,7 +3,8 @@ import { NavEntry } from '@/nav/entry';
 import { placeKey } from '@/recent-files/places';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
-import { groupByFile, LandingsMode, matchesNavFilter } from './listing';
+import { groupByFile, LandingsMode, matchesNavFilter, matchedHeading } from './listing';
+import type { HeadingRef } from '@/shared/headings';
 import { PathDisplayMode } from '@/types';
 import {
 	NavEntryDescription, ageLabel, badgeOf, displayName, dropsOuterLevel, duplicateNames, folderOf,
@@ -96,6 +97,10 @@ export interface RecentFilesListOptions {
 	// 一个条目的落点所处的标题链，用条目的**索引**发问，好让浏览器为该地点作答，
 	// 而不是为条目单独看起来的样子作答。
 	trailFor: (entry: NavEntry, d: NavEntryDescription, i: number) => string[];
+	// 这一篇笔记的**各个**标题，文档顺序 —— 搜索面用它，而**不是**记在条目上的任何快照：
+	// 现查（metadataCache，缓存没答时经 cachedRead 兜底），所以它永远是最新的，而体积
+	// 与笔记长度无关。见 reads.ts 的 headingsFor。
+	headingsFor: (path: string) => HeadingRef[] | undefined;
 	// 文件的**其它**名字：可搜索、打印在行的 tooltip 上、别处一概不出现
 	// （见 tip.ts）。一个无路径视图没有这些。`printed` 是该行展示的名字，
 	// 它不属于它们之中；两类名字分开返回，因为只有其中一类是 app 所称的
@@ -358,11 +363,11 @@ export class RecentFilesList {
 		this.hovered = undefined;
 
 		const query = this.opts.filter().trim();
-		// 查询按文本收窄：行打印的内容（它的名字，以及落点的节链）加上条目记录的
-		// 内容（引文、一个链接如何到这里）。行打印的文本派生自 vault 的标题缓存，
-		// 所以这个纯谓词把它当作一个参数（见 matchesNavFilter）。一个**未过滤**的
-		// 列表仍会为每个被列出的路径读一次元数据缓存：文件的其它名字可搜索、打印在
-		// 行的 tooltip 上，随行一同准备而不是在悬停时。
+		// 查询按文本收窄：行打印的内容（它的名字，以及落点的节链）加上从 **vault**
+		// 派生的一切（文件的其它名字、**该文件的所有小节**）。后者派生自标题缓存，所以
+		// 这个纯谓词把它当作参数（见 matchesNavFilter）。一个**未过滤**的列表仍会为每个
+		// 被列出的路径读一次元数据缓存：文件��其它名字可搜索、打印在行的 tooltip 上，
+		// 随行一同准备而不是在悬停时 —— 而「所有小节」取自**同一次**读。
 		//
 		// 一行知道的两样东西**不被问及**，且出于同一个理由：两者都不是关于**记录**
 		// 的事实，而是关于读者碰巧在哪。坐标（"L412"）是位置数据库的，在笔记被阅读
@@ -389,6 +394,19 @@ export class RecentFilesList {
 			// listing.ts 的 navSearchText。）
 			return `${d.name ?? ''} ${chain} ${aka.join(' ')}`;
 		};
+		// **这一篇的所有小节**，每行一个，按文档顺序。**只**给文件行走（见 keep）：
+		// 落点行已经印着自己那一节的链，再给它全篇的标题只会让「我这一行是哪儿」答不出来。
+		// 而文件行只代表笔记，所以「这篇笔记里有个叫『定价』的小节」对它是对**这篇笔记**
+		// 的回答，不是对某一处的承诺 —— 那一行在 `landings: 'last' | 'none'` 或只有一处
+		// 地点时也仍然只代表笔记。
+		//
+		// 从不存：现查（`headingsFor`），所以它永远是最新的，而体积与笔记长度无关。
+		// 一篇没有标题的笔记、以及无路径的视图，都没有 —— 那是诚实的「没有」而不是空串
+		//（空串会让每个查询都命中它）。
+		const outlineOf = (i: number): string | undefined => {
+			const entry = this.opts.entries[i];
+			return entry.kind === 'view' ? undefined : this.outlineText(entry.path);
+		};
 		// 究竟**什么**可以被列出：一个文件没了的地点会在归组**之前**被丢掉 ——
 		// 没有行、没有落点、没有任何「你在这里」会为一个打不开的名字而立。一个
 		// **视图**地点被豁免（没有文件会没）。
@@ -396,8 +414,19 @@ export class RecentFilesList {
 			const entry = this.opts.entries[i];
 			return entry.kind === 'view' || this.opts.noteExists(entry.path);
 		};
-		const keep = (i: number) => listed(i)
-			&& (!query || matchesNavFilter(this.opts.entries[i], query, printed(i)));
+		// 每一行拿到的是**它自己那一档**的搜索面：文件行走 `printed` + 全篇小节，
+		// 落点行只走 `printed`（它自己那条链已经在里面了）。
+		const keep = (i: number) => {
+			if (!listed(i))
+				return false;
+			if (!query)
+				return true;
+			const entry = this.opts.entries[i];
+			const isPlace = entry.kind === 'jump';
+			return matchesNavFilter(
+				entry, query, printed(i), isPlace ? undefined : outlineOf(i),
+			);
+		};
 		this.groups = groupByFile(
 			this.opts.entries,
 			this.opts.currentIndex,
@@ -418,7 +447,7 @@ export class RecentFilesList {
 		const doubles = duplicateNames(this.groups.map(g => this.printedName(g)));
 
 		this.groups.forEach((group, index) => {
-			this.fileRow(group, index, doubles);
+			this.fileRow(group, index, doubles, query);
 			for (const i of this.shownLandings(group, index))
 				this.placeRow(i, i === group.currentRep);
 			// 块以一条**线**结束、而不是一个标题：被钉选的行与任何其它行一样，
@@ -497,6 +526,14 @@ export class RecentFilesList {
 		return head?.name ?? displayName(group.path);
 	}
 
+	// 一篇笔记的**各个**标题拼成的一段文字，一行一个（`\n` 分隔，因为标题本身可以含任何字符
+	// 而这只是一次子串匹配）；没有标题时是 undefined。搜索面与 tooltip 都问它，所以同一帧里
+	// 两处读到的是同一份答案。
+	private outlineText(path: string): string | undefined {
+		const titles = this.opts.headingsFor(path);
+		return titles?.length ? titles.map(h => h.heading).join('\n') : undefined;
+	}
+
 	// 一篇**笔记**。名字单元格放**名字**（最后一段路径，不带扩展名，见
 	// displayName），文件不是 markdown 时放类型**徽标**，以及读者所选条件下的
 	// **文件夹**（见 PathDisplayMode）。**时间**立在行的远端、自成一条轨道，所以
@@ -506,6 +543,9 @@ export class RecentFilesList {
 		group: ReturnType<typeof groupByFile>[number],
 		index: number,
 		doubles: Set<string>,
+		// 生效中的查询。这一行用它说出「这篇笔记里被命中的那个小节」（见下面）——
+		// 文件行是唯一走全篇标题的那一档（见 render 的 keep），所以也只有它需要这句话。
+		query: string,
 	): number {
 		const rep = this.groupRep(group);
 		const repEntry = rep === undefined ? undefined : this.opts.entries[rep];
@@ -603,6 +643,19 @@ export class RecentFilesList {
 			tip.frontTitle = `${t('recentFiles.title')} ${other.frontTitle}`;
 		if (other?.aliases.length)
 			tip.text = `${t('recentFiles.aliases')} ${other.aliases.join(' · ')}`;
+		// **这一篇里被查询命中的那个小节**（若有）。它是「搜一个标题词而落点不在那一节」
+		// 那一档唯一的自证 —— 命中是**关于这篇笔记**的，而这一行只代表笔记。
+		// 只在**文件行**说：落点行印的已经是它自己那一节的链，而它自己的 key 就在 haystack
+		// 里，所以它从不靠全篇的标题活过过滤（见 render 的 keep）。
+		//
+		// 与 `trail` 的去重比的是**最深那一层**，不是整条链：链是「面板设计 › 呈现方案 › 预览」，
+		// 命中的标题是「预览」—— 那是同一节，说两遍就是噪音。上面那个分支还没跑，所以这里
+		// 拿不到 `trail`；判重交给它（它在链条已定之后再问一次）。
+		if (query && group.path) {
+			const hit = matchedHeading(this.outlineText(group.path), query);
+			if (hit)
+				tip.matched = hit;
+		}
 		// 当这一行**就是**该笔记的某个地点时（一篇只有一个地点的笔记，或设置不打印
 		// 落点时的任意笔记）：点击去那里（见 activeRep），所以该行必须能说出那个
 		// 位置是什么 —— 包括它**在哪个节**，因为在 `recentFilesLandings: 'last' | 'none'`
@@ -614,14 +667,19 @@ export class RecentFilesList {
 			const spot = this.opts.entries[at];
 			if (spot?.kind === 'jump') {
 				const chain = this.opts.trailFor(spot, this.opts.describe(at), at);
-				if (chain.length)
+				if (chain.length) {
 					tip.trail = chainText(chain);
+					// 这一行所在的那一节**就是**命中的那一个时，`matched` 没有新的话可说 ——
+					// 链已经说了，而重复一遍只是噪音。
+					if (tip.matched === chain[chain.length - 1])
+						tip.matched = undefined;
+				}
 				const note = this.landingNote(spot, this.opts.describe(at), at);
 				if (note)
 					tip.note = note;
 			}
 		}
-		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.note)
+		if (tip.path || tip.text || tip.frontTitle || tip.trail || tip.matched || tip.note)
 			this.tip.attach(row, tip);
 		// **行自己的移除**。它在**这里**而不是在行的菜单里，因为那个菜单是 **app**
 		// 的文件菜单、只有文件才有这样一个 —— 一个无路径视图行永远得不到它。它的事件

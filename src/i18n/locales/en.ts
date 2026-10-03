@@ -247,6 +247,9 @@ export const en = {
 	// 挂在它们下面那句是面板自己的话（面板自己的处境）：挪得回去的标题它已经在
 	// 画出来之前挪回去了，轮不到读者动手；剩下要说的就是挪不回去的那一档——
 	// 改过之后这个标题不在笔记里了，这一行指向的那一处也就无处可去。
+	// 「这一篇里有个叫 X 的小节」—— see the zh locale for why the label is a
+	// property-like word rather than a sentence.
+	'recentFiles.matchedHeading': 'section:',
 	'recentFiles.lostLanding': "Can't find this heading since the note was edited",
 	'recentFiles.openInNewTab': 'Open in new tab',
 	'recentFiles.openHereInNewTab': 'Open here in a new tab',

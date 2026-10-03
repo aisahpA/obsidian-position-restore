@@ -256,6 +256,10 @@ export class RecentFilesBrowser {
 			// 地点；这里只是列表在认同。
 			noteExists: path => this.reads.hasFile(path),
 			trailFor: (entry, d, i) => this.trailFor(entry, d, i),
+			// 这一篇的**各个**标题，搜索面用它（只有文件行走这条，见 render 的 keep）。
+			// 现查、不存：metadataCache 没答时经 cachedRead 兜底（见 reads.ts），
+			// 所以它永远是最新的，而体积与笔记长度无关。
+			headingsFor: path => this.reads.headingsFor(path),
 			// 这一行的落点是否**丢了**它所命名的标题（见 landingLost）：一个答案，由那**唯一**
 			// 一个已经问过行号现在何处的方面给出，好让一行的词、它所警告的东西、以及它去往
 			// 何处不能互相不一致。

@@ -713,12 +713,12 @@ describe('RecentFilesModal —— 当前位置', () => {
 			.toBe(t('recentFiles.noMatch'));
 	});
 
-	it('某次访问恰好待在某个小节里，并不因此就被搜到', () => {
+	it('某次访问恰好待在某个小节里，那条链不参与搜索 —— 但那一节的名字参与', () => {
 		// **一次 visit 不是一个地点**。它带的那一行是位置库上次看见笔记时的样子，而笔记
-		// 被读着的时候它会动 —— 所以从那一行读出的链是关于这一分钟的事实，而不是关于这条
-		// 记录的事实。一个现在答「是」、读者滚动后答「不」的查询是不可信的搜索框，所以
-		// 这条链既不搜也不说：这一行讲的是那篇**笔记**，点它会按普通方式打开，并让位置库
-		// 决定它落在哪里。`saved` 就是那个库的答案 —— 也是 visit 之所以有一行的唯一原因。
+		// 被读着的时候它会动 —— 所以从**那一行**读出的链是关于这一分钟的事实，而不是关于
+		// 这条记录的事实。一个现在答「是」、读者滚动后答「不」的查询是不可信的搜索框。
+		// 但**这一篇有哪些小节**是关于这篇笔记的事实，与读者此刻站在哪儿无关（而它现查，
+		// 不存任何快照）—— 所以它参与搜索，且由 tooltip 说出命中的是哪一个。
 		const h = harness(
 			[visit('a.md', NOW), visit('plain.md', NOW - MINUTE)], 0,
 			{ 'a.md': A_DOC, 'plain.md': '' }, [], {}, A_HEADINGS, false, {}, undefined,
@@ -727,22 +727,30 @@ describe('RecentFilesModal —— 当前位置', () => {
 		// 这一行**不印**链 —— 它代表的是那篇笔记，而它上面的一条链会许下一个它的点击
 		// 并不兑现的落点。
 		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
-		const tip = h.hover(h.note('a'))!;
-		expect(tip).not.toBeNull();
-		// 它的悬停也**不点出小节**：同上，一次 visit 的链是关于这一分钟的，不是关于这条
-		// 记录的事实（activeRep 是 visit 时连落点都不是，见 fileRow）。
-		expect(tip.textContent).not.toContain('预览');
-		h.unhover(h.note('a'));
 
-		// ……而这一行确实身处其下的那个标题也不是一条进路：查询什么都找不到。
+		// 搜那一节的名字：**找得到**这一篇（它确实有个叫「预览」的小节），而 tooltip
+		// 说出命中的是哪一个 —— 它不在这一行所在的任何位置上。
 		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 		box.value = '预览';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent))
+			.toEqual(['a']);
+		const tip = h.hover(h.note('a'))!;
+		expect(tip.textContent).toContain(t('recentFiles.matchedHeading'));
+		expect(tip.textContent).toContain('预览');
+		// 而它仍**不**印链、也不引原文：这一行讲的是那篇笔记。
+		expect(h.note('a').querySelector('.nav-row-trail')).toBeNull();
+
+		// 一个这篇笔记**没有**的小节仍然找不到 —— 全篇标题不是万能的。
+		h.unhover(h.note('a'));
+		box.value = '不存在的一节';
 		box.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(h.notes()).toHaveLength(0);
 		expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
 			.toBe(t('recentFiles.noMatch'));
 
-		// **一个 jump 照样靠它的小节被找到** —— 那个收窄只针对 visit、且只针对 visit。
+		// **一个 jump 靠它自己那一节的链被找到** —— 那条链进的是 `printed`，而全篇标题
+		// 只给文件行（见 render 的 keep）。
 		// 一个 jump 命名了它所去往的标题：那是关于这条记录的事实，是落点行所印的东西，
 		// 而在 'last' 下它就是一篇笔记据以被找到的那个看不见的索引（见 LandingsMode）。
 		const jump = harness([visit('a.md', NOW, { scroll: 6 })], 0, { 'a.md': A_DOC },
@@ -2142,8 +2150,62 @@ it('笔记行本身就代表那个地点时，在这一行上说出那个地点�
 	expect(tip).not.toBeNull();
 	expect(tip.querySelector('.nav-tip-trail')?.textContent)
 		.toBe('面板设计 › 呈现方案 › 预览');
+	// ⚠️ **那一行是某个 jump 落点的文件行**，所以它是**两档**都走的：自己那一节的链（`trail`）
+	// 与全篇标题（`outline`）。而这里命中的小节**正是它所在那一节** —— 于是 `matched` 不
+	// 重复说一遍（链已经说了）。这一行是这个形状下唯一「点下去兑现一个落点」的行。
+	expect(tip.querySelector('.nav-tip-matched')).toBeNull();
 	// 那个引文槽位没有了。
 	expect(document.querySelectorAll('.nav-tip-quote')).toHaveLength(0);
+});
+
+it('落点行**不给**全篇标题：它只靠自己那一节的链', () => {
+	// 这一条是**第三档**那条规则本身（见 render 的 keep）：全篇标题只给**文件行**，而这里的
+	// 那一行是某个 jump 落点（它的 key 是「预览」）—— 所以搜同一篇里**别处**的「尾巴」
+	// 找不到它。给出全篇标题对落点行是有害的：它印的已经是自己那一节的链，再让全篇的
+	// 标题也能把它捞出来，「我这一行是哪儿」就答不出来了。
+	const entries = [
+		landing('a.md', NOW - MINUTE, '### 预览', 4, 0),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 1, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' },
+		[], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+
+	// 搜它**自己**那一节 —— 靠 key 命中（那是记录自己的东西），找得到。
+	box.value = '预览';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['a']);
+	// 而同一个全篇标题里的**别处**那一节找不到：落点行不给全篇标题。
+	h.unhover(h.note('a'));
+	box.value = '尾巴';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	expect(h.notes()).toHaveLength(0);
+	expect(h.el.querySelector('.position-restore-nav-empty')?.textContent)
+		.toBe(t('recentFiles.noMatch'));
+});
+
+it('这一行是某个 jump 落点的文件行时，两档都走：自己那一节的链 + 全篇标题', () => {
+	// 主人定的三档里最微妙的一种形状：`landings: 'last' | 'none'`（或只有一处地点）时
+	// 落点行不画，于是**一个 jump 落点被画成了文件行**。那一行两档都走 ——
+	// `trail` 说它所在的那一节（点下去兑现的就是那儿），`matched` 说查询命中的是哪一个。
+	// 而当命中的**就是**它所在那一节时，`matched` 保持沉默：链已经说了。
+	const entries = [
+		landing('a.md', NOW - 2 * MINUTE, '### 预览', 4, 0),
+		// 第二处地点隔得够远（'尾巴' 在第 33 行），所以 printsLandings 为假 ⇒ 落点行不画。
+		landing('a.md', NOW - MINUTE, '## 尾巴', 33, 0),
+		visit('b.md', NOW),
+	];
+	const h = harnessAll(entries, 2, { 'a.md': SPREAD_DOC.join('\n'), 'b.md': '' },
+		[], {}, SPREAD_HEADINGS);
+	const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+
+	// 搜「尾巴」—— 命中的是**这一行所在**的那一节（它就是那条记录）⇒ 只说链。
+	box.value = '尾巴';
+	box.dispatchEvent(new Event('input', { bubbles: true }));
+	expect(h.rows().filter(r => r.classList.contains('is-place'))).toHaveLength(0);
+	const tip = h.hover(h.note('a'))!;
+	expect(tip.querySelector('.nav-tip-trail')?.textContent).toBe('面板设计 › 尾巴');
+	expect(tip.querySelector('.nav-tip-matched')).toBeNull();
 });
 
 it('笔记行代表的是文件本身时，这一行什么都不说', () => {

@@ -8,7 +8,7 @@ import {
 	badgeOf, displayName,
 	duplicateNames, folderOf, pathLabel, ageLabel, ageOf, newestStamp,
 } from '@/recent-files/browser/model';
-import { groupByFile, matchesNavFilter, navSearchText } from '@/recent-files/browser/listing';
+import { groupByFile, matchedHeading, matchesNavFilter, navSearchText } from '@/recent-files/browser/listing';
 import { revealDelta } from '@/recent-files/browser/list';
 import { headingTrailAtLine, headingsFromText } from '@/shared/headings';
 import { t } from '@/i18n';
@@ -502,6 +502,21 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(link, '安装步骤')).toBe(true);
 	});
 
+	it('全篇标题是**调用方**给的第四个参数，不在条目自己的文字里', () => {
+		// 这是「这一篇里有个叫『定价』的小节」那档搜索面：它现查自标题缓存（体积与笔记长度
+		// 无关、永远是最新的），而 navSearchText 是只看得见条目自己的纯函数。
+		const e = visit('notes/a.md');
+		expect(matchesNavFilter(e, '定价')).toBe(false);
+		expect(matchesNavFilter(e, '定价', undefined, '背景\n定价策略\n落地')).toBe(true);
+		// 而 AND 的口径不变：每一个词都得在**某一处**命中。
+		expect(matchesNavFilter(e, '定价 落地', undefined, '背景\n定价策略\n落地')).toBe(true);
+		expect(matchesNavFilter(e, '定价 结算', undefined, '背景\n定价策略\n落地')).toBe(false);
+		// 这个纯谓词**不**判断调用方该不该给全篇标题（那是 list.ts 的 outlineOf 的责任）：
+		// 它拿到的就是 haystack 的一部分。视图那一档由 outlineOf 直接给 undefined。
+		const view = { kind: 'view', leafId: 'leaf-1', viewType: 'graph' } as NavEntry;
+		expect(matchesNavFilter(view, 'graph', undefined, undefined)).toBe(true);
+	});
+
 	it('重映射锚点不进搜索面', () => {
 		// `st.anchor` 记的是采集那一刻**视口顶行**的文本：窗口高度与滚动位置一变，
 		// 同一个落点的它就换一句（换台设备更是必然不同），而且它常常落在标题**之上**、
@@ -521,6 +536,38 @@ describe('matchesNavFilter', () => {
 		expect(matchesNavFilter(e, '1730000000000')).toBe(false);
 	});
 
+});
+
+describe('matchedHeading —— 命中的���是哪一个标题', () => {
+	// 「这一篇里有个叫『定价』的小节」这句话的答案。它答不出时调用方必须**什么都不说** ——
+	// 一行可能靠名字、path、别名或它所在的那一节匹配上，而那些每一个都已经印在行上或一次
+	// 悬停就能看到。
+	const outline = '面板设计\n呈现方案\n预览\n尾巴';
+
+	it('就是容得下整个查询的那一个标题', () => {
+		expect(matchedHeading(outline, '预览')).toBe('预览');
+		// 一个站住一个标题上的短语，那是读者通常打的东西。
+		expect(matchedHeading(outline, '呈现 预览')).toBe('呈现方案');
+	});
+
+	it('几个词散落在不同标题里时，退回第一个词所在的那一个', () => {
+		// 过滤器是拿拼起来的整块匹配的（见 matchesNavFilter），所以没有哪个标题携带整个
+		// 查询 —— 而一个那时什么都不说的行，会是一个靠魔法匹配上的行。
+		expect(matchedHeading(outline, '预览 尾巴')).toBe('预览');
+	});
+
+	it('没有标题、没有查询、或那个词不在任何标题里时都是 undefined', () => {
+		expect(matchedHeading(undefined, '预览')).toBeUndefined();
+		expect(matchedHeading(outline, '')).toBeUndefined();
+		expect(matchedHeading(outline, '   ')).toBeUndefined();
+		expect(matchedHeading(outline, '没写过的词')).toBeUndefined();
+		// 一行靠它的**名字**匹配上、而那个词恰好不是任何标题 —— 保持沉默比编一句强。
+		expect(matchedHeading('', 'Alpha')).toBeUndefined();
+	});
+
+	it('不分大小写，跟匹配它的那个筛选一致', () => {
+		expect(matchedHeading('Alpha Beta\nGamma', 'ALPHA')).toBe('Alpha Beta');
+	});
 });
 
 describe('folderOf / duplicateNames', () => {

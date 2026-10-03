@@ -1210,6 +1210,17 @@ body.is-mobile .position-restore-cue {
 	overflow-wrap: anywhere;
 }
 
+/* 「这一篇里有个叫 X 的小节」（见 TipContent.matched）：搜索命中的**不是**这一行所在的
+   那一节。与上面那行同档，因为它同样是这个面板派生的一句话、而不是笔记的原话；同样不加
+   竖线（那个装饰只留给「这些字是读者自己写的」，而这里的话是面板的）。它排在链之后，
+   因为链是这一行**所在**的节、是一个位置的承诺，而这一行是别处的一个标题。 */
+.position-restore-nav-tip .nav-tip-matched {
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
+	overflow-wrap: anywhere;
+}
+
 /* 悬停就着那一行说出的「笔记后来变了没有」（见 TipContent.note）。它是这个面板在就
    笔记的话发言，读者得能一眼把它与笔记自己的文字分清 —— 所以比链更淡、且不加任何装饰
    线。这条竖线（2026-10-03 撤）当初是留给引文的：引文已经从搜索面撤掉，而竖线在这

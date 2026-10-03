@@ -1,4 +1,5 @@
 import { TIP_DELAY_MS, TIP_GAP_PX } from './constants';
+import { t } from '@/i18n';
 
 // 一行在悬停时说什么，以及说它的那个元素。
 //
@@ -29,6 +30,14 @@ export interface TipContent {
 	// 在这里是兑现的承诺；一句按标题词的搜索得到的正是这样一行，链是它唯一能说出
 	// 「我为什么在列表上」的地方。
 	trail?: string;
+	// 「这一篇里有个叫 X 的小节」—— 查询命中的**不是**这一行所在的那一节，而是同一篇笔记
+	// 里别处的一个标题。只在**文件行**上出现，因为文件行只代表笔记：那是关于这篇笔记的
+	// 回答，不是一个关于「哪一处」的承诺（而落点行从不靠全篇的标题活过过滤，见
+	// RecentFilesList.render 的 keep）。
+	//
+	// 引导词是面板自己的话（`recentFiles.matchedHeading`），因为这不是笔记里的一句原文，
+	// 而是这个面板对「我为什么在列表上」的说明。
+	matched?: string;
 	// 关于笔记的、而**不是**从笔记里来的那一行：这些词被记下之后文件有没有被写过
 	//（见 landingNote）。它是这个面板的话、不是笔记的原话，而读者必须能一眼把两者
 	// 分清 —— 所以它比任何一行都淡（见 nav-tip-note）。
@@ -231,6 +240,10 @@ export class NavRowTip {
 		// （这一行自己的承诺），而下面那行讲的是「那个地方后来变了没有」。
 		if (content.trail)
 			el.createDiv({ cls: 'nav-tip-trail', text: content.trail });
+		// 「这一篇里有个叫 X 的小节」排在链**之后**：链是这一行**所在**的节（一个位置的
+		// 承诺），而这一行是同一篇笔记里**别处**的一个标题（一个这篇笔记的说明）。
+		if (content.matched)
+			el.createDiv({ cls: 'nav-tip-matched', text: `${t('recentFiles.matchedHeading')} ${content.matched}` });
 		// 关于笔记的那一行放**最后**：它讲的是上面那些词，而它本身是面板的话。
 		if (content.note)
 			el.createDiv({ cls: 'nav-tip-note', text: content.note });
