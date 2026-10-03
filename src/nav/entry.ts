@@ -112,7 +112,7 @@ export function pruneViewSnapshot(entry: NavEntry): void {
 		delete view.label;
 }
 
-// CALLER 目标：读者已经在那篇笔记里时的一次搜索命中或反向链接命中 —— core 把这���目标当作一个
+// CALLER 目标：读者已经在那篇笔记里时的一次搜索命中或反向链接命中 —— core 把这种目标当作一个
 // ephemeral state 交出来，而不是一个链接，所以它既没有锚点名字也不带 linktext，
 // restore/patcher.ts 就用 `caller:<毫秒>` 作 key，好把两次点击区分开。
 //
