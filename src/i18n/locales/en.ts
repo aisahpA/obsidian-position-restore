@@ -1,4 +1,5 @@
 export const en = {
+	// ═══ Position record ═══ what is kept, how it comes back, where it lives
 	'lastPosition.heading': 'Last position',
 	'lastPosition.intro':
 		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top first, no jump afterwards. Positions are kept in a JSON file inside the vault, by default in the plugin folder — Obsidian Sync does not carry it from there, so to take your positions to another device, point the path inside the vault (under Data storage below).',
@@ -115,12 +116,14 @@ export const en = {
 	'dataStorage.entries.atDefault':
 		'Of these, {0} sit at the default position (the first line after the frontmatter) and hold no actual position.',
 
+	// ═══ Hotkeys ═══ one row, needed by both pages
 	'hotkeys.name': 'Hotkeys',
 	'hotkeys.unbound': 'Not bound',
 	'hotkeys.hint': 'To bind one: use the keyboard button on this row to open Settings → Hotkeys. A bound key only fires from a physical keyboard.',
 	'hotkeys.open': 'Open hotkey settings',
 	'hotkeys.openFailed': 'Could not open the hotkey settings. Go to Settings → Hotkeys and find this plugin\'s commands there.',
 
+	// ═══ Back and forward ═══ the navigation stack
 	'navHistory.heading': 'Back and forward',
 	'navHistory.intro':
 		'VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one — a link, the outline, a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
@@ -135,9 +138,11 @@ export const en = {
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 
+	// ═══ The two ends of a note ═══ a place to go to, not a way to move
 	'noteEdge.commands.top': 'Go to top of note',
 	'noteEdge.commands.bottom': 'Go to bottom of note',
 
+	// ═══ Recent files ═══ a list of places, and its panel
 	'recentFiles.name': 'Recent files',
 
 	'recentFiles.intro':
@@ -211,6 +216,7 @@ export const en = {
 	'recentFiles.noMatch': 'No matching entry.',
 	'recentFiles.empty': 'Nowhere to go.',
 
+	// ═══ Hover preview ═══ where the note opens
 	'previewFocus.recentFiles.name': 'Where a preview opens the note',
 	'previewFocus.recentFiles.desc':
 		'The spot the app\'s own preview opens a hovered row\'s note at: its top, the way every list the app itself ships opens one, or the line you were last reading it at. Naming a line costs a wait — the note is drawn whole first and only then moved to it, so on a long note the card stands empty and then jumps. A row standing for a place in a note opens at that place either way.',
