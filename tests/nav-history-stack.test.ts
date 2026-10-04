@@ -934,6 +934,27 @@ describe('NavStack.navigate', () => {
 		expect(state.pendingLineFlash).toBeUndefined();
 	});
 
+	it('一次改道的前往落在它印出的那一节上，并标出那一行', async () => {
+		// 搜索命中某一节而改道的那一档（见 list.ts 的 HeadingHit）：这一条记录是**凭空**造
+		// 出来的，它没有「落定」可读 —— 撑开落点吸收窗口的是大纲点击那个采集点，这条路径从
+		// 没经过它。所以落点必须由记录自己说出：光有 keyLine 的话，施加落点的那一套会一路
+		// 回落到位置数据库保存的阅读位置，也就是改道要绕开的那个地方。
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.places.travelToHeading('a.md', 'One', 60, 'leaf-1');
+
+		// 笔记停在被点名的那一行，光标在行首 —— 与点大纲面板里的同一个标题一模一样。
+		expect(h.applied[0]).toMatchObject({ scroll: 60, cursor: { from: { line: 60, ch: 0 } } });
+		// ……而那一行被标出来：这一行印着「小节：One」，不标就等于没兑现。
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+	});
+
 	it('没有点名任何行的步，什么都不标', async () => {
 		// 一个步记的是阅读位置，不是标题，所以没有行可标，而它记下的光标原样
 		// 一路带过去。

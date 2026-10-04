@@ -11,7 +11,9 @@ import { App, TFile } from 'obsidian';
 
 import { NavPlaces, placeKey } from '@/recent-files/places';
 import { RECENT_PLACES_VERSION } from '@/recent-files/places-store';
-import { NavEntry, NavJump, NavTeleport, NavVisit } from '@/nav/entry';
+import {
+	landedLine, NavEntry, NavJump, NavTeleport, NavVisit,
+} from '@/nav/entry';
 import { DEFAULT_SETTINGS, NavEntryState, PluginSettings } from '@/types';
 
 const STORAGE_KEY = 'position-restore:nav-recent:test-vault';
@@ -46,14 +48,20 @@ function makeSettings(over: Partial<PluginSettings> = {}): PluginSettings {
 	return { ...DEFAULT_SETTINGS, ...over } as PluginSettings;
 }
 
-// 打开流水线，缩微版：一次前往索要了什么，以及它们的次序。
+// 打开流水线，缩微版：一次前往索要了什么，以及它们的次序。`jumps` 留下被交出去的那**整条**
+// 记录 —— 一次前往落在哪是由记录自己说的，光看身份看不出来。
 function openers() {
 	const calls: string[] = [];
+	const jumps: NavEntry[] = [];
 	return {
 		calls,
+		jumps,
 		open: {
 			openFile: async (path: string, leafId: string) => { calls.push(`file:${path}@${leafId}`); },
-			openJump: async (entry: NavEntry) => { calls.push(`jump:${placeKey(entry)}`); },
+			openJump: async (entry: NavEntry) => {
+				calls.push(`jump:${placeKey(entry)}`);
+				jumps.push(entry);
+			},
 			openView: async (entry: NavEntry) => { calls.push(`view:${placeKey(entry)}`); },
 		},
 	};
@@ -67,7 +75,7 @@ function makePlaces(settings: Partial<PluginSettings> = {}, app = makeApp()) {
 	const places = new NavPlaces(app, makeSettings({ recentFilesLandings: 'last', ...settings }));
 	const opened = openers();
 	places.attach(opened.open);
-	return { places, calls: opened.calls, app };
+	return { places, calls: opened.calls, jumps: opened.jumps, app };
 }
 
 const visit = (path: string, leafId = 'leaf-1'): NavVisit =>
@@ -793,6 +801,39 @@ describe('NavPlaces —— 前进后退按记录所说的走', () => {
 		const { places, calls } = makePlaces();
 		await places.travel(7);
 		expect(calls).toEqual([]);
+	});
+});
+
+// 一次**改道**的交割（见 list.ts 的 HeadingHit）：这一行印着「小节：X」，所以这次前往必须
+// 落在 X 上。它是这条链路里唯一一处「行上的字与点击的去处必须一致」的硬契约 —— 而恰恰是
+// 这一处最容易只在 key 上说、忘了在落点上说。
+describe('NavPlaces.travelToHeading —— 改道落在它自己印出的那一节上', () => {
+	it('造出的那一步把那一节作为**落点**，而不只是作为 key', async () => {
+		const { places, jumps } = makePlaces();
+		await places.travelToHeading('a.md', '预览', 12, 'leaf-1');
+
+		expect(jumps).toHaveLength(1);
+		const place = jumps[0] as NavJump;
+		expect(place.key).toBe('outline:预览');
+		// 身份：与点大纲面板的同一个标题是同一个地点（placeKey 会把两种 key 形式规范到一起）。
+		expect(placeKey(place)).toBe(placeKey(jump('a.md', 'outline:## 预览')));
+		// 落点：这一步落在第几行由 **`st`** 答出，不是由 keyLine —— 施加一次跳转的那一套
+		// （stack.ts 的 landingOf / armLandingMark）读的是 `st`。少了它，这次前往会一路回落
+		// 到位置数据库保存的阅读位置，也就是改道要绕开的那个地方。
+		expect(landedLine(place)).toBe(12);
+		expect(place.st).toEqual({
+			scroll: 12,
+			cursor: { from: { line: 12, ch: 0 }, to: { line: 12, ch: 0 } },
+		});
+	});
+
+	it('一个负数行号先被夹住 —— 这一行不会把读者带到一个不存在的行', async () => {
+		const { places, jumps } = makePlaces();
+		await places.travelToHeading('a.md', '预览', -3, 'leaf-1');
+
+		const place = jumps[0] as NavJump;
+		expect(place.keyLine).toBe(0);
+		expect(place.st?.scroll).toBe(0);
 	});
 });
 

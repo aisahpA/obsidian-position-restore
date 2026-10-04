@@ -4,7 +4,7 @@ import {
 	isBlockKey, isCallerKey, landedLine, NavEntry, NavJump, NewNavEntry, navGroupKey,
 } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
-import { normAnchor } from '@/position/capture/ephemeral';
+import { caretAtLine, normAnchor } from '@/position/capture/ephemeral';
 import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
 import { loadNavPlaces, persistNavPlaces } from './places-store';
 
@@ -603,13 +603,24 @@ export class NavPlaces implements PlaceList {
 		leafId: string,
 		target?: PaneTarget,
 	): Promise<void> {
+		const at = Math.max(0, line);
 		const place: NavJump = {
 			kind: 'jump',
 			path,
 			key: `outline:${heading}`,
 			// 落点就是那一节**此刻**所在的行：它是现查得来的（见 reads.ts 的
 			// headingsFor），所以这一步不必等落定来校准（见 landedLine 的次序）。
-			keyLine: line,
+			keyLine: at,
+			// ……而这一处**必须**由 `st` 说出，光有 keyLine 不够：施加一次跳转的那一套读的
+			// 是 `st`（stack.ts 的 landingOf / armLandingMark），而一个没有 `st` 的跳转会
+			// 一路回落到位置数据库保存的阅读位置（patcher.ts 的 `navLanding ??
+			// store.read(...)`、appliedLanding 的同一处兜底）—— 那恰恰是这一次前往要绕开的
+			// 地方：改道若落到读者上次读到的地方，这一行印着的那个小节就是一句空话。
+			//
+			// 光标落在该行行首，与点大纲面板的标题落在那里的方式一样（见 landingOf），
+			// 而 `st` 在这里现造而不是等落定，是因为这一次前往**没有**落定可读：撑开落点
+			// 吸收窗口的是大纲点击那个采集点（outline-capture.ts），这条路径没有经过它。
+			st: caretAtLine({ scroll: at }, at),
 			leafId,
 			t: Date.now(),
 		};
