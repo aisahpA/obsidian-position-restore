@@ -12,7 +12,8 @@ import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
 import { Menu } from './support/obsidian-stub';
 
 import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
-import type { RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { RecentFilesBrowserArrows } from '@/recent-files/browser/arrows';
 import type { PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import type { PaneTarget } from '@/nav/pane';

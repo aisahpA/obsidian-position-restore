@@ -13,7 +13,8 @@ import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';
-import { RecentFilesBrowser, RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import type { RecentFilesBrowserArrows } from './arrows';
 
 export class RecentFilesModal extends Modal {
 	// 工具栏、行与键盘。

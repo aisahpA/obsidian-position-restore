@@ -12,10 +12,8 @@ import { NavFunnel } from '@/nav/funnel';
 import { NavStack } from '@/nav-history/stack';
 import { NavPlaces } from '@/recent-files/places';
 import { RecentFilesModal } from '@/recent-files/browser/modal';
-import type {
-	RecentFilesBrowserArrows,
-	RecentFilesBrowserPrefs,
-} from '@/recent-files/browser/body';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { RecentFilesBrowserArrows } from '@/recent-files/browser/arrows';
 import {
 	RECENT_FILES_VIEW_TYPE,
 	RecentFilesView,

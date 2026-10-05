@@ -18,7 +18,8 @@ import { navGroupKey } from '@/nav/entry';
 import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { RecentFilesBrowser, RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import type { RecentFilesBrowserArrows } from './arrows';
 import { NAV_SOURCE_ID, PANEL_EXIT_GRACE_MS } from './constants';
 
 // 它也是面板在 app 悬停预览体系里应答用的名字（见 constants.ts 的 NAV_SOURCE_ID）：

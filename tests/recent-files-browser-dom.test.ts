@@ -11,10 +11,8 @@ import { Menu } from './support/obsidian-stub';
 import type { HoverParent } from 'obsidian';
 
 import { RecentFilesModal } from '@/recent-files/browser/modal';
-import type {
-	RecentFilesBrowserArrows,
-	RecentFilesBrowserPrefs,
-} from '@/recent-files/browser/body';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { RecentFilesBrowserArrows } from '@/recent-files/browser/arrows';
 import type { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import { ageLabel } from '@/recent-files/browser/model';

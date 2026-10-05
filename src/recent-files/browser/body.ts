@@ -7,59 +7,20 @@
 // render() 被调用那一刻所持有的东西，而它唯一能说回去的，是一行**可以**被要求的两件事
 // —— 去那里，以及走开。
 
-import { App, EventRef, HoverParent, Menu, MenuPositionDef, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
-import { NavEntry, navGroupKey } from '@/nav/entry';
+import { App, EventRef, Menu, MenuPositionDef, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
+import { navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { PlaceList } from '@/recent-files/places';
 import { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { t } from '@/i18n';
-import { headingTrailAtLine } from '@/shared/headings';
 import { RecentFilesReads } from './reads';
 import { HeadingHit, RecentFilesList, RecentFilesListOptions } from './list';
-import { PreviewSettle } from './hover-settle';
-import { LATE_READ_REDRAW_MS, NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
+import { ArrowBar, type RecentFilesBrowserArrows } from './arrows';
+import { RowPreview } from './row-preview';
+import { LATE_READ_REDRAW_MS, TIME_REFRESH_MS } from './constants';
 
 // 列表元素 id 用的每体序号。
 let browserSeq = 0;
-
-// 一个无法在 linktext 里行走的标题：这些字符每一个都会被读作链接语法、而不是节名的一部分 ——
-// `#` 与 `^` 开一个子路径，`|` 开一个别名，`[` 与 `]` 开链接。
-const UNTRAVELABLE = /[#^|[\]]/;
-
-// **一个箭头**，而四个是这样：两个走读者自己的步，两个去往他们正站在其中的那篇笔记的
-// 两端。
-type ArrowAct = 'back' | 'forward' | 'top' | 'bottom';
-
-// **两个胶囊、而不是四个一行**：两对是不同的东西，而立在列表上方的四个箭头读起来像
-// 四种滚动那张列表的方式 —— 那正是它们绝不能被误认为的东西。两者之间的那道空隙，
-// 就是全部的区别所在。
-const ARROW_GROUPS: readonly (readonly [ArrowAct, ArrowAct])[] = [
-	['back', 'forward'],
-	['top', 'bottom'],
-];
-
-// 箭头到线、而不是光秃秃的箭头：展示给读者的那个字形，其箭杆**终止于一条线**上，
-// 而那正是一篇笔记的一端。一个尖角号（chevron）主张的是相反的事 —— 一步，朝着它
-// 所指的方向。
-const ARROW_ICON: Record<ArrowAct, string> = {
-	back: 'arrow-left',
-	forward: 'arrow-right',
-	top: 'arrow-up-to-line',
-	bottom: 'arrow-down-to-line',
-};
-
-// 一个按钮**叫**什么，借用自这四个所运行的命令：命令面板上与按钮上是同样的词，也是
-// 面板里唯一说出其中两个去往**谁的**端的地方（"top of note" —— 笔记的端，不是这份列表的）。
-const ARROW_NAME: Record<ArrowAct, Parameters<typeof t>[0]> = {
-	back: 'navHistory.commands.navigateBack',
-	forward: 'navHistory.commands.navigateForward',
-	top: 'noteEdge.commands.top',
-	bottom: 'noteEdge.commands.bottom',
-};
-
-// 加在 app 为这个面板打开的那张卡片上、别处一概不加：popover 是 core 的对象、由 core 自己的
-// 规则绘制，而这个面板关于它外观唯一说的话就是**它立在哪**。
-const PREVIEW_CLASS = 'position-restore-nav-preview';
 
 // 浏览器**据以绘制的**偏好，由持久化它们的插件交给每个 shell。全部都是**读取器**而不是值：
 // 常驻面板在 render 期间的一次调用里画出它的列表，所以别处做出的一次改动会被下一次重画拾取，
@@ -80,25 +41,6 @@ export interface RecentFilesBrowserPrefs {
 	// 一行的预览**在笔记的哪里**打开（见 PreviewFocusMode）。每次悬停读、而不是每次重画读：
 	// 它不命名任何被绘制的东西，而它决定一次悬停究竟是否非得去寻找那篇笔记的行号。
 	previewFocus: () => PreviewFocusMode;
-}
-
-// **箭头所承载的四个动作**，以及每一个是否能做。body 不持有任何历史、也不持有自己的笔记
-// —— 栈的两端、以及立在它们之下的那篇笔记，都是插件的 —— 所以 shell 把动作交下来、
-// body 只发问，而正是这个让一个什么都不会做的按钮变灰（见 refreshArrows）。
-//
-// **每个 shell 都画出它们**，没有被关掉的开关：列表脚下的四个按钮不花列表任何东西
-// （它们不是行，也不随任何东西滚动），而一个没有键盘的读者没有其它办法要求这四个中的
-// 任何一个。一个动作可以**是异步的** —— 一步打开一篇笔记并等它 —— 而这个 promise
-// 是 body 再次发问的信号（见 pressArrow）。
-export interface RecentFilesBrowserArrows {
-	back: () => void | Promise<void>;
-	forward: () => void | Promise<void>;
-	top: () => void | Promise<void>;
-	bottom: () => void | Promise<void>;
-	canBack: () => boolean;
-	canForward: () => boolean;
-	// 是否有一篇笔记打开着、可供那两端作用。
-	canEdge: () => boolean;
 }
 
 export interface RecentFilesBrowserOptions {
@@ -140,20 +82,17 @@ export class RecentFilesBrowser {
 	// 搜索框的文本。也就是列表自己的查询。
 	private filter = '';
 	private filterInput!: HTMLInputElement;
-	// 那四个按钮，保留是因为每次绘制都会问它们每一个是否仍能被按下（见 refreshArrows）。
-	private arrowsByAct = new Map<ArrowAct, HTMLButtonElement>();
+	// 列表**脚下**的那四个箭头（见 arrows.ts）：在列表之后建、每次绘制问、随本体一起走。
+	private arrowBar!: ArrowBar;
+	// 一行的**预览**（见 row-preview.ts）：app 的 popover 是它去要的，而它守候的那个答案
+	// 属于它自己。
+	private preview!: RowPreview;
 	// 面板所做的每次 vault 查找，都被缓存 —— 全都是元数据缓存查找：一个条目的展示碎片、
 	// 以及一个文件已解析的标题。
 	private reads: RecentFilesReads;
 	// 每体唯一：行的选项 id 由它构建，而过滤框的 aria-activedescendant 指向其中一个，
 	// 所以侧边栏面板与模态框同时存在也不会撞车。
 	private readonly listId = `position-restore-nav-list-${++browserSeq}`;
-	// 这个面板在 app 的悬停预览系统里的槽位，整个 body 生命期只用一个对象：app 把它打开的
-	// popover 写回给它、之后再问它，所以每次到达都新建一个会是没记忆的那个。
-	private readonly hoverParent: HoverParent = { hoverPopover: null };
-	// 用来遮住 popover 自己走向它所被要求的行号的旅程：app 究竟有没有作答，是在这个面板
-	// 之外、在该行被要求之后的若干帧才决定的。
-	private readonly settle = new PreviewSettle();
 	// 指针停在列表上时列表被**保持**在的组次序。是 key 而不是行：这个次序必须活过它存在
 	// 所为了阻止的那次重画。
 	private frozenOrder?: string[];
@@ -239,9 +178,9 @@ export class RecentFilesBrowser {
 			onTravelHeading: (hit, target) => this.jumpToHeading(hit, target),
 			// 该行命名的是**哪个文件**，该行是笔记本身还是它内部的一个点，以及（对一个大纲行）
 			// 它去往的那一节 —— 交给 app 自己的预览用。这里没有任何东西为它行走。
-			onHoverRow: (rep, ev, el, file, hit) => this.hoverRow(rep, ev, el, file, hit),
-			tipsQuiet: () => this.settle.isOpen(),
-			onHoverEnd: () => this.settle.hoverEnded(),
+			onHoverRow: (rep, ev, el, file, hit) => this.preview.hoverRow(rep, ev, el, file, hit),
+			tipsQuiet: () => this.preview.quiet(),
+			onHoverEnd: () => this.preview.hoverEnded(),
 			// 一记右键问 **app** 它能拿这个文件做什么；菜单在这里构建，是因为列表不持有 app。
 			onContextRow: (rep, ev, note, hit) => this.contextRow(rep, ev, note, hit),
 			takeMenuBack: () => this.takeMenuBack(),
@@ -251,13 +190,17 @@ export class RecentFilesBrowser {
 			touch: this.opts.touch,
 		};
 		this.list = new RecentFilesList(this.listOpts);
-		// settle 的两端，一次绑好：**谁**去守候 app 的答案（每次 hoverRow 都交出的那个
+		// 预览的两端，一次绑好：**谁**去守候 app 的答案（每次 hoverRow 都交出的那个
 		// parent），以及它到来时做什么 —— 给这张卡片在面板 shell 之上所需的空间，并把行上的
-		// 提示从一篇已作答的页面上拿开。
-		this.settle.attach(this.hoverParent, card => {
-			this.liftPreview(card);
-			this.list.hideTip();
-		});
+		// 提示从一篇已作答的页面上拿开（见 row-preview.ts）。
+		this.preview = new RowPreview(
+			this.opts.app,
+			this.reads,
+			// **活读**：常驻面板下面的地点列表会动，而列表按索引解析它的条目。
+			() => this.opts.places.entries,
+			() => this.opts.prefs.previewFocus(),
+			() => this.list.hideTip(),
+		);
 		// 指针是 body 得知读者**正在用**这份列表的方式，而那正是被保持的次序所回答的问题。
 		//
 		// 用 pointerover 而不是 pointerenter：一个在已经停在那里的指针下面冒出来的面板
@@ -280,7 +223,12 @@ export class RecentFilesBrowser {
 		listEl.addEventListener('click', (ev) => this.list.onUnansweredClick(ev));
 		// **箭头最后来**，因为那是它们立的地方 —— 在列表下面，在每台设备上（见 styles.css）。
 		// 在第一次绘制之前建好，好让那次绘制把不能按下的变灰，而不是留它们活着直到下一次。
-		this.arrows();
+		this.arrowBar = new ArrowBar(
+			this.opts.host,
+			this.opts.arrows,
+			// 按下之前 shell 自己的反应 —— 让开路（见 shellReacts）。
+			() => this.shellReacts(),
+		);
 		// shell 元素上的一个 keydown 监听器同时覆盖过滤输入框与列表：输入时方向键导航、
 		// Enter 跳转（否则输入框会移动自己的光标）。
 		this.opts.host.addEventListener('keydown', (ev) => this.onKeyDown(ev));
@@ -316,7 +264,7 @@ export class RecentFilesBrowser {
 		// ……以及那些箭头，它们的四个答案不是这个 body 该留的：在**任何地方**做出的一步
 		// —— 哪怕是从这些按钮本身 —— 都会改变它们每一个是否能被按下，而那两端之下的是
 		// 一篇这个面板不持有的笔记。
-		this.refreshArrows();
+		this.arrowBar.refresh();
 	}
 
 	// 指针在列表上，所以列表**正被阅读**：保持它正在展示的次序。问题不是哪次变化是真的，
@@ -390,8 +338,8 @@ export class RecentFilesBrowser {
 		// reads 对象。
 		this.reads.dispose();
 		// app 建起的 popover 仍是 app 的、并活过我们，所以在走之前把我们所遮住的揭开是我们
-		// 该做的事。
-		this.settle.stop();
+		// 该做的事（见 row-preview.ts）。
+		this.preview.stop();
 		if (this.timer !== undefined)
 			window.clearInterval(this.timer);
 		this.timer = undefined;
@@ -403,9 +351,9 @@ export class RecentFilesBrowser {
 		for (const ref of this.existenceRefs)
 			this.opts.app.vault.offref(ref);
 		this.existenceRefs = [];
-		// ……以及一次按下可能仍欠箭头的发问（见 pressArrow）：它是为那些随持有它们的 shell
-		// 一起离开屏幕的按钮作答的。
-		this.arrowsByAct.clear();
+		// ……以及一次按下可能仍欠箭头的发问（见 arrows.ts 的 press）：它是为那些随持有
+		// 它们的 shell 一起离开屏幕的按钮作答的。
+		this.arrowBar.forget();
 	}
 
 	private onVisibilityChange = (): void => {
@@ -445,70 +393,6 @@ export class RecentFilesBrowser {
 			this.filterInput.setAttr('aria-activedescendant', id);
 		else
 			this.filterInput.removeAttribute('aria-activedescendant');
-	}
-
-	// 那四个箭头，像工具栏一样每个 body 只建一次：每次重画都重建的一个条会把读者正伸手
-	// 去够的按钮从他们手底下抽走。
-	private arrows(): void {
-		const bar = this.opts.host.createDiv({ cls: 'position-restore-nav-arrows' });
-		for (const group of ARROW_GROUPS) {
-			const capsule = bar.createDiv({ cls: 'position-restore-nav-arrow-group' });
-			for (const act of group)
-				this.arrowsByAct.set(act, this.arrowButton(capsule, act));
-		}
-	}
-
-	private arrowButton(capsule: HTMLElement, act: ArrowAct): HTMLButtonElement {
-		const name = t(ARROW_NAME[act]);
-		const button = capsule.createEl('button', {
-			cls: 'clickable-icon position-restore-nav-arrow',
-			attr: { type: 'button', 'aria-label': name, title: name },
-		});
-		setIcon(button, ARROW_ICON[act]);
-		// **这次按下被拒绝取得焦点**，正如框的 × 拒绝它：一个取得光标的控件会把下一次击键
-		// 变成什么都没有，而读者正在输入的东西会跑进这个控件旁边的框里。它照样仍是键盘
-		// 穿过面板途中的一个停靠点 —— Tab 能到达它、Enter 能按下它 —— 那是不用指针就能
-		// 按下一个按钮的唯一办法。
-		button.addEventListener('mousedown', (ev) => ev.preventDefault());
-		button.addEventListener('click', () => this.pressArrow(act));
-		return button;
-	}
-
-	// 一个箭头被按下。**shell 先让开路**，正如它对一行所做的那样：在手机上，面板盖住了
-	// 这些动作所作用的笔记，所以一次读者看不见的移动是一次没有发生的移动。
-	private pressArrow(act: ArrowAct): void {
-		this.shellReacts();
-		const arrows = this.opts.arrows;
-		const ran = act === 'back' ? arrows.back()
-			: act === 'forward' ? arrows.forward()
-			: act === 'top' ? arrows.top()
-			: arrows.bottom();
-		// **在该动作落地之后**再次发问，而不是当场问：一步打开一篇笔记并等它，而在它下面
-		// 发问会让两个箭头一起变灰那么久 —— 这就是两个活按钮看起来像两个坏按钮的原因。
-		// 对话框在按下时就关闭，所以它欠的那次发问，可能发现这四个已经不在屏幕上了。
-		void Promise.resolve(ran).then(() => this.refreshArrows());
-	}
-
-	// 每个箭头能否被按下，向插件发问而不是在这里算出来：步是栈的，而笔记是工作区的。
-	// **每次绘制**都再问一次 —— 从任何地方走出的一步都会改变两个答案 —— 而没有笔记打开
-	// 时那两端会安静下来，那是面板上唯一说出它们是谁的端的东西。
-	private refreshArrows(): void {
-		const arrows = this.opts.arrows;
-		this.arrowEnabled('back', arrows.canBack());
-		this.arrowEnabled('forward', arrows.canForward());
-		const edge = arrows.canEdge();
-		this.arrowEnabled('top', edge);
-		this.arrowEnabled('bottom', edge);
-	}
-
-	// 一个变灰的按钮不只是按不下去：它是「那里什么都没有」这个答案，给出在读者已经在看
-	// 的地方。
-	private arrowEnabled(act: ArrowAct, on: boolean): void {
-		const button = this.arrowsByAct.get(act);
-		if (!button)
-			return;
-		button.disabled = !on;
-		button.toggleClass('is-disabled', !on);
 	}
 
 	private toolbar(): void {
@@ -592,131 +476,6 @@ export class RecentFilesBrowser {
 		this.depart(() => this.opts.places.travelToHeading(
 			hit.path, hit.heading, hit.line, hit.leafId, target,
 		));
-	}
-
-	// 指针**移动到了**的一行，交给 **app**：问一次，它是否愿意被预览。
-	//
-	// app 自己的预览是被**请求**的，而不是在这里重建的。Obsidian 里每一个命名一篇笔记的其它
-	// 地方，都由**一个** core 机制预览，它应答读者关于那件事的那一个设置；我们自己的预览会是
-	// 第二个 popover、带着第二套规则，无论读者是否想要都打开。请求会继承一切，包括「什么都
-	// 不发生」。
-	//
-	// 这里没有任何东西是**导航**：地点不动，没有行移动，没有列表被重画。一个无路径视图
-	// 不被问及 —— 它背后没有页面。
-	private hoverRow(rep: number, ev: PointerEvent, row: HTMLElement, file: boolean, hit?: HeadingHit): void {
-		const entry = this.opts.places.entries[rep];
-		if (!entry || entry.kind === 'view')
-			return;
-		// **该行会落在哪里**，不是它「曾经」落在哪里：一份记录不携带位置，所以这个数字
-		// 就是位置数据库对一次普通打开的回答 —— 也正是这一行的点击会给出的那一个到达。
-		// 当这个面板说不出时，这次请求完全不携带行号，笔记在 app 自己的默认位置打开。
-		//
-		// 一个**大纲行**不同：它自己就带着那一节此刻在哪一行（现查，见 list.ts 的
-		// hitsFor），所以它没有要寻找的东西 —— 而它索要的正是那一节。
-		const d = this.reads.describe(rep);
-		const line = hit
-			? hit.line
-			: this.wantsLine(file) ? d.lineIndex : undefined;
-		const ask = this.previewAsk(entry, entry.path, file, line);
-		this.opts.app.workspace.trigger('hover-link', {
-			event: ev,
-			// 谁在发问：插件注册的那个 id，正是它让 app 得以应用读者给**这个**面板的答案
-			// —— 而只有那次读取决定究竟有没有东西打开。
-			source: NAV_SOURCE_ID,
-			hoverParent: this.hoverParent,
-			// 是**那一行**，不是指针落在的那个子元素：popover 属于列表的那一行，不属于被越过
-			// 的那个词。
-			targetEl: row,
-			// 按它被打开所用的路径来指这篇笔记 —— 它在磁盘上的自己的名字，而不是行上打印的
-			// 那个缩短过的名字。
-			linktext: ask.linktext,
-			sourcePath: entry.path,
-			state: ask.state,
-		});
-		// 从这里开始，发问属于 settle：以「它是否命名了一个行号」武装 —— 那是唯一有旅程要走
-		// 的一种 —— 它在**悬停**持续的期间守候 app 的答案，而不是在猜测所持续的期间。读者的
-		// 按键可能在该行之后十秒才来。
-		this.settle.ask(ask.state !== undefined);
-	}
-
-	// **一行如何命名它的位置**：靠它所在的**节**、靠它的**行号**、或什么都不靠。交给它一个
-	// 数字（state.scroll）时，popover 先画出整篇笔记，等那次绘制落地后把滚动器移到那里，
-	// 让目标闪一下（见 hover-settle.ts）。交给它一个节（`note.md#Heading`）时，这些都不
-	// 发生：加载器**只**画那个节。两个都不给时，笔记在它的开头打开，正如 app 自带每一份列表
-	// 打开它的方式。
-	//
-	// **代表文件的行**按**读者的选项**要求行号：那买到的是该行自己的点击本就会给出的到达，
-	// 只是早一个手势；而它花掉的是一整篇笔记被渲染、然后被移动 —— 所以 app 自己的答案才是
-	// 出厂的那个（见 PreviewFocusMode）。
-	//
-	// **大纲行**命名的是笔记**内部**的一个地点，也因此被要一个：它上方的那个标题，交给
-	// 它一个节就是交给它一个到达。那个标题不能被信赖会在链接的另一边命名同一个节时，它
-	// 回落到行号 —— 一次都没移动就交付的错误节，比正确的地点晚到更糟。
-	//
-	// 一行究竟是否命名行号在这里定，而不是在悬停开始处定，因为它是两者都需要的**一个**答案：
-	// hoverRow 问它，是为了知道要不要去问位置数据库；这一个问它，是为了知道交给 app 什么。
-	private wantsLine(file: boolean): boolean {
-		return !file || this.opts.prefs.previewFocus() === 'line';
-	}
-
-	// 一行如何命名它的位置，交给 app（见上面）：一个**节**，或一个**行号**，或什么都不给。
-	private previewAsk(
-		entry: NavEntry,
-		path: string,
-		file: boolean,
-		line: number | undefined,
-	): { linktext: string; state?: { scroll: number } } {
-		if (file) {
-			if (!this.wantsLine(file))
-				return { linktext: path };
-			return {
-				linktext: path,
-				// 预览**在笔记的哪里**打开由这个面板说，而它是从这里请求的预览所能提供、别处
-				// 请求的不能提供的那一件事：popover 打开在**那一行**上，而不是在笔记的开头。
-				// `scroll` 是 app 对「一个 markdown 视图最顶端可见行」自己的叫法 —— 与位置
-				// 数据库保存的是同一个数字 —— 所以这里没有臆造一个 state 形状。这个数字是
-				// **今天**的，不是记录的那个。
-				state: line === undefined ? undefined : { scroll: line },
-			};
-		}
-		const heading = line === undefined ? undefined : this.subpathHeading(entry, path, line);
-		if (heading !== undefined)
-			return { linktext: `${path}#${heading}` };
-		return {
-			linktext: path,
-			state: line === undefined ? undefined : { scroll: line },
-		};
-	}
-
-	// 一行上方最深的标题，在它能被**信赖**会在 app 再次解析 `#heading` 之后命名同一个节时。
-	// 两个守卫：app 取那个文本的**第一个**标题，所以一篇两次写着 "Notes" 的笔记会打开错的
-	// 那一个；而一个携带 `#`、`^`、`|`、`[` 或 `]` 的标题会被读作链接语法。
-	//
-	// 行号本身**不需要**守卫：一个大纲行的行号是现查的（见 list.ts 的 hitsFor），所以
-	// 它今天仍落在读者搜到的那一节上。
-	private subpathHeading(entry: NavEntry, path: string, line: number): string | undefined {
-		if (entry.kind === 'view')
-			return undefined;
-		const headings = this.reads.headingsFor(path);
-		const trail = headingTrailAtLine(headings, line);
-		const deepest = trail[trail.length - 1];
-		if (!deepest || UNTRAVELABLE.test(deepest))
-			return undefined;
-		if (headings && headings.filter(h => h.heading === deepest).length !== 1)
-			return undefined;
-		return deepest;
-	}
-
-	// **app 刚刚打开的那张卡片**，以及这个面板关于它唯一说的话。
-	//
-	// 从**对话框**请求的预览打开在那个对话框后面：core 把每个 popover 放在 document 的 body
-	// 上、以 `--layer-popover`（30）绘制它，而一个模态容器坐在 `--layer-modal`（50）。卡片
-	// 作答了，而它的每一行都被请求它的那个 shell 盖住。core 据以预览的表面，没有一个本身在
-	// 一个对话框内，而**这个**面板的表面有一半在 —— 所以每张卡片是被抬到对话框图层**之上**
-	// 而不是抬**到它上面**，因为共享同一个 z-index 的两个元素是按谁最后被追加来排序的，而
-	// 那何时发生是 app 的事。
-	private liftPreview(card: HTMLElement): void {
-		card.addClass(PREVIEW_CLASS);
 	}
 
 	// 一行被右键点击：为它背后的文件升起 **app** 自己的菜单，上面放**我们**的条目。读者能拿
