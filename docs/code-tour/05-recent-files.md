@@ -15,9 +15,11 @@
 | `recent-files/places.ts` | 仓库：去重、上限、钉住、MRU、**把 jump 降级成 visit** |
 | `recent-files/places-store.ts` | 落盘（localStorage，版本 3） |
 | `recent-files/browser/view.ts` / `modal.ts` | 两个壳：常驻侧栏 / 对话框 |
-| `recent-files/browser/body.ts` | 两个壳共用的一切：工具栏、键盘、跳转、悬停、右键菜单 |
+| `recent-files/browser/body.ts` | 两个壳共用的一切：工具栏、键盘、跳转、右键菜单 |
+| `recent-files/browser/arrows.ts` | 列表脚下那四个箭头（后退/前进 + 笔记两端） |
+| `recent-files/browser/row-preview.ts` | 一行的**悬停预览**：向 app 要 popover，并守候它的答案 |
 | `recent-files/browser/list.ts` | 真正造 DOM 的地方（文件行 + 大纲行） |
-| `recent-files/browser/listing.ts` / `model.ts` | 纯分组过滤 / 纯显示 |
+| `recent-files/browser/listing.ts` / `model.ts` | 纯分组 / **纯过滤判据** / 纯显示 |
 | `recent-files/browser/reads.ts` | **唯一**读 vault 的地方（带缓存） |
 | `recent-files/browser/tip.ts` / `hover-settle.ts` / `long-press.ts` | 提示、预览落定、手机长按 |
 
@@ -25,41 +27,45 @@
 
 - `class NavPlaces`（`places.ts:109`）、`cap()`（`:151`）、`trim()`（`:538`）、
   `remember()`（`:219`，降级就在这里）、`pruneExcluded()`（`:400`）、`travelToHeading()`（`:458`）。
-- `class RecentFilesBrowser`（`body.ts:135`）：`mount()`、`render()`（`:305`）、
-  `hoverRow()`（`:606`）、`previewAsk()`（`:663`）、`contextRow()`（`:739`）。
-- `class RecentFilesList`（`list.ts:183`）：`render()`（`:304`）、`fileRow()`（`:481`）、
-  `headingRow()`（`:601`）、`hoverAt()`（`:863`）、`onClick()`（`:909`）、`goTo()`（`:992`）。
+- `class RecentFilesBrowser`（`body.ts:77`）：`mount()`（`:127`）、`render()`（`:253`）、
+  `contextRow()`（`:498`）。
+- `class ArrowBar`（`arrows.ts:61`）：`refresh()`（`:89`）、`press()`（`:99`）。
+- `class RowPreview`（`row-preview.ts:28`）：`hoverRow()`（`:53`）、`askFor()`（`:126`）、
+  `subpathHeading()`（`:160`）。
+- `class RecentFilesList`（`list.ts:183`）：`render()`（`:304`）、`facts()`（`:400`）、
+  `fileRow()`（`:432`）、`headingRow()`（`:552`）、`hoverAt()`（`:814`）、`onClick()`（`:860`）、
+  `goTo()`（`:943`）。
 - 行的身份：`navGroupKey()`（`src/nav/entry.ts:95`）。
 
 ## 数据怎么流
 
-**一次重画**（`body.ts:305`）：
+**一次重画**（`body.ts:253`）：
 
 ```
 重指 listOpts.entries / currentIndex
   → list.render()   ← 整表重建，没有 diff
-  → refreshArrows()
+  → arrowBar.refresh()
 ```
 
 `list.render()` 内部又分（`list.ts:304`）：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
 它印着的那个小节）→ `list.empty()` 整表重建 → 清描述缓存 → `groupByFile` → 钉住的提到顶 →
 标出重名 → 每组先画**文件行**、再画它**搜到的小节**各一行 → 按槽位恢复选中。
 
-**悬停预览这条链路**（`body.ts:606`）：
+**悬停预览这条链路**（`row-preview.ts:53`）：
 
 ```
-list.hoverAt → body.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex : undefined)
-   → previewAsk（可点名的节 → linktext 'note.md#小节'；否则行号；否则什么都不给）
+list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex : undefined)
+   → askFor（可点名的节 → linktext 'note.md#小节'；否则行号；否则什么都不给）
    → workspace.trigger('hover-link')（带 source: NAV_SOURCE_ID、linktext、state.scroll）
    → 等 app 把 popover 回写进 hoverParent.hoverPopover
-   → PreviewSettle.tick 发现 → liftPreview + hideTip
+   → PreviewSettle.tick 发现 → lift + body 的 list.hideTip()
 ```
 
 ## 有哪些坑
 
 **重画成本几乎全在 DOM**（0.26ms/行，线性）⇒ 只做「少画几次」「别全量重建」；
 **memo / 脏标记 / 合并重画都别做**。仓库里唯一做的「合并」发生在**离开视野**时
-（手机让位 `view.ts`、迟到读取 `body.ts:346` 的 `redrawSoon`），那是延迟，不是去脏。
+（手机让位 `view.ts`、迟到读取 `body.ts:294` 的 `redrawSoon`），那是延迟，不是去脏。
 
 **点击必须按身份解析**（`list.ts`）**：跳转会让 store 重排，索引立刻失效。
 `el.click()` 这种没有 press 的点击**什么都不打开** —— 打不开是能承受的失败，
@@ -71,7 +77,7 @@ list.hoverAt → body.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex : un
 是那一节（`goTo` 一处收口）。判据是 `listing.ts` 的 `matchedHeadings`（严格全 token 优先，
 否则首 token loose，按文档顺序，每篇最多 `OUTLINE_HIT_LIMIT` = 5）。
 
-**hover 的判据是「指针真的动了」**（`list.ts:863`）：`pointerover` 在元素「来到」指针下时
+**hover 的判据是「指针真的动了」**（`list.ts:814`）：`pointerover` 在元素「来到」指针下时
 也会触发，热键在鼠标停住时弹出的面板会给每一行都报一次到达。面板听到的第一个事件不算移动。
 
 **MRU 顺序靠数组末尾**（`places.ts`）：碰过的笔记移到数组末尾，因为 list 把索引当钟读
@@ -90,7 +96,7 @@ live buffer / 磁盘文本三级链已于 2026-10-05 随落点行一起撤掉。
 **`prime` 是性能闸门**（`reads.ts:188` 的 `ensureText`）：一次 hover 可以等一个 await，
 五十行的重画不可以。
 
-**`×` 绝对定位、不在流内、且 `stopPropagation`**（`list.ts:630`）：否则按它会顺带把行记为 pressed。
+**`×` 绝对定位、不在流内、且 `stopPropagation`**（`list.ts:581`）：否则按它会顺带把行记为 pressed。
 
 **预览是观察器不是等待**（`hover-settle.ts`）：本面板要按 Mod 键，app 可能十秒后才答，
 任何有期限的等待都会先回家。只动 `opacity` 不动布局。

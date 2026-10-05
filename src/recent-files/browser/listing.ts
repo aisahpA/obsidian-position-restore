@@ -3,7 +3,8 @@
 
 import { NavEntry, navGroupKey } from '@/nav/entry';
 import { HeadingRef } from '@/shared/headings';
-import { baseName, viewName } from './model';
+import { NavEntryDescription, baseName, viewName } from './model';
+import type { FileNames } from './reads';
 
 // 列表上的**一行**：一篇笔记（或一个视图）。一条记录就是一行 —— 这正是「一篇被打开十次的
 // 笔记是一行」的原因 —— 而一行点击下去是普通打开：落在哪儿由位置数据库回答，与在文件浏览器
@@ -105,6 +106,87 @@ export function matchesNavFilter(
 		return true;
 	const hay = `${navSearchText(entry)} ${extra ?? ''} ${outline ?? ''}`.toLowerCase();
 	return tokens.every(tok => hay.includes(tok));
+}
+
+// 一行**凭什么在列表上**。
+//
+// 判据住在这里、不在画它的那个类里，因为「什么算一行」与「搜索面」是同一个问题的两半：
+// 一个被搜到、却不画出来的东西，正是这份列表不做的事（见 matchedHeadings）。这**四处**
+// 合起来是唯一一处判据 —— 别在别处再写一份。
+//
+// 它们每一个都要 vault 才能回答，所以调用方把它要问的那几个读取器一并交下来。**每次
+// 重画现取**：`entries` 会被重新指向（常驻面板靠这个刷新），而缓存一份会让判据答的是
+// 上一次重画的那份列表。
+export interface RowFacts {
+	// 行的绘制所依据的历史，作为一个快照。
+	entries: NavEntry[];
+	// 一个条目的展示碎片（由调用方缓存）。
+	describe: (rep: number) => NavEntryDescription;
+	// 文件的**其它**名字：可搜索、打印在行的 tooltip 上、别处一概不出现。`printed` 是
+	// 该行展示的名字，它不属于它们之中（见 FileNames）。
+	otherNames: (path: string, printed?: string) => FileNames;
+	// 这一篇笔记的**各个**标题，文档顺序。现查，所以它永远是最新的，而体积与笔记长度无关。
+	headingsFor: (path: string) => HeadingRef[] | undefined;
+	// 一篇笔记是否仍在磁盘上。
+	noteExists: (path: string) => boolean;
+	// 搜索框是否把各篇笔记的小节标题也算进搜索面 —— 也就是是否画大纲行。
+	outlineSearch: () => boolean;
+}
+
+// 究竟**什么**可以被列出：一个文件没了的行会在归组**之前**被丢掉 —— 没有行、没有大纲行、
+// 没有任何「你在这里」会为一个打不开的名字而立。一个**视图**行被豁免（没有文件会没）。
+export function rowListed(facts: RowFacts, i: number): boolean {
+	const entry = facts.entries[i];
+	return entry.kind === 'view' || facts.noteExists(entry.path);
+}
+
+// 一行**打印**的东西里，搜索框可以问的那些（见 matchesNavFilter 的 `extra`）。
+export function rowPrinted(facts: RowFacts, i: number): string {
+	const entry = facts.entries[i];
+	const d = facts.describe(i);
+	// 文件的其它名字走 `extra` 通道（见 matchesNavFilter）；按**路径**读，所以一篇笔记的
+	// 每一行携带同样的名字 —— 两类都带，因为笔记自称的东西与它应答的名字一样值得输入。
+	const other = entry.kind === 'view'
+		? undefined
+		: facts.otherNames(entry.path, d.name);
+	const aka = other ? [other.frontTitle ?? '', ...other.aliases] : [];
+	// **打印出来的名字**也进去：一篇读者用它的 frontmatter 标题来称呼的笔记，就用那个
+	// 标题来搜索。（文件自己的名字已经在稻草堆里 —— 见 navSearchText。）
+	return `${d.name ?? ''} ${aka.join(' ')}`;
+}
+
+// **这一篇的所有小节**，每行一个（`\n` 分隔，因为标题本身可以含任何字符而这只是一次子串
+// 匹配），按文档顺序。
+//
+// 从不存：现查（`headingsFor`），所以它永远是最新的，而体积与笔记长度无关。一篇没有标题
+// 的笔记、以及无路径的视图，都没有 —— 那是诚实的「没有」而不是空串（空串会让每个查询都
+// 命中它）。而开关关掉时，它对每一行都是「没有」：那时搜索框不认标题，也不画大纲行 ——
+// 「搜到了却不说」是这份列表不做的事。
+export function rowOutline(facts: RowFacts, i: number): string | undefined {
+	if (!facts.outlineSearch())
+		return undefined;
+	const entry = facts.entries[i];
+	if (entry.kind === 'view')
+		return undefined;
+	const titles = facts.headingsFor(entry.path);
+	return titles?.length ? titles.map(h => h.heading).join('\n') : undefined;
+}
+
+// 查询留下的那些行。一行被问的是**它自己**打印的东西，加上从 **vault** 派生的一切
+// （文件的其它名字、**该文件的所有小节**）。
+//
+// 两样东西**不被问及**，且出于同一个理由：两者都不是关于**记录**的事实，而是关于读者
+// 碰巧在哪。坐标（"L412"）是位置数据库的，在笔记被阅读时被重写；一个行号所处的链是从
+// 那个坐标读出的，所以它跟着它走。一行此刻答得出一个标题、下一刻答不出，是一个搜索框
+// 不能信赖的行。
+export function rowKept(facts: RowFacts, i: number, query: string): boolean {
+	if (!rowListed(facts, i))
+		return false;
+	if (!query)
+		return true;
+	return matchesNavFilter(
+		facts.entries[i], query, rowPrinted(facts, i), rowOutline(facts, i),
+	);
 }
 
 // 查询命中的**那些**小节 —— 「这一篇里有个叫『定价』的小节」这句话的答案，按文档顺序，

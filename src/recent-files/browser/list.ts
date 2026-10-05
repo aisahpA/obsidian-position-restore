@@ -32,7 +32,7 @@ import { Keymap, MenuPositionDef, setIcon } from 'obsidian';
 import { NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
-import { groupByFile, matchedHeadings, matchesNavFilter } from './listing';
+import { RowFacts, groupByFile, matchedHeadings, rowKept } from './listing';
 import { headingTrailAtLine, type HeadingRef } from '@/shared/headings';
 import { PathDisplayMode } from '@/types';
 import {
@@ -325,10 +325,11 @@ export class RecentFilesList {
 		this.hovered = undefined;
 
 		const query = this.opts.filter().trim();
+		const facts = this.facts();
 		this.groups = groupByFile(
 			this.opts.entries,
 			this.opts.currentIndex,
-			i => this.keepAt(i, query),
+			i => rowKept(facts, i, query),
 			// 要保持在的次序，当读者正停在列表上时。
 			this.opts.order(),
 		);
@@ -394,67 +395,17 @@ export class RecentFilesList {
 		return head?.name ?? displayName(group.path);
 	}
 
-	// 一篇笔记的**各个**标题拼成的一段文字，一行一个（`\n` 分隔，因为标题本身可以含任何字符
-	// 而这只是一次子串匹配）；没有标题时是 undefined。搜索面问它，所以它与被画出来的那些
-	// 大纲行出自同一份答案。
-	private outlineText(path: string): string | undefined {
-		const titles = this.opts.headingsFor(path);
-		return titles?.length ? titles.map(h => h.heading).join('\n') : undefined;
-	}
-
-	// 一行**打印**的东西里，搜索框可以问的那些（见 matchesNavFilter 的 `extra`）。
-	private printedAt(i: number): string {
-		const entry = this.opts.entries[i];
-		const d = this.opts.describe(i);
-		// 文件的其它名字走 `extra` 通道（见 matchesNavFilter）；按**路径**读，
-		// 所以一篇笔记的每一行携带同样的名字 —— 两类都带，因为笔记自称的东西
-		// 与它应答的名字一样值得输入。
-		const other = entry.kind === 'view'
-			? undefined
-			: this.opts.otherNames(entry.path, d.name);
-		const aka = other ? [other.frontTitle ?? '', ...other.aliases] : [];
-		// **打印出来的名字**也进去：一篇读者用它的 frontmatter 标题来称呼的
-		// 笔记，就用那个标题来搜索。（文件自己的名字已经在稻草堆里 —— 见
-		// listing.ts 的 navSearchText。）
-		return `${d.name ?? ''} ${aka.join(' ')}`;
-	}
-
-	// **这一篇的所有小节**，每行一个，按文档顺序。
-	//
-	// 从不存：现查（`headingsFor`），所以它永远是最新的，而体积与笔记长度无关。
-	// 一篇没有标题的笔记、以及无路径的视图，都没有 —— 那是诚实的「没有」而不是空串
-	//（空串会让每个查询都命中它）。而开关关掉时，它对每一行都是「没有」：那时
-	// 搜索框不认标题，也不画大纲行 —— 「搜到了却不说」是这份列表不做的事。
-	private outlineAt(i: number): string | undefined {
-		if (!this.opts.outlineSearch())
-			return undefined;
-		const entry = this.opts.entries[i];
-		return entry.kind === 'view' ? undefined : this.outlineText(entry.path);
-	}
-
-	// 究竟**什么**可以被列出：一个文件没了的行会在归组**之前**被丢掉 ——
-	// 没有行、没有大纲行、没有任何「你在这里」会为一个打不开的名字而立。一个
-	// **视图**行被豁免（没有文件会没）。
-	private listedAt(i: number): boolean {
-		const entry = this.opts.entries[i];
-		return entry.kind === 'view' || this.opts.noteExists(entry.path);
-	}
-
-	// 查询留下的那些行。一行被问的是**它自己**打印的东西，加上从 **vault** 派生的
-	// 一切（文件的其它名字、**该文件的所有小节**）。
-	//
-	// 两样东西**不被问及**，且出于同一个理由：两者都不是关于**记录**的事实，而是
-	// 关于读者碰巧在哪。坐标（"L412"）是位置数据库的，在笔记被阅读时被重写；一个
-	// 行号所处的链是从那个坐标读出的，所以它跟着它走。一行此刻答得出一个标题、
-	// 下一刻答不出，是一个搜索框不能信赖的行。
-	private keepAt(i: number, query: string): boolean {
-		if (!this.listedAt(i))
-			return false;
-		if (!query)
-			return true;
-		return matchesNavFilter(
-			this.opts.entries[i], query, this.printedAt(i), this.outlineAt(i),
-		);
+	// 判据所问的那几个读取器（见 listing.ts 的 RowFacts）：每次重画现取，因为
+	// `entries` 会被重新指向 —— 一份缓存下来的会让判据答的是上一次重画的那份列表。
+	private facts(): RowFacts {
+		return {
+			entries: this.opts.entries,
+			describe: rep => this.opts.describe(rep),
+			otherNames: (path, printed) => this.opts.otherNames(path, printed),
+			headingsFor: path => this.opts.headingsFor(path),
+			noteExists: path => this.opts.noteExists(path),
+			outlineSearch: () => this.opts.outlineSearch(),
+		};
 	}
 
 	// 读者所搜到的、这篇笔记里的**那些**小节（见 HeadingHit）：按文档顺序，最多
