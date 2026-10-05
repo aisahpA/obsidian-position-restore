@@ -18,7 +18,7 @@ VSCode-style back / forward across file switches, tab switches and in-file jumps
 
 ### Recent files
 
-The notes you have been in, most recent first. It can record notes only, or the headings you jumped to.
+The notes you have been in, most recent first — one row per note. Search also matches headings: a matching section gets its own row under its note, and clicking it takes you to that section.
 
 ## Installation
 
