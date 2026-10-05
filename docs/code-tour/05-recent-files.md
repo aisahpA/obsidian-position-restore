@@ -103,7 +103,11 @@ live buffer / 磁盘文本三级链已于 2026-10-05 随落点行一起撤掉。
 
 ## 怎么验证它没坏
 
-- `npx vitest run tests/recent-files-browser.test.ts`（纯函数）、`recent-files-browser-dom.test.ts`（交互）
+- `npx vitest run tests/recent-files-browser.test.ts`（纯函数）
+- `npx vitest run tests/recent-files-browser-dom` —— 交互，**五个文件**
+  （`…-dom` 机制 / `-rows` 行的长相 / `-touch` 触屏 / `-hover` 悬停 / `-pins` 置顶与箭头），
+  共用 `tests/support/recent-files-modal-harness.ts` 那个装置；每个文件在模块顶层调一次
+  `installHarness()`。常驻面板另有 `recent-files-sidebar.test.ts`（自带装置）。
 - `npx vitest run tests/recent-files-browser-styles.test.ts` —— **直接读 `styles.css` 断言**，
   因为 jsdom 从不加载样式表。**改样式必须同步改这个文件。**
 - `npx vitest run tests/recent-files-places.test.ts`、`recent-files-sidebar.test.ts`、
