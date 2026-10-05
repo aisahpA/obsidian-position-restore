@@ -16,8 +16,8 @@
 //    去量。时间是行自己那条轨的远端，不是名字里的第四样东西，于是各行的标签都收在
 //    同一个 x 上。一行用 app 自己那个 nav-list 档位排版。
 //
-// 3. 触屏上，各行保留它们拥有的每一个格子 —— 落点行上的坐标与小节、笔记行上的名字与
-//    时间 —— 而不是从前那条在 480px 以下藏起坐标与时间、让列表除了文件名什么都不说的
+// 3. 触屏上，各行保留它们拥有的每一个格子 —— 笔记行上的名字与时间、大纲行上那一节的名
+//    字 —— 而不是从前那条在 480px 以下藏起坐标与时间、让列表除了文件名什么都不说的
 //    规则。
 //
 // 4. 行的控件 —— 把它从列表里拿掉的 ×，以及手机上把它开在旁边的那个标签页 —— **浮**在
@@ -29,12 +29,10 @@
 //    的两件事 —— 而行没被武装时什么都不预留，时间是它自己独占行的远端，正如设置所
 //    要求的那样。
 //
-// 5. 落点行的小节链**由外向内**收，且**只**从外面收：外层扛下亏空的每一个像素，而最深
-//    那一层根本不是可收缩的项 —— 它拿自己文字需要的宽度，最多到整行 —— 于是落点**据以
-//    定位**的那一层，面板再窄也保得住自己的文字。两层之间的「›」跟着它后面那一层走，
-//    于是一层被挤出行时把它的箭头一起带走，而不是留一个箭头立在行首。收缩给外层留下的
-//    是一段不指认任何小节的碎片，而回读布局的那一趟会把它从被挤过半的行上摘掉
-//    （`is-deep-only`）。
+// 5. 一个**搜到的小节**是它自己一行，缩进到它所属的那篇笔记下面、由一条竖标记说出它挂
+//    在谁底下 —— 那条标记用阴影画、而不是用边框，好让这一行保住自己的内边盒、整宽都可
+//    点。它比名字小一档、也淡一档（见 .nav-row-heading）：它说的是「点下去会去哪儿」，
+//    不是「这一行是谁」。它没有时间、也没有 ×，所以没有任何规则为它声明第二条轨。
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -69,7 +67,7 @@ describe('最近文件面板的两档弱墨', () => {
 	// 测试），而设置让落点也印出来时，落点缩进到它下面，坐标排在小节前面。列表级量出来的
 	// 那一列没有了 —— 它当年存在，是为了让一节列在**平铺**列表上一路起在同一个 x 上，而现在
 	// 列表用它的缩进说同一件事（见下一个测试）。
-	it('笔记行就是它的名字，标题行是行号 + 所属标题', () => {
+	it('笔记行就是它的名字，搜到的小节缩进到它下面', () => {
 		// 那个插入符号整个没了，数一次点击会打开什么的 "+N" 也没了：已经没有树可开，于是每行都
 		// 重复这个状态的一列，是白花两遍的一列（见 RecentFilesList.fileRow）。
 		expect(browser).not.toContain('nav-file-caret');
@@ -77,66 +75,16 @@ describe('最近文件面板的两档弱墨', () => {
 		// 笔记行是**网格**而不是 flex 行：时间不是名字里的第四样东西，它是行自己的第二条轨
 		//（见 is-timed）。
 		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*display: grid/);
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*grid-template-columns: auto minmax\(0, 1fr\);/);
-		// 落点缩进到它所属的那篇笔记下面
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*margin-inline-start: 1\.5em/);
-		// 坐标有个**下限**，不是一条固定留白。每个标签都用同一个等宽字体排，但 "L1" 没有
-		// "L9999" 宽 —— 而一个按自己文字定宽的盒子，会让每行的小节起在不同的 x 上。所以这一列
-		// 以最宽的**普通**标签为下限，五个字符："L1" 被补到同样五个，那是一片让小节对齐其上的
-		// 空白；而五位数的行号（"L10000"）会把盒子撑到它自己的标签宽，而不是丢掉一位。那个下限
-		// 就是全部预留 —— 没有固定留白、没有轨道 —— 小节与它相隔的是行**自己的**列间距，小节
-		// 自己身上没有第二道起始外边（见 .nav-row-pos、.nav-row-trail）。
-		const pos = browser.match(/\.position-restore-nav-row \.nav-row-pos\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(pos).not.toBe('');
-		expect(pos).toMatch(/min-width: 5ch/);
-		const trail = browser.match(/\.position-restore-nav-row \.nav-row-trail\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(trail).not.toBe('');
-		expect(trail).not.toMatch(/margin-inline-start/);
+		expect(browser).toMatch(/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+		// 一个**搜到的小节**是它自己的一行，缩进到它所属的那篇笔记下面。那条竖标记用阴影
+		// 画、而不是用边框，好让这一行保住自己的内边盒、整宽都可点。
+		const heading = browser.match(/\.position-restore-nav-row\.is-heading\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(heading).not.toBe('');
+		expect(heading).toMatch(/display: grid/);
+		expect(heading).toMatch(/margin-inline-start: 1\.5em/);
+		expect(heading).toMatch(/box-shadow: inset 2px var\(--background-modifier-border\)/);
 		// 而名字是有上限的，不是贪心的
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
-	});
-
-	// 落点的小节链**由外向内**让位，且**只**从外面让（这正是行印最深两层、而不印它们上面
-	// 那一章的全部理由）：最深那一层根本不是可收缩的项，于是外层扛下亏空的每一个像素，落点
-	// **据以定位**的那一层只要行还有一点地方就保得住自己的文字。**量过**，在真实布局里 ——
-	// 这里没有 jsdom —— 行上两层分别是 141px 与 63px：260px 的面板下，外层从它的 141 读出
-	// 118、最深那层读出完整的 63；而这条规则从前带的收缩**权重**（100 对 1）会让最深那层
-	// 短 0.2px —— 0.2px 可不是没有，因为 `text-overflow: ellipsis` 对任何一点溢出都要收下
-	// 一整个字形：那一行印成了「新插件 Positi… 2026-09-…」。
-	it('标题链由外向内收', () => {
-		const seg = browser.match(/\.position-restore-nav-row \.nav-row-trail \.nav-trail-seg\s*\{[^}]*\}/)?.[0] ?? '';
-		const deep = browser.match(/\.position-restore-nav-row \.nav-row-trail \.nav-trail-deep\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(seg).not.toBe('');
-		expect(deep).not.toBe('');
-		// 外层是唯一收缩的东西，而且它能被挤到一点不剩，这正是让最深那层在一条窄得放不下两层
-		// 的行上单独站着的原因……
-		expect(seg).toMatch(/flex: 0 1 auto/);
-		expect(seg).toMatch(/min-width: 0/);
-		// ……因为最深那层不是被收缩而是被**夹住**：完全没有收缩系数，而它的省略号以整条链本身
-		// 为上限。
-		expect(deep).toMatch(/flex: 0 0 auto/);
-		expect(deep).toMatch(/max-width: 100%/);
-		for (const rule of [seg, deep]) {
-			expect(rule).toMatch(/overflow: hidden/);
-			expect(rule).toMatch(/text-overflow: ellipsis/);
-			expect(rule).toMatch(/white-space: nowrap/);
-		}
-		// 分隔符**不是**自己的一个格子：作为格子时，它前面那层被挤掉之后它还留着自己的 ~15px，
-		// 于是行印出一个左边什么都没有的 "›"。改成写在那一层**里面**（见
-		// RecentFilesList.placeRow），也再没有哪条规则把它当格子来定尺寸。
-		expect(browser).not.toMatch(/\.nav-trail-sep\s*\{[^}]*flex:/);
-	});
-
-	// ……而收缩不是答案的全部：它给外层留下的是不指认任何小节的**碎片**（日期前面的
-	// 「新插件 Positi…」），所以回读布局的那一趟会把它从被挤过半的行上摘掉（见
-	// RecentFilesList.fitTrails）。样式表这一半就一条规则，是 `display: none` —— 换成
-	// **宽度**会让这块碎片还站在它刚被摘下的那一行里。
-	it('挤到印不出来的那层外层，直接摘掉', () => {
-		const off = browser.match(
-			/\.position-restore-nav-row\.is-deep-only \.nav-trail-seg\s*\{[^}]*\}/,
-		)?.[0] ?? '';
-		expect(off).not.toBe('');
-		expect(off).toMatch(/display: none/);
 	});
 
 	// 列表的字号用 app 自己那个 nav-list 档，不是 `body` 递给每个面板的 15px：这个列表站在
@@ -257,11 +205,9 @@ describe('最近文件面板的两档弱墨', () => {
 			/\.position-restore-nav-row\.is-file\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
 		);
 		expect(browser).not.toMatch(/\.nav-row-time\s*\{[^}]*margin-inline-start: auto/);
-		// ……而落点行把自己的时间收在**同一个**列上：它是 坐标 | 小节 | 时间，其中小节是接住
-		// 松弛并让位的那条轨。两类行的时间于是读作同一列，而印它们要的就是这个。
-		expect(browser).toMatch(
-			/\.position-restore-nav-row\.is-place\.is-timed\s*\{\s*grid-template-columns: auto minmax\(0, 1fr\) auto/,
-		);
+		// ……而一个**大纲行**从不声明这条轨：它不是一次访问，没有时间可印，而给一条不存在
+		// 的时间留一列，会在每一行上留下一片空白。
+		expect(browser).not.toMatch(/\.is-heading\.is-timed/);
 	});
 
 	// ……而行的控件搭在**同一个**远端上，在行自身的流之外（见 list.ts 的 fileRow）。绝对
@@ -356,20 +302,13 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(browser).not.toMatch(/is-touch [^{]*\.is-file\s*\{[^}]*padding-inline-end/);
 	});
 
-	// 「你在这里」是笔记行上、以及当前条目所记录的那个落点上的一颗圆点：当前位置是**印在
-	// 列表里面**的，而不是被拿到列表之外。
-	it('当前标题用行号前面的一个圆点标出', () => {
-		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*color: var\(--interactive-accent\)/);
-		// ……**挂在**坐标自己的**起始边**上，于是它引着它所标的那个数字，却不站在坐标的盒子
-		// 里：排在里面的一颗圆点，会从**每一**个落点行的小节那里拿走一颗圆点的宽度，只为装一个
-		// 只有其中一行才会显示出来的标记（见 .nav-row-pos）。
-		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*position: absolute/);
-		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*inset-inline-end: 100%/);
-		// ……而它与数字的距离是它**末端**一道对着盒子的外边：固定的是**间距**，不是字形的宽度，
-		// 于是字体想把这个 ● 画多宽都行，永远碰不到数字。
-		expect(browser).toMatch(/\.nav-row-here\s*\{[^}]*margin-inline-end: 0\.3em/);
-		// ……而落点行不许裁掉挂在它外面的东西（见 .is-place）。
-		expect(browser).toMatch(/\.position-restore-nav-row\.is-place\s*\{[^}]*overflow: visible/);
+	// 「你在这里」不再是行上的一个圆点：列表按新近度排序、当前那一篇就在最前，而一行只有
+	// 一行可画 —— 一颗只为其中一行而排进每一个名字里的圆点，是从每一行都拿走宽度。这个
+	// 标记现在只是行上的一个**类**（见 RecentFilesList.fileRow），样式表不为它画任何东西。
+	it('「你在这里」不为自己留一个格子', () => {
+		expect(browser).not.toContain('nav-row-here');
+		expect(browser).not.toContain('nav-row-pos');
+		expect(browser).not.toContain('nav-row-line');
 	});
 
 	// 位置就是键盘所在的那一行（见 RecentFilesList.choose），而指针伸到那一行上时，
@@ -554,8 +493,9 @@ describe('最近文件面板的两档弱墨', () => {
 			/\.position-restore-nav-panel\.is-touch \.position-restore-nav-row\s*\{[^}]*padding: 6px 8px[^}]*\}/,
 		)?.[0] ?? '';
 		expect(touch).toMatch(/padding: 6px 8px/);
-		// ……也没有哪个落点有自己的第二行：坐标与小节就是落点的全部，手机给它的那一行放得下。
-		expect(browser).not.toMatch(/is-touch \.position-restore-nav-row\.is-place/);
+		// ……也没有哪个搜到的小节有自己的第二行：它的名字就是那一行的全部，手机给它的那一
+		// 行放得下。
+		expect(browser).not.toMatch(/is-touch \.position-restore-nav-row\.is-heading/);
 		expect(browser).not.toContain('grid-area:');
 		expect(browser).not.toContain('nav-row-pane');
 		expect(browser).not.toMatch(/@media \(max-width: 480px\)/);
@@ -611,17 +551,21 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(browser).toMatch(/\.nav-tip-text\s*\{[^}]*font-size: var\(--font-ui-smaller\)/);
 	});
 
-	// 行上那一行「小节：X」（见 list.ts 的 HeadingHit）：这一行为什么在列表上、以及点下去
-	// 会去哪儿。它比名字小一档、也更淡（它是这一行的去处，不是它的身份），且**独占一行** ——
-	// 一个紧跟在笔记名字旁边的小节名会读成那个名字的一部分。
-	it('行上「命中的小节」：小一档、淡一档，且独占一行', () => {
-		const hit = browser.match(/\.nav-row-hit\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(hit).not.toBe('');
-		expect(hit).toMatch(/font-size: var\(--font-ui-smaller\)/);
+	// 一个**搜到的小节**整行就是那一节自己的名字（见 list.ts 的 headingRow）：点下去会去
+	// 哪儿。它比名字小一档、也更淡 —— 它是这一行的去处，不是它的身份 —— 而它**省略号化**：
+	// 一条被切掉的小节名仍说得出它是哪篇笔记里的东西，而它说的是什么，一悬停就到（那一行
+	// 补上整条链）。
+	it('搜到的那一节：小一档、淡一档，且放不下就收', () => {
+		const heading = browser.match(/\.position-restore-nav-row \.nav-row-heading\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(heading).not.toBe('');
+		expect(heading).toMatch(/font-size: var\(--font-ui-smaller\)/);
 		// 比文件夹（--nav-faint）深一档：文件夹是消歧者，而这是这一行此刻的去处。
-		expect(hit).toMatch(/color: var\(--nav-muted\)/);
-		// 第二句话，不是名字的续写。
-		expect(hit).toMatch(/flex: 0 0 100%/);
+		expect(heading).toMatch(/color: var\(--nav-muted\)/);
+		expect(heading).toMatch(/overflow: hidden/);
+		expect(heading).toMatch(/text-overflow: ellipsis/);
+		// 从前那个印在笔记行**底下**的「小节：X」**没了**，没有作为第二名字留下来：同时带
+		// 两者的行会把同一节说两遍。
+		expect(browser).not.toContain('nav-row-hit');
 	});
 
 	// 引文那一行（.nav-tip-quote）连同它的竖线在 2026-10-03 撤掉了 —— 落点下面那块正文
@@ -648,15 +592,6 @@ describe('最近文件面板的两档弱墨', () => {
 		// 与 nav-tip-text 同一档：链是「这地方叫什么」，而那是同一个问题的另一个形式。
 		const text = browser.match(/\.position-restore-nav-tip\s*\.nav-tip-text\s*\{[^}]*\}/)?.[0] ?? '';
 		expect(block.replace('.nav-tip-trail', '.nav-tip-text')).toBe(text);
-	});
-
-	// ……而悬停**就那些引文**说的那一行 —— 这些引文取下来之后笔记又被写过了 —— 靠**墨色**
-	// 而不是靠一条线区分开：这是本面板在就笔记的话发言，读者得能一眼把两者分清。比引文更
-	// 淡，而且用面板自己的淡档而不是 --text-faint（主题可以随意改它的色相）。
-	it('说明引文的那一行靠墨色区分开，不靠分隔线', () => {
-		const note = browser.match(/\.nav-tip-note\s*\{[^}]*\}/)?.[0] ?? '';
-		expect(note).toMatch(/color: var\(--nav-faint\)/);
-		expect(note).not.toMatch(/border-inline-start/);
 	});
 
 	// 框末端的那个 ×，以及让它成为控件而不是一个标记的那一条规则：它恰好在有东西可清时
@@ -725,9 +660,9 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(browser).not.toContain('position-restore-nav-here');
 		expect(browser).not.toContain('position-restore-nav-scope');
 		expect(browser).not.toContain('position-restore-nav-toggle');
-		// ……而落点在这里不需要自己的规则：它就是桌面给它的那一行，整条宽度都用来放坐标与
-		// 小节。
-		expect(landscape).not.toMatch(/is-touch \.position-restore-nav-row\.is-place/);
+		// ……而搜到的小节在这里不需要自己的规则：它就是桌面给它的那一行，整条宽度都用来
+		// 放那一节的名字。
+		expect(landscape).not.toMatch(/is-touch \.position-restore-nav-row\.is-heading/);
 		// ……而详情面板在这里不需要自己的规则：它根本不存在
 		expect(landscape).not.toMatch(/nav-preview/);
 	});
@@ -754,18 +689,6 @@ describe('最近文件面板的两档弱墨', () => {
 		// 那个视图类型 —— 而它正是这个测试存在的原因。
 		expect(browser).not.toMatch(/\[data-type=/);
 		expect(browser).not.toContain('position-restore-nav-history');
-	});
-
-	// 6. 笔记已经**丢掉**那个标题的落点，仍然印记录带着的那些字，加删除线、降一档 ——
-	//    那些字是最后还在给那个位置命名的东西，而被划掉的只是「笔记还有它们」这个断言（见
-	//    RecentFilesList.placeRow / landingNote）。
-	it('笔记已经没有的那个标题加删除线，而不是把它丢掉', () => {
-		const lost = browser.match(/\.position-restore-nav-row \.nav-row-trail\.is-lost \{[^}]*\}/)?.[0] ?? '';
-		expect(lost).not.toBe('');
-		expect(lost).toMatch(/text-decoration: line-through/);
-		// ……比还活着的小节所在那一档低两阶，而且仍是从主题自己的正文色混出来的，不是用主题
-		// 的变量直接上色
-		expect(lost).toMatch(/color: var\(--nav-faint\)/);
 	});
 
 	// 手机用一根手指滚列表，而它所在的窗格又是同一根手指横向拖动去收起的那个（见

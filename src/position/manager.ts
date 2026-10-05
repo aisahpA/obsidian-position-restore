@@ -323,7 +323,9 @@ export class PositionManager {
 	// **只读** —— 设置标签页自己写、自己持久化，所以没有第二个写入者要同步。
 	private browserPrefs(): RecentFilesBrowserPrefs {
 		return {
-			landings: () => this.settings.recentFilesLandings,
+			// 搜索框是否也认各篇笔记的小节标题（见 list.ts 的 headingRow）。没有东西由它
+			// 记录 —— 它只决定一次搜索能找到什么、以及画不画那些搜到的行。
+			outlineSearch: () => this.settings.recentFilesOutlineSearch,
 			// 列表往回够多远；调小它会当场修剪列表。
 			placesCap: () => this.settings.recentFilesCap,
 			// 列表把一行的路径打印多少、打在名字的哪一侧：它决定**下一次**渲染打印什么。

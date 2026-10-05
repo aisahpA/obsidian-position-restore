@@ -69,13 +69,9 @@ export function makeNav(
 	settings: Partial<PluginSettings> = {},
 	savedPosition?: (path: string) => EphemeralState | undefined,
 ) {
-	// 落点设置取中间那一档，出厂默认是 'none'（见 LandingsMode）：这里多数测试盯着地点列表
-	// 看一次跳转**变成了**什么，而最低那一档会在还没东西可看之前就把跳转挡掉。默认值是一个
-	// 设置、不是导航的行为，所以这里没有任何东西被它掰弯。
-	// 阈值钉住，理由和落点档一样：这里量的是栈自己的闸门，而出厂的 0 会在每一次 teleport
-	// 够到闸门之前就把它挡掉。
-	const resolved = { ...DEFAULT_SETTINGS, recentFilesLandings: 'last',
-		navHistoryTeleportMinLines: 10, ...settings } as PluginSettings;
+	// 阈值钉住：这里量的是栈自己的闸门，而出厂的 0 会在每一次 teleport 够到闸门
+	// 之前就把它挡掉。
+	const resolved = { ...DEFAULT_SETTINGS, navHistoryTeleportMinLines: 10, ...settings } as PluginSettings;
 	const state = new PositionState(resolved);
 	const funnel = new NavFunnel(app, state);
 	const stack = new NavStack(app, resolved, state, funnel, savedPosition);

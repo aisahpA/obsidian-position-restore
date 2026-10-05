@@ -43,22 +43,6 @@ interface TabStateRecord {
 	st: EphemeralState;
 }
 
-// 一篇笔记列表记多少、以及记下来的画多少：一个答案，一条轴上的三档，因为这两个问题
-// 不独立——没记过的落点画不出来。
-//
-//   'none' —— 只记笔记和视图。没有落点可画，也没有可搜的。
-//   'last' —— 记落点，但每篇笔记只画一行。落点成了隐形索引：搜索框靠跳转旁边的那几行
-//              找到一篇笔记。
-//   'all'  —— 记落点、每个各画一行。默认档：只有从这一档往下选，另两档才真的有东西
-//              可选；而从这一档往下走不损失任何东西。
-//
-// 三档是单调的——每一档留的、画的都是上一档的超集——而且每一档都「可逆」：退到
-// 'none' 只是不再记新落点、一个也不画，但不删除，再往上走还找得到。
-//
-// 名字定在这里、紧挨着持有它的那个设置，因为有三处在说它；listing.ts 把它转出去给
-// 面板的几个模块用。
-type LandingsMode = 'none' | 'last' | 'all';
-
 // 一行上路径印多少。两个「总是」档同时也定下了行挤不下时谁让位：'before' 把「名字」
 // 挤到第二行、路径整条留着，'after' 让「路径」下移。
 //
@@ -74,7 +58,7 @@ type PathDisplayMode = 'smart' | 'before' | 'after';
 //              画完才滚过去，所以长笔记会先空着、然后一跳。
 //
 // 默认是 'head'，理由是第二档的代价：一行的「点击」本来就把笔记开在那一行，所以花
-// 一次等待买到的，只是提前一个手势看到同一个抵达。标题行两种选择都不适用：它自称一个
+// 一次等待买到的，只是提前一个手势看到同一个抵达。大纲行两种选择都不适用：它自称一个
 // 地点，不需要等任何东西。
 type PreviewFocusMode = 'head' | 'line';
 
@@ -119,14 +103,15 @@ interface PluginSettings {
 	// 命中的文件永不收录。它「不」读位置功能那个单文件逃生口（`position-restore`）：那个
 	// 答的是要不要记「位置」，而一篇拒绝记位置的笔记，仍是读者会去的一个地方。
 	recentFilesExcludeProperties: string[];
-	// 列表把读者的行踪记到多细、画多少（见 LandingsMode）。一个设置而不是两个，因为没
-	// 记过的落点画不出来。
-	recentFilesLandings: LandingsMode;
-	// ===== 最近文件列表：自己的存储，自己的规则。 =====
-	// 与前进/后退的栈、与位置记录都不是一回事：它装的是读者「去过哪里」，所以一个地点
-	// 可以住上几个月，而栈里的一步只活几分钟。
-	// 它记住多少「篇笔记」——每种模式下溢出都丢最旧的。落点的上限另算、且是内部的：那是
-	// 存储卫生，不是让读者去编一个数字。
+	// 搜索框是否把**各篇笔记的小节标题**也算进搜索面：开着时，输一个标题词会把命中的
+	// 那一节作为一行画在那篇笔记下面，点它去那一节。关掉时搜索只认名字、路径与其它
+	// 名字，一行也只代表那篇笔记。
+	//
+	// 它与「列表记什么」正交：无论开关怎样，一份跳转都只记成「读者在这篇笔记里」（见
+	// places.ts），所以这一项从不改变**记录**的东西，只改变搜索能找到什么、以及画什么。
+	recentFilesOutlineSearch: boolean;
+	// 它记住多少「篇笔记」——溢出时丢最旧的。一行就是一篇笔记（或一个视图），所以这就是
+	// 行数，没有第二个名额池。
 	recentFilesCap: number;
 	// 一行是否印它所在笔记的文件夹，以及印在名字的哪一侧
 	recentFilesPathDisplay: PathDisplayMode;
@@ -138,8 +123,8 @@ interface PluginSettings {
 	// 仓库，处处都按那些名字读——快速切换、反向链接、每个 `[[`——而这份列表正是读者来找
 	// 其中一个名字的地方。没有这个属性、或它的值不是名字的笔记，印文件名。
 	recentFilesTitleProperty: string;
-	// 悬停预览把一行代表的笔记开在哪里（见 PreviewFocusMode）。不受它管的是一行「点名了
-	// 落点」的行。
+	// 悬停预览把一行代表的笔记开在哪里（见 PreviewFocusMode）。不管的是**大纲行**：它是
+	// 一个点名了小节的行，预览它就是预览那一节。
 	recentFilesPreviewFocus: PreviewFocusMode;
 	// app「自己」的文件列表把悬停预览开在哪里。它自己一个设置，不与上面那个共用：两者是
 	// 两块不同的地盘——一块是本插件画的列表，另一块是 app 的——读者完全可能想让一个开在
@@ -172,7 +157,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
 	recentFilesExcludeFolders: [],
 	recentFilesExcludeProperties: [],
-	recentFilesLandings: 'all',
+	recentFilesOutlineSearch: true,
 	recentFilesCap: 50,
 	recentFilesPathDisplay: 'smart',
 	recentFilesRowTime: true,
@@ -187,7 +172,6 @@ export {
 	NavEntryState,
 	TabStateRecord,
 	PluginSettings,
-	LandingsMode,
 	PathDisplayMode,
 	PreviewFocusMode,
 };

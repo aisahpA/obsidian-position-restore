@@ -130,42 +130,28 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
-				// 这份列表**留**一篇笔记的多少、以及它把**留下的**画多少 —— 一行、一条轴上的三个档
-				// （见 LandingsMode）。两半是**一个**问题，因为一个从未被记录下来的落点画不出来：
-				// 一个在选「看多少」的读者，已经答过了「留多少」，而问他们两遍会产生一个毫无意义的
-				// 第四个答案。各档是单调的 —— 每一档留下并画出的，都是它上面那一档的超集 ——
-				// 这正是它们能待在一个下拉里、而不是两个控件里的原因。
+				// 搜索框是否把**各篇笔记的小节标题**也算进搜索面：开着时，输一个标题词会把
+				// 命中的那一节作为一行画在那篇笔记下面，点它去那一节。
 				//
-				// 'all' 是默认：列表出厂就显示读者留下的每一个地点，而它也是唯一一个「在它下面两档能挑出
-				// 东西来挑」的档 —— 一个从 'none' 开始、后来才碰到这一行的读者，会发现它底下什么都没记录。
-				// 而且没有哪一档是单向门：往下走会让列表**停止记录**新的落点，但它已经记录下来的东西会一直
-				// 留着，直到它所处的那篇笔记被挤出局。
+				// 它是这个面板**唯一**一个关于「记多细」的开关，因为另一半已经不在了：这份
+				// 列表只记笔记，一次跳转记下来的是「读者在这篇笔记里」（见 places.ts），所以
+				// 没有什么「记不记落点」可选 —— 能选的只剩搜索能找到什么。
+				//
+				// 默认开：搜索框是读者带着一个**词**来的地方，而一篇笔记里的小节是「我只记得
+				// 它在某一节里说过」这种记忆唯一能被兑出来的地方。
 				{
-					name: t('recentFiles.landings.name'),
-					desc: t('recentFiles.landings.desc'),
+					name: t('recentFiles.outlineSearch.name'),
+					desc: t('recentFiles.outlineSearch.desc'),
 					control: {
-						type: 'dropdown',
-						key: 'recentFilesLandings',
-						options: {
-							none: t('recentFiles.landings.options.none'),
-							last: t('recentFiles.landings.options.last'),
-							all: t('recentFiles.landings.options.all'),
-						},
+						type: 'toggle',
+						key: 'recentFilesOutlineSearch',
 					},
 				},
-				// 这份列表**记住多少篇笔记** —— 一个只有一个含义的数字，无论读者在上面那一行的哪一档：
-				// 它数的是笔记和视图，从不数它们里面的落点，所以在各档之间移动，不会挪动他们已经设下的
-				// 那个数字的球门。
-				//
-				// 它站在那一行**下面**、而不是上面，因为那一行正是这一个需要先被读的东西：一个还没答过
-				// 「我想把我的导航记到多细」的读者，说不出一个笔记数是什么的数目 —— 是上面那一行让下面
-				// 这一行变得可答。（而且它那句话写了两遍，只因为最顶那一档多欠一个从句：在那里落点是
-				// 当作行画出来的，所以屏幕上的列表比这个数字长，尽管这个数字数的仍然是笔记。）
+				// 这份列表**记住多少篇笔记**。一个只有一个含义的数字：它数的是行，而一行就是
+				// 一篇笔记（或一个视图），所以没有第二个名额池要跟着它一起被解释。
 				{
 					name: t('recentFiles.cap.name'),
-					desc: ctx.plugin.settings.recentFilesLandings === 'all'
-						? t('recentFiles.cap.desc.all')
-						: t('recentFiles.cap.desc.plain'),
+					desc: t('recentFiles.cap.desc'),
 					control: {
 						type: 'number',
 						key: 'recentFilesCap',

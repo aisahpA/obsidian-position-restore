@@ -2,7 +2,7 @@
 // 能回答的两件事 —— 文件保存的位置、以及它现在的 mtime —— 以谓词的形式传进来。
 // 无 DOM、也没有 `this`。
 
-import { landedLine, NavEntry, NavView } from '@/nav/entry';
+import { NavEntry, NavView } from '@/nav/entry';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 
@@ -84,16 +84,14 @@ export function duplicateNames(names: Iterable<string>): Set<string> {
 }
 
 // 一行关于一条条目需要知道的东西。纯（只有调用方能回答的那一件事 —— 文件保存的位置 ——
-// 以谓词的形式传进来），所以浏览器的标签不用 DOM 就能测试。一个**文件**没了的地点永远不会被
+// 以谓词的形式传进来），所以浏览器的标签不用 DOM 就能测试。一个**文件**没了的行永远不会被
 // 描述：列表在问之前就把它滤掉了（见 RecentFilesList.render）。
 export interface NavEntryDescription {
 	// 笔记的显示名（见 displayName），或对一个没有 path 的条目用视图自己的名字（见 viewName）。
-	// 组的表头显示它，旁边是徽标和文件夹。
+	// 行的名字格显示它，旁边是徽标和文件夹。
 	name: string;
-	// 这一行的附注文字："L412"。一个没有记录行号的步改为显示 "—"。
-	line?: string;
-	// 同一个落点的 0-based 下标 —— groupByFile 据以把两步当作一个地点的东西，
-	// 也是标题链据以被查找的东西。
+	// 一次普通打开会落到的行，0-based —— 位置数据库对这篇笔记的回答，也就是这一行
+	// 的点击与预览都瞄准的那个地方。没有保存的位置时为 undefined。
 	lineIndex?: number;
 }
 
@@ -108,8 +106,7 @@ export function viewName(entry: NavView): string {
 	return entry.viewType === 'graph' ? t('recentFiles.graphView') : entry.viewType;
 }
 
-// 一条条目，按它那一行的显示方式。那些兜底是给一种从未走过导航读取的状态的：下面文件保存的
-// 位置，或一次落点从未落定的 teleport。
+// 一条条目，按它那一行的显示方式。
 //
 // `titleOf` 是读者给笔记起的名字（见 reads.ts 的 titleOf）：vault 对「这篇笔记叫什么」的回答，
 // 在这里问出来，好让下游的一切 —— 那一行、搜索、把两篇同名笔记分辨开的文件夹 —— 显示
@@ -121,22 +118,12 @@ export function describeNavEntry(
 ): NavEntryDescription {
 	if (entry.kind === 'view')
 		return { name: viewName(entry) };
-	let n: number | undefined;
-	if (entry.st) {
-		n = landedLine(entry);
-	} else {
-		// 这条条目自身不携带位置（一次早于「离开时刷新」的标签页/窗格激活，或一条遗留的持久化
-		// 条目）：退回文件保存的记录 —— 一次重新打开会恢复的位置，也就是这一步的「我刚才在哪儿」。
-		const saved = savedPosition?.(entry.path);
-		n = saved?.cursor?.from.line ?? saved?.scroll;
-		if (n === undefined && entry.kind === 'teleport')
-			// 一次从未落定的落点：记录下来的目标行仍然是恢复会瞄准的地方。
-			n = entry.line;
-	}
+	// 这条条目自身不携带位置 —— 一份记录不携带任何位置 —— 所以这一行说的是文件保存的
+	// 记录：一次重新打开会恢复的位置，也就是这一行的「我刚才在哪儿」。
+	const saved = savedPosition?.(entry.path);
 	return {
 		name: titleOf?.(entry.path) ?? displayName(entry.path),
-		line: n !== undefined ? `L${n + 1}` : undefined,
-		lineIndex: n,
+		lineIndex: saved?.cursor?.from.line ?? saved?.scroll,
 	};
 }
 
@@ -195,47 +182,3 @@ export function ageLabel(at: number, now: number): string {
 	}
 }
 
-// 一组**上次**被访问是什么时候：它持有的那些记录里最新的那个时间戳。不是锚点自己的时间戳，
-// 尽管锚点通常**就是**这篇笔记的上次访问：锚点可能已经被淘汰，而在笔记内部做出的那些跳转
-// 还活着（见 activeRep），而且一组的 `indices` 是**行号**顺序（见 groupByFile）、不是时间顺序。
-export function newestStamp(
-	entries: NavEntry[],
-	indices: number[],
-	anchor?: number,
-): number | undefined {
-	let newest: number | undefined;
-	const look = (i: number | undefined) => {
-		if (i === undefined)
-			return;
-		const stamp = entries[i]?.t;
-		if (typeof stamp === 'number' && (newest === undefined || stamp > newest))
-			newest = stamp;
-	};
-	look(anchor);
-	for (const i of indices)
-		look(i);
-	return newest;
-}
-
-// 一条**行**显示的那条链的样子：只要最深的 `depth` 个层级，最外层在前（一行只有一行的宽度）。
-// 最深的那一层**保留**，即便它正是落点行自身所携带的那个标题：这一行上没有别的东西命名
-// 落点自己的文字，而把它丢掉会让这一行改为命名它的**父**分节。
-export function rowTrail(trail: string[], depth = 2): string[] {
-	return trail.slice(-depth);
-}
-
-// 一行是否必须放弃它所显示链的**外层**层级：这个层级存活下来的不到**一半**。`whole` 是这个层级
-// 所要的宽度，`shown` 是这一行能给它的 —— 两者都由唯一持有「已排版的这一行」的那个调用方
-// 从那一行上读出（见 RecentFilesList.fitTrails）。
-//
-// 是一半，不是「被切掉了一点」：一个被裁剪、但大体还在的层级仍然命名它的分节
-// （`面板设计与信息架…`），而一个被挤扁的层级留下的是一个什么都不命名的**碎片**
-// （`新插件 Positi…`）—— 所以这条界线画在层级不再**可读**的地方，而不是它不再完整的地方。
-//
-// 这与最深层的宽度无关：那一层不管旁边站着什么，都取它自己文字所需的宽度（见 styles.css 的
-// `flex: 0 0 auto`），所以把外层拿掉连一个像素都买不到。它买到的是**可读性** —— 而一行放掉的
-// 那个分节，反正都是一次悬停之遥。一个多少放得下的层级永远不会被丢掉（`whole === 0` 表示
-// 什么都没被裁）。
-export function dropsOuterLevel(shown: number, whole: number): boolean {
-	return whole > 0 && shown * 2 < whole;
-}

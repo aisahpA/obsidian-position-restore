@@ -8,8 +8,8 @@ import { NavEntryDescription, describeNavEntry } from './model';
 // 以及按 path 分，文件元数据缓存所回答的东西 —— 它的各标题、和它另有的那些名字。
 // 这些都不需要文件的文本。
 //
-// **两个**问题可能要去问文本，而且只在缓存被问过、且什么都没说之后：一篇 app 还没重新解析
-// 的笔记的标题链（见 headingsFor），以及一个过期数字所移动到的行（见 linesFor）。
+// **一个**问题可能要去问文本，而且只在缓存被问过、且什么都没说之后：一篇 app 还没重新
+// 解析的笔记的标题链（见 headingsFor）。
 
 export interface RecentFilesReadsOptions {
 	// 文件记录自身不携带位置，所以这样一行显示的行号，就是一次普通打开会落到的行 ——
@@ -71,18 +71,12 @@ export class RecentFilesReads {
 	// 那个属性是一个这个缓存订阅不了的读取器，而那个在设置里改了它的读者，
 	// 正看着那个必须在他们手底下变的面板（见 RecentFilesBrowserPrefs.titleProperty）。
 	private titledFor?: string;
-	// 文件**自己的文本**，供缓存答不了的那两个问题：一篇它还没重新解析的笔记的链
-	// （见 headingsFor），以及一个过期数字所移动到的行（见 linesFor）。一次读取同时服务两者
-	// —— 一篇笔记的各行，就是它各标题所在的行。
-	//
-	// **两个**记录，因为这两个答案的生命期不同，而一次读取把两者都填上。链被每一帧的每一个
-	// 落点行问，且只要主体活着就留着；行则只被行号兜底问，而它们到底值不值得留，仍是一个
-	// 悬而未决的问题。分开存，好让丢掉它们不会把链也带走（见 ensureText 的 `want`）。
+	// 文件**自己的文本**，供缓存答不了的那**一个**问题：一篇它还没重新解析的笔记的链
+	// （见 headingsFor）。
 	//
 	// 对着 mtime 记住、而不是靠事件作废：让这样一次读取过期的是**外部**变更，
 	// 而外部变更不触发 'changed' —— 这正是这个兜底存在的全部理由。
 	private heads = new Map<string, { mtime: number; headings: HeadingRef[] }>();
-	private lines = new Map<string, { mtime: number; lines: string[] }>();
 	// 此刻正在读的 path：无论多少帧来问，文件只被读一次。
 	private reading = new Set<string>();
 	private metaRef?: EventRef;
@@ -121,13 +115,6 @@ export class RecentFilesReads {
 	// 做成箭头字段，好让它作为一个普通谓词被交出去。
 	hasFile = (path: string): boolean =>
 		this.app.vault.getAbstractFileByPath(path) instanceof TFile;
-
-	// landingNote 那次比对的一半：记录留着引文被拍下时的 mtime，文件则留着它现在的那个。
-	// 从 vault 自己的文件对象上读、而不是记住，因为要紧的是那个变了的东西。
-	mtimeOf(path: string): number | undefined {
-		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
-		return file instanceof TFile ? file.stat.mtime : undefined;
-	}
 
 	// 一行怎么称呼那篇笔记：读者所命名的属性，当笔记有这个属性时。undefined 不是关于这篇
 	// 笔记的一个答案 —— 那是轮到文件自己的名字了（见 describeNavEntry）。设置为空时整个
@@ -172,14 +159,6 @@ export class RecentFilesReads {
 		return read;
 	}
 
-	// 这篇笔记到底**有没有被解析过** —— 「那个标题没了」与「还没人向 app 要过它」之间的区别，
-	// 而只有**缓存**能分辨：一篇同步刚放回来的笔记，在 app 重新读它所需的这段时间里，这里没有
-	// 任何标题（而在手机上，只要读者从没打开它，它可能根本不会被重新读）。只从缓存上读，
-	// 有意不用下面的文本兜底：问题是有没有过一个答案，而不是这份列表能不能造一个。
-	hasHeadings(path: string): boolean {
-		return !!this.metaFor(path).headings?.length;
-	}
-
 	// 得知一条链的**两种**办法：已经解析好的元数据缓存，以及笔记自己的文本。文本只在第一种
 	// 什么都没说时才用 —— 而「什么都没说」包括**空**链：一篇同步刚放回来的笔记，可能在它还在
 	// 被写的时候就被解析过了，而在手机上那个记录可能就此代表整个会话剩下的部分。
@@ -196,56 +175,40 @@ export class RecentFilesReads {
 	//
 	// ……所以这个不管那条记录是在哪个 mtime 下拍的都拿它作答，而下面的 linesFor 不行。
 	private textHeadings(path: string): HeadingRef[] | undefined {
-		this.ensureText(path, true, 'heads');
+		this.ensureText(path, true);
 		return this.heads.get(path)?.headings;
 	}
 
-	// 一个过期的行号被重新找到时所依据的那些行（见 nowLineFor）。绝不用在一个更旧的 mtime 下
-	// 拍的读取：这些行正是被拿来比较的东西，所以它们的一份过期拷贝不是答案的近似，而是答案的
-	// 缺席。
+	// 开始读一篇笔记的文本，除非那条链已经在文件**当前**的 mtime 下到手了。
 	//
 	// `prime` 是「是否可以**开始**一次读取」。一次悬停可以 —— 答案只隔一个 await。
 	// 一次五十行的渲染不行：为给五十行贴标签而读五十个文件，不是一次重画付得起的价钱。
-	linesFor(path: string, prime: boolean): string[] | undefined {
-		const mtime = this.ensureText(path, prime, 'lines');
-		const known = this.lines.get(path);
-		return known && known.mtime === mtime ? known.lines : undefined;
-	}
-
-	// 开始读一篇笔记的文本，除非提问者来这里要的那个记录已经在文件**当前**的 mtime 下到手了。
-	// `want` 点名那个记录，因为两者生命期不同（见该字段）：链到手永远不能代替行，
-	// 所以到了行被丢掉的那天，一篇已经为它的链读过一次的笔记，不会为一个与它无关的问题
-	// 被再读一遍。作答时给出这次读取所对应的 mtime —— 也就是调用方拿自己记录去比对的
-	// 那个 —— 或对没有文件在背后的 path 给出 undefined。
-	private ensureText(path: string, prime: boolean, want: 'heads' | 'lines'): number | undefined {
+	// （唯一为它传 false 的调用方曾是那条链自己；如今两者都不等，所以链随下一次重画到达 ——
+	// 见调用方的 redrawSoon。）
+	private ensureText(path: string, prime: boolean): number | undefined {
 		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
 		if (!(file instanceof TFile))
 			return undefined;
 		const mtime = file.stat.mtime;
-		const known = want === 'heads' ? this.heads.get(path) : this.lines.get(path);
-		if (known?.mtime !== mtime && prime && !this.reading.has(path)) {
+		if (this.heads.get(path)?.mtime !== mtime && prime && !this.reading.has(path)) {
 			this.reading.add(path);
 			void this.readText(path, file, mtime);
 		}
 		return mtime;
 	}
 
-	// 对着它被读时的 mtime 记住。一次**失败**的读取被记成「没有标题、也没有行」，
+	// 对着它被读时的 mtime 记住。一次**失败**的读取被记成「没有标题」，
 	// 而不是留着悬空：一个读不了的文件，是这份列表反正即将停止绘制的（见 hasFile），
 	// 而一个悬空的问题会在主体活着的整个期间、每次重画都被再问一遍。
 	private async readText(path: string, file: TFile, mtime: number): Promise<void> {
 		let headings: HeadingRef[] = [];
-		let lines: string[] = [];
 		try {
-			// 只切**一次**：各标题正是在行号兜底所读的那些行里找到的。
-			lines = (await this.app.vault.cachedRead(file)).split('\n');
-			headings = headingsFromLines(lines);
+			headings = headingsFromLines((await this.app.vault.cachedRead(file)).split('\n'));
 		} catch {
-			// 那就没什么可说：这一行保留它的行号。
+			// 那就没什么可说：这一行没有大纲可搜。
 		}
 		this.reading.delete(path);
 		this.heads.set(path, { mtime, headings });
-		this.lines.set(path, { mtime, lines });
 		this.opts.onLateRead?.();
 	}
 

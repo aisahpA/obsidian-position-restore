@@ -90,8 +90,8 @@ export function isRecordableViewType(viewType: string | undefined): boolean {
 // 地点 store 按它删掉整行（NavPlaces.forget）—— 而规则写两遍就会漂：面板的一行与 store 删的
 // 一批对不上时，会删掉没人指过的地点。
 //
-// 它不是地点的身份（那在 places.ts 的 placeKey）：一篇笔记和它内部的每一次跳转在这里是
-// 一行、在那里是多个地点，而读者从列表上取走的是那篇笔记。视图是两者重合的地方 —— 两边都是一。
+// **这就是行的身份**，没有第二套：一份跳转与它所在的笔记在这里是**一行**（在前进/后退
+// 栈里它是自己的一步，那里答的是另一个问题）。视图也是一：它的行由它的类型标识。
 export function navGroupKey(entry: NewNavEntry): string {
 	return entry.kind === 'view' ? `view:${entry.viewType}` : entry.path;
 }

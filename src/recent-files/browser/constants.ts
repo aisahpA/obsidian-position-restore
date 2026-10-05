@@ -5,6 +5,11 @@
 // app 就是靠它来区分自己的各个来源的。
 export const NAV_SOURCE_ID = 'position-restore-recent-files';
 
+// 一篇笔记下面最多画多少个**大纲行**（搜到的小节）。它是防噪音的护栏：一篇两百个小节的
+// 笔记不该把列表撑爆 —— 而它是个常量而不是设置，因为读者没有理由想去调它：想要更少的
+// 读者会多打几个字，那才是搜索框该做的。
+export const OUTLINE_HIT_LIMIT = 5;
+
 // 条目超过这个数，模态框就固定高度并滚动：筛选不能改变对话框大小、也不能让它重新居中。
 export const FIXED_HEIGHT_MIN_ENTRIES = 12;
 

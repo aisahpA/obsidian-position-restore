@@ -146,7 +146,7 @@ export const en = {
 	'recentFiles.name': 'Recent files',
 
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The headings you jumped to inside a note get rows of their own as well — how many, is the "How much it keeps" row below, and by default every one of them is kept. It is not the "Back and forward" stack: that one holds how you got here, this one holds where you have been, and the two are kept apart. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The filter can also search the headings inside each note: whichever ones it matches are drawn as rows beneath it, and one jumps straight to that section (see "Search headings" below). The list remembers which notes you have been to, and no position inside them — going back to a heading is what the "Back and forward" stack is for. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	'recentFiles.folders.name': 'Folders not listed',
 	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
@@ -160,16 +160,11 @@ export const en = {
 	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
 	'recentFiles.frontmatterExclude.add': 'Add property',
 	'recentFiles.cap.name': 'Notes to remember',
-	'recentFiles.cap.desc.plain':
-		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
-	'recentFiles.cap.desc.all':
-		'How many notes the recent files list remembers (a view counts as one) — the headings inside a note do not count, but each is drawn as a row of its own, so the list runs longer than this number. Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back.',
-	'recentFiles.landings.name': 'How much it keeps',
-	'recentFiles.landings.desc':
-		'How finely the list remembers where you have been: the notes you opened only, or the headings you jumped to inside them as well. And once they are recorded, whether they are drawn: the note still takes one row and its headings only answer the search box, or every heading gets a row of its own. Moving either way costs nothing: coming back to "notes only" merely stops recording new ones — the headings already recorded are kept, and going back down finds them there, until the note they stand in is crowded out.',
-	'recentFiles.landings.options.none': 'Notes only',
-	'recentFiles.landings.options.last': 'Headings, one row per note',
-	'recentFiles.landings.options.all': 'Headings, a row each',
+	'recentFiles.cap.desc':
+		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back. Pinned rows do not count.',
+	'recentFiles.outlineSearch.name': 'Search headings',
+	'recentFiles.outlineSearch.desc':
+		'Whether the filter matches the headings inside each note, on top of its name (and its aliases and path). On: every heading it matches is drawn as a row beneath that note, and clicking one jumps to it. Off: a query only ever names the note itself.',
 	'recentFiles.pathDisplay.name': 'Folder path in the list',
 	'recentFiles.pathDisplay.desc': 'Whether a row shows the folder its note sits in — on every row, or only where another row on screen shares the name — and on which side of the name. The side also decides which half gives way when the row runs out of width: the one laid out last drops to a second line.',
 	'recentFiles.pathDisplay.options.smart': 'Only when names repeat',
@@ -189,12 +184,9 @@ export const en = {
 	'recentFiles.age.y': 'y ago',
 	'recentFiles.title': 'title:',
 	'recentFiles.aliases': 'aliases:',
-	'recentFiles.matchedHeading': 'section:',
-	'recentFiles.lostLanding': "Can't find this heading since the note was edited",
 	'recentFiles.openInNewTab': 'Open in new tab',
 	'recentFiles.openHereInNewTab': 'Open here in a new tab',
 	'recentFiles.forget': 'Remove from recent files',
-	'recentFiles.forgetLanding': 'Remove this heading',
 	'recentFiles.clearList': 'Clear the whole list',
 	'recentFiles.rowMenu': 'More actions',
 	'recentFiles.pin': 'Pin to top',

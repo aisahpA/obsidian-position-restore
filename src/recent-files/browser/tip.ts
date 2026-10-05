@@ -22,17 +22,10 @@ export interface TipContent {
 	text?: string;
 	// 那一行所代表的地方**在哪个节**：标题链。
 	//
-	// 只在两种行上出现，理由不同。**落点行**在它打印不下整条链时给出外层那些层级
-	//（见 RecentFilesList.fitTrails）；**文件行**在这一行本身就是某个落点、而落点行
-	// 又没有被打印时给出 —— 也就是 `recentFilesLandings: 'last' | 'none'`，或这篇笔记
-	// 只有一条落点。那种档位下这一行点下去**就是**去那个落点（见 activeRep），所以链
-	// 在这里是兑现的承诺；一句按标题词的搜索得到的正是这样一行，链是它唯一能说出
-	// 「我为什么在列表上」的地方。
+	// 只有一种行给它 —— **大纲行**（见 RecentFilesList.headingRow）：它印的是那一节自己的
+	// 名字，而链说出那一节**在这篇笔记的哪里**。两个同名的小节只靠名字是分不开的，而这
+	// 一行点下去去的就是链末端那一个，所以链在这里是兑现的承诺。
 	trail?: string;
-	// 关于笔记的、而**不是**从笔记里来的那一行：这些词被记下之后文件有没有被写过
-	//（见 landingNote）。它是这个面板的话、不是笔记的原话，而读者必须能一眼把两者
-	// 分清 —— 所以它比任何一行都淡（见 nav-tip-note）。
-	note?: string;
 }
 
 // 每份列表**一个**提示框，只在指针停在一个有话可说的东西上时才在屏上。它住在
@@ -76,12 +69,6 @@ export class NavRowTip {
 
 	attach(el: HTMLElement, content: TipContent): void {
 		this.tips.set(el, content);
-	}
-
-	// 收纳那一趟把它从一行上拿掉的分节层级的词交给那行，又在这行有地方重新显示
-	// 那个层级时把它们**收回去**（见 fitTrails）—— 一个被留下的提示框会重复它所覆盖的那一行。
-	detach(el: HTMLElement): void {
-		this.tips.delete(el);
 	}
 
 	// 收回已说出的和即将说出的：app 已经把**笔记本身**放到这些行上方了（见 hoverRow），
@@ -227,13 +214,10 @@ export class NavRowTip {
 			el.createDiv({ cls: 'nav-tip-text', text: content.frontTitle });
 		if (content.text)
 			el.createDiv({ cls: 'nav-tip-text', text: content.text });
-		// 标题链独占一行，且排在关于笔记的那一行**之前**：链说的是「那个地方叫什么」
-		// （这一行自己的承诺），而下面那行讲的是「那个地方后来变了没有」。
+		// 标题链独占一行，在关于笔记的那几行**之后**：先说这是哪篇笔记，再说要去它
+		// 里面的哪里。
 		if (content.trail)
 			el.createDiv({ cls: 'nav-tip-trail', text: content.trail });
-		// 关于笔记的那一行放**最后**：它讲的是上面那些词，而它本身是面板的话。
-		if (content.note)
-			el.createDiv({ cls: 'nav-tip-note', text: content.note });
 		this.el = el;
 		this.place(el, target);
 	}

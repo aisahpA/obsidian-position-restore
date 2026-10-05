@@ -1,7 +1,7 @@
 // 最近文件浏览器的**常驻**外壳（browser/view.ts）：它是靠什么成为侧边栏面板
 // 而不是对话框的 —— 窗格自己围着 body 的寿命、窗格自己的宽度决定呈现方式，以及
-// 立着期间一直听着地点列表（见 NavPlaces.subscribe）。body 本身 —— 那棵树、落点
-// 面板、键盘、前往 —— 在 recent-files-browser-dom.test.ts 里覆盖，那里它是经由
+// 立着期间一直听着地点列表（见 NavPlaces.subscribe）。body 本身 —— 那棵树、大纲
+// 行、键盘、前往 —— 在 recent-files-browser-dom.test.ts 里覆盖，那里它是经由
 // 模态框驱动的。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -13,11 +13,11 @@ import { Menu } from './support/obsidian-stub';
 
 import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
 import type { RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
-import type { LandingsMode } from '@/recent-files/browser/listing';
 import type { PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import type { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
+import type { HeadingRef } from '@/shared/headings';
 import { PANEL_EXIT_GRACE_MS, TIME_REFRESH_MS } from '@/recent-files/browser/constants';
 
 // jsdom 不实现布局，所以这里是缺失而不是坏掉。
@@ -39,16 +39,19 @@ const KeymapKnobs = Keymap as unknown as {
 // 它底下**变了的**值做什么，是外壳加的唯一一件事，所以这个 fixture 也可以被写：
 // 那正是设置标签页做的事（见 SettingTab.setControlValue），随后面板被要求重画
 // （见 RecentFilesView.refresh）。
-type TestPrefs = RecentFilesBrowserPrefs & { setLandings: (how: LandingsMode) => void };
+type TestPrefs = RecentFilesBrowserPrefs & { setOutline: (on: boolean) => void };
 
 function browserPrefs(
-	landings: LandingsMode = 'last',
+	// 搜索框是否把各篇笔记的小节标题也算进搜索面（见 RecentFilesBrowserPrefs）：这个
+	// 套件里唯一一个会**改变列表形状**的偏好，所以「面板对一个变了的值做什么」那件事
+	// 拿它来试。
+	outline = true,
 	path: PathDisplayMode = 'smart',
 	time = false,
 ): TestPrefs {
-	const held = { landings, path, time };
+	const held = { outline, path, time };
 	return {
-		landings: () => held.landings,
+		outlineSearch: () => held.outline,
 		// 列表往回够多远（见 PluginSettings.recentFilesCap）：一个面板只读的数字。
 		placesCap: () => 200,
 		// 一行的路径印出多少、印在名字的哪一侧（见 PathDisplayMode）。
@@ -64,8 +67,8 @@ function browserPrefs(
 		// 悬停在哪里打开笔记：这些测试没有一个做悬停，而且这是一个按悬停、不是按
 		// 面板问的问题（见 PreviewFocusMode）。
 		previewFocus: () => 'head',
-		setLandings: (how) => {
-			held.landings = how;
+		setOutline: (on) => {
+			held.outline = on;
 		},
 	};
 }
@@ -125,12 +128,6 @@ const NOW = Date.now();
 const visit = (path: string, stamp: number): NavEntry =>
 	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp });
 
-// 一篇笔记的一个**地点**：读者做过的一次 jump。笔记自己的记录（`visit`）是笔记
-// 的**行**，根本不带位置（见 places.ts），所以一个意思是「这篇笔记里的一处地
-// 点」的 fixture 要构造 jump —— 带位置的 visit 是列表从不持有的形状。
-const place = (path: string, stamp: number, line: number): NavEntry =>
-	({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:L${line}@${stamp}`, t: stamp, st: { scroll: line } });
-
 // 视图所看到的地点列表：entries、指针、travel 与 subscribe（见 places.ts 的
 // PlaceList）。真实 store 在 recent-files-places.test.ts 里对着同一个面被演练；
 // 这里的重点是**外壳**，所以列表是一个可以手工挪动的 fixture。
@@ -147,6 +144,10 @@ class FakeNav {
 	// 「哪里」的应答正是修饰键测试的要点。
 	readonly targets: (PaneTarget | undefined)[] = [];
 
+	// ……以及去往一个**搜到的小节**的那一种前往（见 list.ts 的 HeadingHit）：它不
+	// 走一条记录，所以单独记。
+	readonly headed: { path: string; heading: string; line: number; target?: PaneTarget }[] = [];
+
 	// 真实的前往，缩微版：被前往的那个地点重新盖章并成为当前那个 —— 于是列表在
 	// 面板底下被重写，这正是面板必须先折叠的全部理由（见 NavPlaces.travel /
 	// RecentFilesList.collapse）。
@@ -158,6 +159,12 @@ class FakeNav {
 		this.index = this.entries.length - 1;
 		for (const fn of this.listeners)
 			fn();
+	};
+
+	travelToHeading = async (
+		path: string, heading: string, line: number, _leafId: string, target?: PaneTarget,
+	): Promise<void> => {
+		this.headed.push({ path, heading, line, target });
 	};
 
 	subscribe(fn: () => void): () => void {
@@ -230,7 +237,12 @@ class FakeNav {
 	}
 }
 
-function makeApp(paths: string[] = []) {
+function makeApp(
+	paths: string[] = [],
+	// 这些笔记**各自的小节**，按 app 的元数据缓存交出它们的样子（见 reads.ts 的
+	// readMeta）。一个测试要搜到某个小节，就得让它存在于 vault 里。
+	headings: Record<string, { heading: string; level: number; line: number }[]> = {},
+) {
 	const files: Record<string, TFile> = {};
 	for (const path of paths)
 		// 一个 stat，正如每个 TFile 都有的那样：从文件自己的文本读出的章节链会连
@@ -251,12 +263,19 @@ function makeApp(paths: string[] = []) {
 			on: () => () => {},
 			offref: () => undefined,
 		},
-		metadataCache: { getFileCache: () => null },
+		metadataCache: {
+			getFileCache: (file: TFile) => {
+				const hs = headings[file.path];
+				return hs
+					? { headings: hs.map(h => ({ ...h, position: { start: { line: h.line } } })) }
+					: null;
+			},
+		},
 		workspace: {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
-			// 这个文件的 harness 里没有打开任何 markdown leaf：笔记的行在这里从
-			// 磁盘读，如果它们真被读的话（见 now-line.ts）。
+			// 这个文件的 harness 里没有打开任何 markdown leaf，所以一行「会落在哪里」
+			// 由位置数据库答、而不是由屏幕上的编辑器答（见 reads.ts）。
 			getLeavesOfType: () => [],
 			trigger,
 		},
@@ -282,11 +301,15 @@ async function mount(
 	// 需要它背后的文件存在，否则列表会把新地点过滤掉（见 RecentFilesList.render）。
 	extraPaths: string[] = [],
 	arrows: ReturnType<typeof browserArrows> = browserArrows(),
+	headings: Record<string, { heading: string; level: number; line: number }[]> = {},
 ) {
 	const nav = new FakeNav();
 	nav.entries = entries;
 	nav.index = index;
-	const { app, trigger } = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
+	const { app, trigger } = makeApp(
+		[...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths],
+		headings,
+	);
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
 	// jsdom 不做任何布局，所以窗格报告宽度 0 —— 那是**内联**呈现，即不需要第二
 	// 列的那一种（见 RecentFilesView.measure）。
@@ -364,9 +387,9 @@ describe('RecentFilesView —— 常驻面板', () => {
 	// 答点击的列表。
 	it('正被读的顺序先按住不动，指针离开后再补上', async () => {
 		const { el, nav, names, list } = await mount([
-			place('a.md', NOW - 3 * MINUTE, 10),
-			place('b.md', NOW - 2 * MINUTE, 20),
-			place('c.md', NOW - MINUTE, 30),
+			visit('a.md', NOW - 3 * MINUTE),
+			visit('b.md', NOW - 2 * MINUTE),
+			visit('c.md', NOW - MINUTE),
 		], 2);
 		const current = () =>
 			el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent;
@@ -380,7 +403,7 @@ describe('RecentFilesView —— 常驻面板', () => {
 		// 顺序不再是读者正看着的顺序：a.md 现在是三者里最新的。
 		nav.entries = [
 			...nav.entries.filter(e => e.kind === 'view' || e.path !== 'a.md'),
-			place('a.md', NOW, 10),
+			visit('a.md', NOW),
 		];
 		nav.moved(2);
 
@@ -404,7 +427,7 @@ describe('RecentFilesView —— 常驻面板', () => {
 	it('站着的时候刷新时间差，面板一关就停', async () => {
 		vi.useFakeTimers();
 		try {
-			const { view, el } = await mount([visit('a.md', NOW)], 0, browserPrefs('last', 'smart', true));
+			const { view, el } = await mount([visit('a.md', NOW)], 0, browserPrefs(true, 'smart', true));
 			const before = el.querySelector<HTMLElement>('.position-restore-nav-row.is-file')!;
 			expect(before).not.toBeNull();
 
@@ -441,22 +464,29 @@ describe('RecentFilesView —— 常驻面板', () => {
 	// PositionManager.refreshNavPanels）：值写在写设置的地方，而每一个立着的面板
 	// 都被要求把自己再画一遍。
 	it('改了它据以绘制的偏好时，正在显示的列表就地重画', async () => {
-		const prefs = browserPrefs('last');
-		const entries: NavEntry[] = [
-			place('a.md', NOW - 2 * MINUTE, 10),
-			place('a.md', NOW - MINUTE, 40),
-			visit('b.md', NOW),
-		];
-		const { view, el } = await mount(entries, 2, prefs);
-		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(0);
+		const prefs = browserPrefs(false);
+		const { view, el } = await mount(
+			[visit('a.md', NOW)], 0, prefs, [], browserArrows(),
+			{ 'a.md': [{ heading: '定价', level: 2, line: 10 }] },
+		);
+		const type = (text: string): void => {
+			const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+			input.value = text;
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+		};
 
-		// 读者在设置标签页里选「每个落点」：值写在那里，而这个面板被要求重画。
-		prefs.setLandings('all');
+		// 开关关着：搜索只认名字、路径与其它名字，而这篇笔记没有一样叫「定价」——
+		// 于是一行都不剩下。
+		type('定价');
+		expect(el.querySelectorAll('.position-restore-nav-row')).toHaveLength(0);
+
+		// 读者在设置标签页里打开大纲搜索：值写在那里，而这个面板被要求重画。
+		prefs.setOutline(true);
 		view.refresh();
 
 		// 面板底下的列表在同一口气里就是新的 —— 什么都没被重新打开，读者也不必等
-		// 历史走动。
-		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
+		// 历史走动。那一节现在有它自己的一行。
+		expect(el.querySelectorAll('.position-restore-nav-row.is-heading')).toHaveLength(1);
 	});
 
 	// 抽屉是一个**形状**，不是一个 class：`this.leaf.parent` 是 app 放在那里的任何
@@ -476,7 +506,7 @@ describe('RecentFilesView —— 常驻面板', () => {
 		// 起来就像一行什么都没做。面板自己仍留在布局里 —— 折叠不是关闭，而把它放
 		// 在哪儿是读者的事。
 		const { el, nav, view } = await mount(
-			[place('a.md', NOW - MINUTE, 10), visit('b.md', NOW)], 1, browserPrefs('all'));
+			[visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
 		const pane = drawer();
 		(view.leaf as unknown as { parent?: unknown }).parent = pane;
 		const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -539,7 +569,7 @@ describe('RecentFilesView —— 常驻面板', () => {
 		// 事。一个抛了的反应让他们付出的必须是这个反应，不是这趟行程 —— 这个测试
 		// 所针对的故障模式，是一个每次点击都什么都不做的移动端面板。
 		const { el, nav, view } = await mount(
-			[place('a.md', NOW - MINUTE, 10), visit('b.md', NOW)], 1, browserPrefs('all'));
+			[visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
 		(view.leaf as unknown as { parent?: unknown }).parent = {
 			collapsed: false,
 			collapse(): void { throw new Error('no drawer'); },
@@ -681,15 +711,16 @@ describe('RecentFilesView —— 常驻面板', () => {
 });
 
 describe('RecentFilesView —— 指针只由点击驱动', () => {
-	// 一篇有若干处地点的笔记，所以列表被要求印出它们时有一行落点可点（见
-	// groupByFile / LandingsMode）。列表按**最旧在前**排，那是真实历史被建起来的
-	// 顺序（见 NavStack.push）：读者在 a.md 里做的最新那件事是第二个步，不是第
-	// 一个。
+	// 三篇笔记、**三行**：一份列表不为同一篇笔记画两行（见 groupByFile）。列表按
+	// **最新在前**排，所以读者此刻所在的 c.md 在最前。
 	const stack = () => [
-		place('a.md', NOW - 2 * MINUTE, 10),
-		place('a.md', NOW - MINUTE, 40),
-		place('b.md', NOW, 0),
+		visit('a.md', NOW - 2 * MINUTE),
+		visit('b.md', NOW - MINUTE),
+		visit('c.md', NOW),
 	] as NavEntry[];
+
+	// 读者**搜**到的那些小节（见 list.ts 的 HeadingHit）：a.md 里有一个叫「定价」的。
+	const heads = { 'a.md': [{ heading: '定价', level: 2, line: 10 }] };
 
 	const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	// **右键**，以及手指的持久按压（同一个事件、带左键的编号）：两者都不打开任何
@@ -700,6 +731,17 @@ describe('RecentFilesView —— 指针只由点击驱动', () => {
 	const noteRow = (el: HTMLElement, name: string) =>
 		Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === name)!;
+	// 往搜索框里打字：框里的文本**就是**列表的查询，所以每敲一次键列表就被重画。
+	const type = (el: HTMLElement, text: string): void => {
+		const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		input.value = text;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+	};
+
+	// 修饰键是 app 的应答，而上一个用例设过的那个会决定这一个（见 Keymap）。
+	beforeEach(() => {
+		KeymapKnobs.reset();
+	});
 
 	it('悬停不选中任何东西：只有点击才算手势', async () => {
 		const { el } = await mount(stack(), 2);
@@ -725,13 +767,19 @@ describe('RecentFilesView —— 指针只由点击驱动', () => {
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).not.toBeNull();
 	});
 
-	it('列表被要求时才印出笔记的各个标题', async () => {
-		const { el } = await mount(stack(), 2, browserPrefs('all'));
+	it('搜到的那些小节各自成为一行，没搜到就一行都不画', async () => {
+		const { el } = await mount(stack(), 2, browserPrefs(), [], browserArrows(), heads);
 
-		// a.md 的两处地点都要，b.md 底下一个都不要，因为它只持有一处（见
-		// RecentFilesList.printsLandings）：一处地点不是一份列表。
-		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
-		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(2);
+		// 没有查询就没有「搜到的东西」：这三行只是笔记。
+		expect(el.querySelectorAll('.position-restore-nav-row.is-heading')).toHaveLength(0);
+
+		type(el, '定价');
+
+		// 只有 a.md 留了下来，而它搜到的那一节挂在它下面 —— 一节一行，且只有那一篇
+		// 有（见 listing.ts 的 matchedHeadings）。
+		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(1);
+		expect(el.querySelector('.position-restore-nav-row.is-heading .nav-row-heading')?.textContent)
+			.toBe('定价');
 	});
 
 	it('app 要求开新标签页时就开新标签页，面板保持不倒', async () => {
@@ -745,7 +793,7 @@ describe('RecentFilesView —— 指针只由点击驱动', () => {
 
 		click(note());
 
-		expect(nav.jumped).toEqual([1]);
+		expect(nav.jumped).toEqual([0]);
 		expect(nav.targets).toEqual(['tab']);
 		expect(el.querySelector('.position-restore-nav-list')).not.toBeNull();
 		expect(nav.listenerCount).toBe(1);
@@ -759,26 +807,27 @@ describe('RecentFilesView —— 指针只由点击驱动', () => {
 		// 的读者只花**一次**点击。
 		click(note());
 
-		// 它打开笔记那一行所代表的落点：**最新的**那个，也就是读者离开那篇笔记的
-		// 地方 —— 第 1 步、L40 —— 而不是笔记的顶部（第 0 步、L10），后者是它的各
-		// 落点按行序排列时那一行的意思（见 RecentFilesList.activeRep）。而且没有
-		// 留下一行被选中：一次点击会行进。
-		expect(nav.jumped).toEqual([1]);
+		// 它打开那一行所代表的那篇笔记 —— 与在文件浏览器里点它完全一样，落在哪儿
+		// 由位置数据库答（见 RecentFilesList.activeRep）。而且没有留下一行被选中：
+		// 一次点击会行进。
+		expect(nav.jumped).toEqual([0]);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 
-	it('标题行按它自己的那个位置打开', async () => {
-		const { el, nav } = await mount(stack(), 2, browserPrefs('all'));
-		const place = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
-			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L11')!;
+	it('大纲行按它自己那一节前往，而不是那篇笔记的开头', async () => {
+		const { el, nav } = await mount(stack(), 2, browserPrefs(), [], browserArrows(), heads);
+		type(el, '定价');
+		const row = el.querySelector<HTMLElement>('.position-restore-nav-row.is-heading')!;
 
-		// a.md **较老的**那个落点 —— 记在滚动 10 处的步，印作 "L11"（标签是 1-based，
-		// 见 describeNavEntry），也是笔记自己那一行**不**代表的那一个。一行落点有它
-		// 自己的目的地身份。
-		click(place);
+		click(row);
 
-		expect(nav.jumped).toEqual([0]);
-		// 常驻面板仍立着：这次前往重写了它底下的列表。
+		// 那一节自己带着去哪儿：它**此刻**在第 11 行（0-based 10，现查）。它不走
+		// 一条记录 —— 那一节不是列表上的一个地点 —— 所以 `jumped` 一个都没有，而
+		// 常驻面板仍立着。
+		expect(nav.headed).toEqual(
+			[{ path: 'a.md', heading: '定价', line: 10, target: undefined }],
+		);
+		expect(nav.jumped).toEqual([]);
 		expect(el.querySelector('.position-restore-nav-list')).not.toBeNull();
 		expect(nav.listenerCount).toBe(1);
 	});
@@ -810,41 +859,37 @@ describe('RecentFilesView —— 指针只由点击驱动', () => {
 		expect(held.defaultPrevented).toBe(true);
 	});
 
-	// 这次 jump **重写**了栈：它落在的那篇笔记被重新推到顶上，所以它下面每个栈下
-	// 标都挪位、各分组被重建。一个跨过这次重写保留下来的位置，站在滑进它那个槽位
-	// 的任何东西上。这就是那份列表，以及它守着的回归。
-	it('下一次列表从清空后的位置起算，而不是从原来占着那个槽位的行起算', async () => {
+	// 这次前往**重写**了历史：被坐进去的那篇笔记成了最新的一条，于是各行被重建。
+	// 一个跨过这次重写保留下来的位置，会站在滑进它那个槽位的任何东西上 —— 那正是
+	// 它必须被折叠掉的原因。这就是那份列表，以及它守着的回归。
+	it('下一次列表从新历史起算，而没有一个位置被留给占着那个槽位的行', async () => {
 		const entries = [
-			place('a.md', NOW - 5 * MINUTE, 10),
-			place('b.md', NOW - 4 * MINUTE, 5),
-			place('b.md', NOW - 3 * MINUTE, 50),
-			place('c.md', NOW - 2 * MINUTE, 7),
-			place('c.md', NOW - MINUTE, 30),
-			place('d.md', NOW, 1),
+			visit('a.md', NOW - 3 * MINUTE),
+			visit('b.md', NOW - 2 * MINUTE),
+			visit('c.md', NOW - MINUTE),
+			visit('d.md', NOW),
 		] as NavEntry[];
-		// 列表现在的样子：d（当前）在最前，然后 c、b、a。c 是顶行下面那篇笔记，而
-		// 它较老的那个落点，正是这次 jump 即将交给 b 的那个下标。
-		const { el, nav } = await mount(entries, 5, browserPrefs('all'));
-		const places = () => el.querySelectorAll('.position-restore-nav-row.is-place').length;
+		// 列表现在的样子：d（当前）在最前，然后 c、b、a。
+		const { el, nav, names } = await mount(entries, 3);
+		expect(names()).toEqual(['d', 'c', 'b', 'a']);
 
-		// b 印出它的两处、c 也印出它的两处：a 和 d 各持一处，那不构成它自己的一份
-		// 列表（见 RecentFilesList.printsLandings）。
-		expect(places()).toBe(4);
-		// c 较老的那个落点 —— 记在滚动 7 处的步，印作 "L8"：按行序是那篇笔记的顶
-		// 部，它不是 c 自己那一行代表的那一个（最新的、滚动 30），而是这位读者挑的
-		// 那一个。
-		const row = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
-			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L8')!;
-		click(row);
+		// 键盘先停在 c 那一行上（↓ 两次）：位置属于**那一行**，而列表就要在它下面
+		// 被重写。
+		const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		expect(el.querySelector('.position-restore-nav-row.is-selected .nav-row-name')?.textContent)
+			.toBe('c');
 
-		expect(nav.jumped).toEqual([3]);
-		// 前往到的那篇笔记现在是当前那一篇 —— 而且既然它是刚坐进去的地方，它就是
+		click(noteRow(el, 'c'));
+
+		expect(nav.jumped).toEqual([2]);
+		// 前往到的那篇笔记现在是当前那一篇 —— 而既然它是刚被坐进去的地方，它就是
 		// 最新的，所以它的行是列表的第一行……
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent).toBe('c');
-		// ……而栈在面板底下被重写：这次 jump 让 c 只留下一处地点，而 b —— 它占掉了
-		// c 那个老落点下标所指的槽位 —— 印出它自己的两处。无论怎样列表都是从新栈
-		// 画出的；折叠换来的是没有任何东西被**指着**（见 RecentFilesList.collapse）。
-		expect(places()).toBe(2);
+		// ……而历史在面板底下被重写了：无论怎样，列表都是从它现在的样子画出的；
+		// 折叠换来的是没有任何东西被**指着**（见 RecentFilesList.collapse）。
+		expect(names()).toEqual(['c', 'b', 'a']);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 });

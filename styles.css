@@ -171,10 +171,7 @@ body.is-mobile .position-restore-cue {
 
 .modal.position-restore-nav-modal:not(.is-touch) .nav-row-path,
 .modal.position-restore-nav-modal:not(.is-touch) .nav-row-time,
-.modal.position-restore-nav-modal:not(.is-touch) .nav-row-pos,
-.modal.position-restore-nav-modal:not(.is-touch) .nav-row-line,
-.modal.position-restore-nav-modal:not(.is-touch) .nav-row-trail,
-.modal.position-restore-nav-modal:not(.is-touch) .nav-row-here,
+.modal.position-restore-nav-modal:not(.is-touch) .nav-row-heading,
 .modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-empty {
 	font-size: var(--font-ui-small);
 }
@@ -660,30 +657,16 @@ body.is-mobile .position-restore-cue {
 	grid-template-columns: minmax(0, 1fr) auto;
 }
 
-/* **一篇笔记的一个地点**：先是坐标，然后是它所在的小节。它的缩进就是用来表明它
-   属于上面那篇笔记的：那条竖标记用阴影画、而不是用边框，好让这一行保住自己的
-   内边盒，而这一行整宽都可点。 */
-.position-restore-nav-row.is-place {
+/* **一篇笔记里搜到的一个小节**：它缩进到它所属的那篇笔记下面，而那条竖标记就是用
+   阴影画、而不是用边框，好让这一行保住自己的内边盒、整宽都可点。
+   它比名字小一档、也淡一档（见 .nav-row-heading）：它说的是「点下去会去哪儿」，不是
+   「这一行是谁」。 */
+.position-restore-nav-row.is-heading {
 	display: grid;
-	/* 坐标只拿走它自己那个数字需要的宽度、一个像素都不多，所以这一行剩下的全部
-	   都属于小节（见 .nav-row-pos）。 */
-	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr);
+	align-items: baseline;
 	margin-inline-start: 1.5em;
 	box-shadow: inset 2px var(--background-modifier-border);
-	/* ……而它**不裁**：“你在这里”的那个 ● 挂在坐标的**起点**边上、探进这一行所在的
-	   缩进里，若在这一行的边缘裁剪，就会把这个标记切成两半（见 .nav-row-here）。
-	   这里没有任何东西靠自己溢出 —— 坐标按自己的标签定宽，省略号化的是小节 ——
-	   所以这个裁剪在这一行上什么也没守住。 */
-	overflow: visible;
-}
-
-/* ……而**带上**时间时这一行是三条轨道：坐标、小节，以及最远端的时间 —— 正是笔记那一行
-   放自己时间的那一列（见 .is-file.is-timed），于是两种行的时间都结束在同一个 x，无论
-   这一行代表什么，列表都读成一列时间。让路的是**小节**，与没有时间时一样：坐标和时间
-   都短、都是读者拿来比的东西，而小节是唯一可以被截短、却仍能报出自己所在之处的那个
-   东西。 */
-.position-restore-nav-row.is-place.is-timed {
-	grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 /* 笔记格：这一行用来自报身份的东西 —— 名字和它的标记作为**一整块**，以及文件夹 ——
@@ -771,27 +754,16 @@ body.is-mobile .position-restore-cue {
 	order: -1;
 }
 
-/* 查询命中的那个小节 —— 这一行为什么在列表上，以及点下去会去哪儿（见 list.ts 的
-   HeadingHit）。与文件夹同档的小字，却深一档的墨：它不是消歧者（那是文件夹的活），
-   而是这一行此刻的**去处**，所以它得比文件夹读得更清楚一点。
-   独占一行（`flex-basis: 100%`），因为它是第二句话、不是名字的续写 —— 一个紧跟在
-   笔记名字旁边的小节名会读成那个名字的一部分。 */
-.position-restore-nav-row .nav-row-hit {
-	flex: 0 0 100%;
+/* 搜到的那一节自己的词（见 list.ts 的 headingRow）：与文件夹同档的小字，却深一档的墨
+   —— 它不是消歧者（那是文件夹的活），而是这一行的**去处**，所以它得比文件夹读得更
+   清楚一点。它省略号化：一条被切掉的小节名仍说得出它是哪一篇笔记里的东西，而它说
+   的是什么，一悬停就到（那一行补上整条链）。 */
+.position-restore-nav-row .nav-row-heading {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	color: var(--nav-muted);
 	font-size: var(--font-ui-smaller);
-}
-
-/* ……而在这个宽的对话窗口里它**折行**，与文件夹同例：一个被省略号切掉的小节名，抹掉的
-   正是这一行为什么在列表上的答案，而这里有的是行可以花。 */
-.modal.position-restore-nav-modal:not(.is-touch) .position-restore-nav-row .nav-row-hit {
-	white-space: normal;
-	overflow-wrap: break-word;
-	overflow: visible;
-	text-overflow: clip;
 }
 
 /* **这个宽的对话窗口让长路径折行**、而不是把它切掉：在一个这么宽绰的盒子里，省略号
@@ -1020,138 +992,6 @@ body.is-mobile .position-restore-cue {
 	text-overflow: ellipsis;
 }
 
-/* 当前条目所记录的落点，就在笔记打印它那些落点的地方：一个点，且只在那里 —— 笔记
-   自己那一行一个都不带，因为当前笔记被钉在最前，在它上面点一个点会落在第一行上、说出
-   位置已经说过的话。它永不让路（不像文件夹和名字，那两者都会省略号化），而且它是一个
-   字形，所以一个无路径的视图行（关系图谱）与一篇笔记读起来一样。
-   它**挂在坐标之前**，从坐标盒自己的起始边探出，且完全不占地方：盒子继续只装着那个
-   数字，而点站在它前面的缩进里。这就是把它挂到文档流之外、而不是排成盒子第一个项的
-   全部意义 —— 流里的一个点，是每一个落点行上从**小节**那里拿走的、一个点宽的宽度，
-   用来托一个只有其中一行才会显示的标记（见 .nav-row-pos 与 .is-place：那一行为它保持
-   overflow visible）。它与数字的距离是它**末端**边上、对着那个盒子的一条外边距，所以
-   固定下来的是**间隙**而不是字形的宽度：字体可以随意把 ● 画得多宽，而永远碰不到那个
-   数字。 */
-.position-restore-nav-row .nav-row-here {
-	position: absolute;
-	inset-inline-end: 100%;
-	top: 0;
-	margin-inline-end: 0.3em;
-	color: var(--interactive-accent);
-	font-size: var(--font-ui-smaller);
-}
-
-/* **坐标**。它装着那个数字、**别无其它** —— 没有预留宽度、没有槽 —— 所以这个盒子
-   正好与它打印出的标签一样宽，而这一行剩下的每一个像素都属于它旁边的小节（小节那条
-   轨道是这一行唯一可伸缩的；见 .is-place）。盒子是**由**标签量出来的，用标签所印的
-   等宽字体设：这一列曾用一个固定的空间，是按这一行的 UI 字体量出来的，而那个字体比
-   这个宽几个字符 —— 死空间来自那里，不是来自标签。
-   **这样失去的是**：数字不再从同一个 x 开始，因为要让它们对齐，唯一的办法就是给
-   **最宽**的标签留一个固定空间，而那个空间每一行都要花 —— 包括标签很短的那些行，
-   那里它就是数字与小节之间的空白。这份空间是读者的，所以这一列取数据的宽度，小节从
-   每个数字结束的地方开始。 */
-.position-restore-nav-row .nav-row-pos {
-	display: flex;
-	align-items: baseline;
-	min-width: 5ch;
-	font-family: var(--font-monospace);
-	font-size: var(--font-ui-smaller);
-	/* `position: relative` 是 here 点所挂靠的东西 —— 挂在这个盒子的**起始**边外，所以
-	   标记靠着它所标记的坐标站（见 .nav-row-here）—— 而且刻意不设 `overflow: hidden`
-	   去裁它：这个盒子装着它按之定宽的一个短标签，所以这里没有任何东西会溢出它。 */
-	position: relative;
-}
-
-/* 恢复将落在哪里。等宽，并**减弱**到弱墨档：它是眼睛用来给这一行定位的一个坐标，
-   而不是拿来读的东西 —— 它旁边的区带才承载意义，而笔记的名字是身份。它是上面那个
-   盒子的全部（见 .nav-row-pos），所以小节在最后一个数字之后、隔着一行的间隙开始。 */
-.position-restore-nav-row .nav-row-line {
-	font-family: var(--font-monospace);
-	font-size: var(--font-ui-smaller);
-	color: var(--nav-faint);
-}
-
-/* 小节链，最深的那个或两个层级：读者扫读所依据的粗索引，变弱、变小，但比坐标高一档。
-   它拿走这一行自己的余量，所以它紧接坐标开始 —— 它与数字的距离就是这一行自己的列间隙、
-   别无其它：这里再写一个起始外边距，会在已经被颜色和坐标自己的轨道区分开的两半之间
-   再花掉一个间隙（见 .nav-row-pos）。 */
-.position-restore-nav-row .nav-row-trail {
-	display: flex;
-	align-items: baseline;
-	min-width: 0;
-	overflow: hidden;
-	color: var(--nav-muted);
-	font-size: var(--font-ui-smaller);
-}
-
-/* **只有外层让路，而它承载的是全部的亏空**：最深的一层拿走它自己文字所需的宽度 ——
-   至多是这一行总共有的 —— 所以它旁边那层所在之处，不会让它损失一个字符。读者借以把
-   一个地点与记忆对照的那一层，只要这一行还有地方就保住自己的文字，只有在它孤身一人
-   且仍然太长时才被省略号化。
-
-   它以前是另一种按比例分的玩法：收缩权重 100 对 1，于是外层承担约 99% 的亏空、最深的
-   一层承担其余。在真实布局里**实测**过，一行两层分别宽 141px 和 63px：在 260px 的
-   面板里，外层读出它 141px 中的 118px，而最深的一层只让出了 0.2px。那 0.2px 不是
-   “什么都没有”，而这正是一个比例无法表达的东西 —— `text-overflow: ellipsis` 对任何
-   溢出都收**整个**字形的代价，于是这一行印成了 “新插件 Positi… 2026-09-…”：一个
-   **日期**丢掉了那两个说明它是这一段、而不是两周前那一段的数字，而它前面那个残片却
-   继续占着约 24px。`flex: 0 0 auto` 与 `max-width: 100%` 就是全部的差别 —— 最深的一层
-   根本不是一个可以被**收缩**的项（它的盒子就是它自己的文字；或者连那也放不下时就是
-   trail 本身，那是它自己的省略号唯一的用武之地），而外层把亏空的每一个像素一路承担
-   到零。
-
-   外层一路让下去、留在身后的是一个**残片** —— “新插件 Positi…” —— 而一个窗格可以把
-   一行压到它不再值得印的地步。那就是下面的 `.is-deep-only`，而它是一个关于这一行
-   **说了什么**、而不是关于宽度的问题（见 RecentFilesList.fitTrails）：最深的一层不再
-   需要那个残片所占的宽度。 */
-.position-restore-nav-row .nav-row-trail .nav-trail-seg {
-	flex: 0 1 auto;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.position-restore-nav-row .nav-row-trail .nav-trail-deep {
-	flex: 0 0 auto;
-	max-width: 100%;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-/* 外层，从印不下它的那一行上**拿掉**（见 RecentFilesList.fitTrails）。用
-   `display: none` 而不是一个更窄的宽度：被挤压的一层是一个叫不出任何小节的残片，
-   而更窄的一层仍是个残片 —— 这一层要么可读，要么根本不在行上，而它说过什么一悬停
-   就到。 */
-.position-restore-nav-row.is-deep-only .nav-trail-seg {
-	display: none;
-}
-
-/* 一个笔记**已经不再拥有那个标题**的落点，它仍继续打印当初记录下的那些字（见
-   RecentFilesList.placeRow 与浏览器的 trailFor）：加删除线，并降一档。被划掉的不是
-   那些字 —— 它们是唯一还在命名这个地点的东西，丢掉它们会让这一行什么都不关于 ——
-   而是“笔记带着它们”这一主张，所以它们读起来像被记着的、而不是一个要去找的标签。
-   这一行的 tooltip 才是把这层意思明说出来的地方。 */
-.position-restore-nav-row .nav-row-trail.is-lost {
-	color: var(--nav-faint);
-	text-decoration: line-through;
-}
-
-/* 分隔符挂在它**跟在后面**的那一层上，而不是作为一个自己的格站在两层之间（见
-   RecentFilesList.placeRow，它把分隔符写进那一层的 span 里）。作为一个格，它会在它
-   前面那一层已被挤到什么都没有之后仍保住自己的宽度 —— 那个字形加上 10px 的内边，
-   约 15px —— 于是一个已经放弃外层的行仍会印出一个 "›"，左边什么都没有，就站在最深
-   那层本可以有地方的位置上。写在这一层里面，这一层一走它就走。 */
-.nav-trail-sep {
-	padding: 0 5px;
-	color: var(--nav-faint);
-}
-/* 没有记录下位置（非 markdown 视图，或插件读不了的条目）：一条淡淡的短横，好让坐标
-   永远不读成一个空格子。 */
-.position-restore-nav-row .nav-row-nopos {
-	color: var(--nav-faint);
-}
-
 .position-restore-nav-empty {
 	padding: 10px 8px;
 	color: var(--nav-muted);
@@ -1222,28 +1062,15 @@ body.is-mobile .position-restore-cue {
 	overflow-wrap: anywhere;
 }
 
-/* 那一行所代表的地方在哪个节 —— 标题链（见 TipContent.trail）。与上面那行同档，因为它
-   说的是同一类东西：这个面板派生的、供分辨用的名字，而不是笔记的原话（那是下面的
-   nav-tip-quote）。不加竖线，因为链在一次悬停里是**定位**、不是引用 —— 而竖线在这个
-   面板里只留给「这些字是读者自己写的」。折行而不是裁掉：一篇笔记的标题可以是长句。 */
+/* 悬停就着那一行说出的「这一节在这篇笔记的哪里」—— 标题链（见 TipContent.trail）。与
+   上面那行同档，因为它说的是同一类东西：这个面板派生的、供分辨用的名字，而不是笔记的
+   原话。不加竖线，因为链在一次悬停里是**定位**、不是引用 —— 而竖线在这个面板里只留给
+   「这些字是读者自己写的」。折行而不是裁掉：一篇笔记的标题可以是长句。 */
 .position-restore-nav-tip .nav-tip-trail {
 	font-size: var(--font-ui-smaller);
 	line-height: 1.4;
 	color: color-mix(in srgb, var(--text-normal) 82%, transparent);
 	overflow-wrap: anywhere;
-}
-
-/* 悬停就着那一行说出的「笔记后来变了没有」（见 TipContent.note）。它是这个面板在就
-   笔记的话发言，读者得能一眼把它与笔记自己的文字分清 —— 所以比链更淡、且不加任何装饰
-   线。这条竖线（2026-10-03 撤）当初是留给引文的：引文已经从搜索面撤掉，而竖线在这
-   个面板里只该留给「这些字是读者自己写的」，那件事现在没有着落了。
-   墨色是面板自己的弱墨档（见 --nav-faint），而不是 --text-faint，后者主题可以随意
-   重调色相。 */
-.position-restore-nav-tip .nav-tip-note {
-	margin-top: 2px;
-	font-size: var(--font-ui-smaller);
-	line-height: 1.4;
-	color: var(--nav-faint);
 }
 
 .position-restore-nav-panel.is-touch .position-restore-nav-row {

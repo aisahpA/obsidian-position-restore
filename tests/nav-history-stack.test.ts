@@ -220,9 +220,9 @@ describe('NavStack —— 栈逻辑', () => {
 		// 被消费、不是被复制：这一步保住它的落点，所以之后后退先到 700
 		// （上面那一步），再到 500（这一步），而不是两次都落在 700 上。
 		expect((nav.stack.entries[0] as NavJump).leftAt).toBeUndefined();
-		// 是一个步，不是一个地点：栈旁边的列表留着那些被告知的 jump，不许为读者
-		// 正在读的那处地点长出一行。
-		expect(nav.places.entries.every((p) => p.kind === 'jump')).toBe(true);
+		// 是一个步，不是一个地点：栈旁边的列表只记**笔记**，所以这一串跳转在那边
+		// 是一次访问（见 places.ts 的降级），不为读者正在读的那一处长出第二行。
+		expect(nav.places.entries.map((p) => p.kind)).toEqual(['visit']);
 	});
 
 	it('漂移是相对视口量的，不是相对视口够不到的那个标题量的', () => {
@@ -829,12 +829,11 @@ describe('NavStack.navigate', () => {
 		expect(keyOf(nav.stack.entries[1])).toBe('outline:Foo');
 	});
 
-	// 最近文件列表的两条前往路径（见 places.ts）：一个 jump 地点打开文件并落在
-	// 它记下的那一处，而且从读者所在的地方分叉 —— 所以后退会回到起点。测试要前
-	// 往的那个地点下标是按身份找的，不是写死的：跳变不是地点，所以列表的下标和
-	// 栈的对不齐。
-	const placeOf = (nav: ReturnType<typeof makeNav>, pred: (e: NavEntry) => boolean): number =>
-		nav.places.entries.findIndex(pred);
+	// 一次带名的跳转的两条前往路径：它打开文件并落在它记下的那一处，而且从读者
+	// 所在的地方分叉 —— 所以后退会回到起点。**那个步在栈里**：最近文件列表把跳转
+	// 降级成一次访问（见 places.ts），所以一个「前往某一节」只可能是栈的那一步，
+	// 或列表搜到那一节后自己造出来的一步（travelToHeading）。测试要前往的那个步
+	// 是按身份找的，不是写死的：跳变不是一步，所以下标并不稳定。
 	// 一个 markdown leaf，它自己的 view 会报告位置，外加把它接成活跃（或最近）
 	// 文件视图的那套线。下面每个用例都关于打开管线对这个视图做了什么。
 	function fileLeafHarness(scroll: number, line: number) {
@@ -870,15 +869,16 @@ describe('NavStack.navigate', () => {
 			nav.funnel.recordOpen('a.md', 'leaf-1');
 			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## Two' });
-			const at = placeOf(nav, e => e.kind === 'jump' && e.key === 'outline:## One');
-			// 这次 jump 落定的那个落点，按 store 保存它的样子：没有光标（见
+			const one = nav.stack.entries
+				.find(e => e.kind === 'jump' && e.key === 'outline:## One') as NavJump;
+			// 这一步落定的那个落点，按栈保存它的样子：没有光标（见
 			// readLandingState），以及标题自己的行号 —— 它不必等于记下的滚动值。
-			(nav.places.entries[at] as NavJump).keyLine = 60;
-			(nav.places.entries[at] as NavJump).st = { scroll: 5 };
+			one.keyLine = 60;
+			one.st = { scroll: 5 };
 			expect(nav.stack.index).toBe(2);
 
 			nowSpy.mockReturnValue(2000);
-			await nav.places.travel(at);
+			await nav.stack.travelTo(one);
 		} finally {
 			nowSpy.mockRestore();
 		}
@@ -921,13 +921,13 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步，所以这是一次去别处的前往
-		const at = placeOf(nav, e => e.kind === 'jump');
-		(nav.places.entries[at] as NavJump).keyLine = 60;
-		(nav.places.entries[at] as NavJump).st = { scroll: 5 };
+		const one = nav.stack.entries.find(e => e.kind === 'jump') as NavJump;
+		one.keyLine = 60;
+		one.st = { scroll: 5 };
 		const state = (nav.stack as unknown as { state: PositionState }).state;
 		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
 
-		await nav.places.travel(at);
+		await nav.stack.travelTo(one);
 
 		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
 		// 求一次便用掉：一个仍被留作待求的行，不属于任何一次前往。
@@ -988,7 +988,7 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 		expect(nav.stack.index).toBe(1);
 
-		await nav.places.travel(placeOf(nav, e => e.kind === 'jump'));
+		await nav.stack.travelTo(nav.stack.entries[1]);
 
 		expect(nav.stack.index).toBe(1);
 		expect(nav.stack.entries.map(keyOf)).toEqual([undefined, 'outline:## One']);
@@ -1025,10 +1025,10 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // 从没有落点落定
 		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步
-		const at = placeOf(nav, e => e.kind === 'jump');
-		expect(stOf(nav.places.entries[at])).toBeUndefined();
+		const one = nav.stack.entries.find(e => e.kind === 'jump') as NavJump;
+		expect(stOf(one)).toBeUndefined();
 
-		await nav.places.travel(at);
+		await nav.stack.travelTo(one);
 
 		// 行借来它那一行的那条记录，就是这次前往所应用的落点
 		expect(h.applied[0]).toMatchObject({ scroll: 41 });
@@ -1048,11 +1048,10 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1'); // 读者所在的那篇笔记，不带 key
-		const at = placeOf(nav, e => e.kind === 'jump');
-		expect(at).toBeGreaterThanOrEqual(0);
+		const one = nav.stack.entries.find(e => e.kind === 'jump') as NavJump;
 		const origin = nav.stack.index;
 
-		await nav.places.travel(at);
+		await nav.stack.travelTo(one);
 
 		// ……已在屏幕上的这篇笔记较老的那个地点被应用
 		expect(h.applied[0]).toMatchObject({ scroll: 41 });
@@ -1064,36 +1063,35 @@ describe('NavStack.navigate', () => {
 		expect(stOf(nav.stack.entries[branch - 1])).toMatchObject({ scroll: 90 });
 	});
 
-	it('跳转地点的落点取自落定，绝不取自离开', () => {
-		// 栈用读者的「离开」回填一个带名的条目，好让之后的后退有处可回。那次读
-		// 取不是这个 jump 自己的那处地点，而一个地点的行**承诺**它印出的那处地点
-		// —— 所以一个点了标题、继续读、然后切换文件的读者，绝不能发现那个标题所
-		// 记的地点被挪到了他们碰巧漂到的地方。
+	it('一次跳转的落点只活在栈里，从不进地点列表', () => {
+		// 栈用读者的「离开」回填一个带名的步，好让之后的后退有处可回。那次读取不是
+		// 这个跳转自己的那处落点，所以一个点了标题、继续读、然后切换文件的读者，绝
+		// 不能发现那个标题所记的落点被挪到了他们碰巧漂到的地方 —— 而那一次回填只
+		// 发生在栈里：最近文件列表连位置都不记（见 places.ts 的降级），所以它既拿
+		// 不到落定、也拿不到漂移。
 		const settled = makeNav();
 		settled.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
-		const a = settled.places.entries.findIndex(e => e.kind === 'jump');
 		settled.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
-		expect(stOf(settled.places.entries[a])).toEqual({ scroll: 152 });
+		expect(stOf(settled.stack.entries[settled.stack.index])).toEqual({ scroll: 152 });
+		expect(stOf(settled.places.entries[0])).toBeUndefined();
 
 		const left = makeNav();
 		left.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
-		const b = left.places.entries.findIndex(e => e.kind === 'jump');
 		left.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		// 栈留住了漂移（后退需要一个位置）……
 		expect(stOf(left.stack.entries[left.stack.index])).toEqual({ scroll: 900 });
-		// ……而地点一个都没留：它的行退回到文件自己的记录，而不是把漂移冻成标
-		// 题的那处地点。
-		expect(stOf(left.places.entries[b])).toBeUndefined();
+		// ……而地点列表一个都没留：那一行退回到文件自己的记录，落点由位置数据库
+		// 回答，而不是把漂移冻成标题所记的那一处。
+		expect(stOf(left.places.entries[0])).toBeUndefined();
 
-		// 在那次回填**之后**才到的落点仍然赢，地点那时也听得到它：一个读者在它
-		// 落定之前就离开的 jump，不是一个没有落点的 jump。
+		// 在那次回填**之后**才到的落点仍然赢 —— 在栈里：一个读者在它落定之前就
+		// 离开的跳转，不是一个没有落点的跳转。
 		const late = makeNav();
 		late.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
-		const c = late.places.entries.findIndex(e => e.kind === 'jump');
 		late.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		late.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
 		expect(stOf(late.stack.entries[late.stack.index])).toEqual({ scroll: 152 });
-		expect(stOf(late.places.entries[c])).toEqual({ scroll: 152 });
+		expect(stOf(late.places.entries[0])).toBeUndefined();
 	});
 
 	it('跨标签页后退会重新激活原来那个 leaf，并在那里打开文件', async () => {
@@ -1741,7 +1739,7 @@ describe('NavStack —— 视图标签页的步', () => {
 	});
 
 	it('已经有别的标签页在显示这个视图时，由它来应答这个地点', async () => {
-		// 两个 Thino 标签页是**一个**地点（见 places.ts 的 placeKey），而条目点
+		// 两个 Thino 标签页是**一个**地点（见 entry.ts 的 navGroupKey），而条目点
 		// 名的是最后被激活的那个。关掉它，这个地点仍立在读者手里还剩的那个标签页
 		// 里，所以什么都不用建：条目是「Thino」这个名字，不是某个特定标签页的把
 		// 手。

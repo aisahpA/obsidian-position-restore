@@ -6,10 +6,10 @@ import { NavEntry, pruneViewSnapshot } from '@/nav/entry';
 // 活几个月、只在某个地点被碰过时才写。两者合用一份 blob 会让每次写入都为对方的体量买单。
 
 // 这份列表自己的格式版本，摆在它所描述的 blob 旁边：两者是不同的东西、以不同的节奏写，
-// 而且必须能丢掉一个而不动另一个。**形态**变化时升它（2 加了钉选列表）——
-// 来自别的版本的 blob 整份丢掉、而不是迁移，这负担得起，因为列表是可丢弃的：
-// 一个空的会自己重新填满。
-export const RECENT_PLACES_VERSION = 2;
+// 而且必须能丢掉一个而不动另一个。**形态**变化时升它（2 加了钉选列表，3 让列表只装
+// 笔记 —— 一次跳转不再单独成行）—— 来自别的版本的 blob 整份丢掉、而不是迁移，这负担
+// 得起，因为列表是可丢弃的：一个空的会自己重新填满。
+export const RECENT_PLACES_VERSION = 3;
 
 // 桌面的 localStorage 跨 vault 共享（同一个 app 源）；appId 是按 vault 区分的依据。
 // 不在公开类型定义里。键是它自己的，所以两份列表可以各自独立地丢掉。
@@ -60,14 +60,14 @@ function readPinned(raw: unknown): string[] {
 		: [];
 }
 
-// 栈的逐条目检查，加上这份列表多出来的一条不变量 —— 一个**推断**出来的步
-// （NavTeleport）永远不是地点。查的是那个标签、不是一个属性，所以一次 teleport
-// 不可能凑巧溜进来。
+// 一份列表的逐条目检查。这条列表只装**笔记与视图**：一次跳转（kind 'jump'）在到达这里
+// 之前就已被降级成一次访问（见 places.ts 的 remember），所以一个声称是跳转的条目不是
+// 这份列表会画的东西 —— 它不是一条记录，而是一个别的 store 的形状。
 export function isPlaceEntry(e: unknown): e is NavEntry {
 	if (!e || typeof e !== 'object')
 		return false;
 	const kind = (e as { kind?: unknown }).kind;
-	if (kind !== 'visit' && kind !== 'jump' && kind !== 'view')
+	if (kind !== 'visit' && kind !== 'view')
 		return false;
 	return isPlaceShape(e);
 }
@@ -81,8 +81,6 @@ function isPlaceShape(e: unknown): e is NavEntry {
 		return false;
 	if (entry.kind === 'view')
 		return str(entry.viewType);
-	if (entry.kind === 'jump')
-		return str(entry.path) && str(entry.key);
 	return str(entry.path);
 }
 

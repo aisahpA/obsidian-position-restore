@@ -609,8 +609,8 @@ export class NavStack implements NavFunnelSink {
 		//
 		//   1. 条目来的那一个，如果它还在——被换掉时重新把视图立回来（在图谱里点一个节点会在
 		//      同一个 leaf 把文件开在图谱之上，或者 graph:open 复用了那个标签页）；
-		//   2. 任何「别的」已经在显示那个视图的 leaf。一个地点由它的视图「类型」标识（见
-		//      places.ts 的 placeKey），而条目点名的是它几个标签页里最后被激活的那个，所以
+		//   2. 任何「别的」已经在显示那个视图的 leaf。一个视图地点由它的「类型」标识（见
+		//      entry.ts 的 navGroupKey），而条目点名的是它几个标签页里最后被激活的那个，所以
 		//      读者的第二个 Thino 标签页同样是他去过的那个地点；
 		//   3. 「新标签页」，因为记下的地点活得比它发生时的那个标签页更久。没有这一条，条目的
 		//      leaf 一旦被关——视图标签页最平常的结局——它对点击就答不出任何东西。视图在那里
@@ -859,8 +859,8 @@ export class NavStack implements NavFunnelSink {
 		return found;
 	}
 
-	// 已经显示着这个视图的 leaf，仅限「主区域」：一个地点就是这个视图本身（见 places.ts 的
-	// placeKey），所以它哪个标签页都能作数——而侧栏 leaf 被跳过，跟它从不被「记录」是同一个
+	// 已经显示着这个视图的 leaf，仅限「主区域」：一个视图地点就是那个视图本身（见 entry.ts
+	// 的 navGroupKey），所以它哪个标签页都能作数——而侧栏 leaf 被跳过，跟它从不被「记录」是同一个
 	// 理由：面板根本不算工作区里的一个地点（见 isMainAreaLeaf）：住在侧栏里的 Thino，不是
 	// 条目所说的读者去过的地方。
 	private findLeafShowing(viewType: string): WorkspaceLeaf | undefined {

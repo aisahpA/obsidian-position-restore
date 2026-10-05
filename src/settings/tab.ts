@@ -18,13 +18,14 @@ import { t } from '@/i18n';
 // 而不进 manager 的差分表，原因就在这：那张表做的是重新施加 store 持有的状态，而这里是请
 // 一个视图去画。
 const BROWSER_PREF_KEYS = new Set([
-	'recentFilesLandings', 'recentFilesPathDisplay', 'recentFilesRowTime', 'recentFilesTitleProperty',
+	'recentFilesOutlineSearch', 'recentFilesPathDisplay', 'recentFilesRowTime',
+	'recentFilesTitleProperty',
 ]);
 
 // 改的是「页面的形状」而不是页面上某个值的键——后果是某一行出现或不出现，或某句话读起来变了。
 // 框架只写控件的值、不回调任何东西，所以这几个键的写入得自己去要重画（见 setControlValue）；
 // 其余每个键改的只是一个数字或一个答案，持有它的那一行本来就带着新值。
-const PAGE_SHAPE_KEYS = new Set(['recentFilesLandings']);
+const PAGE_SHAPE_KEYS = new Set<string>();
 
 export class SettingTab extends PluginSettingTab {
 	plugin: PositionRestorePlugin;
