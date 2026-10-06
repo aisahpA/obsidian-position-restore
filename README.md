@@ -10,7 +10,7 @@ English | [简体中文](README-zh.md)
 
 ### Last position
 
-Remembers the cursor and scroll position for each note, and reopens right where you left off: no top flash, no corrective jump. Positions are kept long-term — still there after you close and reopen. You can exclude notes by folder, line count, or frontmatter property.
+Remembers the cursor and scroll position for each note, and reopens right where you left off: no top flash, no corrective jump. You can exclude notes by folder, line count, or frontmatter property.
 
 ### Back and forward
 
@@ -18,7 +18,7 @@ VSCode-style back / forward across file switches, tab switches and in-file jumps
 
 ### Recent files
 
-The notes you have been in, most recent first — one row per note. Search also matches headings: a matching section gets its own row under its note, and clicking it takes you to that section.
+A record of the notes you have visited.
 
 ## Installation
 
