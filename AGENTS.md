@@ -112,7 +112,6 @@ npm run build
 **真身是 `docs/code-tour/00-改前必读.md`（进 git，每条带可 cmd+click 的源码链接）—— 要改代码先读那份。**
 下面是摘要，「为什么这么定」在 AI 记忆的 `MEMORY-detail.md`。
 
-- **坐标是两套，都是行号**：列表显示的是「当时」的行号，打开笔记前必须先 `nowLineFor` 换算。
 - `st.scroll` 是 0-based 顶行、不是像素。**移动端 scroll 事件会丢** ⇒ 任何路径不许用缓存值。
 - **切成其他模式（含阅读模式）后不许直接写 `scrollTop`**，要走 `syncViewScroll` 那扇门。
 - 重画成本几乎全在 DOM ⇒ 只做「少画几次」，memo / 脏标记 / 合并重画都别做。
