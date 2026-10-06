@@ -17,12 +17,12 @@
 
 ## 入口在哪
 
-- `onload`（`main.ts:17`）。**装配顺序有讲究**，见下。
-- `class PositionManager`（`manager.ts:31`）—— 门面。安装期三个 `install*`，运行期
+- [`onload`](/src/main.ts#L16)。**装配顺序有讲究**，见下。
+- [`PositionManager`](/src/position/manager.ts#L34)—— 门面。安装期三个 `install*`，运行期
   `sampleActiveView`、`navigateBack/Forward`、`goToEdge`、`applyChangedSettings` 等。
-- `class PositionState`（`state.ts:15`）—— 所有跨阶段状态都挂在它上面。
+- [`PositionState`](/src/position/state.ts#L16)—— 所有跨阶段状态都挂在它上面。
 
-## 数据怎么流：装配顺序（`main.ts:17-47`）
+## 数据怎么流：装配顺序（[`main.ts:17`](/src/main.ts#L17) 起）
 
 ```
 1. loadSettings()         ← Object.assign 合并进既有对象，对象身份不能换（见下）
@@ -41,10 +41,10 @@
 14. restoreEphemeralState()（最后一次，同步）
 ```
 
-**设置对象身份不能换**（`main.ts:51`）：`PositionManager` 与 `NavPlaces` 在构造时就抓住这个
+**设置对象身份不能换**（[`main.ts:61`](/src/main.ts#L61)）：`PositionManager` 与 `NavPlaces` 在构造时就抓住这个
 引用并实时读它，所以只能用 `Object.assign` 就地合并。
 
-**两个 store 的接线在这里**（`manager.ts:62-77`）：
+**两个 store 的接线在这里**（[`manager.ts:65`](/src/position/manager.ts#L65) 起）：
 
 ```
 funnel.subscribe(stack)                                  ← 栈自己实现 NavFunnelSink
@@ -60,29 +60,29 @@ places.attach({openFile→stack.openFilePlain,
 
 ## 有哪些坑
 
-**设置写入只有一条路径**（`settings/tab.ts:54`）：浅拷贝快照 → 就地写字段 →
+**设置写入只有一条路径**（[`setControlValue()`](/src/settings/tab.ts#L49)）：浅拷贝快照 → 就地写字段 →
 `manager.applyChangedSettings(before)`（按 diff 决定后果）→ 命中 `BROWSER_PREF_KEYS`
 就请求面板重画 → `saveSettings()` → 命中 `PAGE_SHAPE_KEYS` 就整页重绘。
-外部改写 `data.json`（`main.ts:73`）走**同一张表**。
+外部改写 `data.json`（[`main.ts:76`](/src/main.ts#L76)）走**同一张表**。
 
 `BROWSER_PREF_KEYS` 装的是「已经站在屏幕上的面板据以绘制的偏好」（四个 recentFiles* 键）——
 它们不产生派生状态，但旁边已经画好的面板得被要求重画一次。
 
-**`NAV_SOURCE_ID` 必须等于面板 view 的 type**（`browser/constants.ts:7`）。
-**`RECENT_FILES_VIEW_TYPE` 改字符串会让已保存的侧栏变孤儿**（`view.ts:27`）—— 它是持久 id。
+**`NAV_SOURCE_ID` 必须等于面板 view 的 type**（[`constants.ts:6`](/src/recent-files/browser/constants.ts#L6)）。
+**`RECENT_FILES_VIEW_TYPE` 改字符串会让已保存的侧栏变孤儿**（[`RECENT_FILES_VIEW_TYPE`](/src/recent-files/browser/view.ts#L28)）—— 它是持久 id。
 
-**`dismissOnMobile` 必须按形状检查**（`view.ts:216`）：`instanceof` 对只在 typings 里存在的
+**`dismissOnMobile` 必须按形状检查**（[`dismissOnMobile()`](/src/recent-files/browser/view.ts#L200)）：`instanceof` 对只在 typings 里存在的
 名字会抛异常。
 
-**设置页里的弹窗只用原生 DOM，不用 `Setting`/`TextComponent`**（`ui/db-path-modal.ts:23`）：
+**设置页里的弹窗只用原生 DOM，不用 `Setting`/`TextComponent`**（[`db-path-modal.ts:20`](/src/position/ui/db-path-modal.ts#L20)）：
 它们是 thenable，在声明式设置页里开弹窗会卡死整个 app。输入框要关掉首字母大写与自动更正
-（`:56`，vault 路径大小写敏感）。
+（[`db-path-modal.ts:56`](/src/position/ui/db-path-modal.ts#L56)，vault 路径大小写敏感）。
 
-**悬停预览必须是补丁而不是监听器**（`hover/explorer-preview.ts:51`）：core 自己也是
+**悬停预览必须是补丁而不是监听器**（[`explorer-preview.ts:47`](/src/position/hover/explorer-preview.ts#L47)）：core 自己也是
 `hover-link` 的监听器，会先把 payload 拷走 —— 之后再改就没人收到了。它用的是记录的
-**文件位置**而不是今天重算的行号（`:30`）：这一次是同步调用，等不了异步读取。
+**文件位置**而不是今天重算的行号（[`explorer-preview.ts:25`](/src/position/hover/explorer-preview.ts#L25)）：这一次是同步调用，等不了异步读取。
 
-**到顶部 / 到底部要「保持」**（`edges.ts:19`）：阅读渲染器会把它移动前捕获的 scroll 在下一个
+**到顶部 / 到底部要「保持」**（[`holdEdge()`](/src/position/edges.ts#L69)）：阅读渲染器会把它移动前捕获的 scroll 在下一个
 渲染 pass 重贴，表现为「闪回顶部再滑回来」，所以要 `holdEdge`（最多 2 次、400ms）。
 **移动后不许直接写 `scrollTop`**，必须走 `setEphemeralState({scroll})` 这扇门。
 底部要扣掉反向链接面板与手机底部浮层。

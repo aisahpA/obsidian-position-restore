@@ -12,12 +12,13 @@
 
 ## 入口在哪
 
-- 读：`readEphemeralState`（`ephemeral.ts:8`，热路径，每次都用）、`readSampledState`（`:219`，走缓存）、
-  `readNavEntryState`（`:246`，导航用）。
-- 写：`applyEphemeralState`（`:389`）。
-- 采集：`class Sampler`（`sampler.ts:27`），`sampleActiveView`（`:94`）、`onScrollCapture`（`:213`）、
-  `flushOnLeave`（`:310`）。
-- 主循环在 `main.ts:227`：每 100ms 调一次 `manager.sampleActiveView()`。
+- 读：[`readEphemeralState`](/src/position/capture/ephemeral.ts#L7)（热路径，每次都用）、
+  [`readSampledState`](/src/position/capture/ephemeral.ts#L104)（走缓存）、
+  [`readNavEntryState`](/src/position/capture/ephemeral.ts#L129)（导航用）。
+- 写：[`applyEphemeralState`](/src/position/capture/ephemeral.ts#L251)。
+- 采集：[`Sampler`](/src/position/capture/sampler.ts#L22)，[`sampleActiveView`](/src/position/capture/sampler.ts#L81)、[`onScrollCapture`](/src/position/capture/sampler.ts#L187)、
+  [`flushOnLeave`](/src/position/capture/sampler.ts#L273)。
+- 主循环在 [`main.ts:194`](/src/main.ts#L194)：每 100ms 调一次 `manager.sampleActiveView()`。
 
 ## 数据怎么流
 
@@ -36,10 +37,10 @@
 
 ## 有哪些坑
 
-**`getScroll()` 没追上时返回 `null` 而不是 `undefined`**（`ephemeral.ts:21`）：
+**`getScroll()` 没追上时返回 `null` 而不是 `undefined`**（[`ephemeral.ts:20`](/src/position/capture/ephemeral.ts#L20)）：
 `isNaN(null)` 是 false，会漏过旧判断，被 `Math.round` 读成「文件开头」。
 
-**必须 `Math.round`，不能用 `Math.floor`**（`ephemeral.ts:37`）：floor 的死区不对称，
+**必须 `Math.round`，不能用 `Math.floor`**（[`ephemeral.ts:35`](/src/position/capture/ephemeral.ts#L35)）：floor 的死区不对称，
 会产生单向向下漂移；round 的 ±0.5 死区恰好吃掉 `applyScroll` 约 0.04 行的落点误差 ——
 于是「存 42 读回 42」，不会多写一次库。
 
@@ -51,28 +52,25 @@
 | 导航读取 | `readNavEntryState` | DOM 不在 layout 时才退到 `view.scroll` |
 | 桌面 scroll 监听 | `readSampledState` | — |
 
-**移动端任何路径都不许用缓存**。`readSampledState` 会先读 `view.scroll`（`ephemeral.ts:219`），
+**移动端任何路径都不许用缓存**。`readSampledState` 会先读 `view.scroll`（[`ephemeral.ts:97`](/src/position/capture/ephemeral.ts#L97)），
 那是因为隐藏标签页的 scroller 不在布局里、`scrollTop` 恒为 0；但可见视图必须以实时为准，
 因为一次已应用的恢复会把**请求值**写进缓存。
 
-**「读者刚动过吗」有一个 2 秒的绝对窗口**（`INTENT_WINDOW_MS = 2000`，`sampler.ts:60`）：
+**「读者刚动过吗」有一个 2 秒的绝对窗口**（[`INTENT_WINDOW_MS = 2000`](/src/position/capture/sampler.ts#L51)）：
 没有近期输入的位移一律视为程序性移动（同步换文件、懒加载重排），不记。
-**这个窗口绝不能从 `lastAnchorAt` 起算**（`sampler.ts:456`）。
+**这个窗口绝不能从 `lastAnchorAt` 起算**（[`hasUserIntent()`](/src/position/capture/sampler.ts#L405)）。
 
-**嵌入式渲染器内部的滚动一律拒绝**（`sampler.ts:66`）：`.internal-embed`、`.cm-embed-block`
+**嵌入式渲染器内部的滚动一律拒绝**（[`EMBED_BOUNDARY_SELECTOR`](/src/position/capture/sampler.ts#L56)）：`.internal-embed`、`.cm-embed-block`
 里滚的不是这篇笔记。
 
-**有选区时必须丢基线**（`sampler.ts:406`）：选区跨度不是读者走过的距离。
-传送检测只在桌面（`sampler.ts:361`），阈值非正数一律当 0 —— 坏值的兜底方向是「什么都不记」。
+**有选区时必须丢基线**（[`sampler.ts:359`](/src/position/capture/sampler.ts#L359)）：选区跨度不是读者走过的距离。
+传送检测只在桌面（[`installTeleportWatcher()`](/src/position/capture/sampler.ts#L320)），阈值非正数一律当 0 —— 坏值的兜底方向是「什么都不记」。
 
-**主题分隔线永不当 anchor**（`ephemeral.ts:135`）：`---`/`***`/`___` 在重映射扫描里会命中
+**主题分隔线永不当 anchor**（[`ephemeral.ts:73`](/src/position/capture/ephemeral.ts#L73)）：`---`/`***`/`___` 在重映射扫描里会命中
 别处的分隔线。另外 `remapAnchorLine` 返回 `undefined` 表示「不知道」，**不是「没变」**
-（`ephemeral.ts:319`），窗口是 30 行、先纯文本后归一化两趟。
+（[`remapAnchorLine()`](/src/position/capture/ephemeral.ts#L190)），窗口是 30 行、先纯文本后归一化两趟。
 
-**常量**（`ephemeral.ts:96-105`）：`NAV_CONTEXT_LINES = 4`（按非空行计）、`CONTEXT_LINE_CAP = 120`
-（比 anchor 的 80 大，因为 anchor 要精确匹配、越长越脆）、`CONTEXT_SCAN_FACTOR = 4`。
-
-**光标在 (0,0) 折叠态直接省略**（`ephemeral.ts:43`）：让「来过但停在顶部」的墓碑记录保持最小。
+**光标在 (0,0) 折叠态直接省略**（[`ephemeral.ts:46`](/src/position/capture/ephemeral.ts#L46)）：让「来过但停在顶部」的墓碑记录保持最小。
 
 ## 怎么验证它没坏
 

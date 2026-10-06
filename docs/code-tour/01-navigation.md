@@ -16,13 +16,13 @@
 
 ## 入口在哪
 
-- 漏斗本体：`class NavFunnel`（`nav/funnel.ts:83`）。采集面是 `recordOpen`（`:120`）、
-  `recordTeleport`（`:161`）、`recordActivation`（`:174`）、`leave`（`:242`）、`settled`（`:248`）；
-  广播是 `visit`（`:295`）、`landing`（`:302`）、`here`（`:308`）。
-- 公共闸门：`isRecording()`（`nav/funnel.ts:106`）—— 只有两个条件：插件自己没在挪视图
+- 漏斗本体：[`NavFunnel`](/src/nav/funnel.ts#L76)。采集面是 [`recordOpen`](/src/nav/funnel.ts#L112)、
+  [`recordTeleport`](/src/nav/funnel.ts#L151)、[`recordActivation`](/src/nav/funnel.ts#L164)、[`leave`](/src/nav/funnel.ts#L227)、[`settled()`](/src/nav/funnel.ts#L233)；
+  广播是 [`visit`](/src/nav/funnel.ts#L278)、[`landing`](/src/nav/funnel.ts#L284)、[`here`](/src/nav/funnel.ts#L290)。
+- 公共闸门：[`isRecording`](/src/nav/funnel.ts#L98)—— 只有两个条件：插件自己没在挪视图
   （`!moving`）且工作区已经起来（`layoutReady`）。
-- 订阅：`subscribe(sink)`（`nav/funnel.ts:97`）。订阅者实现 `NavFunnelSink` 里用得到的钩子即可，
-  全部可选（`nav/funnel.ts:63`）。
+- 订阅：[`subscribe`](/src/nav/funnel.ts#L89)。订阅者实现 `NavFunnelSink` 里用得到的钩子即可，
+  全部可选（[`NavFunnelSink`](/src/nav/funnel.ts#L57)）。
 
 ## 数据怎么流
 
@@ -41,38 +41,38 @@ active-leaf-change─┘                              │
 ```
 
 **广播**则是「已经有人认定的事实」：`visit()` 是栈自己拍板的一步（它故意绕过闸门，
-因为栈**就是**那个正在挪视图的插件，`nav/funnel.ts:292`）；`landing()` 是某个落点现在知道了；
+因为栈**就是**那个正在挪视图的插件，[`visit()`](/src/nav/funnel.ts#L278)）；`landing()` 是某个落点现在知道了；
 `here()` 是「你在这里」这个标记移动了。
 
-一次跳转的三拍（`nav/outline-capture.ts:79-97` 是这一拍的完整样板）：
+一次跳转的三拍（[`outline-capture.ts:78`](/src/nav/outline-capture.ts#L78) 起是这三拍的完整样板）：
 先 `leave()` 记下**点击前**的精确位置 → 再 `recordOpen()` 压入带 key 的记录 →
 最后撑开落点吸收窗口（`LANDING_ABSORB_MS`），让紧随其后那次光标跳变被挡在门外。
 **点一次，恰好压入一条记录。**
 
 ## 有哪些坑
 
-**闸门只回答一个问题**（`nav/funnel.ts:104`）：这次是读者在导航，还是插件在挪自己？
+**闸门只回答一个问题**（[`isRecording()`](/src/nav/funnel.ts#L98)）：这次是读者在导航，还是插件在挪自己？
 像「记录标签页切换」这种设置**不算**闸门 —— 那是栈对自己那张列表的主张，由读取方各自应用。
-所以设置项在栈里（`stack.ts:134`），不在漏斗里。
+所以设置项在栈里（[`stack.ts:119`](/src/nav-history/stack.ts#L119)），不在漏斗里。
 
-**哪些东西看起来该记、偏偏不能记**（`nav/funnel.ts:182-225`，这一段的注释占这个文件的一半）：
+**哪些东西看起来该记、偏偏不能记**（[`funnel.ts:172`](/src/nav/funnel.ts#L172) 起这一整段，注释比代码长）：
 
 - 没有 `file` 的 FileView：那是**一个瞬间**，不是另一种目的地。同步替换笔记的做法是先删文件、
   再把下载的那个改名盖上去，在那一个瞬间标签页还在显示旧笔记而 `file` 是 null。
   记成视图会凭空造出一个 key 为 `view:markdown`、还挂着笔记名字的幽灵地点。
 - 延迟打开的 leaf（`isDeferredLeaf`）：占位符不是视图，笔记自己的标签页会掉出 `instanceof` 判断。
-- **markdown 标签页永远是一篇笔记**（`nav/funnel.ts:221`），不管上面哪一步没能说清楚。
+- **markdown 标签页永远是一篇笔记**（[`funnel.ts:208`](/src/nav/funnel.ts#L208)），不管上面哪一步没能说清楚。
 - app 已经造不出来的视图类型不算地点：恢复它只会得到一个自称是它的占位符。
 
-**bracket 在看门狗手里**（`nav/funnel.ts:78`、`:271`）：一次跳转会锁住闸门，若其中某个 await
+**bracket 在看门狗手里**（[`funnel.ts:82`](/src/nav/funnel.ts#L82)、[`funnel.ts:259`](/src/nav/funnel.ts#L259)）：一次跳转会锁住闸门，若其中某个 await
 永远不 resolve，前进后退就永久废了。所以有 `BRACKET_WATCHDOG_MS = 5000`，与 `finally` 共用
 一次 settle —— 一次 `restoreStarted` 恰好对应一次 `restoreEnded`。
 
-**大纲点击必须挂在捕获阶段**（`nav/outline-capture.ts:19`）：跑在 core 的处理器之前，
+**大纲点击必须挂在捕获阶段**（[`outline-capture.ts:90`](/src/nav/outline-capture.ts#L90)）：跑在 core 的处理器之前，
 才读得到点击前的位置。这个文件的每一步解析都静默降级 —— 未知的 DOM、找不到大纲、
 目标 leaf 无法确定，剩下的交给常规管线。
 
-**身份算法写在 entry.ts，不写在各自的 store 里**（`nav/entry.ts:102`、`:202`）：
+**身份算法写在 entry.ts，不写在各自的 store 里**（[`navGroupKey()`](/src/nav/entry.ts#L95)、[`landedLine()`](/src/nav/entry.ts#L187)）：
 「属于列表哪一行」由 `navGroupKey` 答，「什么叫同一个落点」由 `landedLine` 答。
 两者都有**两个**判定者（面板折叠行、store 去重），写两遍就会漂。
 

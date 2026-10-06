@@ -30,7 +30,7 @@
 这两个词被并进同一格过一次（我记岔了），这里把界线钉死：
 
 - **落点是概念**：`landing` 指一次跳转落地之处，`landedLine()` 对 `visit` / `teleport` 也照样回答
-  「这一步落在第几行」（兜底 `st.scroll ?? cursor.from.line`，`entry.ts:187-196`）—— 那时它跟标题毫无关系。
+  「这一步落在第几行」（兜底 `st.scroll ?? cursor.from.line`，见 [`landedLine()`](/src/nav/entry.ts#L187)）—— 那时它跟标题毫无关系。
 - **标题是 UI 说法**：`en.ts` 里 `recentFiles.landings.options.*` 的原文就是 "Headings, one row per note"、
   `forgetLanding` 是 "Remove this heading"。zh.ts 译「标题」忠实原文，**i18n 一个字都不用动**。
 - **最近文件列表里如今一个落点都没有**（2026-10-05 起）：`NavPlaces.remember` 把**每一次**
