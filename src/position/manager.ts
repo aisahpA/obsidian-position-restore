@@ -78,7 +78,7 @@ export class PositionManager {
 		this.sampler = new Sampler(app, this.store, settings, this.state, this.funnel);
 		this.patcher = new OpenPatcher(app, settings, this.store, this.state, this.funnel, this.sampler);
 		this.explorerPreview = new ExplorerPreviewFocus(app, database, settings);
-		this.backgroundSettler = new BackgroundSettler(app, settings, this.store, this.state);
+		this.backgroundSettler = new BackgroundSettler(app, this.store, this.state);
 		this.bookkeeper = new PathBookkeeper(app, this.store, [this.stack, this.places], this.state);
 	}
 

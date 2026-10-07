@@ -258,13 +258,3 @@ export function applyEphemeralState(view: MarkdownView, state: EphemeralState) {
 	if (Object.keys(stateToApply).length > 0)
 		view.setEphemeralState(stateToApply);
 }
-
-export function setCursorToEnd(view: MarkdownView) {
-	const editor = view.editor;
-	if (editor) {
-		const lastLine = editor.lastLine();
-		const lastLineLength = editor.getLine(lastLine).length;
-		editor.setCursor({ line: lastLine, ch: lastLineLength });
-		editor.scrollIntoView({ from: { line: lastLine, ch: 0 }, to: { line: lastLine, ch: lastLineLength } }, true);
-	}
-}

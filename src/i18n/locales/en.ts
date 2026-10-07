@@ -5,12 +5,6 @@ export const en = {
 		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top first, no jump afterwards. Positions are kept in a JSON file inside the vault, by default in the plugin folder — Obsidian Sync does not carry it from there, so to take your positions to another device, point the path inside the vault (under Data storage below).',
 
 	'openAndRestore.heading': 'Open & restore',
-	'openAndRestore.defaultPosition.name': 'Default position in edit view',
-	'openAndRestore.defaultPosition.desc':
-		'When no saved position exists for a file, move the cursor and scroll position here. Note: this setting only applies to the edit view; reading view does not use it.',
-	'openAndRestore.defaultPosition.options.default': 'Start of file (Obsidian default)',
-	'openAndRestore.defaultPosition.options.fileEnd': 'End of file',
-
 	'openAndRestore.linkOpenPosition.name': 'Wikilink open position',
 	'openAndRestore.linkOpenPosition.desc':
 		'When clicking a plain wikilink (without a # heading or ^ block target), whether to always open from the file start or use the saved position.',

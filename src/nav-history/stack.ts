@@ -101,7 +101,7 @@ export class NavStack implements NavFunnelSink {
 		// 盘上的存档可能超过当前生效的上限（上限是在设置里调低的、而设置会持久化，栈却只在
 		// flush 点才写）。
 		this.applyStackCap();
-		this.modes = new RestoreModes(settings, state);
+		this.modes = new RestoreModes(state);
 	}
 
 	// ===== 漏斗的听者这一侧 =====

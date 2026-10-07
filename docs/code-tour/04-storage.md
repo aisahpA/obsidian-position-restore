@@ -45,8 +45,9 @@ CursorPositionDatabase ──► positions.json（默认在插件目录内）
 **schema 现在的值是 2**（[`SCHEMA_VERSION`](/src/position/storage/database.ts#L29)），形状是 `{schema:2, positions:{path:{s?,c?,t?}}}`。
 **只在形状变化时递增**，加可选字段不算 —— schema 1 用数组长度当类型标签，加不了字段。
 
-**墓碑记录必须落盘**（[`database.ts:649`](/src/position/storage/database.ts#L649)、[`database.ts:658`](/src/position/storage/database.ts#L658)）：既无 `s` 又无 `c` 的记录表示「来过、停在顶部」，
-与「从未有记录」不是一回事。不落盘就会在下一次打开时触发 `defaultPosition`。
+**墓碑记录必须落盘**（[`database.ts:649`](/src/position/storage/database.ts#L649)、[`database.ts:658`](/src/position/storage/database.ts#L658)）：既无 `s` 又无 `c` 的记录表示「来过、停在顶部」。
+它在恢复行为上与「从未有记录」等价（两种都停在 Obsidian 自己打开笔记的那一行），但仍然要写：它出现在记录数的统计里，
+并且是容量上限优先淘汰的对象（见 `trimToLimit`）。
 
 **容量 `MAX_ENTRIES = 750`，裁到 `TRIM_TARGET = 562`**（[`database.ts:12`](/src/position/storage/database.ts#L12)）：3/4 是滞后防抖。
 墓碑优先出局，但最近 `TOMB_RECENT_WINDOW = 187` 条内豁免（[`database.ts:17`](/src/position/storage/database.ts#L17)）。

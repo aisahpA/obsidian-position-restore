@@ -22,7 +22,7 @@ export class Restorer {
 		this.settings = settings;
 		this.store = store;
 		this.state = state;
-		this.modes = new RestoreModes(settings, this.state);
+		this.modes = new RestoreModes(this.state);
 	}
 
 	// markdown 视图交给 restoreMarkdown；base 视图的记录是滚动采集监听器存下的
@@ -113,18 +113,17 @@ export class Restorer {
 			const st = injectedSt ?? this.store.read(this.state.leafId(view.leaf), filePath);
 			const mode = view.getMode();
 
-			// 每个分支自己管自己的「无记录 / 默认位置」处理，好让两者不跨模式
-			// 泄漏。注入的 open 放最前：历史遍历一律注入并遮住（「必须瞬间落定」），
+			// 每个分支自己管自己的「无记录」处理，好让两者不跨模式泄漏。没有记录
+			// 就什么都不做 —— 笔记停在 Obsidian 自己的默认位置（顶部）。
+			// 注入的 open 放最前：历史遍历一律注入并遮住（「必须瞬间落定」），
 			// 它要的正是「在首绘遮罩下落定、再揭幕」这一套。
 			if (mode === 'source') {
-				if (!st && this.settings.defaultPosition === 'default')
+				if (!st)
 					return;
 				if (injected)
 					await this.modes.restoreInjectedSource(view, st, isCurrent);
-				else if (st)
-					await this.modes.maskedRestoreSt(view, st, isCurrent);
 				else
-					await this.modes.maskedRestoreDefault(view, isCurrent);
+					await this.modes.maskedRestoreSt(view, st, isCurrent);
 				return;
 			}
 

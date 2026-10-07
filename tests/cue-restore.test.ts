@@ -129,7 +129,7 @@ describe('落点标记（flashLandingLine）', () => {
 	it('恢复后，阅读视图标出落点那一块（core 自己的 .is-flashing，不动视口）', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view, sectionEl } = makePreviewView(12);
 
 		await modes.historyJumpApply(view, { scroll: 12 }, () => true, 0);
@@ -140,7 +140,7 @@ describe('落点标记（flashLandingLine）', () => {
 	it('关掉之后，恢复不再标那一块', async () => {
 		const s = settings({ flashLandingLine: false });
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view, sectionEl } = makePreviewView(12);
 
 		await modes.historyJumpApply(view, { scroll: 12 }, () => true, 0);
@@ -151,7 +151,7 @@ describe('落点标记（flashLandingLine）', () => {
 	it('编辑视图标的是光标那一行，不是视口顶部那一行', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const view = fakeView({
 			leaf: { id: 'leaf-1' },
 			file: { path: 'a.md' },
@@ -174,7 +174,7 @@ describe('落点标记（flashLandingLine）', () => {
 	it('前进后退带来的恢复不标 —— 那一路自己标过一次', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view, sectionEl } = makePreviewView(12);
 		// NavStack 的遍历装的就是它：目的地是读者自己选的，不带提示。
 		state.cueSuppressUntil = Date.now() + 60_000;
@@ -218,7 +218,7 @@ describe('编辑模式跳转的落点：交给编辑器居中，视口只动一�
 	it('点名一行时那一步只落光标 —— 视口不动，居中留给编辑器', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view, applied } = makeSourceView(30);
 		state.pendingLineFlash = { path: 'a.md', line: 60, at: Date.now() };
 
@@ -233,7 +233,7 @@ describe('编辑模式跳转的落点：交给编辑器居中，视口只动一�
 	it('居中的结果交给下游：像素落定对着回读到的视口顶', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view } = makeSourceView(41.6);
 		state.pendingLineFlash = { path: 'a.md', line: 60, at: Date.now() };
 		const settle = vi.spyOn(pixelsOf(modes), 'settleSourcePixels').mockResolvedValue(undefined);
@@ -247,7 +247,7 @@ describe('编辑模式跳转的落点：交给编辑器居中，视口只动一�
 	it('编辑器晚一帧才应用那次滚动时，回读等它 —— 不拿旧滚动去当落点', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		// `scrollIntoView` 是一个 effect，编辑器把它排进自己的测量趟：派发时那次回读、加上
 		// 第一帧的回读，看到的都还是旧滚动，之后才落到居中处。
 		let reads = 0;
@@ -265,7 +265,7 @@ describe('编辑模式跳转的落点：交给编辑器居中，视口只动一�
 	it('居中做不到时退回种子 —— 那一刻它就是唯一的落点', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view, applied } = makeSourceView(30);
 		// 编辑器还不认这个原语（例如视图刚建出来）。
 		(view.editor as unknown as { scrollIntoView: () => void }).scrollIntoView = () => {
@@ -283,7 +283,7 @@ describe('编辑模式跳转的落点：交给编辑器居中，视口只动一�
 	it('没有点名一行的那一次（一次普通的 visit）：照旧整份施加', async () => {
 		const s = settings();
 		const state = new PositionState(s);
-		const modes = new RestoreModes(s, state);
+		const modes = new RestoreModes(state);
 		const { view, applied } = makeSourceView(30);
 
 		await modes.historyJumpApply(view, { scroll: 25, cursor: cursorAt(60) }, () => true, 0);

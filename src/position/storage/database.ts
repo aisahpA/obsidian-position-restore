@@ -355,7 +355,7 @@ export class CursorPositionDatabase {
 
 		// 「廉价」只在新鲜度窗口**之外**才适用：一篇刚被滚回顶部的笔记，是它身上发生的
 		// 最新的事，而为了一个几个月前的真实位置把它淘汰掉，会让那篇笔记在下次打开时
-		// 跳到 defaultPosition。
+		// 停在文件顶部 —— 记下来的位置没了。
 		const windowStart = Math.max(0, keys.length - TOMB_RECENT_WINDOW);
 		const cheap: string[] = [];
 		const rest: string[] = [];
@@ -646,8 +646,8 @@ export class CursorPositionDatabase {
 		// 比磁盘那份更晚。
 		const rev = this.rev;
 
-		// 墓碑是写出来的，不是跳过：「停在顶部」是一个必须到达另一台设备的真实状态，而
-		// 留着这个键，正是阻止 defaultPosition 在下次打开时再次触发的东西。
+		// 墓碑是写出来的，不是跳过：「来过、停在顶部」是一个真实状态，它出现在记录数的
+		// 统计里，并且是容量上限优先淘汰的对象（见 trimToLimit）。
 		const encoded: { [path: string]: PositionRecord } = {};
 		for (const key of Object.keys(this.db)) {
 			const st = this.db[key];

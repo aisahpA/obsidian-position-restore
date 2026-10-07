@@ -141,7 +141,7 @@ function makeHarness(opts: HarnessOpts): Harness {
 		},
 	};
 	const store = new PositionStore(app as never, { db } as never);
-	const settler = new BackgroundSettler(app as never, DEFAULT_SETTINGS, store, state);
+	const settler = new BackgroundSettler(app as never, store, state);
 	return { state, settler, leafObjs };
 }
 

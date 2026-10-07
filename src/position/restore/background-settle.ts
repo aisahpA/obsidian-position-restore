@@ -1,5 +1,5 @@
 import { App, MarkdownView, WorkspaceLeaf } from 'obsidian';
-import { EphemeralState, PluginSettings } from '@/types';
+import { EphemeralState } from '@/types';
 import { PositionStore } from '@/position/storage/position-store';
 import { nextPaint } from '@/shared/wait';
 import { PositionState } from '@/position/state';
@@ -27,11 +27,11 @@ export class BackgroundSettler {
 	// 跑两遍。
 	private settleInProgress = false;
 
-	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState) {
+	constructor(app: App, store: PositionStore, state: PositionState) {
 		this.app = app;
 		this.store = store;
 		this.state = state;
-		this.modes = new RestoreModes(settings, this.state);
+		this.modes = new RestoreModes(this.state);
 	}
 
 	// 视图一建好，就在它们各自的首绘遮罩下落定：一段有界的短轮询，等到没有

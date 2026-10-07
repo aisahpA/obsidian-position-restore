@@ -29,18 +29,6 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 			heading: t('openAndRestore.heading'),
 			items: [
 				{
-					name: t('openAndRestore.defaultPosition.name'),
-					desc: t('openAndRestore.defaultPosition.desc'),
-					control: {
-						type: 'dropdown',
-						key: 'defaultPosition',
-						options: {
-							default: t('openAndRestore.defaultPosition.options.default'),
-							fileEnd: t('openAndRestore.defaultPosition.options.fileEnd'),
-						},
-					},
-				},
-				{
 					name: t('openAndRestore.linkOpenPosition.name'),
 					desc: t('openAndRestore.linkOpenPosition.desc'),
 					control: {

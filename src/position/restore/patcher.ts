@@ -200,7 +200,7 @@ export class OpenPatcher {
 				const st = navLanding ?? this.store.read(leafId, filePath);
 				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
 					const isSource = this.isSourceModeOpen(leaf, viewState);
-					const merged = this.buildMergedState(st, isSource);
+					const merged = this.buildMergedState(st);
 					// **只遮源码模式**。阅读视图的首绘要异步渲染，大笔记跨文件打开能到
 					// 2~3 秒；这段渲染期被遮住就是一整片空白。而阅读模式的落点本来就有
 					// core 自己的渲染流水线接着（注入的 `{scroll}` 走 applyScrollDelayed，
@@ -243,7 +243,7 @@ export class OpenPatcher {
 		// 同一个文件开在两个标签页，重启后每个标签页必须恢复各自的位置。
 		const st = this.store.read(leafId, filePath);
 
-		const merged = this.buildMergedState(st, true);
+		const merged = this.buildMergedState(st);
 		if (merged.scroll === undefined && merged.cursor === undefined)
 			return eState;
 
@@ -330,19 +330,13 @@ export class OpenPatcher {
 		return !!(eState.cursor || eState.scroll != null);
 	}
 
-	// 保存的位置在时它说了算；否则应用配置的默认值（只有 'fileEnd' 有注入形式，
-	// 且只在源码模式下）。占位光标由编辑器夹到最后一行 —— 这里不知道内容长度。
-	private buildMergedState(st: EphemeralState | undefined, isSourceMode: boolean): Partial<EphemeralState> {
+	// 注入形式只有一个来源：保存的位置。没有记录就什么都不注入 —— 笔记按 Obsidian
+	// 自己的默认位置打开（顶部）。
+	private buildMergedState(st: EphemeralState | undefined): Partial<EphemeralState> {
 		const merged: Partial<EphemeralState> = {};
 		if (st) {
 			if ((st.scroll ?? 0) > 0) merged.scroll = st.scroll;
 			if (st.cursor) merged.cursor = st.cursor;
-		} else if (isSourceMode && this.settings.defaultPosition === 'fileEnd') {
-			merged.scroll = Infinity;
-			merged.cursor = {
-				from: { line: Number.MAX_SAFE_INTEGER, ch: 0 },
-				to:   { line: Number.MAX_SAFE_INTEGER, ch: 0 },
-			};
 		}
 		return merged;
 	}

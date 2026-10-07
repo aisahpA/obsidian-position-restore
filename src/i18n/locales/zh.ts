@@ -12,12 +12,6 @@ export const zh: En = {
 
 	'openAndRestore.heading': '打开与恢复',
 
-	'openAndRestore.defaultPosition.name': '编辑视图的默认位置',
-	'openAndRestore.defaultPosition.desc':
-		'当某个文件没有已保存的位置时，将光标和滚动位置定位到此处。注意：此设置仅适用于编辑视图；阅读视图不使用此设置。',
-	'openAndRestore.defaultPosition.options.default': '文件开头（Obsidian 默认）',
-	'openAndRestore.defaultPosition.options.fileEnd': '文件末尾',
-
 	'openAndRestore.linkOpenPosition.name': '双链打开位置',
 	'openAndRestore.linkOpenPosition.desc':
 		'点击普通双链（不带 # 标题或 ^ 块目标）时，是始终从文件开头打开，还是使用已保存的位置。',
@@ -110,8 +104,8 @@ export const zh: En = {
 
 	'dataStorage.entries.name': '记录数',
 	// 「默认位置」＝打开笔记时 Obsidian 自己放光标的那一行：有 frontmatter 就是它下面第一行，
-	// 没有就是第一行。停在那里的记录存进文件是个空记录，它不占位置信息，但也不是没用——
-	// 它挡着「编辑视图的默认位置」，删掉它那篇笔记下次打开就算「没有记录」。
+	// 没有就是第一行。停在那里的记录存进文件是个空记录（墓碑），它不占位置信息，但也不是
+	// 没用——它记着「来过、停在顶部」，并且优先让位给容量上限（见 database.ts 的 trimToLimit）。
 	'dataStorage.entries.desc':
 		'当前记录了 {0} 个文件的位置，最多支持 750 条记录。超出上限时，先移除较久未访问、且停在默认位置的记录，其余再按最久未访问移除。',
 	'dataStorage.entries.atDefault':

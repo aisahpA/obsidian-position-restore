@@ -70,7 +70,6 @@ interface PluginSettings {
 	excludedFolders: string[];
 	// frontmatter 里含以下「任一」属性名的文件不记位置（值忽略）。空数组 = 关闭。
 	frontmatterExcludeProperties: string[];
-	defaultPosition: 'default' | 'fileEnd';
 	// 普通文件链接（不带 #/^ 目标）打开在哪：已保存的位置，还是文件开头
 	linkOpenPosition: 'restore' | 'start';
 	// 恢复位置后，在笔记中间短暂显示「落在哪一节」的面包屑。两种情况不说：这一屏里已经
@@ -146,7 +145,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	minLinesToRecord: 20,
 	excludedFolders: [],
 	frontmatterExcludeProperties: [],
-	defaultPosition: 'default',
 	linkOpenPosition: 'restore',
 	restoreBreadcrumb: true,
 	flashLandingLine: true,

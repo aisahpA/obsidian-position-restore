@@ -1,6 +1,6 @@
 import { MarkdownView, Platform } from 'obsidian';
-import { EphemeralState, NavEntryState, PluginSettings } from '@/types';
-import { applyEphemeralState, readEphemeralState, remapAnchoredState, setCursorToEnd, shiftNavState } from '@/position/capture/ephemeral';
+import { EphemeralState, NavEntryState } from '@/types';
+import { applyEphemeralState, readEphemeralState, remapAnchoredState, shiftNavState } from '@/position/capture/ephemeral';
 import { ANCHOR_SETTLE_DELAY, delay, nextPaint, waitForContentReady, waitForRestorePainted } from '@/shared/wait';
 import { PositionState } from '@/position/state';
 import { SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SourcePixelCorrector } from './pixels';
@@ -20,12 +20,10 @@ const CENTER_READ_MAX_FRAMES = 8;
 // （在 leaf 首绘遮罩下）、landPreview（阅读：不遮，交给渲染器落），以及每一种
 // 策略最后都会走到的共享锚点。
 export class RestoreModes {
-	private settings: PluginSettings;
 	private state: PositionState;
 	private pixels: SourcePixelCorrector;
 
-	constructor(settings: PluginSettings, state: PositionState) {
-		this.settings = settings;
+	constructor(state: PositionState) {
 		this.state = state;
 		this.pixels = new SourcePixelCorrector(state);
 	}
@@ -200,16 +198,6 @@ export class RestoreModes {
 				this.state.cover.uncover(view.leaf);
 		}
 		await this.anchorToSettledState(view, st, isCurrent);
-	}
-
-	// 在隐藏的遮罩下应用一个源码模式的默认位置（没有保存的记录）。
-	async maskedRestoreDefault(view: MarkdownView, isCurrent: () => boolean) {
-		await this.maskedRestore(view, undefined, isCurrent, () => {
-			if (this.settings.defaultPosition === 'fileEnd') {
-				setCursorToEnd(view);
-			}
-			return false;
-		});
 	}
 
 	// 文件内的历史跳转（前进 / 后退落在**同一篇**笔记里）：视图已经渲染好了 ——
