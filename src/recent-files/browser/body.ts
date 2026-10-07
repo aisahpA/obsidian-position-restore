@@ -425,12 +425,24 @@ export class RecentFilesBrowser {
 			clear.setAttr('title', name);
 		};
 		// 读者输入的东西**就是**列表的查询，所以列表据它重画。
+		//
+		// 但**组合中不重画**：中文/日文/韩文经输入法打字时，每一次击键都会发一个 input，
+		// 而那时框里还是一串没定型的中间态（拼音、未提交的假名）—— 它不是读者的查询，
+		// 画它只是白画一整表。判据取**事件自带**的 `isComposing`，不自己维护一个布尔：
+		// 某些平台（老 iOS WKWebView）不发 compositionend，自己维护的标志会永远卡在
+		// 「组合中」、搜索框从此再不刷新，而那个属性的真假随事件来、卡不住。
 		const apply = (): void => {
 			this.filter = input.value;
 			nameClear();
 			this.render();
 		};
-		input.addEventListener('input', apply);
+		input.addEventListener('input', (ev) => {
+			if ((ev as InputEvent).isComposing)
+				return;
+			apply();
+		});
+		// 组合结束：有的平台此后**不再补发** input，所以这里必须自己画一次。
+		input.addEventListener('compositionend', apply);
 		this.filterInput = input;
 		nameClear();
 		// **那个 ×**：按下被**拒绝**，好让光标从不离开框 —— 一个取得焦点的控件会把下一次

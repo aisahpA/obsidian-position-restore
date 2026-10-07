@@ -1004,3 +1004,36 @@ describe('RecentFilesModal —— 键盘的无障碍声明', () => {
 		expect(first.getAttribute('aria-selected')).toBe('false');
 	});
 });
+describe('RecentFilesModal —— 输入法组合', () => {
+	// 中文/日文/韩文经输入法打字时，每一次击键都会发一个 input，而那时框里还是一串没定型的
+	// 中间态（拼音、未提交的假名）—— 它不是读者的查询，要到组合结束才交出去（见 body.ts 的
+	// toolbar）。少了这一档，一个敲三下拼音的词会把整份列表白画三遍。
+	it('组合期间不重画，组合结束才把查询交出去', () => {
+		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' });
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		// 一次重画是**整表重建**，所以「没重画」就是**同一批元素还在**。
+		const before = h.note('a');
+
+		// 组合中：框里已经攥着「a」，但列表一个字都没窄。
+		box.value = 'a';
+		box.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+		expect(h.notes()).toHaveLength(2);
+		expect(h.note('a')).toBe(before);
+
+		// 组合结束：这一次才把查询交出去 —— b.md 不含「a」，只剩它那一行。
+		box.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+		expect(h.notes()).toHaveLength(1);
+		expect(h.note('a')?.querySelector('.nav-row-name')?.textContent).toBe('a');
+	});
+
+	it('非组合的输入照旧即时生效', () => {
+		// 英文直输、粘贴、点 × 清空都不经过组合，所以它们不能被这一档连累。
+		const h = harness([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1, { 'a.md': '', 'b.md': '' });
+		const box = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+
+		box.value = 'b';
+		box.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(h.notes()).toHaveLength(1);
+		expect(h.note('b')?.querySelector('.nav-row-name')?.textContent).toBe('b');
+	});
+});
