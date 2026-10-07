@@ -125,6 +125,7 @@ export const en = {
 
 	// ═══ Back and forward ═══ the navigation stack
 	'navHistory.heading': 'Back and forward',
+	'navHistory.steps.heading': 'Steps recorded',
 	'navHistory.intro':
 		'VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one — a link, the outline, a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
 	'navHistory.hotkeys.desc':
@@ -145,8 +146,11 @@ export const en = {
 	// ═══ Recent files ═══ a list of places, and its panel
 	'recentFiles.name': 'Recent files',
 
+	'recentFiles.rules.heading': 'What gets listed',
+	'recentFiles.display.heading': 'Display',
+
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The filter can also search the headings inside each note: whichever ones it matches are drawn as rows beneath it, and one jumps straight to that section (see "Search headings" below). The list remembers which notes you have been to, and no position inside them — going back to a heading is what the "Back and forward" stack is for. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The filter can also search the headings inside each note: whichever ones it matches are drawn as rows beneath it, and one jumps straight to that section (see "Search headings" below). The list keeps no place inside a note — a section you have visited is what the "Back and forward" stack is for. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
 
 	'recentFiles.folders.name': 'Folders not listed',
 	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',

@@ -3,12 +3,14 @@ import { SettingsPageContext, intro, hotkeys } from '@/settings/page';
 import { FolderSuggestModal, PropertySuggestModal, PropertyValueModal } from '@/settings/pickers';
 import { t } from '@/i18n';
 
-// 「最近文件」页 —— 地点列表在设置里的那张脸。它有三行是列表自己的规则（它拒绝哪些文件夹、
-// 哪些 frontmatter、它往回够多远），另有三行是它的**样子**（见 RecentFilesBrowserPrefs）。
-// 它站在地点列表和它的浏览器旁边，而不是放进 settings 文件夹，好让「我怎么改一行显示的东西」
-// 落在与「显示它的代码」同一个架子上。
+// 「最近文件」页 —— 地点列表在设置里的那张脸。它的行分成两组，回答两个问题：这份列表
+// **收**谁、往回记多远（它拒绝哪些文件夹、哪些 frontmatter、记住多少篇），与进来之后
+// 一行**长什么样**（见 RecentFilesBrowserPrefs）。它站在地点列表和它的浏览器旁边，
+// 而不是放进 settings 文件夹，好让「我怎么改一行显示的东西」落在与「显示它的代码」
+// 同一个架子上。
 //
-// 一个没有标题的分组，理由与前进/后退页一样：这个页面已经叫「最近文件」了。
+// 导言与快捷键独占一个**无标题**的分组：两者讲的是整页，挂到任一标题下就成了那一组的
+// 一句话——同「最后位置」页的导言。两个标题写的是上面那两问本身，不是把页名再写一遍。
 export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefinitionItem[] {
 	return [
 		{
@@ -22,6 +24,12 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 					// 常驻面板与另一条一样是一条命令，所以它在同一个地方被绑定（或不绑）—— 见 view.ts。
 					{ id: 'open-recent-files-sidebar', name: t('recentFiles.commands.openSidebar') },
 				]),
+			],
+		},
+		{
+			type: 'group',
+			heading: t('recentFiles.rules.heading'),
+			items: [
 				{
 					type: 'page',
 					name: t('recentFiles.folders.name'),
@@ -130,6 +138,28 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
+				// 这份列表**记住多少篇笔记**。一个只有一个含义的数字：它数的是行，而一行就是
+				// 一篇笔记（或一个视图），所以没有第二个名额池要跟着它一起被解释。
+				//
+				// 它跟上面两条规则同属一组，而不是跟下面那批样子项：它答的是「往回够多远」，
+				// 与它们一样是一道闸门。
+				{
+					name: t('recentFiles.cap.name'),
+					desc: t('recentFiles.cap.desc'),
+					control: {
+						type: 'number',
+						key: 'recentFilesCap',
+						min: 20,
+						max: 500,
+						step: 10,
+					},
+				},
+			],
+		},
+		{
+			type: 'group',
+			heading: t('recentFiles.display.heading'),
+			items: [
 				// 搜索框是否把**各篇笔记的小节标题**也算进搜索面：开着时，输一个标题词会把
 				// 命中的那一节作为一行画在那篇笔记下面，点它去那一节。
 				//
@@ -145,19 +175,6 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 					control: {
 						type: 'toggle',
 						key: 'recentFilesOutlineSearch',
-					},
-				},
-				// 这份列表**记住多少篇笔记**。一个只有一个含义的数字：它数的是行，而一行就是
-				// 一篇笔记（或一个视图），所以没有第二个名额池要跟着它一起被解释。
-				{
-					name: t('recentFiles.cap.name'),
-					desc: t('recentFiles.cap.desc'),
-					control: {
-						type: 'number',
-						key: 'recentFilesCap',
-						min: 20,
-						max: 500,
-						step: 10,
 					},
 				},
 				{
