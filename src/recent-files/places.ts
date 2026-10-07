@@ -1,9 +1,10 @@
-import { App } from 'obsidian';
+import { App, MarkdownView, Workspace } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from '@/types';
 import { NavEntry, NavJump, NewNavEntry, navGroupKey } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
 import { caretAtLine } from '@/position/capture/ephemeral';
 import { frontmatterOfPath, frontmatterRuleMatches } from '@/shared/frontmatter';
+import { jumpTopBiasLines } from '@/shared/jump-landing';
 import { loadNavPlaces, persistNavPlaces } from './places-store';
 
 // 最近文件列表 —— 面板的（也仅是面板的）数据。
@@ -105,6 +106,14 @@ const NO_OPENERS: PlaceOpeners = {
 	openJump: async () => undefined,
 	openView: async () => undefined,
 };
+
+// 这个视图此刻**在布局里**吗（量得出宽高）。滚在后台标签页里的视图矩形全是 0 ——
+// 从它身上量任何几何都会得到「零」，那不是一个小数字，是「没有答案」（见 alignView）。
+// 量它是为了挑一个能回答的视图，所以这里只问容器自己的矩形，不碰任何内容。
+function isMeasurable(view: MarkdownView): boolean {
+	const rect = view.containerEl.getBoundingClientRect();
+	return rect.width > 0 && rect.height > 0;
+}
 
 export class NavPlaces implements PlaceList {
 	entries: NavEntry[] = [];
@@ -463,6 +472,12 @@ export class NavPlaces implements PlaceList {
 		target?: PaneTarget,
 	): Promise<void> {
 		const at = Math.max(0, line);
+		// 视口顶 = 那一行**往上让出** core 会留的那一段（见 shared/jump-landing.ts）：
+		// 源码模式让半个视口再往上收一行（那一行居中，和点大纲面板的标题一样），阅读模式
+		// 桌面端不让、**顶上真有浮层压着内容时**才让开它（手机上的固定顶栏）。**行 0
+		// 例外**：`applyEphemeralState` 不施加一个 0 的 scroll，所以「笔记第一行就是标题」
+		// 那种笔记仍旧落在文件的顶上。
+		const top = at > 0 ? Math.max(1, at - jumpTopBiasLines(this.alignView(path))) : 0;
 		const place: NavJump = {
 			kind: 'jump',
 			path,
@@ -479,11 +494,66 @@ export class NavPlaces implements PlaceList {
 			// 光标落在该行行首，与点大纲面板的标题落在那里的方式一样（见 landingOf），
 			// 而 `st` 在这里现造而不是等落定，是因为这一次前往**没有**落定可读：撑开落点
 			// 吸收窗口的是大纲点击那个采集点（outline-capture.ts），这条路径没有经过它。
-			st: caretAtLine({ scroll: at }, at),
+			//
+			// `scroll` 记的是**视口顶**，不是那一行：它俩在源码模式下差半个视口，而一记下来
+			// 就再也分不开 —— 之后每一次前进/后退（landingOf → historyJumpApply）都按这个值
+			// 复现。这与 core 记一条大纲点击时做的事是同一件：它记的也是落定之后的视口。
+			st: caretAtLine({ scroll: top }, at),
 			leafId,
 			t: Date.now(),
 		};
 		await this.open.openJump(place, target);
+	}
+
+	// 「那一行该落成什么样」问谁：这一行要去的是**那个标签页**（leafId 由调用方给出），
+	// 但视图可能已经不在（一个地点活得比它的标签页久），所以退回**正显示着这篇笔记的**
+	// 任何一个 markdown 视图，再退回活跃的那个，再退回随便一个 —— 一次普通的打开就发生在
+	// 附近。量不到时返回 null，调用方退回「不让」（bias 0）。
+	//
+	// ⚠️ 只挑**量得出几何**的视图（见 isMeasurable）。一个滚在后台标签页里的视图矩形
+	// 全是 0，从它身上读到的「一屏有多少行」自然也是 0 —— 偏移于是悄悄塌成「不让」，
+	// 落点变成贴顶。那正是「有时候居中、有时候贴顶」的来源（2026-10-07 用户报的
+	// 「有时候跳转位置不稳定」）。所以优先级是：
+	//   显示着目标且在布局里 > 活跃且在布局里 > 任何在布局里的 > 其余
+	// 最后两档是忠实的兜底：真量不出来时才退回旧行为，而不是永远。
+	//
+	// 刻意从工作区现问，而不是把 leafId 换成 leaf：leaf id 的解析（state.leafId）属于
+	// 打开管线，而这个 store 在没有工作区时也必须能构造（见文件头）。这里的每一次
+	// 求值都是导航路径上的冷读。
+	private alignView(path: string): MarkdownView | null {
+		const workspace = this.app.workspace as Workspace | undefined;
+		if (!workspace || typeof workspace.iterateAllLeaves !== 'function')
+			return null;
+		let showing: MarkdownView | null = null;
+		let showingUnmeasured: MarkdownView | null = null;
+		let measured: MarkdownView | null = null;
+		let any: MarkdownView | null = null;
+		// 故意用块语句体：这个回调**必须**返回 undefined —— Obsidian 的 iterate 辅助
+		// 函数会把回调结果当成提前中断的信号（见 restorer.ts 的 pruneStaleLeafIds）。
+		workspace.iterateAllLeaves((leaf) => {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView) || !view.file)
+				return;
+			const measurable = isMeasurable(view);
+			if (view.file.path === path) {
+				if (measurable)
+					showing ??= view;
+				else
+					showingUnmeasured ??= view;
+			}
+			if (measurable)
+				measured ??= view;
+			any ??= view;
+		});
+		const active = typeof workspace.getActiveViewOfType === 'function'
+			? workspace.getActiveViewOfType(MarkdownView)
+			: null;
+		return showing
+			?? (active && isMeasurable(active) ? active : null)
+			?? measured
+			?? showingUnmeasured
+			?? active
+			?? any;
 	}
 
 	// 上限变了（设置标签页）：**现在**就修剪，而不是等下次访问 —— 等待会在之后

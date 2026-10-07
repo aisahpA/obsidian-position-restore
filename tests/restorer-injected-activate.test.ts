@@ -349,6 +349,68 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.handledLeafIdMap.has('leaf-1')).toBe(false);
 	});
 
+	it('注入过的阅读落点不遮 —— 首绘遮罩立刻揭掉，也不给恢复另加一层', async () => {
+		// 阅读视图的首绘是异步的，跨文件打开一篇大笔记能到 2~3 秒；把这段渲染期遮住
+		// 就是一片 2~3 秒的空白（同一个文件因为渲染器早已就绪，完全察觉不到）。而注入
+		// 过的落点由 core 自己的渲染流水线落定（applyScrollDelayed），没有「未恢复的
+		// 顶部」要藏 —— 所以这条路上一次遮罩都不该出现。
+		const state = new PositionState(DEFAULT_SETTINGS);
+		state.lastActiveFilePath = 'a.md';
+		const leaf = makeLeaf('leaf-1');
+		const view = makePreviewView(leaf, 'a.md');
+		const app = {
+			workspace: {
+				layoutReady: true,
+				getActiveViewOfType: (Type: unknown) =>
+					(Type === MarkdownView || Type === FileView) ? view : undefined,
+				iterateAllLeaves: () => undefined,
+			},
+		};
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
+		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
+		// 补丁在 setViewState 里为这次 open 盖上了首绘遮罩，并留下注入标记与落点。
+		state.injectedOpenLeafIds.add('leaf-1');
+		state.injectedLeafStates.set('leaf-1', { scroll: 30 });
+		state.handledLeafIdMap.set('leaf-1', 'a.md');
+		state.cover.cover(leaf);
+		coveredLeaves.push(leaf);
+		harnessCovers = state;
+		const extraCover = vi.spyOn(state.cover, 'restoreCover');
+
+		await restorer.restoreEphemeralState();
+
+		// 两层遮罩都不该留下：leaf 级的（来自 open）与内容级的（maskedRestore 自己那层）。
+		expect(state.cover.isCovered(leaf)).toBe(false);
+		expect(view.contentEl.style.opacity).toBe('');
+		expect(extraCover).not.toHaveBeenCalled();
+		expect(state.restoreRun).toBe(1);
+		expect(state.lastLoadedFilePath).toBe('a.md');
+	});
+
+	it('没有注入过的阅读恢复照旧遮 —— 没有人替它落定，首绘的顶部得藏住', async () => {
+		const state = new PositionState(DEFAULT_SETTINGS);
+		state.lastActiveFilePath = 'a.md';
+		const leaf = makeLeaf('leaf-1');
+		const view = makePreviewView(leaf, 'a.md');
+		const app = {
+			workspace: {
+				layoutReady: true,
+				getActiveViewOfType: (Type: unknown) =>
+					(Type === MarkdownView || Type === FileView) ? view : undefined,
+				iterateAllLeaves: () => undefined,
+			},
+		};
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
+		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
+		const restoreCover = vi.spyOn(state.cover, 'restoreCover');
+
+		await restorer.restoreEphemeralState();
+
+		expect(restoreCover).toHaveBeenCalledTimes(1);
+		expect(view.contentEl.style.opacity).toBe(''); // 落定后照样揭开
+		expect(state.restoreRun).toBe(1);
+	});
+
 	it('已经处理过的 leaf，其同文件激活跳过', async () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		state.lastActiveFilePath = 'a.md';

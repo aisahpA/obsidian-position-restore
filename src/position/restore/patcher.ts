@@ -199,8 +199,14 @@ export class OpenPatcher {
 			if (!isReplay && viewState.type === 'markdown') {
 				const st = navLanding ?? this.store.read(leafId, filePath);
 				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
-					const merged = this.buildMergedState(st, this.isSourceModeOpen(leaf, viewState));
-					this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
+					const isSource = this.isSourceModeOpen(leaf, viewState);
+					const merged = this.buildMergedState(st, isSource);
+					// **只遮源码模式**。阅读视图的首绘要异步渲染，大笔记跨文件打开能到
+					// 2~3 秒；这段渲染期被遮住就是一整片空白。而阅读模式的落点本来就有
+					// core 自己的渲染流水线接着（注入的 `{scroll}` 走 applyScrollDelayed，
+					// 渲染器一就绪就落定），没有「未恢复的顶部」需要藏（见 modes.ts 的
+					// maskedRestoreSt）。
+					this.maybeCoverOpen(leaf, isSource && (merged.scroll ?? 0) > 0);
 					this.state.injectedOpenLeafIds.add(leafId);
 					this.state.injectedLeafStates.set(leafId, st);
 					this.state.handledLeafIdMap.set(leafId, filePath);

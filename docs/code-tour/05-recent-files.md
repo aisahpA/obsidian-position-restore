@@ -25,8 +25,8 @@
 
 ## 入口在哪
 
-- [`NavPlaces`](/src/recent-files/places.ts#L109)、[`cap`](/src/recent-files/places.ts#L151)、[`trim`](/src/recent-files/places.ts#L538)、
-  [`remember`](/src/recent-files/places.ts#L219)（降级就在这里）、[`pruneExcluded`](/src/recent-files/places.ts#L400)、[`travelToHeading`](/src/recent-files/places.ts#L458)。
+- [`NavPlaces`](/src/recent-files/places.ts#L118)、[`cap`](/src/recent-files/places.ts#L151)、[`trim`](/src/recent-files/places.ts#L608)、
+  [`remember`](/src/recent-files/places.ts#L228)（降级就在这里）、[`pruneExcluded`](/src/recent-files/places.ts#L409)、[`travelToHeading`](/src/recent-files/places.ts#L458)。
 - [`RecentFilesBrowser`](/src/recent-files/browser/body.ts#L77)：[`mount`](/src/recent-files/browser/body.ts#L127)、[`render`](/src/recent-files/browser/body.ts#L253)、
   [`contextRow`](/src/recent-files/browser/body.ts#L498)。
 - [`ArrowBar`](/src/recent-files/browser/arrows.ts#L61)：[`refresh`](/src/recent-files/browser/arrows.ts#L89)、[`press`](/src/recent-files/browser/arrows.ts#L99)。
@@ -83,8 +83,8 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 **MRU 顺序靠数组末尾**（`places.ts`）：碰过的笔记移到数组末尾，因为 list 把索引当钟读
 （`list.ts`）—— 原地更新会让刚碰过的笔记显得更旧。
 
-**两条天花板，同一个数字**（[`places.ts:538`](/src/recent-files/places.ts#L538)）：按行裁（`cap()`）。钉住的行不计入上限也不会
-被淘汰；当前所在的行不被裁掉。⚠️ **钉选不再豁免 [`pruneExcluded`](/src/recent-files/places.ts#L400)**：
+**两条天花板，同一个数字**（[`places.ts:538`](/src/recent-files/places.ts#L608)）：按行裁（`cap()`）。钉住的行不计入上限也不会
+被淘汰；当前所在的行不被裁掉。⚠️ **钉选不再豁免 [`pruneExcluded`](/src/recent-files/places.ts#L409)**：
 它的 `kept` 只留 `view` 与 `recordable(path)` —— 一条后来的规则就是关于那一行的后来的答案。
 
 **`visit` 记录故意不存位置**（`places.ts`）：否则「点文件浏览器打开」和「点这一行打开」

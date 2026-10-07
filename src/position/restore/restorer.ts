@@ -138,6 +138,13 @@ export class Restorer {
 					return;
 				if (this.settings.readingRestoreMethod === 'glide' && (st.scroll ?? 0) > 0)
 					await this.modes.glideRestore(view, st, isCurrent);
+				// 一次**注入过**的阅读落点不遮：那个位置已经随这次 open 交到 core
+				// 自己的渲染流水线上（patcher 注入的 `{scroll}` —— applyScrollDelayed
+				// 在渲染器就绪时落它），所以没有「未恢复的顶部」要藏，而遮罩会把整段
+				// 异步渲染期变成空白（跨文件的大笔记 2~3 秒）。其余阅读恢复没有人替它
+				// 落定，遮罩照旧。
+				else if (injected)
+					await this.modes.landPreview(view, st, isCurrent);
 				else
 					await this.modes.maskedRestoreSt(view, st, isCurrent);
 			}

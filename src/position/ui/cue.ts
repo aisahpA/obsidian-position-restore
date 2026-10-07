@@ -5,8 +5,11 @@ import { getScroller } from '@/shared/wait';
 
 const CUE_AUTO_HIDE_MS = 4000;
 const CUE_DISMISS_GRACE_MS = 2000;
-const FLASH_MS = 1000;
-const FLASH_HOLD_RATIO = 0.2;
+// 落点闪一下持续多久。core 自己两种模式用的不是同一个数：编辑模式 750ms（解包实测的
+// `uE()`），阅读模式的小节高亮是 3000ms（渲染器的 `highlightEl`）。这里统一取 750 ——
+// 它是「一行闪一下」的节拍，恢复与跳转共用；3000ms 那个是 core 给一次链接跳转留的
+// 「你到了」窗口，比一次落点标记长得多。
+const FLASH_MS = 750;
 
 // 编辑器包着的 CodeMirror 6 EditorView 的最小形状 ——
 // `editor.cm` 是内部的，Obsidian 的类型定义里没有。
@@ -14,6 +17,15 @@ interface Cm6EditorView {
 	state: { doc: { lines: number; line(n: number): { from: number }; lineAt(pos: number): { number: number } } };
 	domAtPos(pos: number): { node: Node; offset: number };
 	posAtCoords(coords: { x: number; y: number }): number | null;
+}
+
+// 阅读渲染器的一节：`renderer.sections` 里的一项。它带着这一节在文档里占的行区间以及
+// 它的那块 DOM —— 正是 core 自己把一次小节高亮画到哪儿去的依据（`position.start.line` /
+// `lines` / `el`），所以这里也照它取。运行时的内部结构，公开类型里没有。
+interface PreviewSection {
+	start?: { line: number };
+	lines?: number;
+	el?: HTMLElement;
 }
 
 // 面包屑印哪几个名字：从一行的标题链里挑出值得念的那几个。三条规则都是为了让名字
@@ -78,17 +90,22 @@ export class RestoreCue {
 		this.hideTimer = window.setTimeout(() => this.hide(), CUE_AUTO_HIDE_MS);
 	}
 
-	// 标出一行，方式和大纲点击标记它带读者去的那行标题一样。源码视图给它已经知道
-	// 怎么找的行元素做动画；阅读视图压根没有行元素可说，所以改为向视图要它自己的
-	// 标记式揭示 —— app 对 `{line}` 的回答，它会把那一行落定并高亮。
+	// 标出一行，方式和大纲点击标记它带读者去的那行标题一样 —— 两种模式都只**画一下**，
+	// 绝不移动视图：落点已经落好了，闪只是回答「到了吗」。
 	//
-	// 找不到行元素（那一行在屏外，或视图还没画到那里）就什么都不发生 —— 这就是
+	// 找不到那一行元素（那一行在屏外，或视图还没画到那里）就什么都不发生 —— 这就是
 	// 「光标不在屏幕上自然标不出来」，不必先做一次可见性判断。
+	//
+	// ⚠️ 阅读模式**不要**改用 `setEphemeralState({line})`：那条路会把这一行拉到视口顶，
+	// 于是落点被挪走 —— 手机上顶栏那条渐隐正压在那里（见 shared/jump-landing.ts），
+	// 刚让开的带子会被它一把收回，落点就又看不见了。
 	flashLine(view: MarkdownView, line: number) {
 		if (!this.settings.flashLandingLine)
 			return;
 		if (view.getMode() === 'preview') {
-			view.setEphemeralState({ line });
+			const el = this.previewLineElement(view, line);
+			if (el)
+				this.flash(el);
 			return;
 		}
 		const cm = (view.editor as unknown as { cm?: Cm6EditorView }).cm;
@@ -167,6 +184,30 @@ export class RestoreCue {
 		}
 	}
 
+	// 阅读视图里一行所在的那一块。core 自己的小节高亮就是给这一块加 .is-flashing
+	// （`renderer.sections` 里的 `start.line` / `lines` / `el` 就是它的依据），所以这里
+	// 照它取 —— 于是阅读模式的闪与原生完全同款，而且不动视口。
+	//
+	// 取不到（渲染器内部结构变了、那一行还没渲染出来）就什么都不做：闪是装饰，
+	// 绝不值得为它去挪视图。
+	private previewLineElement(view: MarkdownView, line: number): HTMLElement | null {
+		const renderer = (view as unknown as {
+			previewMode?: { renderer?: { sections?: PreviewSection[] } };
+		}).previewMode?.renderer;
+		const sections = renderer?.sections;
+		if (!Array.isArray(sections))
+			return null;
+		for (const section of sections) {
+			const start = section?.start?.line;
+			const count = section?.lines;
+			if (typeof start !== 'number' || typeof count !== 'number')
+				continue;
+			if (line >= start && line <= start + Math.max(0, count - 1))
+				return section.el ?? null;
+		}
+		return null;
+	}
+
 	// 一条（0-based）源码行的 DOM 元素，经由编辑器包着的 CM6 EditorView 取得。
 	// domAtPos 返回行首最内层的节点；向上走到 '.cm-line' 把它归一。只有已渲染的行
 	// 才存在于 DOM 里，所以这同时兼作「这一行在不在屏上」的检查。
@@ -182,17 +223,18 @@ export class RestoreCue {
 		}
 	}
 
-	// 在锚点元素上短暂地闪一下背景，用 Obsidian 给 .is-flashing 标题链接的同一种高亮色。
-	// 淡出前先短暂保持该颜色，好让它读起来是刻意的一句「在这儿」而不是眨一下眼。
+	// 在元素上短暂地闪一下——直接借 Obsidian 自己的 `.is-flashing`：颜色、圆角、混合模式
+	// 全部由它定，跟点大纲时 core 闪的是同一套，读者看到的就是同一个东西。到期自己摘掉，
+	// 与 core 的节拍一样。
+	//
+	// ⚠️ 曾经这里的动画写的是 `var(--text-highlight-bg)`。**那个变量已经不定义了** ——
+	// 现在的定义是 `--highlight-background: var(--text-highlight-bg, var(--highlight-background-yellow))`，
+	// 也就是说 `--text-highlight-bg` 只剩一个只读不写的兜底来源。拿一个没有值的变量去动画，
+	// 整条声明在计算值阶段失效、动画等于没跑（2026-10-07 用户报的「编辑模式 jump 高亮都消失了」
+	// 就是它）。改用 core 的类名，这类失效不会再发生。
 	private flash(el: HTMLElement) {
-		el.animate(
-			[
-				{ backgroundColor: 'var(--text-highlight-bg)', offset: 0 },
-				{ backgroundColor: 'var(--text-highlight-bg)', offset: FLASH_HOLD_RATIO },
-				{ backgroundColor: 'transparent', offset: 1 },
-			],
-			{ duration: FLASH_MS, easing: 'ease-out' },
-		);
+		el.addClass('is-flashing');
+		window.setTimeout(() => el.removeClass('is-flashing'), FLASH_MS);
 	}
 
 	// 一个居中小提示条，说出落点是哪一节，桌面和移动端都居中在笔记里，

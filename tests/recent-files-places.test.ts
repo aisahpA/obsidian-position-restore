@@ -10,7 +10,7 @@
 // 那里还在 —— 而在这里，那一节是**搜**出来的（见 browser/list.ts 的大纲行）。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { App, TFile } from 'obsidian';
+import { App, MarkdownView, TFile } from 'obsidian';
 
 import { NavPlaces } from '@/recent-files/places';
 import { RECENT_PLACES_VERSION } from '@/recent-files/places-store';
@@ -613,6 +613,125 @@ describe('NavPlaces.travelToHeading —— 前往落在它自己印出的那一�
 
 		expect(places.entries).toHaveLength(1);
 		expect(keys(places)).toEqual(['a.md']);
+	});
+});
+
+// 落点的**几何**：同一件事（「去这一节」）在 core 里有两种落法（源码模式居中、阅读模式
+// 贴顶），而这份列表造出来的步必须落成同一个样子 —— 否则点大纲面板的标题与点搜索里的
+// 小节会给出两种到达方式。判据全在 shared/jump-landing.ts，这里钉的是它接在哪儿。
+const VIEWPORT_PX = 800;
+const LINE_PX = 20;
+
+// `measured: false` 造出一个**滚在后台标签页里**的视图：那时整个 leaf 是 display:none，
+// 每个后代的矩形都变成 0（jsdom 里则**本来**就是 0，正好是同一件事）—— 从这里量不出任何
+// 几何，连滚动容器也一样（见 alignView 与 jump-landing.ts）。
+function sourceViewShowing(path: string, opts: { measured?: boolean } = {}): MarkdownView {
+	const { measured = true } = opts;
+	const contentEl = document.createElement('div');
+	const scroller = document.createElement('div');
+	scroller.className = 'cm-scroller';
+	contentEl.appendChild(scroller);
+	const containerEl = document.createElement('div');
+	if (measured) {
+		const rect = () =>
+			({ top: 0, bottom: VIEWPORT_PX, left: 0, right: 400, width: 400, height: VIEWPORT_PX }) as DOMRect;
+		scroller.getBoundingClientRect = rect;
+		containerEl.getBoundingClientRect = rect;
+	}
+	return Object.assign(new MarkdownView(undefined as never), {
+		getMode: () => 'source',
+		file: { path },
+		contentEl,
+		containerEl,
+		editor: {
+			cm: {
+				state: { doc: { lineAt: (pos: number) => ({ number: pos + 1 }) } },
+				posAtCoords: ({ y }: { y: number }) => Math.floor(y / LINE_PX),
+				defaultLineHeight: LINE_PX,
+			},
+		},
+	}) as unknown as MarkdownView;
+}
+
+function makeAppWithView(...views: MarkdownView[]): App {
+	return {
+		...makeApp(),
+		workspace: {
+			iterateAllLeaves: (fn: (leaf: unknown) => void) => {
+				for (const view of views)
+					fn({ view });
+			},
+		},
+	} as unknown as App;
+}
+
+describe('NavPlaces.travelToHeading —— 落点与 core 自己的大纲点击同一几何', () => {
+	it('源码模式：把点名那一行摆到中间，`st.scroll` 因此是半个视口之上的视口顶', async () => {
+		// 「该落成什么样」问的是**那个标签页的视图**：视口 40 行 ⇒ 往上让 19 行
+		// （半个视口再收一行）⇒ 60-19=41。记在 `scroll` 上（而不是只在光标上）是硬要求：
+		// 之后每一次前进/后退都按这个值复现，正如 core 记一条大纲点击时记的也是落定之后
+		// 的视口，而不是标题所在的行号。
+		const { places, jumps } = makePlaces({}, makeAppWithView(sourceViewShowing('a.md')));
+		await places.travelToHeading('a.md', '预览', 60, 'leaf-1');
+
+		const place = jumps[0] as NavJump;
+		expect(landedLine(place)).toBe(60);
+		expect(place.st?.scroll).toBe(41);
+		expect(place.st?.cursor?.from).toEqual({ line: 60, ch: 0 });
+	});
+
+	it('要去的那个 tag 显示着别的笔记时，拿那个视图量 —— 一次普通的打开就发生在附近', async () => {
+		const { places, jumps } = makePlaces({}, makeAppWithView(sourceViewShowing('other.md')));
+		await places.travelToHeading('a.md', '预览', 60, 'leaf-1');
+
+		expect((jumps[0] as NavJump).st?.scroll).toBe(41);
+	});
+
+	it('量得出几何的视图优先 —— 滚在后台标签页里的那个问不出任何东西', async () => {
+		// 后台标签页里的视图矩形全是 0，从它身上读到的「一屏有多少行」也是 0 ⇒ 偏移悄悄
+		// 塌成「不让」、落点变贴顶。那正是「有时候居中、有时候贴顶」的来源：挑谁由工作区
+		// 的遍历顺序决定。所以要先挑一个量得出来的。
+		const hidden = sourceViewShowing('a.md', { measured: false });
+		const visible = sourceViewShowing('other.md');
+		const { places, jumps } = makePlaces({}, makeAppWithView(hidden, visible));
+
+		await places.travelToHeading('a.md', '预览', 60, 'leaf-1');
+
+		expect((jumps[0] as NavJump).st?.scroll).toBe(41);
+	});
+
+	it('只有量不出来的视图时，退回旧行为（贴顶），而不是崩掉', async () => {
+		const hidden = sourceViewShowing('a.md', { measured: false });
+		const { places, jumps } = makePlaces({}, makeAppWithView(hidden));
+
+		await places.travelToHeading('a.md', '预览', 60, 'leaf-1');
+
+		expect((jumps[0] as NavJump).st?.scroll).toBe(60);
+	});
+
+	it('量不到视图（没有工作区 / 还没有 markdown 视图）时退回贴顶', async () => {
+		// 这条路径必须能在没有工作区的 store 上跑（见文件头），而那时唯一的答案就是
+		// 「不让」—— 也正是这次改动之前的行为。
+		const { places, jumps } = makePlaces();
+		await places.travelToHeading('a.md', '预览', 60, 'leaf-1');
+
+		expect((jumps[0] as NavJump).st?.scroll).toBe(60);
+	});
+
+	it('第一行就是标题的那种笔记：不让，仍落在文件顶上', async () => {
+		const { places, jumps } = makePlaces({}, makeAppWithView(sourceViewShowing('a.md')));
+		await places.travelToHeading('a.md', '标题', 0, 'leaf-1');
+
+		expect((jumps[0] as NavJump).st?.scroll).toBe(0);
+	});
+
+	it('往上让不满一行时夹到 1 —— `applyEphemeralState` 不施加一个 0 的 scroll', async () => {
+		// 点名的那一行本来就在顶上半个视口之内：它没法居中，但落点仍要贴住文件的开头，
+		// 不能因为「顶 = 0」而被当成「没有滚动请求」。
+		const { places, jumps } = makePlaces({}, makeAppWithView(sourceViewShowing('a.md')));
+		await places.travelToHeading('a.md', '预览', 7, 'leaf-1');
+
+		expect((jumps[0] as NavJump).st?.scroll).toBe(1);
 	});
 });
 
