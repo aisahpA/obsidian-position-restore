@@ -340,6 +340,40 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		expect(row.classList.contains('is-pressed')).toBe(false);
 	});
 
+	// 武装属于**这一根手指**：抬起结束不了它（读者抬起是为了去够那些控件），但一根在别处
+	// 松手的手指不是在去够它们 —— 它移开了。而它在别处松手时，没有别的东西会替它收场：
+	// 滑出列表的手指不会再让列表滚动一次，它的点击也到不了列表。
+	it('手指在别处抬起时，那一行不再武装', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		expect(row.classList.contains('is-armed')).toBe(true);
+
+		// 抬起发生在**另一行**上 —— 一根从它停住的那一行滑走的手指。
+		lift(h.note('a'));
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+		// ……而标记也随它走：留在那一行上的会是一个落在没人在指的行上的标记。
+		expect(row.classList.contains('is-pressed')).toBe(false);
+	});
+
+	// 同上，而这次是平台把手势从这根手指手里拿走 —— 第二根手指落下、或一次滚动的开始。
+	// 那从来不是读者做完的一次按下。
+	it('手势被拿走时，那一行不再武装', () => {
+		const h = phone();
+		const row = h.note('b');
+
+		down(row);
+		rest();
+		expect(row.classList.contains('is-armed')).toBe(true);
+
+		finger(row, 'pointercancel');
+
+		expect(row.classList.contains('is-armed')).toBe(false);
+	});
+
 	it('手指停住的那一行被触发，并说出行上印不出来的话', () => {
 		const h = phone();
 		const row = h.note('b');

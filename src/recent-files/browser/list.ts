@@ -717,12 +717,18 @@ export class RecentFilesList {
 	}
 
 	// ……而一个被平台**拿走**的手势（一次滚动的开始、第二根手指）从来不是读者完成的
-	// 一次按下，所以标记立刻消失。
+	// 一次按下，所以标记立刻消失 —— 武装也随它一起：那一行作答完毕。
 	private onLift = (ev: Event): void => {
 		if (ev.type === 'pointercancel') {
+			this.disarm();
 			this.unmark();
 			return;
 		}
+		// 一根在**别处**抬起的手指不是在去够武装放到那一行上的东西 —— 它移开了。武装
+		// 随这次按压结束，而不是等下一次重画：滑出了列表的手指不会让列表再滚动一次，
+		// 而它的点击也到不了列表，于是那一行会一直亮着它的 × 与 ⋮，直到有什么别的事发生。
+		if (this.armed && !(ev.target instanceof Node && this.armed.el.contains(ev.target)))
+			this.disarm();
 		this.releaseMark();
 	};
 
