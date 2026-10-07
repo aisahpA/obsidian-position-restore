@@ -138,6 +138,19 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
+				// 图片算不算一个值得列出的地方。它与上面两条不是同一种规则：那两条问的是
+				// 一篇笔记**在哪儿 / 写了什么**，这一条问的是**它是什么** —— 而一张图片在这份
+				// 列表里除了文件名没有什么可印（没有位置、没有标题、没有小节可搜），所以它是
+				// 读者自己的取舍，而不是一条替他做好的结论：出厂关，且只管**之后**的到访，
+				// 已经在列表上的图片行留给上限去挤、或留给下一次规则变更去扫。
+				{
+					name: t('recentFiles.excludeImages.name'),
+					desc: t('recentFiles.excludeImages.desc'),
+					control: {
+						type: 'toggle',
+						key: 'recentFilesExcludeImages',
+					},
+				},
 				// 这份列表**记住多少篇笔记**。一个只有一个含义的数字：它数的是行，而一行就是
 				// 一篇笔记（或一个视图），所以没有第二个名额池要跟着它一起被解释。
 				//

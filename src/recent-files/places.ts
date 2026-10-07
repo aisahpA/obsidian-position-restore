@@ -115,6 +115,42 @@ function isMeasurable(view: MarkdownView): boolean {
 	return rect.width > 0 && rect.height > 0;
 }
 
+// 退路用的图片后缀表：只在 app 的注册表问不到的时候上场（见 isImagePath）。它是会烂的
+// —— 一个新格式进来就得有人回来补它 —— 所以它只装读者**现在**会碰到的那些，且从来
+// 不是主判据。
+const IMAGE_EXTENSIONS = new Set([
+	'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'jfif', 'ico', 'tif', 'tiff',
+	'heic', 'heif',
+]);
+
+// 这个路径是不是一张**图片**。主判据先问 app 自己：它知道每个后缀该由哪个视图打开
+// （`viewRegistry.getTypeByExtension`，公开类型里没有它 —— 同 shared/leaf.ts 的
+// viewTypeIsMissing 那套读法），于是新格式随 app 走，不需要有人回来补表。
+//
+// 只有**明确**答出 `'image'` 才算是图片：未知后缀（注册表答不出）与读不到注册表时
+// 一律落在「不是图片」上，读不到方法时才退回上面那张表。这条门唯一能做的事是排除，
+// 所以它失灵的方向必须是「照旧收录」—— 与 viewTypeIsMissing 同一个道理。
+function isImagePath(app: App, path: string): boolean {
+	const dot = path.lastIndexOf('.');
+	// 点号落在最后一个 `/` 之前，那是文件夹名字里的点，不是后缀。
+	if (dot < 0 || dot < path.lastIndexOf('/'))
+		return false;
+	const ext = path.slice(dot + 1).toLowerCase();
+	if (!ext)
+		return false;
+	const registry = (app as unknown as {
+		viewRegistry?: { getTypeByExtension?: (ext: string) => string | undefined };
+	}).viewRegistry;
+	if (typeof registry?.getTypeByExtension === 'function') {
+		try {
+			return registry.getTypeByExtension(ext) === 'image';
+		} catch {
+			// 掉到下面那张表去：问不出答案也比什么都不问好。
+		}
+	}
+	return IMAGE_EXTENSIONS.has(ext);
+}
+
 export class NavPlaces implements PlaceList {
 	entries: NavEntry[] = [];
 	index = -1;
@@ -182,6 +218,10 @@ export class NavPlaces implements PlaceList {
 			const clean = folder.replace(/\/+$/, '');
 			return !!clean && (path === clean || path.startsWith(`${clean}/`));
 		}))
+			return false;
+		// 图片。它是这里唯一一个要问「这个文件是什么」的测试 —— 上面几条问的都是
+		// 它在哪儿 —— 而它由那个开关把着，关着时这一句一次也不跑。
+		if (this.settings.recentFilesExcludeImages && isImagePath(this.app, path))
 			return false;
 		return !this.excludedByFrontmatter(path);
 	}

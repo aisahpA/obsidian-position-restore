@@ -186,6 +186,11 @@ export const zh: En = {
 	'recentFiles.frontmatterExclude.formValue': '写成 `属性: 值`（如 `status: archived`）：只有值相等才不收录。yes/no/on/off 按布尔比较；数组里任一元素相等即算命中。',
 	'recentFiles.frontmatterExclude.list.empty': '所有文件都会收录。',
 	'recentFiles.frontmatterExclude.add': '添加属性',
+	// 与文件夹 / 属性那两条不是同一种规则：那两条问笔记在哪儿、写了什么，这一条问它是
+	// 什么。默认关 —— 这份列表本就收录主区域里每一个目的地，而图片是不是其中之一由读者说。
+	'recentFiles.excludeImages.name': '不收录图片',
+	'recentFiles.excludeImages.desc':
+		'打开图片文件不再记入最近文件列表。打开这项会顺手清掉列表上已有的图片行；关掉之后图片照常收录，但被清掉的行不会回来。',
 	// 只数行，而一行就是一篇笔记（或一个视图）——没有第二个名额池，所以这个数只有
 	// 一个意思。
 	'recentFiles.cap.name': '记住多少篇笔记',

@@ -145,6 +145,9 @@ export const en = {
 	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
 	'recentFiles.frontmatterExclude.add': 'Add property',
+	'recentFiles.excludeImages.name': 'Leave out images',
+	'recentFiles.excludeImages.desc':
+		'Opening an image file no longer adds it to the recent files list. Turning this on also drops the image rows already on the list; turning it off starts listing images again, but the rows it dropped do not come back.',
 	'recentFiles.cap.name': 'Notes to remember',
 	'recentFiles.cap.desc':
 		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back. Pinned rows do not count.',

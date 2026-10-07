@@ -49,6 +49,18 @@ function makeSettings(over: Partial<PluginSettings> = {}): PluginSettings {
 	return { ...DEFAULT_SETTINGS, ...over } as PluginSettings;
 }
 
+// 一个知道「每个后缀由哪个视图打开」的 app —— 图片开关的主判据去问它（见
+// recent-files/places.ts 的 isImagePath）。光秃秃的 makeApp 没有这张表，那正是钉住
+// 那张硬编码退路的形态。
+function makeAppWithViewTypes(types: Record<string, string>): App {
+	return {
+		...makeApp(),
+		viewRegistry: {
+			getTypeByExtension: (ext: string) => types[ext],
+		},
+	} as unknown as App;
+}
+
 // 打开流水线，缩微版：一次前往索要了什么，以及它们的次序。`jumps` 留下被交出去的那**整条**
 // 记录 —— 一次前往落在哪是由记录自己说的，光看身份看不出来。
 function openers() {
@@ -422,6 +434,74 @@ describe('NavPlaces —— 它自己的 frontmatter 规则', () => {
 		places.remember(visit('notes/a.md'));
 
 		expect(keys(places)).toEqual(['notes/a.md']);
+	});
+});
+
+// 图片开关 —— 这份列表唯一一条问「这个文件**是什么**」的规则（其余几条问的都是它在哪儿、
+// 写了什么）。出厂关：默认情况下每个目的地都收录，图片是不是其中之一由读者说。
+describe('NavPlaces —— 图片开关', () => {
+	const app = makeAppWithViewTypes({
+		png: 'image', jpg: 'image', md: 'markdown', pdf: 'pdf', canvas: 'canvas',
+	});
+
+	it('关着时图片照常收录', () => {
+		const { places } = makePlaces({}, app);
+		places.remember(visit('附件/截图.png'));
+		places.remember(visit('notes/a.md'));
+
+		expect(keys(places)).toEqual(['附件/截图.png', 'notes/a.md']);
+	});
+
+	it('开着时只有图片不收录，其它目的地照旧', () => {
+		// pdf 与 canvas 同图片一样不是笔记，但它们能翻页、能容纳一个地点 —— 而一张图片
+		// 在这份列表里只剩一个文件名可印。
+		const { places } = makePlaces({ recentFilesExcludeImages: true }, app);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('附件/截图.png'));
+		places.remember(visit('附件/旧照.jpg'));
+		places.remember(visit('附件/手册.pdf'));
+		places.remember(visit('画板/流程.canvas'));
+
+		expect(keys(places)).toEqual(['notes/a.md', '附件/手册.pdf', '画板/流程.canvas']);
+	});
+
+	it('app 认不得的后缀不算图片', () => {
+		// 注册表答不出来时朝「照旧收录」落：这条门唯一能做的事是排除，失灵时退回现状。
+		const { places } = makePlaces({ recentFilesExcludeImages: true }, app);
+		places.remember(visit('附件/数据.xyz'));
+
+		expect(keys(places)).toEqual(['附件/数据.xyz']);
+	});
+
+	it('问不到 app 时退回那张硬编码后缀表', () => {
+		// makeApp() 没有 viewRegistry（公开类型里没有它），所以这是老构建 / 别家客端上
+		// 的形态：png 仍被认出，pdf 与未知后缀不受影响。
+		const { places } = makePlaces({ recentFilesExcludeImages: true });
+		places.remember(visit('附件/截图.png'));
+		places.remember(visit('附件/手册.pdf'));
+		places.remember(visit('notes/a.md'));
+
+		expect(keys(places)).toEqual(['附件/手册.pdf', 'notes/a.md']);
+	});
+
+	it('文件夹名字里的点不是后缀', () => {
+		const { places } = makePlaces({ recentFilesExcludeImages: true }, app);
+		places.remember(visit('notes.v2/a'));
+		places.remember(visit('看图.png/readme.md'));
+
+		expect(keys(places)).toEqual(['notes.v2/a', '看图.png/readme.md']);
+	});
+
+	it('打开开关后，列表上已有的图片行要丢掉', () => {
+		const settings = makeSettings();
+		const places = new NavPlaces(app, settings);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('附件/截图.png'));
+		places.remember(visit('附件/手册.pdf'));
+
+		settings.recentFilesExcludeImages = true;
+		expect(places.pruneExcluded()).toBe(1);
+		expect(keys(places)).toEqual(['notes/a.md', '附件/手册.pdf']);
 	});
 });
 

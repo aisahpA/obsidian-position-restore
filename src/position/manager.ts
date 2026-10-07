@@ -389,7 +389,8 @@ export class PositionManager {
 		this.stack.applyStackCap();
 	}
 
-	// 列表自己的一条规则变了 —— 往「不列出」里加了一个文件夹或 frontmatter 属性。
+	// 列表自己的一条规则变了 —— 往「不列出」里加了一个文件夹或 frontmatter 属性，或那个
+	// 图片开关被拨了一下。
 	// 一个读者再也看不到的地点不该在一个有上限的列表里占着名额，直到他碰巧重访它；
 	// 而这次丢弃必须在他正看着这项设置时就落下。
 	applyRecentFilesExclusions(): void {
@@ -423,7 +424,8 @@ export class PositionManager {
 		if (this.settings.recentFilesCap !== before.recentFilesCap)
 			this.applyRecentFilesCap();
 		if (!sameList(this.settings.recentFilesExcludeFolders, before.recentFilesExcludeFolders)
-			|| !sameList(this.settings.recentFilesExcludeProperties, before.recentFilesExcludeProperties))
+			|| !sameList(this.settings.recentFilesExcludeProperties, before.recentFilesExcludeProperties)
+			|| this.settings.recentFilesExcludeImages !== before.recentFilesExcludeImages)
 			this.applyRecentFilesExclusions();
 		if (!sameList(this.settings.excludedFolders, before.excludedFolders)
 			|| !sameList(this.settings.frontmatterExcludeProperties, before.frontmatterExcludeProperties))

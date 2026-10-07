@@ -104,6 +104,14 @@ interface PluginSettings {
 	// 命中的文件永不收录。它「不」读位置功能那个单文件逃生口（`position-restore`）：那个
 	// 答的是要不要记「位置」，而一篇拒绝记位置的笔记，仍是读者会去的一个地方。
 	recentFilesExcludeProperties: string[];
+	// 图片文件（app 会用图片视图打开的那些后缀）是否一律不收录。它是一个开关而不是
+	// 一条默认规则：这一份列表本就收录主区域里的每一个目的地 —— 第三方视图、canvas、
+	// pdf 都算 —— 而一张图片在这样的列表里只剩下文件名可印（没有位置、没有标题、没有
+	// 大纲可搜），所以「它算不算一个值得列出来的地方」是读者自己的取舍，出厂关。
+	//
+	// 它只影响**之后**的到访：已经进列表的图片行不动，直到被上限挤出去，或被一次规则
+	// 变更（见 applyRecentFilesExclusions）扫掉 —— 不为此写迁移。
+	recentFilesExcludeImages: boolean;
 	// 搜索框是否把**各篇笔记的小节标题**也算进搜索面：开着时，输一个标题词会把命中的
 	// 那一节作为一行画在那篇笔记下面，点它去那一节。关掉时搜索只认名字、路径与其它
 	// 名字，一行也只代表那篇笔记。
@@ -156,6 +164,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
 	recentFilesExcludeFolders: [],
 	recentFilesExcludeProperties: [],
+	recentFilesExcludeImages: false,
 	recentFilesOutlineSearch: true,
 	recentFilesCap: 50,
 	recentFilesPathDisplay: 'smart',

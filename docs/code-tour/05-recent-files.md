@@ -25,8 +25,8 @@
 
 ## 入口在哪
 
-- [`NavPlaces`](/src/recent-files/places.ts#L118)、[`cap`](/src/recent-files/places.ts#L151)、[`trim`](/src/recent-files/places.ts#L608)、
-  [`remember`](/src/recent-files/places.ts#L228)（降级就在这里）、[`pruneExcluded`](/src/recent-files/places.ts#L409)、[`travelToHeading`](/src/recent-files/places.ts#L458)。
+- [`NavPlaces`](/src/recent-files/places.ts#L154)、[`cap`](/src/recent-files/places.ts#L151)、[`trim`](/src/recent-files/places.ts#L648)、
+  [`remember`](/src/recent-files/places.ts#L268)（降级就在这里）、[`pruneExcluded`](/src/recent-files/places.ts#L449)、[`travelToHeading`](/src/recent-files/places.ts#L458)。
 - [`RecentFilesBrowser`](/src/recent-files/browser/body.ts#L77)：[`mount`](/src/recent-files/browser/body.ts#L127)、[`render`](/src/recent-files/browser/body.ts#L253)、
   [`contextRow`](/src/recent-files/browser/body.ts#L510)。
 - [`ArrowBar`](/src/recent-files/browser/arrows.ts#L61)：[`refresh`](/src/recent-files/browser/arrows.ts#L89)、[`press`](/src/recent-files/browser/arrows.ts#L99)。
@@ -83,9 +83,17 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 **MRU 顺序靠数组末尾**（`places.ts`）：碰过的笔记移到数组末尾，因为 list 把索引当钟读
 （`list.ts`）—— 原地更新会让刚碰过的笔记显得更旧。
 
-**两条天花板，同一个数字**（[`places.ts:538`](/src/recent-files/places.ts#L608)）：按行裁（`cap()`）。钉住的行不计入上限也不会
-被淘汰；当前所在的行不被裁掉。⚠️ **钉选不再豁免 [`pruneExcluded`](/src/recent-files/places.ts#L409)**：
+**两条天花板，同一个数字**（[`places.ts:538`](/src/recent-files/places.ts#L648)）：按行裁（`cap()`）。钉住的行不计入上限也不会
+被淘汰；当前所在的行不被裁掉。⚠️ **钉选不再豁免 [`pruneExcluded`](/src/recent-files/places.ts#L449)**：
 它的 `kept` 只留 `view` 与 `recordable(path)` —— 一条后来的规则就是关于那一行的后来的答案。
+
+**图片开关问的是「这个文件是什么」**（[`recordable`](/src/recent-files/places.ts#L205)、[`isImagePath`](/src/recent-files/places.ts#L133)），
+而其余几条规则问的都是它在哪儿、写了什么 —— 一张图片在这份列表里除了文件名没有可印的东西
+（没有位置、没有标题、没有小节可搜），所以它是读者自己的取舍：出厂关，开着时判据先问 app 的
+`viewRegistry.getTypeByExtension`，**只有明确答出 `image` 才排除**（未知后缀朝「照旧收录」落 ——
+这条门唯一能做的事是排除，失灵时退回现状），问不到 app 才退回 `IMAGE_EXTENSIONS` 那张表。
+它在设置里被拨动时也会走一次 [`pruneExcluded`](/src/recent-files/places.ts#L449)（见 manager 的差分表），但**不为旧数据写迁移**：
+已经列在表上的图片行留给上限去挤。
 
 **`visit` 记录故意不存位置**（`places.ts`）：否则「点文件浏览器打开」和「点这一行打开」
 会给出不同落点。⇒ 一行的行号只有一处来源：**位置数据库**（`reads.ts` 的 `savedPosition`
