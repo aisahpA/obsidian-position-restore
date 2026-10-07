@@ -42,6 +42,7 @@ import type { FileNames } from './reads';
 import { NavRowTip, TipContent } from './tip';
 import { LongPress } from './long-press';
 import {
+	CLICK_SLOP_PX,
 	LONG_PRESS_MS,
 	LONG_PRESS_SLOP_PX,
 	OUTLINE_HIT_LIMIT,
@@ -193,6 +194,10 @@ export class RecentFilesList {
 	// 读者**按下**的地点，按身份，直到它的点击到达：当列表在按下与松开之间被重建
 	// 时，一次点击**从**哪里打开（见 onClick）。永远只是一次透传。
 	private pressed?: string;
+	// ……以及那次按下发生在**哪里**。身份说的是打开哪一篇，坐标说的是这次点击还是不是
+	// **那一次**按下的（见 onUnansweredClick）：两者都可能被一次重画留下，但只有后者
+	// 能认出「读者在半路上拖走了」。
+	private pressedAt?: { x: number; y: number };
 	// 一行在悬停时说的东西（见 tip.ts）。
 	private tip: NavRowTip;
 	// 指针**正位于**的行，以及它上次被**播报**的行 —— 分开保存，好让一个在行内
@@ -865,6 +870,7 @@ export class RecentFilesList {
 		// 它会把武装拿掉。
 		if (this.press?.consumeClick()) {
 			this.pressed = undefined;
+			this.pressedAt = undefined;
 			ev.stopPropagation();
 			return;
 		}
@@ -874,6 +880,7 @@ export class RecentFilesList {
 		const target = Keymap.isModEvent(ev) || undefined;
 		const key = this.pressed;
 		this.pressed = undefined;
+		this.pressedAt = undefined;
 		const row = this.refs.includes(ref)
 			? ref
 			: key === undefined ? undefined : this.findRowByKey(key);
@@ -885,16 +892,35 @@ export class RecentFilesList {
 	// 上 —— 被按下的那一行在中间被重建掉了。按身份作答，与一个陈旧元素自己的点击
 	// 一样（见 onClick）。在行有机会说话**之后**运行（所以有那个检查）：它是这里
 	// 唯一可能双重回答一次点击的东西。
+	//
+	// 但「没有一行回答」还有**第二个**原因，而它不是在求这个退路：在行 A 按下、拖到
+	// 行 B 松开，浏览器同样把这次点击交给共同祖先（两行共享的这个列表），而读者早已
+	// 拖离 A。所以先问坐标 —— 一次半路上换了地方的点击不是那一次按下的点击。这也顺
+	// 带收走了那种点击留下的身份：拖到列表**外**松开的点击根本到不了这里，而留着的
+	// 身份会埋伏着，等下一次落在最后一行下面那片空上的点击来把它花掉。
 	onUnansweredClick(ev: Event): void {
 		if (ev.defaultPrevented)
 			return;
+		// 位移要在清掉之前问 —— 它是「这次点击是不是那一次按下的」唯一的证据。
+		const near = this.stillAtPress(ev);
 		const key = this.pressed;
 		this.pressed = undefined;
-		if (key === undefined)
+		this.pressedAt = undefined;
+		if (key === undefined || !near)
 			return;
 		const row = this.findRowByKey(key);
 		if (row)
 			this.goTo(row, undefined);
+	}
+
+	// 这次点击是不是**它自己那次按下的**那一击：按下与松开之间指针漂移了多远。拿不到
+	// 坐标的点击（一个程序性派发的裸 Event）答「不是」—— 什么都不打开是这份列表赔得起
+	// 的那一种失败，打开读者没点的那一篇不是。
+	private stillAtPress(ev: Event): boolean {
+		if (!this.pressedAt || !(ev instanceof MouseEvent))
+			return false;
+		return Math.abs(ev.clientX - this.pressedAt.x) <= CLICK_SLOP_PX
+			&& Math.abs(ev.clientY - this.pressedAt.y) <= CLICK_SLOP_PX;
 	}
 
 	// 读者按下了某一行。**主按钮**按下：按身份（见 keyOf）而非按索引记住**哪一篇**
@@ -913,6 +939,7 @@ export class RecentFilesList {
 			return;
 		const rep = this.activeRep(ref);
 		this.pressed = rep < 0 ? undefined : this.opts.keyOf(rep);
+		this.pressedAt = { x: ev.clientX, y: ev.clientY };
 		// 每一个被按下的行都**回答这次按下**：一个代表不了一篇笔记的行（一个大纲行）
 		// 仍会走，只是它走的那一步不带身份。
 		this.markPressed(ref.el);

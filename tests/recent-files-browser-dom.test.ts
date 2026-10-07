@@ -344,6 +344,39 @@ describe('RecentFilesModal —— 列表重建之后的一次点击', () => {
 
 		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
 	});
+
+	it('按下之后拖到别处才松开的点击，什么都不打开', () => {
+		// 一次跨行的拖拽也会把点击交给列表：浏览器解析的是按下处与松开处最近的那位共同
+		// 祖先，而两行共享的正是列表自己。但读者拖离了那一篇 —— 他没有要求去那里。
+		const entries = three();
+		const h = harness(entries, 2, files);
+		const at = (type: string, y: number) =>
+			h.note('a').dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: 40, clientY: y }));
+
+		at('pointerdown', 40);
+		h.list().dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 300 }));
+
+		expect(h.jumpTo).not.toHaveBeenCalled();
+
+		// ……而那次拖拽记下的身份也随它一起被收走：留在那里的会是一次埋伏 —— 下一次落在
+		// 最后一行下面那片空上的点击会打开读者很早以前按过的那一篇。
+		h.list().dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 300 }));
+		expect(h.jumpTo).not.toHaveBeenCalled();
+	});
+
+	it('原地按下的点击，哪怕行被重画掉了也照样应答', () => {
+		// 同一件事的另一面：被按下的那一行没了、而手指**没有**挪动，那次点击要的正是它
+		// 按下时点名的那一篇（见上一条用例）。
+		const entries = three();
+		const h = harness(entries, 2, files);
+		h.note('a').dispatchEvent(
+			new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 40, clientY: 40 }),
+		);
+		h.changed(0);
+		h.list().dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 40, clientY: 42 }));
+
+		expect(h.jumpTo).toHaveBeenCalledWith(2, undefined);
+	});
 });
 describe('RecentFilesModal —— 键盘', () => {
 	it('还没指到任何一行之前，回车什么都不做', () => {
