@@ -29,12 +29,12 @@ export const en = {
 	'openAndRestore.readingRestoreMethod.options.instant': 'Instant',
 	'openAndRestore.readingRestoreMethod.options.glide': 'Glide',
 
-	'openAndRestore.restoreIndicator.name': 'Position restore indicator',
-	'openAndRestore.restoreIndicator.desc':
-		'The notice shown to the user after a position is restored. Breadcrumb: shows the heading path of the current location; cursor highlight: briefly flashes the line the cursor is on.',
-	'openAndRestore.restoreIndicator.options.off': 'Off',
-	'openAndRestore.restoreIndicator.options.breadcrumb': 'Breadcrumb only',
-	'openAndRestore.restoreIndicator.options.both': 'Breadcrumb + cursor highlight',
+	'openAndRestore.restoreBreadcrumb.name': 'Name the restored section',
+	'openAndRestore.restoreBreadcrumb.desc':
+		'After a position is restored, briefly show the heading path of where you landed — but only when no heading is visible on screen. Nothing is shown when a heading is already in view (you can see where you are), when the note has only one heading, or for a note\'s single level-1 heading, which is usually just the note title.',
+	'openAndRestore.flashLandingLine.name': 'Mark the landing line',
+	'openAndRestore.flashLandingLine.desc':
+		'Briefly mark the line you arrive on: when a note reopens at your last position, and after an outline click, a section hit in search, or a back/forward landing on a line. Reading view marks the section instead. A cursor off screen simply has nothing to mark.',
 
 	'recordingRules.heading': 'Recording rules',
 

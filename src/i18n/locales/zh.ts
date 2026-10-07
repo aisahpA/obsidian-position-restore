@@ -36,12 +36,12 @@ export const zh: En = {
 	'openAndRestore.readingRestoreMethod.options.instant': '直接跳转',
 	'openAndRestore.readingRestoreMethod.options.glide': '平滑滚动',
 
-	'openAndRestore.restoreIndicator.name': '位置恢复提示',
-	'openAndRestore.restoreIndicator.desc':
-		'恢复位置后，向用户显示的提示信息。面包屑：显示当前所在的标题路径；光标高亮：短暂闪烁光标所在的行。',
-	'openAndRestore.restoreIndicator.options.off': '关闭',
-	'openAndRestore.restoreIndicator.options.breadcrumb': '仅面包屑',
-	'openAndRestore.restoreIndicator.options.both': '面包屑 + 光标高亮',
+	'openAndRestore.restoreBreadcrumb.name': '打开笔记时提示所在小节',
+	'openAndRestore.restoreBreadcrumb.desc':
+		'恢复位置后，如果这一屏里看不到任何小节标题，就在笔记中间短暂显示你所在的小节路径。标题已经在屏幕上时不显示（一眼就能看出落在哪一节）；整篇只有一个标题时也不显示；笔记的一级标题多半就是文章标题，不会重复显示。',
+	'openAndRestore.flashLandingLine.name': '标出落点那一行',
+	'openAndRestore.flashLandingLine.desc':
+		'打开笔记回到上次的位置时，以及点大纲、点搜索结果里的小节、用前进/后退落到某一行之后，短暂标出到达的那一行；阅读视图里标出的是落点所在的那一小节。光标不在屏幕上时自然标不出来。',
 
 	'recordingRules.heading': '记录规则',
 

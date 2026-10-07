@@ -2,8 +2,8 @@
 // （大纲标题、#标题 链接、^块 引用）解析到它在文件里**当前**的那一行，能扛住任意的
 // 插入/删除位移 —— 与它为带 key 的跳转所取代的那套「±30 行文字片段重换算」相对。
 //
-// 一行所处的分节链不再在这里回答 —— 它搬到了 shared/headings.ts 的
-// outlinePathAtLine，它的用例也跟着过去了。
+// 一行所处的分节链不再在这里回答 —— 它搬到了 shared/headings.ts，它的用例也跟着
+// 过去了（见 tests/headings.test.ts）。
 
 import { describe, it, expect } from 'vitest';
 import { resolveAnchorLine } from '@/position/restore/anchor';

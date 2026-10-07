@@ -102,9 +102,3 @@ export function headingTrailAtLine(headings: HeadingRef[] | undefined, line: num
 	}
 	return stack.map(h => h.heading);
 }
-
-// 直接从笔记自己的文本算出某行的标题链 —— 从活的编辑器缓冲区出发的调用方手里正好是这个形状
-// （见 position/ui/cue.ts）。
-export function outlinePathAtLine(lines: readonly string[], line: number): string[] {
-	return headingTrailAtLine(headingsFromLines(lines), line);
-}

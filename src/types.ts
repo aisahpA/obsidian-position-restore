@@ -77,8 +77,14 @@ interface PluginSettings {
 	sourceRestoreMethod: 'instant' | 'glide';
 	// 阅读视图下如何恢复已保存的位置
 	readingRestoreMethod: 'instant' | 'glide';
-	// 恢复后显示什么：章节面包屑和/或 source 模式下的闪烁
-	restoreIndicator: 'off' | 'breadcrumb' | 'both';
+	// 恢复位置后，在笔记中间短暂显示「落在哪一节」的面包屑。两种情况不说：这一屏里已经
+	// 能看到标题（一眼就知道在哪一节），以及整篇只有一个标题（那是笔记名或它唯一的小节）。
+	// 笔记的一级标题多半就是文章标题，也不会重复显示（见 position/ui/cue.ts 的 breadcrumbPath）。
+	restoreBreadcrumb: boolean;
+	// 落到一处之后标出那一行（阅读视图里标出那一小块）：打开笔记回到上次的位置时，
+	// 以及点大纲、点搜索结果里的小节、用前进/后退落到某一行之后。编辑模式标光标那一行
+	// —— 它在屏外时自然标不出来，不必先做判断。
+	flashLandingLine: boolean;
 	// 为 base 视图选择性地记录滚动容器的原始 scrollTop。默认关闭：这个值是本机的，别的
 	// 设备同步过来的记录会用毫无意义的像素偏移盖掉本机那条。其它非 markdown 的 FileView
 	// 一律不记。
@@ -148,7 +154,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	linkOpenPosition: 'restore',
 	sourceRestoreMethod: 'instant',
 	readingRestoreMethod: 'instant',
-	restoreIndicator: 'off',
+	restoreBreadcrumb: true,
+	flashLandingLine: true,
 	recordBaseScroll: false,
 
 	navHistoryCap: 50,

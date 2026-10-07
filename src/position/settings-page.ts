@@ -91,17 +91,23 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						},
 					},
 				},
+				// 两个开关是同一个问题的两种回答方式，所以并排坐：一个是「用名字」告诉读者
+				// 落在哪一节（只有恢复时），一个是「用指向」标出落点那一行（恢复时与跳转后
+				// 都有）。两者各管各的，谁也不折叠谁 —— 见 restoreBreadcrumb / flashLandingLine。
 				{
-					name: t('openAndRestore.restoreIndicator.name'),
-					desc: t('openAndRestore.restoreIndicator.desc'),
+					name: t('openAndRestore.restoreBreadcrumb.name'),
+					desc: t('openAndRestore.restoreBreadcrumb.desc'),
 					control: {
-						type: 'dropdown',
-						key: 'restoreIndicator',
-						options: {
-							off: t('openAndRestore.restoreIndicator.options.off'),
-							breadcrumb: t('openAndRestore.restoreIndicator.options.breadcrumb'),
-							both: t('openAndRestore.restoreIndicator.options.both'),
-						},
+						type: 'toggle',
+						key: 'restoreBreadcrumb',
+					},
+				},
+				{
+					name: t('openAndRestore.flashLandingLine.name'),
+					desc: t('openAndRestore.flashLandingLine.desc'),
+					control: {
+						type: 'toggle',
+						key: 'flashLandingLine',
 					},
 				},
 			],

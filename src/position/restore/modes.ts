@@ -302,11 +302,14 @@ export class RestoreModes {
 			this.state.lastEphemeralState = readEphemeralState(view) ?? st;
 			this.state.lastAnchorAt = Date.now();
 			this.markLandingLine(view);
-			// 每一条真正的恢复路径都终结在这里，所以 cue 只在一次真实的恢复
-			// 落定之后才响。NavStack 的遍历会装好 cueSuppressUntil —— 目的地
-			// 是用户自己选的，不给提示条。
-			if (Date.now() >= this.state.cueSuppressUntil)
+			// 每一条真正的恢复路径都终结在这里，所以两个方向提示只在一次真实的恢复
+			// 落定之后才响。NavStack 的遍历会装好 cueSuppressUntil —— 目的地是用户
+			// 自己选的，不给提示；那一路的落点由 armLandingMark 单独标出（见
+			// markLandingLine），所以这里也不会和它闪成两下。
+			if (Date.now() >= this.state.cueSuppressUntil) {
+				this.markRestoredLine(view);
 				this.state.cue.show(view);
+			}
 		}
 	}
 
@@ -326,5 +329,19 @@ export class RestoreModes {
 			return;
 		this.state.pendingLineFlash = undefined;
 		this.state.cue.flashLine(view, ask.line);
+	}
+
+	// 恢复后标出落点：编辑模式标光标那一行 —— 读者要接着打字的地方（视口顶部那一行不标：
+	// 眼睛本来就在那儿，标了只是复述）；阅读模式没有光标，标落点本身那一块。行元素找不到
+	// （光标在屏外，或视图刚重建还没画到那一行）就什么都不发生 —— flashLine 自己会安静
+	// 地退回无操作，所以这里不必先判断一次可见性。开关在 flashLine 那一侧。
+	private markRestoredLine(view: MarkdownView) {
+		const line = view.getMode() === 'preview'
+			? Math.round(view.currentMode?.getScroll() ?? 0)
+			: view.editor?.getCursor()?.line;
+		// 文件开头那一行不是一次落点：没有保存位置的文件就打开在这儿，标它只是噪音。
+		if (!line)
+			return;
+		this.state.cue.flashLine(view, line);
 	}
 }

@@ -78,13 +78,16 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 后者会把主题页背景露出来（`COVER_SAFETY_MS = 2000` 必须包住「内容就绪 + settle + 静默保持」全程）。
 
 **cue 的宽限**（[`cue.ts:7`](/src/position/ui/cue.ts#L7)，`CUE_DISMISS_GRACE_MS = 2000`）：移动端恢复后的抖动会被轮询
-误判成读者移动，没有宽限就是「一闪而过」。墓碑记录（scroll 0 且无光标）不出提示（[`cue.ts:52`](/src/position/ui/cue.ts#L52)）。
+误判成读者移动，没有宽限就是「一闪而过」。**面包屑的两道静音**（[`show()`](/src/position/ui/cue.ts#L55)）：这一屏里已经
+能看到标题就不复述（[`hasVisibleHeading()`](/src/position/ui/cue.ts#L128)），整篇只有一个标题也不念
+（[`breadcrumbPath()`](/src/position/ui/cue.ts#L26)）。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L87)）：
+恢复时与大纲/搜索/前进后退的跳转后都走它，恢复那一侧在 [`markRestoredLine()`](/src/position/restore/modes.ts#L338)。
 
 **anchor 重定位的四种 key**（[`anchor.ts:31`](/src/position/restore/anchor.ts#L31)）：`outline:<标题>`、`#slug`、`#^block`、
 `caller:<时间戳>`。**`note.md#^id` 也带 `#`，必须先判块**，否则全被当成标题 slug（[`anchor.ts:71`](/src/position/restore/anchor.ts#L71)）。
 `decodeURIComponent` 遇到孤立 `%` 会抛，必须 try/catch（[`decodeAnchor()`](/src/position/restore/anchor.ts#L113)）。
 
-**被 supersede 的恢复绝不许锚定**（[`modes.ts:317`](/src/position/restore/modes.ts#L317)）；后台恢复走 `noAnchorLeafIds`
+**被 supersede 的恢复绝不许锚定**（[`modes.ts:295`](/src/position/restore/modes.ts#L295)）；后台恢复走 `noAnchorLeafIds`
 （[`background-settle.ts:151`](/src/position/restore/background-settle.ts#L151)），因为记录基线只有活动 leaf 有。
 
 ## 怎么验证它没坏

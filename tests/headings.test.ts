@@ -3,11 +3,11 @@
 // 两者共同依靠的那趟扫描，而不是任何一方对它的用法。
 
 import { describe, it, expect } from 'vitest';
-import { outlinePathAtLine } from '@/shared/headings';
+import { headingsFromLines, headingTrailAtLine } from '@/shared/headings';
 
-const trail = (lines: string[], line: number) => outlinePathAtLine(lines, line);
+const trail = (lines: string[], line: number) => headingTrailAtLine(headingsFromLines(lines), line);
 
-describe('outlinePathAtLine', () => {
+describe('从笔记自己的文本读出一行的标题链', () => {
 	it('按标题层级嵌套，最外层在前', () => {
 		const lines = ['# A', 'text', '## B', 'text', '### C', 'here'];
 		expect(trail(lines, 5)).toEqual(['A', 'B', 'C']);

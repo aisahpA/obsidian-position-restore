@@ -178,6 +178,6 @@ function nearestLine<T extends { position: { start: { line: number } } }>(
 	return best;
 }
 
-// 某一行的 outline 路径，和其余读标题的逻辑一起住在 shared/headings.ts 的
-// outlinePathAtLine 里：cue 是从活的编辑器缓冲区给出一节的名字，最近文件的
-// 行则是从 metadata 缓存给，两个答案必须一致。
+// 某一行的 outline 路径，和其余读标题的逻辑一起住在 shared/headings.ts（headingsFromLines
+// 那趟扫描，以及建在它上面的 headingTrailAtLine）：cue 是从活的编辑器缓冲区给出一节的名字，
+// 最近文件的行则是从 metadata 缓存给，两个答案必须一致。
