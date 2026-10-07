@@ -28,7 +28,7 @@
 - [`NavPlaces`](/src/recent-files/places.ts#L118)、[`cap`](/src/recent-files/places.ts#L151)、[`trim`](/src/recent-files/places.ts#L608)、
   [`remember`](/src/recent-files/places.ts#L228)（降级就在这里）、[`pruneExcluded`](/src/recent-files/places.ts#L409)、[`travelToHeading`](/src/recent-files/places.ts#L458)。
 - [`RecentFilesBrowser`](/src/recent-files/browser/body.ts#L77)：[`mount`](/src/recent-files/browser/body.ts#L127)、[`render`](/src/recent-files/browser/body.ts#L253)、
-  [`contextRow`](/src/recent-files/browser/body.ts#L498)。
+  [`contextRow`](/src/recent-files/browser/body.ts#L510)。
 - [`ArrowBar`](/src/recent-files/browser/arrows.ts#L61)：[`refresh`](/src/recent-files/browser/arrows.ts#L89)、[`press`](/src/recent-files/browser/arrows.ts#L99)。
 - [`RowPreview`](/src/recent-files/browser/row-preview.ts#L28)：[`hoverRow`](/src/recent-files/browser/row-preview.ts#L53)、[`askFor`](/src/recent-files/browser/row-preview.ts#L126)、
   [`subpathHeading`](/src/recent-files/browser/row-preview.ts#L160)。

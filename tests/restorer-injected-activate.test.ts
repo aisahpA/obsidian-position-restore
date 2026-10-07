@@ -107,8 +107,8 @@ type Harness = {
 let coveredLeaves: WorkspaceLeaf[] = [];
 let harnessCovers: PositionState | undefined;
 
-function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMarkdown?: boolean; filePath?: string; glideSource?: boolean } = {}): Harness {
-	const { layoutReady = true, marker = true, activeIsMarkdown = true, filePath = 'a.md', glideSource = false } = opts;
+function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMarkdown?: boolean; filePath?: string } = {}): Harness {
+	const { layoutReady = true, marker = true, activeIsMarkdown = true, filePath = 'a.md' } = opts;
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const leaf = makeLeaf('leaf-1');
 	const view = activeIsMarkdown ? makeSourceView(leaf, filePath) : undefined;
@@ -123,12 +123,7 @@ function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMa
 		},
 	};
 	const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
-	const restorer = new Restorer(
-		app as never,
-		glideSource ? { ...DEFAULT_SETTINGS, sourceRestoreMethod: 'glide' } : DEFAULT_SETTINGS,
-		store,
-		state,
-	);
+	const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
 	if (marker) {
 		state.injectedOpenLeafIds.add('leaf-1');
 		state.handledLeafIdMap.set('leaf-1', filePath);
@@ -174,19 +169,6 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedOpenLeafIds.size).toBe(0);
 		expect(state.restoreRun).toBe(1);
 		expect(state.lastLoadedFilePath).toBe('a.md');
-		expect(state.cover.isCovered(leaf)).toBe(false);
-	});
-
-	it('glide 设置不会把一个盖着的注入打开变成 glide（盖布必须掀开）', async () => {
-		// 一次历史遍历（前进/后退）不计 glide 设置一律注入并盖住
-		// （「必须瞬间落定」）。把它派给 glideRestore 会让头一帧遮罩卡住 ——
-		// glideRestore 从不会揭幕 —— 把 leaf 一直晾白到 2 秒的遮罩安全
-		// 计时器：就是选了 edit-glide 时后退导航报的那个长时间空白。
-		const { state, leaf, restorer } = makeHarness({ glideSource: true });
-
-		await restorer.completeInjectedRestore(leaf);
-
-		expect(state.injectedOpenLeafIds.size).toBe(0);
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 

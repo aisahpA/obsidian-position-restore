@@ -8,7 +8,7 @@
 - `position/capture/sampler.ts` —— 判断「这次移动算不算读者动的」，并把结论写进 store。
 
 外加 `shared/wait.ts` 提供的一小把等待原语（`nextPaint`、`waitForContentReady`、
-`waitForRestorePainted`、`animateScrollTop`），恢复那层也用它。
+`waitForRestorePainted`），恢复那层也用它。
 
 ## 入口在哪
 

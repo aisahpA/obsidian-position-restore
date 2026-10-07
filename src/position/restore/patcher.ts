@@ -242,8 +242,6 @@ export class OpenPatcher {
 
 		// 同一个文件开在两个标签页，重启后每个标签页必须恢复各自的位置。
 		const st = this.store.read(leafId, filePath);
-		if (this.shouldGlideSource(st))
-			return eState;
 
 		const merged = this.buildMergedState(st, true);
 		if (merged.scroll === undefined && merged.cursor === undefined)
@@ -291,13 +289,6 @@ export class OpenPatcher {
 	private resetLeafOpenState(leaf: WorkspaceLeaf) {
 		this.state.handledLeafIdMap.delete(this.state.leafId(leaf));
 		this.state.pendingOpenKind.delete(leaf);
-	}
-
-	// 带保存 scroll 的源码 open 由 glideRestore 处理，它从顶部动画滚到保存的
-	// 那行，所以没什么可注入的。与 restoreEphemeralState 源码分支同一个判据。
-	private shouldGlideSource(st: EphemeralState | undefined): boolean {
-		return this.settings.sourceRestoreMethod === 'glide'
-			&& !!st && (st.scroll ?? 0) > 0;
 	}
 
 	// 消费那个顶替用的 open kind（anchorLink / startPlainLink /

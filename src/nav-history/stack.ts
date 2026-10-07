@@ -807,7 +807,8 @@ export class NavStack implements NavFunnelSink {
 		const file = this.app.vault.getAbstractFileByPath(target.path);
 		if (file instanceof TFile) {
 			// 直接打开的遍历，必须像委托出去的那次一样瞬时落定：武装同一个标记，好让 setViewState
-			// 补丁把这个目标的落点注在朴素打开之上，绕开 glide 那一档。
+			// 补丁把这个目标的落点注在朴素打开之上 —— 走注入那一档（首绘遮罩下
+			// 落定再揭幕），而不是等 file-open 从顶部恢复。
 			this.armHistoryNav(this.landingFor(target), target.path);
 			await leaf.openFile(file);
 		}

@@ -17,18 +17,6 @@ export const en = {
 	'openAndRestore.linkOpenPosition.options.start': 'File start',
 	'openAndRestore.linkOpenPosition.options.restore': 'Saved position',
 
-	'openAndRestore.sourceRestoreMethod.name': 'Edit view restore method',
-	'openAndRestore.sourceRestoreMethod.desc':
-		'How to restore a saved position in the edit view. "Instant" jumps directly to the saved line; "Glide" scrolls from the top to that line.',
-	'openAndRestore.sourceRestoreMethod.options.instant': 'Instant',
-	'openAndRestore.sourceRestoreMethod.options.glide': 'Glide',
-
-	'openAndRestore.readingRestoreMethod.name': 'Reading view restore method',
-	'openAndRestore.readingRestoreMethod.desc':
-		'How to restore a saved position in reading view. "Instant" jumps directly once rendered; "Glide" scrolls from the top to the saved line.',
-	'openAndRestore.readingRestoreMethod.options.instant': 'Instant',
-	'openAndRestore.readingRestoreMethod.options.glide': 'Glide',
-
 	'openAndRestore.restoreBreadcrumb.name': 'Name the restored section',
 	'openAndRestore.restoreBreadcrumb.desc':
 		'After a position is restored, briefly show the heading path of where you landed — but only when no heading is visible on screen. Nothing is shown when a heading is already in view (you can see where you are), when the note has only one heading, or for a note\'s single level-1 heading, which is usually just the note title.',

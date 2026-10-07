@@ -73,10 +73,6 @@ interface PluginSettings {
 	defaultPosition: 'default' | 'fileEnd';
 	// 普通文件链接（不带 #/^ 目标）打开在哪：已保存的位置，还是文件开头
 	linkOpenPosition: 'restore' | 'start';
-	// source 模式下如何恢复已保存的位置
-	sourceRestoreMethod: 'instant' | 'glide';
-	// 阅读视图下如何恢复已保存的位置
-	readingRestoreMethod: 'instant' | 'glide';
 	// 恢复位置后，在笔记中间短暂显示「落在哪一节」的面包屑。两种情况不说：这一屏里已经
 	// 能看到标题（一眼就知道在哪一节），以及整篇只有一个标题（那是笔记名或它唯一的小节）。
 	// 笔记的一级标题多半就是文章标题，也不会重复显示（见 position/ui/cue.ts 的 breadcrumbPath）。
@@ -152,8 +148,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	frontmatterExcludeProperties: [],
 	defaultPosition: 'default',
 	linkOpenPosition: 'restore',
-	sourceRestoreMethod: 'instant',
-	readingRestoreMethod: 'instant',
 	restoreBreadcrumb: true,
 	flashLandingLine: true,
 	recordBaseScroll: false,

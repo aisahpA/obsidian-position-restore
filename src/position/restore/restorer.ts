@@ -6,8 +6,8 @@ import { isPopoverLeaf } from '@/shared/leaf';
 import { PositionState } from '@/position/state';
 import { RestoreModes } from './modes';
 
-// 在 open 之后恢复保存的位置。各模式的策略（masked / glide / 注入源码，以及共享
-// 锚点）住在 ./modes，源码模式的像素纠正住在 ./pixels，纯粹的 view<->state 辅助
+// 在 open 之后恢复保存的位置。各模式的策略（masked / 不遮的阅读落点 / 注入源码，
+// 以及共享锚点）住在 ./modes，源码模式的像素纠正住在 ./pixels，纯粹的 view<->state 辅助
 // 住在 ../capture/ephemeral，绘制观察住在 ../../shared/wait，首绘遮罩与 cue 住在
 // ../ui。所有跨阶段协调用的标记都归共享的 PositionState 所有。
 export class Restorer {
@@ -114,16 +114,13 @@ export class Restorer {
 			const mode = view.getMode();
 
 			// 每个分支自己管自己的「无记录 / 默认位置」处理，好让两者不跨模式
-			// 泄漏。注入的 open 放最前：历史遍历不管滑行与否都会注入并遮住
-			// （「必须瞬间落定」），所以把它分发给 glideRestore，会在一个它
-			// 永不揭开的首绘遮罩下跑滑行，让这个 leaf 空白约 2s。
+			// 泄漏。注入的 open 放最前：历史遍历一律注入并遮住（「必须瞬间落定」），
+			// 它要的正是「在首绘遮罩下落定、再揭幕」这一套。
 			if (mode === 'source') {
 				if (!st && this.settings.defaultPosition === 'default')
 					return;
 				if (injected)
 					await this.modes.restoreInjectedSource(view, st, isCurrent);
-				else if (this.shouldGlideSource(st))
-					await this.modes.glideRestore(view, st, isCurrent);
 				else if (st)
 					await this.modes.maskedRestoreSt(view, st, isCurrent);
 				else
@@ -136,8 +133,6 @@ export class Restorer {
 				// 东西。
 				if (!st)
 					return;
-				if (this.settings.readingRestoreMethod === 'glide' && (st.scroll ?? 0) > 0)
-					await this.modes.glideRestore(view, st, isCurrent);
 				// 一次**注入过**的阅读落点不遮：那个位置已经随这次 open 交到 core
 				// 自己的渲染流水线上（patcher 注入的 `{scroll}` —— applyScrollDelayed
 				// 在渲染器就绪时落它），所以没有「未恢复的顶部」要藏，而遮罩会把整段
@@ -315,13 +310,6 @@ export class Restorer {
 		// 既要揭开 leaf 级的遮罩**又**要清掉 view.contentEl 上过期的 maskedRestore
 		// 遮罩 —— 一次被顶替的恢复可能把它留在了隐藏状态。
 		this.state.cover.uncover(view.leaf);
-	}
-
-	// 与 restoreEphemeralState 源码分支同一个判据。这个类型谓词是承重的：结果为真时
-	// 调用方分发给 glideRestore，而 glideRestore 需要一个有定义的记录。
-	private shouldGlideSource(st: EphemeralState | undefined): st is EphemeralState {
-		return this.settings.sourceRestoreMethod === 'glide'
-			&& !!st && (st.scroll ?? 0) > 0;
 	}
 
 	private hasOpenedLeafPath(leaf: WorkspaceLeaf, filePath: string): boolean {

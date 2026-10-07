@@ -7,7 +7,7 @@ import { RestoreModes } from './modes';
 
 // 落定那些 open 从未触发 'file-open' 的后台分屏（重启恢复出来、视图**已经
 // 建好**的标签页）。被注入的源码标签页身上揣着一个没被消费的注入标记；阅读与
-// 源码滑行标签页则是从各自的记录恢复出来的，根本没有标记。没有这一轮清扫，
+// 源码标签页则是从各自的记录恢复出来的，根本没有标记。没有这一轮清扫，
 // 就只有活动标签页的 'file-open' 会纠正它的落点 —— 后台标签页会一直停在漂了
 // 的（源码）位置或顶部（阅读），直到第一次被激活。每一个没被消费的 leaf 都在
 // 它自己的遮罩下恢复，**不碰**活动 leaf 的记录基准
@@ -19,7 +19,6 @@ import { RestoreModes } from './modes';
 // 一致）。被推迟的 leaf（视图还没建）留住自己的状态，等激活时再落定。
 export class BackgroundSettler {
 	private app: App;
-	private settings: PluginSettings;
 	private state: PositionState;
 	private store: PositionStore;
 	private modes: RestoreModes;
@@ -30,7 +29,6 @@ export class BackgroundSettler {
 
 	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState) {
 		this.app = app;
-		this.settings = settings;
 		this.store = store;
 		this.state = state;
 		this.modes = new RestoreModes(settings, this.state);
@@ -106,7 +104,7 @@ export class BackgroundSettler {
 			if (marker) {
 				await this.settleBackground(view, leafId, filePath);
 			} else if (this.state.handledLeafIdMap.get(leafId) !== filePath) {
-				// 既未处理又未被注入：一个阅读或源码滑行标签页，它保存的位置
+				// 既未处理又未被注入：一个阅读或源码标签页，它保存的位置
 				// 从未被应用过。
 				const st = this.store.read(leafId, filePath);
 				if (!st)
@@ -141,9 +139,9 @@ export class BackgroundSettler {
 			this.state.injectedOpenLeafIds.delete(leafId);
 	}
 
-	// 从一个已建视图的后台阅读 / 源码滑行标签页的记录里恢复它（没有注入标记 ——
-	// 这次 open 从未被遮罩 / 注入过）。按视图模式与恢复方式的设置来分发，与
-	// restoreMarkdown 完全一样，只是关掉了共享锚点（记录基准只属于活动 leaf）。
+	// 从一个已建视图的后台阅读 / 源码标签页的记录里恢复它（没有注入标记 ——
+	// 这次 open 从未被遮罩 / 注入过）。与 restoreMarkdown 的 masked 恢复完全
+	// 一样，只是关掉了共享锚点（记录基准只属于活动 leaf）。
 	// 把处理过的那一对记下来，好让后来的激活去重，而不是再恢复一遍。
 	private async restoreBackground(view: MarkdownView, leafId: string, filePath: string, st: EphemeralState) {
 		const isCurrent = () => view.file?.path === filePath;
@@ -151,14 +149,7 @@ export class BackgroundSettler {
 		this.state.noAnchorLeafIds.add(leafId);
 		this.state.restoreStarted();
 		try {
-			if (view.getMode() === 'source') {
-				if (this.settings.sourceRestoreMethod === 'glide' && (st.scroll ?? 0) > 0)
-					await this.modes.glideRestore(view, st, isCurrent);
-			} else if (this.settings.readingRestoreMethod === 'glide' && (st.scroll ?? 0) > 0) {
-				await this.modes.glideRestore(view, st, isCurrent);
-			} else {
-				await this.modes.maskedRestoreSt(view, st, isCurrent);
-			}
+			await this.modes.maskedRestoreSt(view, st, isCurrent);
 		} finally {
 			this.state.noAnchorLeafIds.delete(leafId);
 			this.state.restoreEnded();

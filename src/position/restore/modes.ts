@@ -1,7 +1,7 @@
 import { MarkdownView, Platform } from 'obsidian';
 import { EphemeralState, NavEntryState, PluginSettings } from '@/types';
 import { applyEphemeralState, readEphemeralState, remapAnchoredState, setCursorToEnd, shiftNavState } from '@/position/capture/ephemeral';
-import { ANCHOR_SETTLE_DELAY, animateScrollTop, delay, getScroller, hasPreviewScrolled, nextPaint, waitForContentReady, waitForRestorePainted } from '@/shared/wait';
+import { ANCHOR_SETTLE_DELAY, delay, nextPaint, waitForContentReady, waitForRestorePainted } from '@/shared/wait';
 import { PositionState } from '@/position/state';
 import { SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SourcePixelCorrector } from './pixels';
 
@@ -16,9 +16,9 @@ const LINE_FLASH_ASK_MS = 5000;
 const CENTER_READ_MAX_FRAMES = 8;
 
 // 各种恢复策略：分发流水线判定需要一次恢复之后，保存的位置如何被应用到
-// 一个 markdown 视图上 —— masked（在 contentEl 遮罩下）、glide（可见，从顶部
-// 开始）、restoreInjectedSource（在 leaf 首绘遮罩下），以及每一种策略最后都会
-// 走到的共享锚点。
+// 一个 markdown 视图上 —— masked（在 contentEl 遮罩下）、restoreInjectedSource
+// （在 leaf 首绘遮罩下）、landPreview（阅读：不遮，交给渲染器落），以及每一种
+// 策略最后都会走到的共享锚点。
 export class RestoreModes {
 	private settings: PluginSettings;
 	private state: PositionState;
@@ -178,7 +178,7 @@ export class RestoreModes {
 	// 问题」的那半个现象）。
 	//
 	// 于是这里不遮：让笔记照常画出来，等渲染器就绪（有界）把落点应用上去、按住几帧，
-	// 再走共享的收口 —— 与 maskedRestore / glideRestore 走的是同一个 anchorToSettledState，
+	// 再走共享的收口 —— 与 maskedRestore 走的是同一个 anchorToSettledState，
 	// 所以账本、提示、锚定基准一件都不少。那一次应用落在内容首绘的同一帧里
 	// （waitForRestorePainted 每帧量一次、在 rAF 回调里施加），所以也不会读成
 	// 「先看见顶部、再跳一下」。
@@ -188,8 +188,7 @@ export class RestoreModes {
 			if (!isCurrent())
 				return;
 			// 兜底：那些绕过了 openLinkText 的 anchorLink 高亮（程序化滚动、API open）
-			// —— core 的目标说了算，什么都不恢复。（与 maskedRestore / glideRestore
-			// 同一个守卫。）
+			// —— core 的目标说了算，什么都不恢复。（与 maskedRestore 同一个守卫。）
 			if (view.containerEl.querySelector('.is-flashing'))
 				return;
 			await waitForRestorePainted(view, st, isCurrent);
@@ -327,105 +326,6 @@ export class RestoreModes {
 	private readScroll(view: MarkdownView): number | undefined {
 		const top = view.currentMode?.getScroll();
 		return typeof top === 'number' && Number.isFinite(top) ? top : undefined;
-	}
-
-	// glide 恢复：没有蒙版，也就没有空白期。笔记从顶部可见地渲染出来（那次
-	// 异步渲染是 Obsidian 自己的活）；渲染器一产出内容，我们就滚到保存的那一行。
-	async glideRestore(view: MarkdownView, st: EphemeralState, isCurrent: () => boolean) {
-		if ((st.scroll ?? 0) <= 0)
-			throw new Error('glideRestore: no saved scroll');
-
-		await waitForContentReady(view, isCurrent);
-		if (!isCurrent())
-			return;
-
-		// 兜底：那些绕过了 openLinkText 的 anchorLink 高亮：core 的目标说了算，
-		// 不滑行。（与 maskedRestore 是同一个守卫。）
-		if (view.containerEl.querySelector('.is-flashing'))
-			return;
-
-		const scroller = getScroller(view);
-		if (!scroller) {
-			// 笔记不可滚动：让 Obsidian 自己的 applyScroll 去安置它。
-			applyEphemeralState(view, st);
-			await nextPaint();
-			await this.anchorToSettledState(view, st, isCurrent);
-			return;
-		}
-
-		await this.glideScrollTo(view, scroller, st, isCurrent);
-	}
-
-	// 共享的滑行内核：应用保存的那一行，等渲染器真正落到那里，再跑那段固定的
-	// 短过渡并校验。applyScroll 可以把这次滚动推迟到渲染器的下一趟，所以立即
-	// 回读不可靠（读到过期的 0 → 误判成「已经在那一行」→ 卡在顶部）；要一直
-	// 等到视图报出保存的那一行**并且**滚动容器已经动了（有界）。单次 apply
-	// 也可能永远落不到 —— 分阶段的流水线会在它落下之后重置滚动，而在渲染器
-	// 赶上之前发出的 apply 是个无声的空操作 —— 所以漂了就重发。
-	private async glideScrollTo(view: MarkdownView, scroller: HTMLElement, st: EphemeralState, isCurrent: () => boolean) {
-		const scroll = st.scroll;
-		if (!scroll || scroll <= 0)
-			return;
-		applyEphemeralState(view, st);
-		const landDeadline = Date.now() + 2000;
-		let lastApply = Date.now();
-		// 落定 = 渲染器报出保存的那一行**并且**（源码模式之外）真正的滚动容器
-		// 已经动了：阅读视图会在任何像素移动之前，就把请求的滚动回显进
-		// getScroll()。
-		const landed = () => {
-			if (Math.round(view.currentMode?.getScroll() ?? -1) !== scroll)
-				return false;
-			if (view.getMode() === 'preview' && !hasPreviewScrolled(view))
-				return false;
-			return true;
-		};
-		while (isCurrent() && Date.now() < landDeadline && !landed()) {
-			await nextPaint();
-			if (isCurrent() && Date.now() - lastApply >= 100 && !landed()) {
-				applyEphemeralState(view, st);
-				lastApply = Date.now();
-			}
-		}
-		if (!isCurrent())
-			return;
-		// 渲染器（或一次模式翻转）可能在捕获之后换掉滚动元素，让传进来的这个
-		// 滚动容器脱了链、停在 scrollTop 0。
-		const liveScroller = getScroller(view) ?? scroller;
-		const targetPx = liveScroller.scrollTop;
-		if (targetPx <= 0) {
-			// 笔记太短滚不动 / 保存的那一行掉到了末尾之外：已经应用进去的状态
-			// 就是正确的落点。
-			await nextPaint();
-			await this.anchorToSettledState(view, st, isCurrent);
-			return;
-		}
-		const prevBehavior = liveScroller.style.scrollBehavior;
-		liveScroller.setCssStyles({ scrollBehavior: 'auto' }); // 没有哪个主题能把帧变成动画
-		try {
-			// 固定的短过渡：加速到约 1200px/s，并封顶在 600ms，所以再深的笔记
-			// 也拖不久 —— 这是一个方向提示加柔和落点，不是让人读的滑行
-			// （滚动即导航）。
-			const duration = Math.max(150, Math.min(600, (targetPx / 1200) * 1000));
-			await animateScrollTop(liveScroller, 0, targetPx, duration, isCurrent);
-			if (!isCurrent())
-				return;
-
-			// 精确落位：恢复完整的保存状态（含光标），并校验那一行落到了请求
-			// 的位置；有东西漂走了就校正回来。
-			applyEphemeralState(view, st);
-			await nextPaint();
-			if (!isCurrent())
-				return;
-			const landed = Math.round(view.currentMode?.getScroll() ?? -1);
-			if (landed !== scroll) {
-				applyEphemeralState(view, st);
-				await nextPaint();
-			}
-		} finally {
-			liveScroller.style.scrollBehavior = prevBehavior;
-		}
-
-		await this.anchorToSettledState(view, st, isCurrent);
 	}
 
 	// 把变化检测锚到视图**实际**落定的地方，而不是我们请求的那个值。整数量化

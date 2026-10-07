@@ -24,18 +24,6 @@ export const zh: En = {
 	'openAndRestore.linkOpenPosition.options.start': '文件开头',
 	'openAndRestore.linkOpenPosition.options.restore': '已保存的位置',
 
-	'openAndRestore.sourceRestoreMethod.name': '编辑视图的恢复方式',
-	'openAndRestore.sourceRestoreMethod.desc':
-		'在编辑视图中如何恢复已保存的位置。“直接跳转”立即定位到保存的行；“平滑滚动”从顶部滚动到该行。',
-	'openAndRestore.sourceRestoreMethod.options.instant': '直接跳转',
-	'openAndRestore.sourceRestoreMethod.options.glide': '平滑滚动',
-
-	'openAndRestore.readingRestoreMethod.name': '阅读视图的恢复方式',
-	'openAndRestore.readingRestoreMethod.desc':
-		'在阅读视图中如何恢复已保存的位置。“直接跳转”在渲染完成后立即定位，“平滑滚动”从顶部滚动到该行。',
-	'openAndRestore.readingRestoreMethod.options.instant': '直接跳转',
-	'openAndRestore.readingRestoreMethod.options.glide': '平滑滚动',
-
 	'openAndRestore.restoreBreadcrumb.name': '打开笔记时提示所在小节',
 	'openAndRestore.restoreBreadcrumb.desc':
 		'恢复位置后，如果这一屏里看不到任何小节标题，就在笔记中间短暂显示你所在的小节路径。标题已经在屏幕上时不显示（一眼就能看出落在哪一节）；整篇只有一个标题时也不显示；笔记的一级标题多半就是文章标题，不会重复显示。',

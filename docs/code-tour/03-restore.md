@@ -8,7 +8,7 @@
 |---|---|
 | `restore/patcher.ts` | 猴补丁 app 的打开管道，把已存位置塞进打开那一刻 |
 | `restore/restorer.ts` | 调度中枢：这次要不要恢复、用哪种方式 |
-| `restore/modes.ts` | 四种落位策略 |
+| `restore/modes.ts` | 三种落位策略 |
 | `restore/pixels.ts` | 源模式下的像素级校正 |
 | `restore/anchor.ts` | 文件被编辑后，靠标题/块重新定位行号 |
 | `restore/background-settle.ts` | 后台标签页的补恢复 |
@@ -16,10 +16,10 @@
 
 ## 入口在哪
 
-- [`Restorer`](/src/position/restore/restorer.ts#L13)：[`restoreEphemeralState`](/src/position/restore/restorer.ts#L33)、[`restoreOpen`](/src/position/restore/restorer.ts#L173)。
-- [`RestoreModes`](/src/position/restore/modes.ts#L22)：[`maskedRestore`](/src/position/restore/modes.ts#L92)、[`glideRestore`](/src/position/restore/modes.ts#L334)、
+- [`Restorer`](/src/position/restore/restorer.ts#L13)：[`restoreEphemeralState`](/src/position/restore/restorer.ts#L33)、[`restoreOpen`](/src/position/restore/restorer.ts#L168)。
+- [`RestoreModes`](/src/position/restore/modes.ts#L22)：[`maskedRestore`](/src/position/restore/modes.ts#L92)、
   [`landPreview`](/src/position/restore/modes.ts#L185)、[`restoreInjectedSource`](/src/position/restore/modes.ts#L40)、
-  [`historyJumpApply`](/src/position/restore/modes.ts#L219)。
+  [`historyJumpApply`](/src/position/restore/modes.ts#L218)。
 - [`OpenPatcher`](/src/position/restore/patcher.ts#L39)：[`installPatches`](/src/position/restore/patcher.ts#L57)。
 - 触发点：`main.ts` 的 `file-open` / `active-leaf-change`，以及补丁本身。
 
@@ -34,7 +34,6 @@ OpenPatcher 改写 setViewState 的 eState ── 唯一能做到「无闪烁」
    ▼
 Restorer 决定策略 ──► RestoreModes
    │                     ├─ masked（盖布下恢复）
-   │                     ├─ glide（可见滑行）
    │                     ├─ land preview（注入过的阅读落点：不遮，等渲染再落）
    │                     └─ injected source（settle 后揭幕）
    │
@@ -53,8 +52,9 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 **落点吸收必须在 patcher 里武装，不能放在 `file-open` 处理器**（[`patcher.ts:223`](/src/position/restore/patcher.ts#L223)）：
 同文件内的搜索跳转根本不触发 `file-open`，跳转本身会被记下来。
 
-**注入分支必须排在 glide 前面**（[`restorer.ts:123`](/src/position/restore/restorer.ts#L123)）：历史跳转要求瞬时落位，
-走 glide 会在一块永不揭幕的盖布下空转约 2 秒。
+**注入分支必须排在 masked 前面**（[`restorer.ts:123`](/src/position/restore/restorer.ts#L123)）：历史跳转要求瞬时落位，
+它要的是「在首绘遮罩下落定、再揭幕」那一套 —— 走 masked 恢复会绕开这次落定，
+让 leaf 一直盖着。
 
 **`scroll <= 0` 的记录不加盖布**（[`modes.ts:137`](/src/position/restore/modes.ts#L137)）：给「什么都没恢复」也加遮罩只会多一段空白，
 安卓上尤其明显。
@@ -80,8 +80,8 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 历史上那个可见抖动。
 
 **一次「点名一行」的跳转是个例外**：源码模式下它的落点由**编辑器自己**给
-（[`centerNamedLine()`](/src/position/restore/modes.ts#L288) 走 core 同一个 `scrollIntoView(..., true)`），
-而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L306)）——
+（[`centerNamedLine()`](/src/position/restore/modes.ts#L287) 走 core 同一个 `scrollIntoView(..., true)`），
+而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L305)）——
 读早了，上面那套纠正器会把刚落好的视口又拽回去。所以那一路只动一次、动在像素上；
 来由见 00 §5。
 
@@ -95,7 +95,7 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 误判成读者移动，没有宽限就是「一闪而过」。**面包屑的两道静音**（[`show()`](/src/position/ui/cue.ts#L67)）：这一屏里已经
 能看到标题就不复述（[`hasVisibleHeading()`](/src/position/ui/cue.ts#L145)），整篇只有一个标题也不念
 （[`breadcrumbPath()`](/src/position/ui/cue.ts#L38)）。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L102)）：
-恢复时与大纲/搜索/前进后退的跳转后都走它，恢复那一侧在 [`markRestoredLine()`](/src/position/restore/modes.ts#L482)。
+恢复时与大纲/搜索/前进后退的跳转后都走它，恢复那一侧在 [`markRestoredLine()`](/src/position/restore/modes.ts#L382)。
 两种模式都**只画一下、绝不移动视图**，方式都借 core 自己的 `.is-flashing`（编辑模式加在那一行的
 元素上、阅读模式加在渲染器章节元素 [`previewLineElement()`](/src/position/ui/cue.ts#L193) 上）。
 ⚠️ **阅读模式别改用 `setEphemeralState({line})`**：那条路把这一行拉回视口顶，手机上新让开的

@@ -67,31 +67,7 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						},
 					},
 				},
-				{
-					name: t('openAndRestore.sourceRestoreMethod.name'),
-					desc: t('openAndRestore.sourceRestoreMethod.desc'),
-					control: {
-						type: 'dropdown',
-						key: 'sourceRestoreMethod',
-						options: {
-							instant: t('openAndRestore.sourceRestoreMethod.options.instant'),
-							glide: t('openAndRestore.sourceRestoreMethod.options.glide'),
-						},
-					},
-				},
-				{
-					name: t('openAndRestore.readingRestoreMethod.name'),
-					desc: t('openAndRestore.readingRestoreMethod.desc'),
-					control: {
-						type: 'dropdown',
-						key: 'readingRestoreMethod',
-						options: {
-							instant: t('openAndRestore.readingRestoreMethod.options.instant'),
-							glide: t('openAndRestore.readingRestoreMethod.options.glide'),
-						},
-					},
-				},
-				// 两个开关是同一个问题的两种回答方式，所以并排坐：一个是「用名字」告诉读者
+			// 两个开关是同一个问题的两种回答方式，所以并排坐：一个是「用名字」告诉读者
 				// 落在哪一节（只有恢复时），一个是「用指向」标出落点那一行（恢复时与跳转后
 				// 都有）。两者各管各的，谁也不折叠谁 —— 见 restoreBreadcrumb / flashLandingLine。
 				{

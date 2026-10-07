@@ -1127,8 +1127,8 @@ describe('NavStack.navigate', () => {
 
 	it('跨标签页打开会触发 pendingHistoryNav，好让遍历立刻落地', async () => {
 		// openInLeaf 必须武装 delegateNative 武装的同一个标记：setViewState 补
-		// 丁随后把按文件的记录注在朴素打开之上，绕开 glide 那一档（历史遍历
-		// 瞬时落定；这里若用原生 glide，会扫过未渲染的内容留下一片空白）。
+		// 丁随后把按文件的记录注在朴素打开之上，走注入那一档（历史遍历瞬时
+		// 落定；走「从顶部恢复」那一档会先扫过一大段未渲染的内容）。
 		vi.useFakeTimers();
 		try {
 			const targetLeaf = {

@@ -123,39 +123,3 @@ export function hasPreviewScrolled(view: MarkdownView): boolean {
 	const scroller = getScroller(view);
 	return !!scroller && scroller.scrollTop > 0;
 }
-
-// 用 easeInOutSine 给滚动容器的 scrollTop 做动画，让阅读模式的恢复以单一可读的速度移动，
-// 而不是在 Obsidian 的渲染管线里一级一级地跳。直接写 scrollTop 正是原生滚动的做法，所以
-// 惰性渲染的内容进入视口时也能平滑地画出来。另有一个 timeout 与 rAF 循环赛跑，
-// 窗口隐藏也卡不住这次恢复。
-export async function animateScrollTop(
-	el: HTMLElement,
-	from: number,
-	to: number,
-	duration: number,
-	isCurrent: () => boolean,
-): Promise<void> {
-	if (duration <= 0 || from === to) {
-		el.scrollTop = to;
-		return;
-	}
-	const startTime = performance.now();
-	const dist = to - from;
-	return new Promise(resolve => {
-		const step = (now: number) => {
-			if (!isCurrent()) {
-				resolve();
-				return;
-			}
-			const t = Math.min(1, (now - startTime) / duration);
-			const eased = (1 - Math.cos(Math.PI * t)) / 2;
-			el.scrollTop = from + dist * eased;
-			if (t < 1)
-				window.requestAnimationFrame(step);
-			else
-				resolve();
-		};
-		window.requestAnimationFrame(step);
-		window.setTimeout(resolve, duration + 100);
-	});
-}
