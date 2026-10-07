@@ -12,9 +12,11 @@ export const zh: En = {
 
 	'openAndRestore.heading': '打开与恢复',
 
-	'openAndRestore.linkOpenPosition.name': '双链打开位置',
+	// 名字只说「点双链」，那两个限定（不带目标、只管点链接这一条路）放在描述
+	// 第一句：名字塞不下，塞进去了也读不通。
+	'openAndRestore.linkOpenPosition.name': '点双链打开时',
 	'openAndRestore.linkOpenPosition.desc':
-		'点击普通双链（不带 # 标题或 ^ 块目标）时，是始终从文件开头打开，还是使用已保存的位置。',
+		'只管点击不带 # 标题或 ^ 块目标的双链——带目标的双链由 Obsidian 自己落到你点的那一处，这里管不着。其它打开方式（文件列表、搜索结果、书签、快速切换器、最近文件列表）也不受这一项影响，一律回到已保存的位置。这里定的是剩下那一种情况：从文件开头打开，还是回到上次的位置。',
 	'openAndRestore.linkOpenPosition.options.start': '文件开头',
 	'openAndRestore.linkOpenPosition.options.restore': '已保存的位置',
 
