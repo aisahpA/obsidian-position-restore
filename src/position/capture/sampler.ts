@@ -270,7 +270,14 @@ export class Sampler {
 	// 所以在这个窗口里挪一下又迅速跳走就会丢掉最后的位置 —— 待处理的防抖在交换之后才触发，
 	// 那时它的滚动容器已经跟每个视图脱开，这次写就被丢了。这里在交换之前、同步地拿正要被换出去的
 	// 视图的确切状态调它。store 的写入会去重：自上一条以来什么都没动时是空操作。
+	//
+	// 它同时是唯一**同步**发生的写入，所以不像那三个滞后的写者那样等得起恢复落定：一篇笔记
+	// 打开后还在等首绘（阅读模式最长 2 秒）时读者点链接跳走，这里读到的就是尚未落地的中间态
+	// —— 多半是顶部 —— 写进去就把这篇笔记保存的位置永久顶掉了。所以恢复期间它跟另外三个
+	// 写者走同一道门：宁可赔上一个 tick 的滞后，也不能把读者的位置改错。
 	flushOnLeave(view: MarkdownView, filePath: string, st: EphemeralState): void {
+		if (this.state.isRestoringFile())
+			return;
 		if (this.exclusions.shouldSkipRecording(view))
 			return;
 		this.store.write(this.state.leafId(view.leaf), filePath, st);

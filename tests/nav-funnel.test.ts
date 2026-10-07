@@ -607,4 +607,20 @@ describe('Sampler 的文件内跳变检测', () => {
 		excluded.sampler.flushOnLeave(excluded.view, 'a.md', st);
 		expect(excluded.database.setState).not.toHaveBeenCalled();
 	});
+
+	it('恢复还没落定时 flushOnLeave 什么都不写 —— 它同步读到的中间态会顶掉保存的位置', () => {
+		// 它是唯一同步发生的写入，所以不像轮询与滚动采集那样等得起：一篇笔记打开后还在等首绘
+		// （阅读模式最长 2 秒）时读者点链接跳走，这里读到的正是尚未落地的顶部。滞后的那三个
+		// 写者都守着恢复这道门，它必须同样守着 —— 否则一次快速切文件就把那篇笔记的位置永久
+		// 改成了开头。
+		const h = makeSamplerHarness();
+		const top = { scroll: 0, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
+		h.state.restoreStarted();
+		h.sampler.flushOnLeave(h.view, 'a.md', top);
+		expect(h.database.setState).not.toHaveBeenCalled();
+		// 门只在恢复期间关着：落定之后它照旧写 —— 那次跳过赔掉的只是一个 tick 的滞后。
+		h.state.restoreEnded();
+		h.sampler.flushOnLeave(h.view, 'a.md', top);
+		expect(h.database.setState).toHaveBeenCalledWith('a.md', top);
+	});
 });
