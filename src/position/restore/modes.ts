@@ -363,14 +363,15 @@ export class RestoreModes {
 		this.state.cue.flashLine(view, ask.line);
 	}
 
-	// 恢复后标出落点：编辑模式标光标那一行 —— 读者要接着打字的地方（视口顶部那一行不标：
-	// 眼睛本来就在那儿，标了只是复述）；阅读模式没有光标，标落点本身那一块。行元素找不到
-	// （光标在屏外，或视图刚重建还没画到那一行）就什么都不发生 —— flashLine 自己会安静
-	// 地退回无操作，所以这里不必先判断一次可见性。开关在 flashLine 那一侧。
+	// 恢复后标出落点，且只在编辑模式：标光标那一行，读者要接着打字的地方（视口顶部那
+	// 一行不标，眼睛本来就在那儿，标了只是复述）。阅读模式不标：没有光标，视口顶就是
+	// 唯一落点，闪包住顶行的小节整块只是噪音，方向提示归面包屑 cue.show。行元素找不到
+	// （光标在屏外，或视图刚重建还没画到那一行）时 flashLine 自己安静地退回无操作，
+	// 不必先判断一次可见性。开关在 flashLine 那一侧。
 	private markRestoredLine(view: MarkdownView) {
-		const line = view.getMode() === 'preview'
-			? Math.round(view.currentMode?.getScroll() ?? 0)
-			: view.editor?.getCursor()?.line;
+		if (view.getMode() === 'preview')
+			return;
+		const line = view.editor?.getCursor()?.line;
 		// 文件开头那一行不是一次落点：没有保存位置的文件就打开在这儿，标它只是噪音。
 		if (!line)
 			return;

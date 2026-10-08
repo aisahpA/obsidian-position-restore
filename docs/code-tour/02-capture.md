@@ -17,7 +17,7 @@
   [`readNavEntryState`](/src/position/capture/ephemeral.ts#L129)（导航用）。
 - 写：[`applyEphemeralState`](/src/position/capture/ephemeral.ts#L251)。
 - 采集：[`Sampler`](/src/position/capture/sampler.ts#L22)，[`sampleActiveView`](/src/position/capture/sampler.ts#L81)、[`onScrollCapture`](/src/position/capture/sampler.ts#L187)、
-  [`flushOnLeave`](/src/position/capture/sampler.ts#L273)。
+  [`flushOnLeave`](/src/position/capture/sampler.ts#L278)。
 - 主循环在 [`main.ts:194`](/src/main.ts#L194)：每 100ms 调一次 `manager.sampleActiveView()`。
 
 ## 数据怎么流
@@ -58,13 +58,13 @@
 
 **「读者刚动过吗」有一个 2 秒的绝对窗口**（[`INTENT_WINDOW_MS = 2000`](/src/position/capture/sampler.ts#L51)）：
 没有近期输入的位移一律视为程序性移动（同步换文件、懒加载重排），不记。
-**这个窗口绝不能从 `lastAnchorAt` 起算**（[`hasUserIntent()`](/src/position/capture/sampler.ts#L405)）。
+**这个窗口绝不能从 `lastAnchorAt` 起算**（[`hasUserIntent()`](/src/position/capture/sampler.ts#L412)）。
 
 **嵌入式渲染器内部的滚动一律拒绝**（[`EMBED_BOUNDARY_SELECTOR`](/src/position/capture/sampler.ts#L56)）：`.internal-embed`、`.cm-embed-block`
 里滚的不是这篇笔记。
 
 **有选区时必须丢基线**（[`sampler.ts:359`](/src/position/capture/sampler.ts#L359)）：选区跨度不是读者走过的距离。
-传送检测只在桌面（[`installTeleportWatcher()`](/src/position/capture/sampler.ts#L320)），阈值非正数一律当 0 —— 坏值的兜底方向是「什么都不记」。
+传送检测只在桌面（[`installTeleportWatcher()`](/src/position/capture/sampler.ts#L327)），阈值非正数一律当 0 —— 坏值的兜底方向是「什么都不记」。
 
 **主题分隔线永不当 anchor**（[`ephemeral.ts:73`](/src/position/capture/ephemeral.ts#L73)）：`---`/`***`/`___` 在重映射扫描里会命中
 别处的分隔线。另外 `remapAnchorLine` 返回 `undefined` 表示「不知道」，**不是「没变」**

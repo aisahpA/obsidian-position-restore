@@ -2,8 +2,8 @@
 // 三层：
 //   · breadcrumbPath：面包屑念哪几个名字（纯，从笔记文本读）；
 //   · show() 的两道门：开关关着不碰视图、屏上已经有标题就不复述；
-//   · 从一次真实恢复走到底：落点标记按模式各取哪一行（编辑取光标那一行、阅读取落点），
-//     标的方式（阅读给落点那一块加 core 自己的 .is-flashing，不动视口），
+//   · 从一次真实恢复走到底：落点标记只在编辑模式取光标那一行（阅读模式恢复不标），
+//     标的方式是给元素加 core 自己的 .is-flashing、不动视口，
 //     以及前进后退带来的恢复不标（那一路自己标过一次）；
 //   · 编辑模式下一次「点名一行」的跳转怎么落：视口只动一次（居中那一次），种子不落，
 //     居中做不到时才退回种子，而回读到的落点要等编辑器真正应用了那次滚动。
@@ -53,9 +53,9 @@ const fakeView = (patch: Record<string, unknown>): MarkdownView =>
 	Object.assign(new MarkdownView(undefined as never), patch) as unknown as MarkdownView;
 
 // 一个什么都不做、只管记账的阅读视图：够 applyEphemeralState 与 flashLine 走完。
-// 它的「落点那一块」由一个假的渲染器章节给出 —— flashLine 在阅读模式下做的就是给那个
+// 它的小节元素由一个假的渲染器章节给出 —— flashLine 在阅读模式下做的就是给那个
 // 元素加 core 自己的 .is-flashing（**不再**去要一次揭示：那条路会把落点拉回视口顶，
-// 把手机上刚让开的带子收回），所以断言看的是那个类名。
+// 把手机上刚让开的带子收回）。恢复路径现在不碰它，用例断言它没被标。
 function makePreviewView(scroll: number, cursorLine = 5): { view: MarkdownView; sectionEl: HTMLElement } {
 	const sectionEl = document.createElement('div');
 	sectionEl.className = 'markdown-preview-section';
@@ -69,14 +69,14 @@ function makePreviewView(scroll: number, cursorLine = 5): { view: MarkdownView; 
 		containerEl: document.createElement('div'),
 		editor: { getCursor: () => ({ line: cursorLine, ch: 0 }) },
 		setEphemeralState: vi.fn(),
-		// 落点那一行（markRestoredLine 在阅读模式下取 getScroll()）所在的章节 ——
-		// flashLine 会闪它。start.line == 落点行，lines 1 覆盖它。
+		// scroll 那一行所在的章节：jump 路径下 flashLine 会闪它，恢复路径不再碰。
+		// start.line == scroll，lines 1 覆盖它。
 		previewMode: { renderer: { sections: [{ start: { line: scroll }, lines: 1, el: sectionEl }] } },
 	});
 	return { view, sectionEl };
 }
 
-// 落点那一块被标出来了吗。阅读模式的落点标记现在唯一的可见表现就是它。
+// 小节元素有没有被标。阅读模式下闪与不闪唯一的可见表现就是它。
 const isFlashing = (el: HTMLElement): boolean => el.classList.contains('is-flashing');
 
 const rect = (top: number, bottom: number): DOMRect =>
@@ -125,8 +125,37 @@ describe('面包屑的开关与静音', () => {
 	});
 });
 
+// 带假 CM6 的源码视图：源码模式下 flashLine 经 editor.cm.domAtPos 找 .cm-line。
+// jsdom 的 Node 没有 Obsidian 打的 instanceOf 补丁（见 cue.ts 的 sourceLineElement），
+// 假行元素自己补一个。
+function makeCmSourceView(cursorLine: number): { view: MarkdownView; lineEl: HTMLElement } {
+	const lineEl = document.createElement('div');
+	lineEl.className = 'cm-line';
+	(lineEl as unknown as { instanceOf: (C: Function) => boolean }).instanceOf =
+		function (this: HTMLElement, C: Function) { return this instanceof C; };
+	const view = fakeView({
+		leaf: { id: 'leaf-1' },
+		file: { path: 'a.md' },
+		getMode: () => 'source',
+		currentMode: { getScroll: () => 30 },
+		data: 'x',
+		contentEl: document.createElement('div'),
+		containerEl: document.createElement('div'),
+		editor: {
+			getCursor: () => ({ line: cursorLine, ch: 0 }),
+			cm: {
+				state: { doc: { lines: 100, line: (n: number) => ({ from: n - 1 }) } },
+				domAtPos: () => ({ node: lineEl, offset: 0 }),
+				posAtCoords: () => null,
+			},
+		},
+		setEphemeralState: vi.fn(),
+	});
+	return { view, lineEl };
+}
+
 describe('落点标记（flashLandingLine）', () => {
-	it('恢复后，阅读视图标出落点那一块（core 自己的 .is-flashing，不动视口）', async () => {
+	it('恢复后，阅读视图什么都不标', async () => {
 		const s = settings();
 		const state = new PositionState(s);
 		const modes = new RestoreModes(state);
@@ -134,21 +163,11 @@ describe('落点标记（flashLandingLine）', () => {
 
 		await modes.historyJumpApply(view, { scroll: 12 }, () => true, 0);
 
-		expect(isFlashing(sectionEl)).toBe(true);
-	});
-
-	it('关掉之后，恢复不再标那一块', async () => {
-		const s = settings({ flashLandingLine: false });
-		const state = new PositionState(s);
-		const modes = new RestoreModes(state);
-		const { view, sectionEl } = makePreviewView(12);
-
-		await modes.historyJumpApply(view, { scroll: 12 }, () => true, 0);
-
+		// 即使开关开着：阅读模式恢复不闪，视口顶就是唯一落点。
 		expect(isFlashing(sectionEl)).toBe(false);
 	});
 
-	it('编辑视图标的是光标那一行，不是视口顶部那一行', async () => {
+	it('编辑视图恢复选的是光标那一行，不是视口顶部那一行', async () => {
 		const s = settings();
 		const state = new PositionState(s);
 		const modes = new RestoreModes(state);
@@ -171,17 +190,40 @@ describe('落点标记（flashLandingLine）', () => {
 		expect(flashLine).toHaveBeenCalledWith(view, 7);
 	});
 
-	it('前进后退带来的恢复不标 —— 那一路自己标过一次', async () => {
+	it('光标那一行真的拿到 core 的 .is-flashing', async () => {
 		const s = settings();
 		const state = new PositionState(s);
 		const modes = new RestoreModes(state);
-		const { view, sectionEl } = makePreviewView(12);
+		const { view, lineEl } = makeCmSourceView(7);
+
+		await modes.historyJumpApply(view, { scroll: 0 }, () => true, 0);
+
+		expect(isFlashing(lineEl)).toBe(true);
+	});
+
+	it('关掉之后，恢复不再标出', async () => {
+		const s = settings({ flashLandingLine: false });
+		const state = new PositionState(s);
+		const modes = new RestoreModes(state);
+		const { view, lineEl } = makeCmSourceView(7);
+
+		await modes.historyJumpApply(view, { scroll: 0 }, () => true, 0);
+
+		expect(isFlashing(lineEl)).toBe(false);
+	});
+
+	it('前进后退带来的恢复不标，即使编辑模式也不标：那一路自己标过一次', async () => {
+		const s = settings();
+		const state = new PositionState(s);
+		const modes = new RestoreModes(state);
+		const { view } = makeSourceView(0);
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
 		// NavStack 的遍历装的就是它：目的地是读者自己选的，不带提示。
 		state.cueSuppressUntil = Date.now() + 60_000;
 
-		await modes.historyJumpApply(view, { scroll: 12 }, () => true, 0);
+		await modes.historyJumpApply(view, { scroll: 0 }, () => true, 0);
 
-		expect(isFlashing(sectionEl)).toBe(false);
+		expect(flashLine).not.toHaveBeenCalled();
 	});
 });
 

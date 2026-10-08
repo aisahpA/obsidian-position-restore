@@ -32,9 +32,9 @@
 - [`ArrowBar`](/src/recent-files/browser/arrows.ts#L61)：[`refresh`](/src/recent-files/browser/arrows.ts#L89)、[`press`](/src/recent-files/browser/arrows.ts#L99)。
 - [`RowPreview`](/src/recent-files/browser/row-preview.ts#L28)：[`hoverRow`](/src/recent-files/browser/row-preview.ts#L53)、[`askFor`](/src/recent-files/browser/row-preview.ts#L126)、
   [`subpathHeading`](/src/recent-files/browser/row-preview.ts#L160)。
-- [`RecentFilesList`](/src/recent-files/browser/list.ts#L183)：[`render`](/src/recent-files/browser/list.ts#L304)、[`facts`](/src/recent-files/browser/list.ts#L400)、
-  [`fileRow`](/src/recent-files/browser/list.ts#L432)、[`headingRow`](/src/recent-files/browser/list.ts#L552)、[`hoverAt`](/src/recent-files/browser/list.ts#L814)、[`onClick`](/src/recent-files/browser/list.ts#L860)、
-  [`goTo`](/src/recent-files/browser/list.ts#L943)。
+- [`RecentFilesList`](/src/recent-files/browser/list.ts#L184)：[`render`](/src/recent-files/browser/list.ts#L309)、[`facts`](/src/recent-files/browser/list.ts#L400)、
+  [`fileRow`](/src/recent-files/browser/list.ts#L437)、[`headingRow`](/src/recent-files/browser/list.ts#L557)、[`hoverAt`](/src/recent-files/browser/list.ts#L825)、[`onClick`](/src/recent-files/browser/list.ts#L871)、
+  [`goTo`](/src/recent-files/browser/list.ts#L976)。
 - 行的身份：[`navGroupKey`](/src/nav/entry.ts#L95)。
 
 ## 数据怎么流
@@ -47,7 +47,7 @@
   → arrowBar.refresh()
 ```
 
-`list.render()` 内部又分（[`list.ts:304`](/src/recent-files/browser/list.ts#L304)）：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
+`list.render()` 内部又分（[`list.ts:304`](/src/recent-files/browser/list.ts#L309)）：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
 它印着的那个小节）→ `list.empty()` 整表重建 → 清描述缓存 → `groupByFile` → 钉住的提到顶 →
 标出重名 → 每组先画**文件行**、再画它**搜到的小节**各一行 → 按槽位恢复选中。
 
@@ -77,7 +77,7 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 是那一节（`goTo` 一处收口）。判据是 `listing.ts` 的 `matchedHeadings`（严格全 token 优先，
 否则首 token loose，按文档顺序，每篇最多 `OUTLINE_HIT_LIMIT` = 5）。
 
-**hover 的判据是「指针真的动了」**（[`list.ts:814`](/src/recent-files/browser/list.ts#L814)）：`pointerover` 在元素「来到」指针下时
+**hover 的判据是「指针真的动了」**（[`list.ts:814`](/src/recent-files/browser/list.ts#L825)）：`pointerover` 在元素「来到」指针下时
 也会触发，热键在鼠标停住时弹出的面板会给每一行都报一次到达。面板听到的第一个事件不算移动。
 
 **MRU 顺序靠数组末尾**（`places.ts`）：碰过的笔记移到数组末尾，因为 list 把索引当钟读

@@ -95,9 +95,10 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 误判成读者移动，没有宽限就是「一闪而过」。**面包屑的两道静音**（[`show()`](/src/position/ui/cue.ts#L67)）：这一屏里已经
 能看到标题就不复述（[`hasVisibleHeading()`](/src/position/ui/cue.ts#L145)），整篇只有一个标题也不念
 （[`breadcrumbPath()`](/src/position/ui/cue.ts#L38)）。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L102)）：
-恢复时与大纲/搜索/前进后退的跳转后都走它，恢复那一侧在 [`markRestoredLine()`](/src/position/restore/modes.ts#L370)。
-两种模式都**只画一下、绝不移动视图**，方式都借 core 自己的 `.is-flashing`（编辑模式加在那一行的
-元素上、阅读模式加在渲染器章节元素 [`previewLineElement()`](/src/position/ui/cue.ts#L193) 上）。
+大纲/搜索小节的跳转后两种模式都标；恢复时只在编辑模式标光标那一行（[`markRestoredLine()`](/src/position/restore/modes.ts#L371)），
+阅读模式不标：没有光标，视口顶就是唯一落点，闪小节整块只是噪音。都**只画一下、绝不移动视图**，
+方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、阅读模式加在渲染器章节元素
+[`previewLineElement()`](/src/position/ui/cue.ts#L193) 上）。
 ⚠️ **阅读模式别改用 `setEphemeralState({line})`**：那条路把这一行拉回视口顶，手机上新让开的
 那条带子会被一把收回，落点就又看不见了。
 

@@ -16,7 +16,7 @@ export const en = {
 		'After a position is restored, briefly show the heading path of where you landed, but only when no heading is visible on screen. Nothing is shown when a heading is already in view (you can see where you are), when the note has only one heading, or when the note has exactly one level-1 heading, which is usually just the note title and already on the tab.',
 	'openAndRestore.flashLandingLine.name': 'Mark the landing line',
 	'openAndRestore.flashLandingLine.desc':
-		'Briefly mark the line you arrive on: when a note reopens at your last position, and after jumping somewhere inside it, such as an outline click or a section hit in search. Reading view marks the section instead. A cursor off screen simply has nothing to mark.',
+		'Mark the cursor line after a restore (editing view only), and mark where an in-note jump lands: the line in editing view, the section in reading view.',
 
 	'recordingRules.heading': 'Recording rules',
 
