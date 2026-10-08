@@ -7,16 +7,16 @@ export const en = {
 	'openAndRestore.heading': 'Open & restore',
 	'openAndRestore.linkOpenPosition.name': 'When opening from a link',
 	'openAndRestore.linkOpenPosition.desc':
-		'Only applies to clicking a wikilink without a # heading or ^ block target — a link that names a target is landed by Obsidian itself, on the spot you clicked, and is out of reach here. Other ways of opening (file explorer, search results, bookmarks, quick switcher, recent files) are unaffected too and land on the saved position. This settles the remaining case: open from the file start, or return to where you were.',
+		'When you click a wikilink with no # heading or ^ block target: open at the file start, or return to the saved position. A link that names a target is landed by Obsidian itself, on the spot you clicked, and is out of reach here; other ways of opening (file explorer, search results, bookmarks, quick switcher) are unaffected too and land on the saved position.',
 	'openAndRestore.linkOpenPosition.options.start': 'File start',
 	'openAndRestore.linkOpenPosition.options.restore': 'Saved position',
 
 	'openAndRestore.restoreBreadcrumb.name': 'Name the restored section',
 	'openAndRestore.restoreBreadcrumb.desc':
-		'After a position is restored, briefly show the heading path of where you landed — but only when no heading is visible on screen. Nothing is shown when a heading is already in view (you can see where you are), when the note has only one heading, or for a note\'s single level-1 heading, which is usually just the note title.',
+		'After a position is restored, briefly show the heading path of where you landed, but only when no heading is visible on screen. Nothing is shown when a heading is already in view (you can see where you are), when the note has only one heading, or when the note has exactly one level-1 heading, which is usually just the note title and already on the tab.',
 	'openAndRestore.flashLandingLine.name': 'Mark the landing line',
 	'openAndRestore.flashLandingLine.desc':
-		'Briefly mark the line you arrive on: when a note reopens at your last position, and after an outline click, a section hit in search, or a back/forward landing on a line. Reading view marks the section instead. A cursor off screen simply has nothing to mark.',
+		'Briefly mark the line you arrive on: when a note reopens at your last position, and after jumping somewhere inside it, such as an outline click or a section hit in search. Reading view marks the section instead. A cursor off screen simply has nothing to mark.',
 
 	'recordingRules.heading': 'Recording rules',
 
@@ -29,7 +29,7 @@ export const en = {
 
 	'recordingRules.minLinesToRecord.name': 'Do not record files shorter than',
 	'recordingRules.minLinesToRecord.desc':
-		'Don\'t record the cursor/scroll position for files with fewer lines than this value. Set to "0" to disable this filter.',
+		'Don\'t record the cursor/scroll position for a note with fewer lines than this value; views other than a note are not measured by line count. Set to "0" to disable this filter.',
 
 	'recordingRules.frontmatterExclude.name': 'Exclude by frontmatter property/value',
 	'recordingRules.frontmatterExclude.desc':
@@ -52,7 +52,7 @@ export const en = {
 
 	'recordingRules.recordBaseScroll.name': 'Record scroll position for Base files',
 	'recordingRules.recordBaseScroll.desc':
-		'A Base has no line numbers to anchor to the way Markdown does, so the only thing worth saving is the pixel offset you scrolled to — and that stops meaning anything once the screen size differs: two devices syncing the database would overwrite each other\'s number. Off by default. This switch concerns Base alone: PDF reading positions are already remembered natively on each device, and images and other non-Markdown files have no scroll state worth keeping.',
+		'A Base has no line numbers to anchor to the way Markdown does, so the only thing worth saving is the pixel offset you scrolled to. That stops meaning anything once the screen size differs: two devices syncing the database would overwrite each other\'s number. Off by default. This switch concerns Base alone. PDF reading positions are already remembered natively on each device, and images and other non-Markdown files have no scroll state worth keeping.',
 
 	'dataStorage.heading': 'Data storage',
 
@@ -89,13 +89,13 @@ export const en = {
 	'dataStorage.corruptDb.noticeNoCopy':
 		'Position Restore: The database file could not be parsed (a sync client may have been rewriting it) and no copy could be written, so its positions are unrecoverable. Starting from empty — positions are re-recorded as you open notes (see the console for details).',
 	'dataStorage.legacyDb.notice':
-		'Position Restore: the data file is in the format an older version of the plugin wrote. Every position in it was read, and the next save writes the whole file in the current format. If another device still runs an older version, update it too: the older version cannot read the new file, treats it as empty and rewrites it whole, so only the notes opened on that device survive — while versions differ, every sync can drop a batch of positions.',
+		'Position Restore: the data file is in the format an older version of the plugin wrote. Every position in it was read, and the next save writes the whole file in the current format. If another device still runs an older version, update it too: the older version cannot read the new file, treats it as empty and rewrites it whole, so only the notes opened on that device survive. While versions differ, every sync can drop a batch of positions.',
 	'dataStorage.legacyDb.noticeOverwritten':
 		'Position Restore: the data file was just rewritten in the older format by a device that has not been updated yet. The older version cannot read the new file, so it wrote back only its own positions; everything another device had recorded in the new format is gone from the file. What this device recorded is untouched and goes back on the next save. Update the plugin on your other devices, or this repeats on every sync.',
 
 	'dataStorage.entries.name': 'Entry count',
 	'dataStorage.entries.desc':
-		'Currently recording positions for {0} files, up to a maximum of 750 entries. When the limit is exceeded, the least-recently-visited records that sit at the default position are dropped first; the rest go least-recently-visited first.',
+		'Currently recording positions for {0} files, up to 750 entries. When the limit is exceeded, the records sitting at the default position that have gone unvisited the longest are dropped first, then the rest least-recently-visited. Each pass drops well past the limit, so it does not trim again on every save.',
 	'dataStorage.entries.atDefault':
 		'Of these, {0} sit at the default position (the first line after the frontmatter) and hold no actual position.',
 
@@ -110,15 +110,15 @@ export const en = {
 	'navHistory.heading': 'Back and forward',
 	'navHistory.steps.heading': 'Steps recorded',
 	'navHistory.intro':
-		'VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one — a link, the outline, a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. The stack is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'Walk back through the order you came, VSCode-style "navigate back" / "navigate forward". Each of these takes a step: opening another note; jumping somewhere inside one, by a link, the outline or a search result; switching tabs; opening a view with no file behind it, such as the graph; and a cursor move that crosses many lines at once (desktop only). A switch inside one tab travels on Obsidian\'s own per-tab history, so PDF, canvas and the other views this plugin cannot reposition come back too. This history belongs to the device it was made on: it does not sync with the vault, and it survives restarts.',
 	'navHistory.hotkeys.desc':
-		'One command per direction, walking the steps above. Neither is bound by default — run either by name from the command palette.',
+		'One command per direction, walking the steps above. Neither is bound by default, so run either by name from the command palette.',
 	'navHistory.stackCap.name': 'Back/forward steps kept',
 	'navHistory.stackCap.desc': 'Maximum number of entries kept in the navigation history. When exceeded, the oldest entries are dropped first.',
 	'navHistory.recordActivation.name': 'Record tab switches',
-	'navHistory.recordActivation.desc': 'Clicking another tab pushes a back/forward step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps — except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note. It governs the back/forward history only: the recent-files list records those views either way.',
+	'navHistory.recordActivation.desc': 'Clicking another tab pushes a step. Turned off, switching tabs stops leaving steps and the history keeps file opens and in-file jumps, except for views with no file behind them, such as the graph, which still take one: without that step, back from the graph would overshoot to an earlier note.',
 	'navHistory.teleportMinLines.name': 'Minimum lines in one cursor move',
-	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action — clicking a spot far away in the note, a go-to-line command, a keyboard motion that crosses many lines at once — counts as an in-file jump and pushes a back/forward step. Set 0 to never record one — the default, since a step inferred from a cursor move is one the reader never asked for. Desktop only: the phone and tablet apps run no such detection.',
+	'navHistory.teleportMinLines.desc': 'A cursor move crossing at least this many lines in one action, whether that is clicking a spot far away in the note, a go-to-line command, or a keyboard motion that crosses many lines at once, counts as an in-file jump and pushes a step. Set 0 to never record one, which is the default, since a step inferred from a cursor move is one the reader never asked for. Desktop only: the phone and tablet apps run no such detection.',
 	'navHistory.commands.navigateBack': 'Navigate back',
 	'navHistory.commands.navigateForward': 'Navigate forward',
 
@@ -133,7 +133,7 @@ export const en = {
 	'recentFiles.display.heading': 'Display',
 
 	'recentFiles.intro':
-		'A list of places you have been: notes opened recently, and the main area\'s file-less views (the graph above all) — each one row, and a row opens that spot again. The filter can also search the headings inside each note: whichever ones it matches are drawn as rows beneath it, and one jumps straight to that section (see "Search headings" below). The list keeps no place inside a note — a section you have visited is what the "Back and forward" stack is for. The list is kept on this device only — it does not sync with the vault — and survives restarts.',
+		'A list of the notes you opened recently: one row per note, with the main area\'s file-less views (the graph above all) taking a row each too, and a row opens that note. The filter can also search the headings inside each note: whichever ones it matches are drawn as rows beneath it, and one jumps straight to that section. The list belongs to the device it was made on: it does not sync with the vault, and it survives restarts.',
 
 	'recentFiles.folders.name': 'Folders not listed',
 	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
@@ -154,14 +154,14 @@ export const en = {
 		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back. Pinned rows do not count.',
 	'recentFiles.outlineSearch.name': 'Search headings',
 	'recentFiles.outlineSearch.desc':
-		'Whether the filter matches the headings inside each note, on top of its name (and its aliases and path). On: every heading it matches is drawn as a row beneath that note, and clicking one jumps to it. Off: a query only ever names the note itself.',
+		'Whether the filter matches the headings inside each note, on top of its name (and its aliases and path). On: every heading it matches is drawn as a row beneath that note, five at most, and clicking one jumps to it. Off: a query only ever names the note itself.',
 	'recentFiles.pathDisplay.name': 'Folder path in the list',
-	'recentFiles.pathDisplay.desc': 'Whether a row shows the folder its note sits in — on every row, or only where another row on screen shares the name — and on which side of the name. The side also decides which half gives way when the row runs out of width: the one laid out last drops to a second line.',
+	'recentFiles.pathDisplay.desc': 'Whether a row shows the folder its note sits in, on every row or only where another row on screen shares the name, and on which side of the name. The side also decides which half gives way when the row runs out of width: the one laid out last drops to a second line.',
 	'recentFiles.pathDisplay.options.smart': 'Only when names repeat',
 	'recentFiles.pathDisplay.options.before': 'Always, before the name',
 	'recentFiles.pathDisplay.options.after': 'Always, after the name',
 	'recentFiles.rowTime.name': 'Time on each row',
-	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited — the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
+	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited. That is the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
 	'recentFiles.titleProperty.name': 'Name from a property',
 	'recentFiles.titleProperty.desc': 'Which frontmatter property a row prints as the note\'s name. A note without it — or whose value is not a single piece of text — keeps its file name.',
 	'recentFiles.titleProperty.placeholder': 'e.g. title',
@@ -188,7 +188,7 @@ export const en = {
 	'recentFiles.commands.open': 'Browse recent files',
 	'recentFiles.commands.openSidebar': 'Open recent files in sidebar',
 	'recentFiles.hotkeys.desc':
-		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default — the command palette opens either by name.',
+		'Two ways into the list: a dialog that answers once and closes, or a panel that stays in the sidebar. Neither is bound by default, so the command palette opens either by name.',
 
 	'recentFiles.graphView': 'Graph view',
 	'recentFiles.viewBadge': 'View',
