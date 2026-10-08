@@ -230,6 +230,9 @@ export function harness(
 	// 那四个箭头，以及这个外壳画不画它们：参数里的**最后一个**，这样上面的套件照旧说着它
 	// 一直说的话。每个 harness 一套全新的，理由同那些偏好。
 	arrows: ReturnType<typeof defaultArrows> = defaultArrows(),
+	// 这些行此刻**只靠钉顶着排除规则**（见 NavPlaces.wouldUnpinDrop）：取消置顶会让它们
+	// 当场离开。fixture 统一按「文件夹」那类规则演，菜单与提示的测试只需要有一条规则在场。
+	unpinExcludes: string[] = [],
 ) {
 	// 地点列表的行进：面板交给它一个地点下标，由列表决定怎么去那儿（文件按普通方式打开，
 	// jump 则落地 —— 见 places.ts）。这个 spy 保留它原来的名字，好让下面每一条断言读起来
@@ -370,10 +373,33 @@ export function harness(
 		if (!pinned.includes(key))
 			pinned.push(key);
 	});
+	// 取消置顶的缩微版，照真实 store 的两种结局演（见 NavPlaces.unpin）：普通行只摘钉；
+	// unpinExcludes 里的行连条目一起被带走，结果里带着原因与那条记录，供提示的撤销放回。
 	const unpin = vi.fn((key: string) => {
 		const at = pinned.indexOf(key);
-		if (at >= 0)
-			pinned.splice(at, 1);
+		if (at < 0)
+			return { dropped: false } as const;
+		pinned.splice(at, 1);
+		if (!unpinExcludes.includes(key))
+			return { dropped: false } as const;
+		const rowAt = entries.findIndex(e => navGroupKey(e) === key);
+		const [place] = rowAt >= 0 ? entries.splice(rowAt, 1) : [undefined];
+		const current = entries[index];
+		places.index = current ? entries.indexOf(current) : -1;
+		return place
+			? { dropped: true as const, reason: 'folder' as const, place }
+			: { dropped: false } as const;
+	});
+	// 菜单事前问的那一句（见 NavPlaces.wouldUnpinDrop）。
+	const wouldUnpinDrop = vi.fn((key: string) =>
+		unpinExcludes.includes(key) ? 'folder' as const : undefined);
+	// 撤销：条目与钉都原样回来（见 NavPlaces.restorePinned）。
+	const restorePinned = vi.fn((place: NavEntry) => {
+		const key = navGroupKey(place);
+		if (!entries.some(e => navGroupKey(e) === key))
+			entries.push(place);
+		if (!pinned.includes(key))
+			pinned.push(key);
 	});
 	// 任意步数的挪动，按 store 应答它的方式（见 NavPlaces.movePinned）：挪过一端就停在那一
 	// 端上。
@@ -390,7 +416,8 @@ export function harness(
 	const places = {
 		entries, index, travel: jumpTo, travelToHeading: jumpToHeading,
 		subscribe: () => () => {}, forget, pinned,
-		pin, unpin, movePinned, isPinned: (key: string) => pinned.includes(key),
+		pin, unpin, wouldUnpinDrop, restorePinned, movePinned,
+		isPinned: (key: string) => pinned.includes(key),
 	};
 	let modal: RecentFilesModal;
 	try {
@@ -507,7 +534,7 @@ export function harness(
 	return {
 		modal, jumpTo, jumpToHeading, forget, cachedRead,
 		el: modal.contentEl, entries, list,
-		pinned, pin, unpin, movePinned, arrows,
+		pinned, pin, unpin, restorePinned, movePinned, arrows,
 		trigger: app.workspace.trigger, cacheReads: () => cacheReads, changeFile, fileEvent,
 		rows, notes, note, headings, heading, clickRow, pressRow, changed, rightClick, longPress,
 		movePointer, key, hover, unhover, clearButton, clearFilter, forgetButton,

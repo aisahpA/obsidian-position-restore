@@ -1090,6 +1090,102 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 		expect(keys(places)).toEqual(['a.md']);
 	});
 
+	it('unpin 说出行是被哪一类规则带走的，连那条记录一起交还', () => {
+		// 菜单预警、提示文案与撤销都靠这个返回值：reason 点名规则，place 是撤销要放回
+		// 的那一条整记录（见 body.ts 的 explainUnpinDrop 与 restorePinned）。
+		const settings = makeSettings();
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('notes/a.md'));
+		places.pin('notes/a.md');
+		settings.recentFilesExcludeFolders = ['notes'];
+		places.pruneExcluded();
+
+		const outcome = places.unpin('notes/a.md');
+
+		expect(outcome.dropped).toBe(true);
+		expect(outcome.reason).toBe('folder');
+		expect(outcome.place ? navGroupKey(outcome.place) : undefined).toBe('notes/a.md');
+	});
+
+	it('合规的行与没钉过的行：unpin 只摘钉，什么也不带走', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.pin('a.md');
+
+		expect(places.unpin('a.md')).toEqual({ dropped: false });
+		expect(places.unpin('nope.md')).toEqual({ dropped: false });
+	});
+
+	it('wouldUnpinDrop 在点下去之前答出会不会被带走、是哪一类', () => {
+		// 右键菜单据此换文案（见 body.ts 的 pinItems）：答的是规则**此刻**的状态，所以
+		// 规则在钉住之后才立也答得出来。
+		const app = makeAppWithFrontmatter({ 'notes/a.md': { status: 'draft' } });
+		const settings = makeSettings();
+		const places = new NavPlaces(app, settings);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('b.md'));
+		places.pin('notes/a.md');
+		places.pin('b.md');
+		settings.recentFilesExcludeProperties = ['status'];
+
+		expect(places.wouldUnpinDrop('notes/a.md')).toBe('property');
+		expect(places.wouldUnpinDrop('b.md')).toBeUndefined();
+		// 无路径视图没有规则可挡：它的行压根不经过文件判据。
+		const g = view('graph');
+		places.remember(g);
+		places.pin(navGroupKey(g));
+		expect(places.wouldUnpinDrop(navGroupKey(g))).toBeUndefined();
+	});
+
+	it('图片开关立着时，被带走的行 reason 是 image', () => {
+		const app = makeAppWithViewTypes({ png: 'image' });
+		const settings = makeSettings();
+		const places = new NavPlaces(app, settings);
+		places.remember(visit('shot.png'));
+		places.pin('shot.png');
+		settings.recentFilesExcludeImages = true;
+
+		const outcome = places.unpin('shot.png');
+		expect(outcome.dropped).toBe(true);
+		expect(outcome.reason).toBe('image');
+	});
+
+	it('撤销一次被规则带走的取消置顶：行和钉一起回来，钉再次压住规则', () => {
+		const settings = makeSettings();
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('b.md'));
+		places.pin('notes/a.md');
+		settings.recentFilesExcludeFolders = ['notes'];
+		places.pruneExcluded();
+		const dropped = places.unpin('notes/a.md');
+		expect(dropped.dropped).toBe(true);
+		expect(keys(places)).toEqual(['b.md']);
+
+		places.restorePinned(dropped.place!);
+
+		expect(keys(places)).toEqual(['b.md', 'notes/a.md']);
+		expect(places.pinned).toEqual(['notes/a.md']);
+		// 规则原封不动：是钉再次把它压过，所以下一次修剪一行也不摘。
+		expect(places.pruneExcluded()).toBe(0);
+		expect(keys(places)).toEqual(['b.md', 'notes/a.md']);
+	});
+
+	it('撤销是幂等的：连点两次只有一行、一枚钉', () => {
+		const settings = makeSettings();
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('notes/a.md'));
+		places.pin('notes/a.md');
+		settings.recentFilesExcludeFolders = ['notes'];
+		const dropped = places.unpin('notes/a.md');
+
+		places.restorePinned(dropped.place!);
+		places.restorePinned(dropped.place!);
+
+		expect(keys(places)).toEqual(['notes/a.md']);
+		expect(places.pinned).toEqual(['notes/a.md']);
+	});
+
 	it('钉住的行跟着它所指名的那个文件一起走', () => {
 		const { places } = makePlaces();
 		places.remember(visit('old.md'));

@@ -2,7 +2,7 @@
 // 按次序的 key 列表；箭头是给没有键盘的读者的那四件事（见 arrows.ts）。
 
 import { describe, it, expect, vi } from 'vitest';
-import { Menu } from './support/obsidian-stub';
+import { Menu, Notice } from './support/obsidian-stub';
 import { RecentFilesModal } from '@/recent-files/browser/modal';
 import type { NavEntry } from '@/nav/entry';
 import { t } from '@/i18n';
@@ -115,7 +115,9 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 		const calls = (h.trigger as { mock: { calls: unknown[][] } }).mock.calls;
 		expect(calls).toHaveLength(1);
 		const menu = calls[0][1] as {
-			items: { title: string; section: string; icon: string; click?: () => void }[];
+			items: {
+				title: string; section: string; icon: string; warning: boolean; click?: () => void;
+			}[];
 		};
 		return menu.items;
 	};
@@ -195,6 +197,53 @@ describe('RecentFilesModal —— 行菜单上的「钉住」', () => {
 		expect(h.unpin).toHaveBeenCalledWith('a.md');
 		expect(names(h)).toEqual(['c', 'b', 'a']);
 		expect(h.el.querySelector('.position-restore-nav-pinned-sep')).toBeNull();
+	});
+
+	it('只靠钉顶着规则的行，菜单项事前写明后果并标成警示', () => {
+		// 读者立过的规则自己早忘了：没有这项预警，取消置顶后行当场消失会被读成删除
+		// （见 body.ts 的 pinItems / places.ts 的 wouldUnpinDrop）。
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md'], undefined, ['a.md']);
+		h.rightClick(h.note('a'));
+		const warned = items(h).find(i => i.icon === 'pin-off')!;
+		expect(warned.title).toBe(t('recentFiles.unpinExcluded'));
+		expect(warned.warning).toBe(true);
+
+		// 规则管不着的行只摘钉：原文案、不标警示。
+		const other = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['b.md']);
+		other.rightClick(other.note('b'));
+		const plain = items(other).find(i => i.icon === 'pin-off')!;
+		expect(plain.title).toBe(t('recentFiles.unpin'));
+		expect(plain.warning).toBe(false);
+	});
+
+	it('点下预警项，行当场离开；提示里的撤销把它原样钉回来', () => {
+		// 行的离开方式不变（立刻、不用确认），补上的是事后那一条路：提示念出规则名，
+		// 撤销把条目和钉一起放回（见 body.ts 的 explainUnpinDrop）。
+		Notice.reset();
+		const h = harness(three(), 2, files, [], {}, {}, false, {}, defaultPrefs(),
+			undefined, ['a.md'], undefined, ['a.md']);
+
+		h.rightClick(h.note('a'));
+		item(h, t('recentFiles.unpinExcluded')).click!();
+
+		expect(h.unpin).toHaveBeenCalledWith('a.md');
+		expect(names(h)).toEqual(['c', 'b']);
+		expect(h.pinned).toEqual([]);
+		expect(Notice.instances).toHaveLength(1);
+		const notice = Notice.instances[0];
+		expect(notice.message)
+			.toBe(t('recentFiles.unpin.removedByRule', t('recentFiles.folders.name')));
+		const undo = notice.messageEl.querySelector('button')!;
+		expect(undo.textContent).toBe(t('recentFiles.unpin.undo'));
+
+		undo.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+		expect(h.restorePinned).toHaveBeenCalledTimes(1);
+		expect(names(h)).toEqual(['a', 'c', 'b']);
+		expect(h.pinned).toEqual(['a.md']);
+		expect(notice.hidden).toBe(true);
 	});
 
 	it('超过一步时才给「挪到头」那一项', () => {

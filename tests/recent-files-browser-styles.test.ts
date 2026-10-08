@@ -814,9 +814,25 @@ describe('最近文件面板的两档弱墨', () => {
 		)?.[0] ?? '';
 		expect(left).not.toBe('');
 		expect(left).toMatch(/padding-bottom: 8px/);
-		// ……而且是靠**两个**类，不是三个：手机那条规则带三个类，必须在特指度上压过它 ——
+		// …而且是靠**两个**类，不是三个：手机那条规则带三个类，必须在特指度上压过它 ——
 		// app 在手机的 workspace 里也会放 `mod-left-split`，而那里带子下面的地方是工具条的，
 		// 不是没有的。
 		expect(left).not.toMatch(/is-touch/);
+	});
+});
+
+// 取消置顶命中排除规则后，那颗「撤销」长在 app 的 .notice 里（见 body.ts 的
+// explainUnpinDrop）：它不是面板的格子，规则写在浏览器那段**之外**，也因此不读面板
+// 那些配色变量，间距由自己的类给，不许在代码里写内联样式。
+describe('取消置顶提示里的撤销按钮', () => {
+	it('用自己的类跟文案隔开，且规则不混进浏览器面板那一段', () => {
+		expect(css).toMatch(
+			/\.position-restore-unpin-undo\s*\{[^}]*margin-inline-start: 0\.75em/,
+		);
+		// browser 那段从 .modal.position-restore-nav-modal 起；这条规则必须站在它前面，
+		// 上面那些「面板样式里没有什么」的断言才不会把它当成面板的一部分。
+		expect(css.indexOf('.position-restore-unpin-undo')).toBeLessThan(
+			css.indexOf('.modal.position-restore-nav-modal'),
+		);
 	});
 });

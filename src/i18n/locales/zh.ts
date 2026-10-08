@@ -257,6 +257,14 @@ export const zh: En = {
 	// 顺序，只对已经钉住的行出现。
 	'recentFiles.pin': '置顶',
 	'recentFiles.unpin': '取消置顶',
+	// 这一行只靠钉顶着某条排除规则时，菜单项在读者点下去之前把后果写明（places.ts 的
+	// wouldUnpinDrop 决定给哪一句）：没这句，取消置顶后行当场消失会被读成「删除」。
+	'recentFiles.unpinExcluded': '取消置顶并移出列表',
+	// 行被规则带走后的那句提示：{0} 是规则在设置页上的名字（不收录的文件夹 /
+	// 不收录的属性 / 不收录图片）。配置目录、废纸篓那类没有规则名，用下面不带名字的那句。
+	'recentFiles.unpin.removedByRule': '已取消置顶：该行命中「{0}」规则，已移出列表。',
+	'recentFiles.unpin.removed': '已取消置顶，该行已移出列表。',
+	'recentFiles.unpin.undo': '撤销',
 	'recentFiles.pinUp': '上移',
 	'recentFiles.pinDown': '下移',
 	// …以及一步到头：置顶区长了以后，一次挪一步要来回开这张菜单。

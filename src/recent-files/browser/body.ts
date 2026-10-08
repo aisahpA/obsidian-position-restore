@@ -7,20 +7,35 @@
 // render() 被调用那一刻所持有的东西，而它唯一能说回去的，是一行**可以**被要求的两件事
 // —— 去那里，以及走开。
 
-import { App, EventRef, Menu, MenuPositionDef, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
-import { navGroupKey } from '@/nav/entry';
+import { App, EventRef, Menu, MenuPositionDef, Notice, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
+import { navGroupKey, NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
-import { PlaceList } from '@/recent-files/places';
+import { PlaceList, PlaceExclusionReason, UnpinOutcome } from '@/recent-files/places';
 import { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { t } from '@/i18n';
 import { RecentFilesReads } from './reads';
 import { HeadingHit, RecentFilesList, RecentFilesListOptions } from './list';
 import { ArrowBar, type RecentFilesBrowserArrows } from './arrows';
 import { RowPreview } from './row-preview';
-import { LATE_READ_REDRAW_MS, TIME_REFRESH_MS } from './constants';
+import { LATE_READ_REDRAW_MS, TIME_REFRESH_MS, UNPIN_UNDO_NOTICE_MS } from './constants';
 
 // 列表元素 id 用的每体序号。
 let browserSeq = 0;
+
+// 一类排除在设置页上的那个名字：提示要念出「是哪条规则把行带走的」，而 places 只交出
+// 类别，名字归文案。system 没有读者立的规则，提示只说结果（见 explainUnpinDrop）。
+function excludedRuleLabel(reason: PlaceExclusionReason): string | undefined {
+	switch (reason) {
+		case 'folder':
+			return t('recentFiles.folders.name');
+		case 'property':
+			return t('recentFiles.frontmatterExclude.name');
+		case 'image':
+			return t('recentFiles.excludeImages.name');
+		case 'system':
+			return undefined;
+	}
+}
 
 // 浏览器**据以绘制的**偏好，由持久化它们的插件交给每个 shell。全部都是**读取器**而不是值：
 // 常驻面板在 render 期间的一次调用里画出它的列表，所以别处做出的一次改动会被下一次重画拾取，
@@ -569,7 +584,12 @@ export class RecentFilesBrowser {
 			return;
 		}
 		const last = this.opts.places.pinned.length - 1;
-		this.pinItem(menu, 'recentFiles.unpin', 'pin-off', () => this.unpin(key));
+		// 这一行只靠钉顶着规则时，取钉就是把它交给规则：项名提前说出后果、标成警示色，
+		// 免得读者忘了自己立过的规则，把行的消失读成删除（见 places.ts 的 unpin）。
+		const excluded = this.opts.places.wouldUnpinDrop(key);
+		this.pinItem(menu,
+			excluded ? 'recentFiles.unpinExcluded' : 'recentFiles.unpin',
+			'pin-off', () => this.unpin(key), !!excluded);
 		if (at > 0) {
 			this.pinItem(menu, 'recentFiles.pinUp', 'arrow-up', () => this.movePin(key, -1));
 			if (at > 1)
@@ -587,12 +607,18 @@ export class RecentFilesBrowser {
 		title: Parameters<typeof t>[0],
 		icon: string,
 		run: () => void,
+		// 这项的后果是把一行从列表上带走：app 的菜单自己会把警示项画成红色。
+		warn = false,
 	): void {
-		menu.addItem(item => item
-			.setSection('action')
-			.setTitle(t(title))
-			.setIcon(icon)
-			.onClick(run));
+		menu.addItem(item => {
+			item
+				.setSection('action')
+				.setTitle(t(title))
+				.setIcon(icon)
+				.onClick(run);
+			if (warn)
+				item.setWarning(true);
+		});
 	}
 
 	// 钉选是读者关于一篇笔记自己的答案，由 store 立刻写下（见 NavPlaces.pin）。**重画**在这里
@@ -604,8 +630,28 @@ export class RecentFilesBrowser {
 	}
 
 	private unpin(key: string): void {
-		this.opts.places.unpin(key);
+		const outcome = this.opts.places.unpin(key);
 		this.render();
+		if (outcome.dropped && outcome.place)
+			this.explainUnpinDrop(outcome, outcome.place);
+	}
+
+	// 行不是被「取消置顶」本身拿走的，是被一条读者自己立过、多半已经忘了的规则拿走的：
+	// 提示念出规则的名字，并留一颗「撤销」把行原样钉回来（见 restorePinned）。system
+	// 那类（配置目录、废纸篓）没有读者立的规则可念，只说结果。
+	private explainUnpinDrop(outcome: UnpinOutcome, place: NavEntry): void {
+		const rule = outcome.reason ? excludedRuleLabel(outcome.reason) : undefined;
+		const notice = new Notice(rule
+			? t('recentFiles.unpin.removedByRule', rule)
+			: t('recentFiles.unpin.removed'), UNPIN_UNDO_NOTICE_MS);
+		const undo = notice.messageEl.createEl('button', {
+			text: t('recentFiles.unpin.undo'), cls: 'position-restore-unpin-undo',
+		});
+		undo.addEventListener('click', () => {
+			this.opts.places.restorePinned(place);
+			this.render();
+			notice.hide();
+		});
 	}
 
 	private movePin(key: string, delta: number): void {

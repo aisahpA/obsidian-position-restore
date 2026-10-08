@@ -35,6 +35,20 @@ import { loadNavPlaces, persistNavPlaces } from './places-store';
 // 谁喂数据给它。这里什么都不去够取任何东西：组合根把这个 store 订阅到记录漏斗（见
 // nav/funnel.ts），它听到的导航与栈听到的相同 —— 两个列表从一次记录中留下不同的东西。
 
+// 一个路径此刻被哪一类规则挡在列表外。'system' 是读者没有写过、也无从关掉的那类
+// （空路径、配置目录、废纸篓）；其余三个一一对应设置页上读者自己立的规则，菜单预警
+// 与取消置顶后的提示要念得出它们的名字。
+export type PlaceExclusionReason = 'system' | 'folder' | 'image' | 'property';
+
+// 取消置顶的结果。行被规则当场带走时，`place` 是被拿掉的那一条整记录：提示上的
+// 「撤销」靠它原样放回（见 restorePinned），没有这条通道，读者得自己想起来是哪条
+// 规则、去设置关掉、再打开一次那个文件。
+export interface UnpinOutcome {
+	dropped: boolean;
+	reason?: PlaceExclusionReason;
+	place?: NavEntry;
+}
+
 export interface PlaceList {
 	// 最旧的在前。当作一个普通的 NavEntry 列表来读：浏览器里每个消费者都取那个形态，
 	// 并不因这个 store 而改变。**每条都是一行**：这里是 visit 与 view，别无其它。
@@ -76,7 +90,14 @@ export interface PlaceList {
 	// 上/下移；一次会越过末端的移动会让该行**停在**那个末端，这正是「移到最前」
 	// 想要的）。`key` 是行的身份，与 forget 所取的是同一个东西。
 	pin(key: string): void;
-	unpin(key: string): void;
+	unpin(key: string): UnpinOutcome;
+	// 这一行若**现在**取消置顶，会不会被规则当场带走、以及是哪一类规则：右键菜单在读者
+	// 点下去之前据此把那一项写成预警（见 body.ts 的 pinItems）。undefined = 取钉只取钉，
+	// 行留在列表。
+	wouldUnpinDrop(key: string): PlaceExclusionReason | undefined;
+	// 撤销一次「取消置顶导致的移出」：把 unpin 交出的那条记录原样放回 entries，并重新
+	// 钉住 —— 规则还在，是钉再次压过它（见 pruneExcluded）。
+	restorePinned(place: NavEntry): void;
 	movePinned(key: string, delta: number): void;
 	// 一行是否被钉选 —— 由绘制两个块的面板来问。
 	isPinned(key: string): boolean;
@@ -202,27 +223,33 @@ export class NavPlaces implements PlaceList {
 	// excludedFolders 与 frontmatterExcludeProperties，后者回答的是另一个问题
 	// （见 PluginSettings.recentFilesExcludeFolders / recentFilesExcludeProperties）。
 	private recordable(path: string): boolean {
+		return this.exclusionReason(path) === undefined;
+	}
+
+	// recordable 能说出名字的那一半：这个路径此刻被哪一类规则挡在列表外。布尔答案给
+	// 收录与修剪，点名答案给菜单预警和取消置顶后的那句提示，判据只有一份，免得两处漂移。
+	private exclusionReason(path: string): PlaceExclusionReason | undefined {
 		if (!path)
-			return false;
+			return 'system';
 		// Vault 内部的路径从不被列出：配置文件夹（无论用户怎么命名它 —— 见
 		// Vault#configDir）不是笔记，而 Obsidian 的废纸篓里装着记账员反正会丢掉的
 		// 文件。
 		const config = (this.app.vault as { configDir?: string }).configDir;
 		if (config && (path === config || path.startsWith(`${config}/`)))
-			return false;
+			return 'system';
 		if (path.startsWith('.trash/'))
-			return false;
+			return 'system';
 		const folders = this.settings.recentFilesExcludeFolders ?? [];
 		if (folders.some(folder => {
 			const clean = folder.replace(/\/+$/, '');
 			return !!clean && (path === clean || path.startsWith(`${clean}/`));
 		}))
-			return false;
+			return 'folder';
 		// 图片。它是这里唯一一个要问「这个文件是什么」的测试 —— 上面几条问的都是
 		// 它在哪儿 —— 而它由那个开关把着，关着时这一句一次也不跑。
 		if (this.settings.recentFilesExcludeImages && isImagePath(this.app, path))
-			return false;
-		return !this.excludedByFrontmatter(path);
+			return 'image';
+		return this.excludedByFrontmatter(path) ? 'property' : undefined;
 	}
 
 	// `status` 把每个带该属性的文件都挡在外面、无论其值，`status: archived` 只挡值
@@ -339,15 +366,44 @@ export class NavPlaces implements PlaceList {
 	// 取下一枚钉。钉选是这一行**唯一**能顶住规则的东西（见 pruneExcluded），所以把它
 	// 拿掉就该让规则立刻算数：一个早被某条规则排除、只靠钉选活着的行，此刻当场丢掉。
 	// 留到下一次规则变动才走是个更糟的答案 —— 读者今天还看得见它、明天就没了，
-	// 而他们手上没有任何能解释这件事的线索。
-	unpin(key: string): void {
+	// 而他们手上没有任何能解释这件事的线索。「立刻」本身造成的另一种困惑 —— 读者忘了
+	// 自己立过的规则，把行的消失读成删除 —— 由调用方用返回值治：菜单事前预警、事后给
+	// 一句点名规则的提示和撤销（见 body.ts 的 pinItems / unpin）。
+	unpin(key: string): UnpinOutcome {
 		const at = this.pinned.indexOf(key);
 		if (at < 0)
-			return;
+			return { dropped: false };
 		this.pinned.splice(at, 1);
 		const entry = this.entries.find(e => navGroupKey(e) === key);
-		if (entry && entry.kind !== 'view' && !this.recordable(entry.path))
+		const reason = entry && entry.kind !== 'view'
+			? this.exclusionReason(entry.path)
+			: undefined;
+		if (reason) {
+			// dropRow 也会摘钉，但钉在上面已经摘过了：先摘是为了把「这一行被带走的
+			// 理由」连同它的记录一起作为结果交出去。
+			const place = entry;
 			this.dropRow(key);
+			this.afterPinChange();
+			return { dropped: true, reason, place };
+		}
+		this.afterPinChange();
+		return { dropped: false };
+	}
+
+	wouldUnpinDrop(key: string): PlaceExclusionReason | undefined {
+		const entry = this.entries.find(e => navGroupKey(e) === key);
+		if (!entry || entry.kind === 'view')
+			return undefined;
+		return this.exclusionReason(entry.path);
+	}
+
+	restorePinned(place: NavEntry): void {
+		const key = navGroupKey(place);
+		// 幂等：连着点两次撤销不该得到一对重复行，钉数组也照旧只有一枚。
+		if (!this.entries.some(e => navGroupKey(e) === key))
+			this.entries.push(place);
+		if (!this.pinned.includes(key))
+			this.pinned.push(key);
 		this.afterPinChange();
 	}
 

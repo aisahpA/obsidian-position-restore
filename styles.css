@@ -112,6 +112,12 @@ body.is-mobile .position-restore-cue {
 	font-weight: 600;
 }
 
+/* 取消置顶把一行交给排除规则后，提示里那颗「撤销」与文案的间距。提示本身是 app 的
+   .notice，这里只管插件自己加上去的那颗按钮（见 body.ts 的 explainUnpinDrop）。 */
+.position-restore-unpin-undo {
+	margin-inline-start: 0.75em;
+}
+
 /* 最近文件浏览器（RecentFilesModal）：一列笔记，以及各自的落点。**两个** shell
    围着一个 body（见 body.ts）：对话窗口与常驻侧栏面板（RecentFilesView），两者
    共用的东西都写在 .position-restore-nav-panel 上 —— **两个**根都带这个类。

@@ -37,10 +37,21 @@ export class Notice {
 	static instances: Notice[] = [];
 	readonly message: string;
 	readonly duration: number | undefined;
+	// 挂按钮的地方（最近文件浏览器的「撤销」）：建进 body，测试才能像读者那样点到它。
+	// 真货 1.8.7 起叫 messageEl（旧名 noticeEl 已弃用），桩只给新名。
+	readonly messageEl: HTMLElement;
+	hidden = false;
 	constructor(message: string, duration?: number) {
 		this.message = message;
 		this.duration = duration;
+		this.messageEl = document.createElement('div');
+		this.messageEl.textContent = message;
+		document.body.appendChild(this.messageEl);
 		Notice.instances.push(this);
+	}
+	hide(): void {
+		this.hidden = true;
+		this.messageEl.remove();
 	}
 	static reset(): void {
 		Notice.instances = [];
@@ -233,6 +244,9 @@ export class MenuItem {
 	section = '';
 	title = '';
 	icon = '';
+	// app 把警示项画成红色：取消置顶会把一行交给规则的那一项用它（见 body.ts 的
+	// pinItems）。
+	warning = false;
 	click: (() => void) | undefined;
 	setSection(section: string): this {
 		this.section = section;
@@ -244,6 +258,10 @@ export class MenuItem {
 	}
 	setIcon(icon: string): this {
 		this.icon = icon;
+		return this;
+	}
+	setWarning(warning: boolean): this {
+		this.warning = warning;
 		return this;
 	}
 	onClick(fn: () => void): this {

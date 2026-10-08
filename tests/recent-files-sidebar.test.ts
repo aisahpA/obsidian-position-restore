@@ -193,13 +193,21 @@ class FakeNav {
 			fn();
 	}
 
-	unpin(key: string): void {
+	unpin(key: string): { dropped: boolean } {
 		const at = this.pinned.indexOf(key);
 		if (at >= 0)
 			this.pinned.splice(at, 1);
 		for (const fn of this.listeners)
 			fn();
+		// 外壳套件不演排除规则：取钉从不带走行（见 NavPlaces.unpin）。
+		return { dropped: false };
 	}
+
+	wouldUnpinDrop(): undefined {
+		return undefined;
+	}
+
+	restorePinned(): void {}
 
 	movePinned(key: string, delta: number): void {
 		const at = this.pinned.indexOf(key);
