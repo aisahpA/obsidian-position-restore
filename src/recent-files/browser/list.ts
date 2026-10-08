@@ -375,6 +375,12 @@ export class RecentFilesList {
 				this.choose(row);
 			else if (note)
 				this.choose(note);
+			// 那个槽位整个没了（过滤把它连同它所在的那一段都丢掉了）：没有一行能接住这个
+			// 位置，而这**不是**不做事 —— 过滤框的 aria-activedescendant 还指着那个槽位
+			// 编出来的 id（行 id 是按槽位下标生成的），一个已经没有元素的 id。屏幕阅读器
+			// 该听到的是「没有当前项」，不是一条悬空的引用。
+			else
+				this.clearSelection();
 		}
 	}
 

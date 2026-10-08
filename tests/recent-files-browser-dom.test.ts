@@ -1036,6 +1036,29 @@ describe('RecentFilesModal —— 键盘的无障碍声明', () => {
 		// 被落下的那一行不再声称自己是当前的。
 		expect(first.getAttribute('aria-selected')).toBe('false');
 	});
+
+	it('光标那一行整个被过滤掉时，把 aria-activedescendant 一起拿走', () => {
+		// 光标所在的那个**槽位**在整份列表里都不存在了（过滤把它连同它下面的一整段都
+		// 丢掉了）：没有一行能接住那个位置，而过滤框还指着那个槽位编出来的 id —— 一个
+		// 已经没有元素的 id。屏幕阅读器该听到的是「没有当前项」，不是一条悬空的引用。
+		const entries = [
+			visit('a.md', NOW - 3 * MINUTE), visit('b.md', NOW - 2 * MINUTE),
+			visit('c.md', NOW - MINUTE), visit('d.md', NOW),
+		];
+		const h = harness(entries, 3, { 'a.md': '', 'b.md': '', 'c.md': '', 'd.md': '' });
+		const input = h.el.querySelector<HTMLInputElement>('.position-restore-nav-filter');
+
+		// 走到列表最底下那一篇（最旧的），它的槽位是最深的那个。
+		for (let i = 0; i < 4; i++)
+			h.key('ArrowDown');
+		expect(input?.hasAttribute('aria-activedescendant')).toBe(true);
+
+		input!.value = 'd.md'; // 用 path 而不是 'd'：每一篇的 path 都以 `.md` 结尾
+		input!.dispatchEvent(new Event('input', { bubbles: true }));
+
+		expect(h.notes().map(r => r.querySelector('.nav-row-name')?.textContent)).toEqual(['d']);
+		expect(input?.hasAttribute('aria-activedescendant')).toBe(false);
+	});
 });
 describe('RecentFilesModal —— 输入法组合', () => {
 	// 中文/日文/韩文经输入法打字时，每一次击键都会发一个 input，而那时框里还是一串没定型的
