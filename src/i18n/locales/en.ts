@@ -163,7 +163,7 @@ export const en = {
 	'recentFiles.rowTime.name': 'Time on each row',
 	'recentFiles.rowTime.desc': 'Show how long ago each row was last visited. That is the last time you were there, and not the file\'s modification time. The exact moment is one hover away, on the label itself.',
 	'recentFiles.titleProperty.name': 'Name from a property',
-	'recentFiles.titleProperty.desc': 'Which frontmatter property a row prints as the note\'s name. A note without it — or whose value is not a single piece of text — keeps its file name.',
+	'recentFiles.titleProperty.desc': 'Which frontmatter property a row shows as the note\'s name. A list value uses its first item; a value that is not text keeps the file name. Leave empty to switch this off.',
 	'recentFiles.titleProperty.placeholder': 'e.g. title',
 	'recentFiles.age.now': 'now',
 	'recentFiles.age.m': 'm ago',

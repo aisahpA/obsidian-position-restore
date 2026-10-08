@@ -238,8 +238,9 @@ export class RecentFilesReads {
 // —— 这与「一个没有标题的文件」不是同一个答案：后者是一次真实的读取，而且会被留下
 // （见 metaFor）。
 // 读者要求一行把笔记**叫作**什么：一个 frontmatter 属性，只在这个属性持有一个**名字**时才读
-// 它。一个列表、一个数字、一个日期或一个被清空的值都不是 —— 一个在笔记里写了 `title: [a, b]`
-// 的 vault 命名的是别的东西，而一个靠猜的行会在本该是名字的地方显示一个列表或一个年份。
+// 它。一个**列表**算，取**第一项** —— 那是读者把想要的那个写在最前面的地方，`aliases: [读书笔记,
+// 周会]` 命名的是 读书笔记。一个数字、一个日期、一个被清空的值、或首项不是文本的列表都不是
+// 名字：一个靠猜的行会在本该是名字的地方显示一个年份。
 //
 // 大小写只在写下的那个没命中之后才试：在设置里命名这个属性的读者，不记得笔记里写的是 `title`
 // 还是 `Title`，而一次未命中就是一行默默改为显示它的文件名。
@@ -250,9 +251,11 @@ function frontmatterName(
 	if (!prop || !fm)
 		return undefined;
 	const asName = (value: unknown): string | undefined => {
-		if (typeof value !== 'string')
+		// 列表只认第一项，**不往后找**第一个能用的：那是猜。
+		const first: unknown = Array.isArray(value) ? (value as unknown[])[0] : value;
+		if (typeof first !== 'string')
 			return undefined;
-		const text = value.trim();
+		const text = first.trim();
 		return text || undefined;
 	};
 	const direct = asName(fm[prop]);

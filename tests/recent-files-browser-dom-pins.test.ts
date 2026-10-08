@@ -377,9 +377,9 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 		expect(names(h)).toEqual(['a', 'b']);
 	});
 
-	it('只认单段文本当名字', () => {
-		// 一个列表、一个年份或一个被清空的属性都不是名字：一个瞎猜的行会在本该是
-		// 读者笔记的地方印出 "[object Object]" 或 "2024"。
+	it('列表取第一项，其余不是文字的值不算名字', () => {
+		// 读者把想要的那个写在列表最前面，所以列表认首元。一个年份、或一个被清空的属性
+		// 都不是名字：一个瞎猜的行会在本该是读者笔记的地方印出 "2024"。
 		const h = harness([
 			visit('b.md', NOW - 3 * MINUTE),
 			visit('c.md', NOW - 2 * MINUTE),
@@ -390,7 +390,23 @@ describe('RecentFilesModal —— 行怎么称呼这篇笔记', () => {
 			'c.md': cacheWith({ title: '   ' }),
 		}, false, {}, named('title'));
 
-		expect(names(h)).toEqual(['a', 'c', 'b']);
+		expect(names(h)).toEqual(['one', 'c', 'b']);
+	});
+
+	it('首项不是文字就不算名字，不往后找', () => {
+		// 「取第一项」是一条规则，不是一个搜索：一个空列表、一个首项是年份的列表、
+		// 一个首项是空白的列表都退回文件名，而不是拿第二项凑一个名字出来。
+		const h = harness([
+			visit('a.md', NOW - 2 * MINUTE),
+			visit('b.md', NOW - MINUTE),
+			visit('c.md', NOW),
+		], 2, { 'a.md': '', 'b.md': '', 'c.md': '' }, [], {}, {
+			'a.md': cacheWith({ title: [] }),
+			'b.md': cacheWith({ title: [2024, 'x'] }),
+			'c.md': cacheWith({ title: ['  ', 'x'] }),
+		}, false, {}, named('title'));
+
+		expect(names(h)).toEqual(['c', 'b', 'a']);
 	});
 
 	it('按它印出来的名字能搜到，两篇同名的也能分辨', () => {
