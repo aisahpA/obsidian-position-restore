@@ -242,9 +242,10 @@ export class RestoreModes {
 		await this.anchorToSettledState(view, st, isCurrent);
 	}
 
-	// 这一步点名的那一行 —— **只认跳转**：`pendingLineFlash` 正是「这一步点名了一行」（见
-	// NavStack.armLandingMark）。一次普通打开的保存位置没有它 —— 那种落点是一整个**视口**，
-	// 它那一行必须留在顶上，不能拿去居中。答不出来时返回 undefined，调用方退回种子：
+	// 前进/后退这一步点名的那一行 —— `pendingLineFlash` 正是「这一步点名了一行」（见
+	// NavStack.armLandingMark），jump/visit/teleport 三种步都有。一次普通打开的保存位置
+	// 没有它，那种落点是一整个**视口**，它那一行必须留在顶上，不能拿去居中。答不出来时
+	// 返回 undefined，调用方退回种子：
 	//   · 不是源码模式（阅读模式没有编辑器原语，落法由 jumpTopBiasLines 那边管）；
 	//   · 不是点名的这篇笔记（标记是全局的）；
 	//   · 标记过期（一次从未落地的打开要求的行，不许在后来某次恢复里居中）；
@@ -348,7 +349,8 @@ export class RestoreModes {
 	// 一个点了名的行、正在赶路的步，在笔记这一侧要做的事：给它打标记，就像 app 给它自己的
 	// 大纲把读者带去的那一行打标记那样（见 NavStack.armLandingMark）。之所以在这一侧回答，
 	// 是因为每一条真正的恢复都终结于此 —— 标记于是落在**落定后**的落点上，而不是当初
-	// 请求的那一行。
+	// 请求的那一行。visit/teleport 的标记只在编辑模式兑现（sourceOnly）：阅读模式没有光标，
+	// 视口顶就是落点；jump 两种模式都标。
 	private markLandingLine(view: MarkdownView) {
 		const ask = this.state.pendingLineFlash;
 		if (!ask)
@@ -360,6 +362,8 @@ export class RestoreModes {
 		if (view.file?.path !== ask.path)
 			return;
 		this.state.pendingLineFlash = undefined;
+		if (ask.sourceOnly && view.getMode() !== 'source')
+			return;
 		this.state.cue.flashLine(view, ask.line);
 	}
 

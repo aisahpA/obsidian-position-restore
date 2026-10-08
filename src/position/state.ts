@@ -110,7 +110,9 @@ export class PositionState {
 	// 一个在途落点落地后要标记的那一行、它所属的笔记，以及它是何时被要求的（见
 	// NavStack.armLandingMark）。一次性、绑定 path，理由同上一个标记；另外还更短命，因为：
 	// 这里点名的那篇笔记可能循别的路径走到这一行，那就没有谁的标题该被标上。
-	pendingLineFlash: { path: string; line: number; at: number } | undefined;
+	// `sourceOnly`：visit/teleport 在阅读模式不闪（没有光标，视口顶就是落点）；
+	// jump 缺省，两种模式都闪。
+	pendingLineFlash: { path: string; line: number; at: number; sourceOnly?: boolean } | undefined;
 
 	// leafId -> 该 leaf 上最近一次注入式 open 被给予的落点。恢复器对注入来源的落定必须核对
 	// core 拿到的是同一行 —— 跨文件历史跳转之后，两者是有意不同的。

@@ -955,9 +955,9 @@ describe('NavStack.navigate', () => {
 		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
 	});
 
-	it('没有点名任何行的步，什么都不标', async () => {
-		// 一个步记的是阅读位置，不是标题，所以没有行可标，而它记下的光标原样
-		// 一路带过去。
+	it('visit 步落定后标出光标那一行', async () => {
+		// visit 记的是一个阅读位置：回到它时，标出条目自己记下的光标行，即使它与视口顶
+		// （scroll 5）不是同一行；光标行原样一路带过去。
 		const h = fileLeafHarness(42.3, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -972,6 +972,47 @@ describe('NavStack.navigate', () => {
 		await nav.stack.navigate(-1);
 
 		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+	});
+
+	it('teleport 步落定后标出目标行', async () => {
+		// teleport 是一次光标大跳：目标行条目自带，即使没记下 st 也标得出。
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 60, {
+			scroll: 60,
+			cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } },
+		});
+		// teleport 不是可直接前往的地点（travelTo 会拒绝）：再开一篇，后退一步才走到它。
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.stack.navigate(-1);
+
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+	});
+
+	it('visit/teleport 的标记在阅读模式不兑现', async () => {
+		// 阅读模式没有光标，视口顶就是唯一落点：visit 步走过去不闪。
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		(nav.stack.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		Object.assign(h.view, { getMode: () => 'preview' });
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.stack.navigate(-1);
+
 		expect(flashLine).not.toHaveBeenCalled();
 	});
 

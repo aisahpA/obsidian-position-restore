@@ -720,18 +720,30 @@ export class NavStack implements NavFunnelSink {
 		await this.modes.historyJumpApply(view, st, isCurrent, this.resolveAnchorShift(target));
 	}
 
-	// 让笔记「标出」这次落点讲的那一行：点明一行的条目就是 app 自己的大纲动作，而它自己的
-	// 大纲会标出它把读者带到的那个标题。跟落点一起重锚（见 resolveAnchorShift），所以之后
-	// 挪过位置的标题，标的是它现在站的地方、不是记录里说的那个。会过期：一次从未落地的打开
-	// 所要求的行，不许在后来某次恢复里亮起来。
+	// 让笔记「标出」这次落点讲的那一行：前进/后退走到的每一步都点名一行，编辑模式下落点
+	// 居中、落定后闪那一行，和 app 自己的大纲动作落出同一个样子。三种步各从哪儿取行：
+	//   · jump：锚点标题行（keyLine），跟落点一起重锚（见 resolveAnchorShift），所以之后
+	//     挪过位置的标题标的是它现在站的地方；阅读模式也标（小节整块）；
+	//   · teleport：跳跃的目标行，即使条目没记下 st 也答得出来；只在编辑模式标；
+	//   · visit：条目记下的光标行，没有光标再退回视口顶行；只在编辑模式标。
+	// 会过期：一次从未落地的打开所要求的行，不许在后来某次恢复里亮起来。
 	private armLandingMark(target: NavEntry) {
-		if (target.kind !== 'jump' || !target.st)
+		if (target.kind === 'view')
 			return;
-		const line = landedLine(target);
+		const line = target.kind === 'jump'
+			? landedLine(target)
+			: target.kind === 'teleport'
+				? target.line
+				: target.st?.cursor?.from.line ?? target.st?.scroll;
+		if (line === undefined)
+			return;
 		const shift = this.resolveAnchorShift(target);
-		this.state.pendingLineFlash = line === undefined
-			? undefined
-			: { path: target.path, line: Math.max(0, line + (shift ?? 0)), at: Date.now() };
+		this.state.pendingLineFlash = {
+			path: target.path,
+			line: Math.max(0, line + (shift ?? 0)),
+			at: Date.now(),
+			sourceOnly: target.kind !== 'jump' || undefined,
+		};
 	}
 
 	// 一次「同一文件」跳转所施加的落点。条目自己记的排第一（见 landingOf）；自己没记的步

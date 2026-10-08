@@ -80,8 +80,8 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 历史上那个可见抖动。
 
 **一次「点名一行」的跳转是个例外**：源码模式下它的落点由**编辑器自己**给
-（[`centerNamedLine()`](/src/position/restore/modes.ts#L275) 走 core 同一个 `scrollIntoView(..., true)`），
-而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L293)）——
+（[`centerNamedLine()`](/src/position/restore/modes.ts#L276) 走 core 同一个 `scrollIntoView(..., true)`），
+而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L294)）——
 读早了，上面那套纠正器会把刚落好的视口又拽回去。所以那一路只动一次、动在像素上；
 来由见 00 §5。
 
@@ -95,10 +95,11 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 误判成读者移动，没有宽限就是「一闪而过」。**面包屑的两道静音**（[`show()`](/src/position/ui/cue.ts#L67)）：这一屏里已经
 能看到标题就不复述（[`hasVisibleHeading()`](/src/position/ui/cue.ts#L145)），整篇只有一个标题也不念
 （[`breadcrumbPath()`](/src/position/ui/cue.ts#L38)）。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L102)）：
-大纲/搜索小节的跳转后两种模式都标；恢复时只在编辑模式标光标那一行（[`markRestoredLine()`](/src/position/restore/modes.ts#L371)），
-阅读模式不标：没有光标，视口顶就是唯一落点，闪小节整块只是噪音。都**只画一下、绝不移动视图**，
-方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、阅读模式加在渲染器章节元素
-[`previewLineElement()`](/src/position/ui/cue.ts#L193) 上）。
+前进/后退走到的每一步，编辑模式都把落点居中、落定后闪光标行（[`armLandingMark()`](/src/nav-history/stack.ts#L730)，
+[`markLandingLine()`](/src/position/restore/modes.ts#L354)），jump 两种模式都闪，visit/teleport 只在编辑模式；
+普通恢复（不是前进后退）走 [`markRestoredLine()`](/src/position/restore/modes.ts#L375)，也只在编辑模式标光标行。
+都**只画一下、绝不移动视图**，方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、
+阅读模式加在渲染器章节元素 [`previewLineElement()`](/src/position/ui/cue.ts#L193) 上）。
 ⚠️ **阅读模式别改用 `setEphemeralState({line})`**：那条路把这一行拉回视口顶，手机上新让开的
 那条带子会被一把收回，落点就又看不见了。
 
