@@ -136,19 +136,19 @@ export const en = {
 		'A list of the notes you opened recently: one row per note, with the main area\'s file-less views (the graph above all) taking a row each too, and a row opens that note. The filter can also search the headings inside each note: whichever ones it matches are drawn as rows beneath it, and one jumps straight to that section. The list belongs to the device it was made on: it does not sync with the vault, and it survives restarts.',
 
 	'recentFiles.folders.name': 'Folders not listed',
-	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list.',
+	'recentFiles.folders.desc': 'Files in these folders are not added to the recent files list. Pinned rows are not affected.',
 	'recentFiles.folders.list.empty': 'Every folder is listed.',
 	'recentFiles.folders.add': 'Add folder',
 	'recentFiles.frontmatterExclude.name': 'Properties not listed',
 	'recentFiles.frontmatterExclude.desc':
-		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is never added to the recent files list.',
+		'Exclude a whole class of notes by frontmatter: a file matching any entry in the list is never added to the recent files list. Pinned rows are not affected.',
 	'recentFiles.frontmatterExclude.formName': 'A property name on its own (`status`): any file carrying the property is left out, whatever its value.',
 	'recentFiles.frontmatterExclude.formValue': 'A name with a value (`status: archived`): only files whose value equals it are left out. yes/no/on/off compare as booleans; an array matches when any one element does.',
 	'recentFiles.frontmatterExclude.list.empty': 'Every file is listed.',
 	'recentFiles.frontmatterExclude.add': 'Add property',
 	'recentFiles.excludeImages.name': 'Leave out images',
 	'recentFiles.excludeImages.desc':
-		'Opening an image file no longer adds it to the recent files list. Turning this on also drops the image rows already on the list; turning it off starts listing images again, but the rows it dropped do not come back.',
+		'Opening an image file no longer adds it to the recent files list. Turning this on also drops the image rows already on the list (pinned rows are left alone); turning it off starts listing images again, but the rows it dropped do not come back.',
 	'recentFiles.cap.name': 'Notes to remember',
 	'recentFiles.cap.desc':
 		'How many notes the recent files list remembers (a view counts as one). Past that, the ones you have not opened for the longest are dropped; lowering it takes effect at once, and what it drops does not come back. Pinned rows do not count.',

@@ -70,7 +70,7 @@ path 一致才用，否则退回文件记录 —— 防止已经切走的 leaf �
 
 **`position-restore: true` 是逃生舱**（[`exclusion.ts:22`](/src/position/policy/exclusion.ts#L22)）：压过排除文件夹、最小行数、
 B 规则。字符串 `"true"/"false"` 也算（[`frontmatter.ts:39`](/src/position/policy/frontmatter.ts#L39)），因为属性面板存文本值会带引号。
-**最近文件列表故意不读这个逃生舱**（[`recordable()`](/src/recent-files/places.ts#L205)）—— 那是「要不要记位置」，
+**最近文件列表故意不读这个逃生舱**（[`recordable()`](/src/recent-files/places.ts#L204)）—— 那是「要不要记位置」，
 与「是不是读者去过的地方」是两件事。
 
 **元数据没解析完时返回 `undefined` = 无决定**（[`frontmatter.ts:73`](/src/position/policy/frontmatter.ts#L73)）：

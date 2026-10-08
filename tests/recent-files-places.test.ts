@@ -1044,9 +1044,26 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 		expect(keys(places)).toEqual(['a.md', 'b.md']);
 	});
 
-	it('后来加的规则本该排除它时，钉住的行照样丢掉', () => {
-		// 一条后来的规则就是关于那一行的后来的答案，而一个钉选是几个月前的一次手势，它
-		// 不知道读者后来想要什么（见 pruneExcluded）。
+	it('后来加的规则清不掉一个置顶的行', () => {
+		// 规则管的是列表**自己**收录的行，而钉是读者亲手打下的答案，比任何一条后来的
+		// 规则都更明确（见 pruneExcluded）：同一个文件夹里，没被钉的行走，被钉的留下。
+		const settings = makeSettings();
+		const places = new NavPlaces(makeApp(), settings);
+		places.remember(visit('notes/a.md'));
+		places.remember(visit('notes/b.md'));
+		places.pin('notes/a.md');
+
+		settings.recentFilesExcludeFolders = ['notes'];
+
+		expect(places.pruneExcluded()).toBe(1);
+		expect(keys(places)).toEqual(['notes/a.md']);
+		expect(places.pinned).toEqual(['notes/a.md']);
+	});
+
+	it('取消置顶的那一刻，一个本已被规则排除的行当场走', () => {
+		// 钉是它顶住规则的唯一理由（见 pruneExcluded），所以钉取下来的同时它就没了。
+		// 留到下一次规则变动才走是个更糟的答案：读者今天还看得见它、明天就没了
+		// （见 unpin）。
 		const settings = makeSettings();
 		const places = new NavPlaces(makeApp(), settings);
 		places.remember(visit('notes/a.md'));
@@ -1054,11 +1071,23 @@ describe('NavPlaces —— 把一行钉到顶部', () => {
 		places.pin('notes/a.md');
 
 		settings.recentFilesExcludeFolders = ['notes'];
+		places.pruneExcluded();
+		expect(keys(places)).toEqual(['notes/a.md', 'b.md']);
 
-		expect(places.pruneExcluded()).toBe(1);
+		places.unpin('notes/a.md');
+
 		expect(keys(places)).toEqual(['b.md']);
-		// ……钉选也跟着走：一个没了的行的钉选，是个什么也不展示的钉选。
 		expect(places.pinned).toEqual([]);
+	});
+
+	it('取消置顶不会碰一条仍然合规的行', () => {
+		const { places } = makePlaces();
+		places.remember(visit('a.md'));
+		places.pin('a.md');
+
+		places.unpin('a.md');
+
+		expect(keys(places)).toEqual(['a.md']);
 	});
 
 	it('钉住的行跟着它所指名的那个文件一起走', () => {

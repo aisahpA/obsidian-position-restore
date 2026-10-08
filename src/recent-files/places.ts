@@ -160,10 +160,9 @@ export class NavPlaces implements PlaceList {
 	// 不是设置项。钉选是读者关于**这份**列表的答案，而列表属于做出它的那台机器 ——
 	// 一个复制到另一台设备的 vault 要么把自己的行与钉选都带过去，要么都不带。
 	//
-	// 钉选被刻意排除在上限（见 trim）之外：上限约束的是列表靠**自己**记住的
-	// 东西，而被钉选的行是读者亲手命名的。它**不**被排除在规则之外（见
-	// pruneExcluded）—— 一条后来的规则就是关于那一行的后来的答案，而一个读者再也
-	// 看不到的行，不值得靠一个他们几个月前打下的钉选活下来。
+	// 钉选被刻意排除在**上限**（见 trim）与**规则**（见 pruneExcluded）之外：
+	// 两者约束的都是列表靠**自己**记住的东西，而被钉选的行是读者亲手命名的。
+	// 代价是规则也管不着它，于是只有读者自己 unpin 才能把它从列表上拿走（见 unpin）。
 	pinned: string[] = [];
 
 	private listeners = new Set<() => void>();
@@ -337,11 +336,18 @@ export class NavPlaces implements PlaceList {
 		this.afterPinChange();
 	}
 
+	// 取下一枚钉。钉选是这一行**唯一**能顶住规则的东西（见 pruneExcluded），所以把它
+	// 拿掉就该让规则立刻算数：一个早被某条规则排除、只靠钉选活着的行，此刻当场丢掉。
+	// 留到下一次规则变动才走是个更糟的答案 —— 读者今天还看得见它、明天就没了，
+	// 而他们手上没有任何能解释这件事的线索。
 	unpin(key: string): void {
 		const at = this.pinned.indexOf(key);
 		if (at < 0)
 			return;
 		this.pinned.splice(at, 1);
+		const entry = this.entries.find(e => navGroupKey(e) === key);
+		if (entry && entry.kind !== 'view' && !this.recordable(entry.path))
+			this.dropRow(key);
 		this.afterPinChange();
 	}
 
@@ -445,19 +451,20 @@ export class NavPlaces implements PlaceList {
 
 	// 列表的某条规则变了（设置标签页 —— 加了一个文件夹，或一个属性）：丢掉它现在
 	// 排除的行，好让一个读者再也无法被展示的行不继续在受限列表里占着槽位。
+	//
+	// 钉住的行不在丢掉之列：规则管的是列表靠**自己**收录的东西，而钉是读者亲手打下的
+	// 答案，比任何一条后来的规则都更明确（与 trim 里是同一处豁免）。一行被规则排除却
+	// 仍在列表上，只可能是它还钉着；把钉取下来那一刻它就走（见 unpin）。
 	// @returns 丢掉了多少行。
 	pruneExcluded(): number {
 		const current = this.entries[this.index];
-		const kept = this.entries.filter(e => e.kind === 'view' || this.recordable(e.path));
+		const pinned = new Set(this.pinned);
+		const kept = this.entries.filter(e =>
+			pinned.has(navGroupKey(e)) || e.kind === 'view' || this.recordable(e.path));
 		const removed = this.entries.length - kept.length;
 		if (removed === 0)
 			return 0;
 		this.entries = kept;
-		// 钉选**不**比规则活得久：一条后来的规则就是关于那一行的后来的答案，而一个
-		// 钉选是几个月前的一次手势，它不知道读者后来想要什么。钉选随它的行一起走
-		// —— 与一次删除、一次遗忘同样的规则（见 dropRow）。
-		const gone = new Set(kept.map(e => navGroupKey(e)));
-		this.pinned = this.pinned.filter(key => gone.has(key));
 		this.index = current && kept.includes(current) ? kept.indexOf(current) : -1;
 		this.changed();
 		return removed;

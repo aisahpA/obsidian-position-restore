@@ -179,14 +179,16 @@ export const zh: En = {
 	// 列表自己的文件夹规则，与位置记录的那条无关——两者不在同一页上，所以这一行
 	// 只说自己做什么。
 	'recentFiles.folders.name': '不收录的文件夹',
-	'recentFiles.folders.desc': '这些文件夹里的文件不会进入最近文件列表。',
+	// 这三条规则的说明都要带最后那半句：规则不清理已置顶的行（见 places.ts 的
+	// pruneExcluded），而读者不会跑去另一条规则下面找这个例外。
+	'recentFiles.folders.desc': '这些文件夹里的文件不会进入最近文件列表。已置顶的行不受影响。',
 	'recentFiles.folders.list.empty': '所有文件夹都会收录。',
 	'recentFiles.folders.add': '添加文件夹',
 	// 和上面的文件夹规则问的是同一件事，只是改由笔记自己回答，而不是看它放在哪。
 	// 两种写法各占一行：几乎所有读者都是来核对该写哪一种。
 	'recentFiles.frontmatterExclude.name': '不收录的属性',
 	'recentFiles.frontmatterExclude.desc':
-		'按 frontmatter 排除一整类笔记：命中列表里任一条目的文件，不会进入最近文件列表。',
+		'按 frontmatter 排除一整类笔记：命中列表里任一条目的文件，不会进入最近文件列表。已置顶的行不受影响。',
 	'recentFiles.frontmatterExclude.formName': '只写属性名（如 `status`）：文件只要带这个属性就不收录，不论值是多少。',
 	'recentFiles.frontmatterExclude.formValue': '写成 `属性: 值`（如 `status: archived`）：只有值相等才不收录。yes/no/on/off 按布尔比较；数组里任一元素相等即算命中。',
 	'recentFiles.frontmatterExclude.list.empty': '所有文件都会收录。',
@@ -195,7 +197,7 @@ export const zh: En = {
 	// 什么。默认关 —— 这份列表本就收录主区域里每一个目的地，而图片是不是其中之一由读者说。
 	'recentFiles.excludeImages.name': '不收录图片',
 	'recentFiles.excludeImages.desc':
-		'打开图片文件不再记入最近文件列表。打开这项会顺手清掉列表上已有的图片行；关掉之后图片照常收录，但被清掉的行不会回来。',
+		'打开图片文件不再记入最近文件列表。打开这项会顺手清掉列表上已有的图片行（已置顶的不清）；关掉之后图片照常收录，但被清掉的行不会回来。',
 	// 只数行，而一行就是一篇笔记（或一个视图）——没有第二个名额池，所以这个数只有
 	// 一个意思。
 	'recentFiles.cap.name': '记住多少篇笔记',
