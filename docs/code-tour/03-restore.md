@@ -17,9 +17,9 @@
 ## 入口在哪
 
 - [`Restorer`](/src/position/restore/restorer.ts#L13)：[`restoreEphemeralState`](/src/position/restore/restorer.ts#L33)、[`restoreOpen`](/src/position/restore/restorer.ts#L167)。
-- [`RestoreModes`](/src/position/restore/modes.ts#L22)：[`maskedRestore`](/src/position/restore/modes.ts#L90)、
-  [`landPreview`](/src/position/restore/modes.ts#L183)、[`restoreInjectedSource`](/src/position/restore/modes.ts#L38)、
-  [`historyJumpApply`](/src/position/restore/modes.ts#L206)。
+- [`RestoreModes`](/src/position/restore/modes.ts#L25)：[`maskedRestore`](/src/position/restore/modes.ts#L97)、
+  [`landPreview`](/src/position/restore/modes.ts#L206)、[`restoreInjectedSource`](/src/position/restore/modes.ts#L41)、
+  [`historyJumpApply`](/src/position/restore/modes.ts#L229)。
 - [`OpenPatcher`](/src/position/restore/patcher.ts#L39)：[`installPatches`](/src/position/restore/patcher.ts#L57)。
 - 触发点：`main.ts` 的 `file-open` / `active-leaf-change`，以及补丁本身。
 
@@ -56,10 +56,10 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 它要的是「在首绘遮罩下落定、再揭幕」那一套 —— 走 masked 恢复会绕开这次落定，
 让 leaf 一直盖着。
 
-**`scroll <= 0` 的记录不加盖布**（[`modes.ts:137`](/src/position/restore/modes.ts#L137)）：给「什么都没恢复」也加遮罩只会多一段空白，
+**`scroll <= 0` 的记录不加盖布**（[`modes.ts:166`](/src/position/restore/modes.ts#L166)）：给「什么都没恢复」也加遮罩只会多一段空白，
 安卓上尤其明显。
 
-**注入过的阅读落点也不加盖布**（[`restorer.ts:146`](/src/position/restore/restorer.ts#L146) → [`landPreview`](/src/position/restore/modes.ts#L183)）：阅读视图的首绘是异步的，
+**注入过的阅读落点也不加盖布**（[`restorer.ts:146`](/src/position/restore/restorer.ts#L146) → [`landPreview`](/src/position/restore/modes.ts#L206)）：阅读视图的首绘是异步的，
 跨文件打开一篇大笔记能到 2~3 秒，把这段渲染期遮住就是一片空白（同一个文件因为渲染器早已
 就绪则察觉不到）。而**注入过的落点已经交到 core 自己的渲染流水线上**（patcher 注入的
 `{scroll}` → `applyScrollDelayed` 在渲染器就绪时落它），没有「未恢复的顶部」要藏 —— 于是
@@ -69,7 +69,7 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 揭幕会掀掉 settle 期间首次绘制的盖布。supersession 按 **leaf** 作用域，不是全局（[`restorer.ts:242`](/src/position/restore/restorer.ts#L242)），
 否则另一个面板的 masked 恢复会被判废、盖布永久停在 opacity 0。
 
-**`.is-flashing` 存在就放弃恢复**（[`modes.ts:106`](/src/position/restore/modes.ts#L106)、[`modes.ts:187`](/src/position/restore/modes.ts#L187)）：那是 core 自己的目标优先
+**`.is-flashing` 存在就放弃恢复**（[`modes.ts:120`](/src/position/restore/modes.ts#L120)、[`modes.ts:205`](/src/position/restore/modes.ts#L205)）：那是 core 自己的目标优先
 （issue #10/#32/#46/#51）。
 
 **源模式必须自己量像素**（`pixels.ts` 存在的唯一理由）：`getScroll()` 会回显请求值，
@@ -80,13 +80,27 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 历史上那个可见抖动。
 
 **一次「点名一行」的跳转是个例外**：源码模式下它的落点由**编辑器自己**给
-（[`centerNamedLine()`](/src/position/restore/modes.ts#L276) 走 core 同一个 `scrollIntoView(..., true)`），
-而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L294)）——
+（[`centerNamedLine()`](/src/position/restore/modes.ts#L299) 走 core 同一个 `scrollIntoView(..., true)`），
+而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L317)）——
 读早了，上面那套纠正器会把刚落好的视口又拽回去。所以那一路只动一次、动在像素上；
 来由见 00 §5。
 
-**判「落位了」要两个条件都满足**（[`isRestoreStuck()`](/src/shared/wait.ts#L67)）：视图报告到了目标行 **且**（阅读模式）
-真正的 scroller 动过 —— 阅读模式的回读会在像素没动之前就把请求值回显出来。
+**判「落位了」要两个条件都满足，且「读不出来」算「还没落定」**（[`isRestoreStuck()`](/src/shared/wait.ts#L104)）：
+视图报告到了目标行 **且**（阅读模式）真正的 scroller 动过 —— 阅读模式的回读会在像素没动之前
+就把请求值回显出来。渲染器没量完时 `getScroll()` 报的是 `null`，那**不是**「已经落定」
+（读成 0 就等于「文件顶部」），必须接着等。
+
+**阅读的遮罩要盖到「真落定」，整段只用一条预算**（[`maskedRestore()`](/src/position/restore/modes.ts#L97) 里的 `maskDeadline`）：
+预览渲染器**分趟**跑，而它的 `applyScroll` 要求目标行**之前**的每个 section 都已 `computed`
+（否则直接拒绝）⇒ **什么时候能落由渲染器决定，与谁先请求无关**。所以拿源码那 600ms
+（[`RESTORE_PAINT_DEADLINE`](/src/shared/wait.ts#L23)）去盖阅读，稍微大一点的笔记就会提前揭幕：
+读者先看见还在顶部的半成品，而那次没能落下去、被排进渲染器 `rendered` 队列的施加随后才生效
+—— 就是「先看见顶部、再接着跳」。阅读那条预算见
+[`RESTORE_MASK_BUDGET_PREVIEW`](/src/shared/wait.ts#L40)：**内容就绪与揭幕确认共享它**
+（拆成两条会相加，曾经 4 秒），超预算的笔记回到「先看见顶部再跳」，残差由移动端本来就有的
+drift 纠正循环收尾。
+⚠️ **别指望「让阅读 open 也注入落点」来解决它**：注入只是把请求提前，落不落仍由渲染器那道
+`computed` 门说了算 —— 早请求 ≠ 早落。
 
 **盖布只隐藏内层 `.view-content`，不隐藏整个 `containerEl`**（[`cover.ts:87`](/src/position/ui/cover.ts#L87)）：
 后者会把主题页背景露出来（`COVER_SAFETY_MS = 2000` 必须包住「内容就绪 + settle + 静默保持」全程）。
@@ -96,8 +110,8 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 能看到标题就不复述（[`hasVisibleHeading()`](/src/position/ui/cue.ts#L145)），整篇只有一个标题也不念
 （[`breadcrumbPath()`](/src/position/ui/cue.ts#L38)）。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L102)）：
 前进/后退走到的每一步，编辑模式都把落点居中、落定后闪光标行（[`armLandingMark()`](/src/nav-history/stack.ts#L788)，
-[`markLandingLine()`](/src/position/restore/modes.ts#L354)），jump 两种模式都闪，visit/teleport 只在编辑模式；
-普通恢复（不是前进后退）走 [`markRestoredLine()`](/src/position/restore/modes.ts#L375)，也只在编辑模式标光标行。
+[`markLandingLine()`](/src/position/restore/modes.ts#L377)），jump 两种模式都闪，visit/teleport 只在编辑模式；
+普通恢复（不是前进后退）走 [`markRestoredLine()`](/src/position/restore/modes.ts#L398)，也只在编辑模式标光标行。
 都**只画一下、绝不移动视图**，方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、
 阅读模式加在渲染器章节元素 [`previewLineElement()`](/src/position/ui/cue.ts#L193) 上）。
 ⚠️ **阅读模式别改用 `setEphemeralState({line})`**：那条路把这一行拉回视口顶，手机上新让开的

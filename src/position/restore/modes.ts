@@ -1,7 +1,10 @@
 import { MarkdownView, Platform } from 'obsidian';
 import { EphemeralState, NavEntryState } from '@/types';
 import { applyEphemeralState, readEphemeralState, remapAnchoredState, shiftNavState } from '@/position/capture/ephemeral';
-import { ANCHOR_SETTLE_DELAY, delay, nextPaint, waitForContentReady, waitForRestorePainted } from '@/shared/wait';
+import {
+	ANCHOR_SETTLE_DELAY, CONTENT_READY_MAX_MS, delay, nextPaint, RESTORE_MASK_BUDGET_PREVIEW,
+	RESTORE_PAINT_DEADLINE, waitForContentReady, waitForRestorePainted,
+} from '@/shared/wait';
 import { PositionState } from '@/position/state';
 import { SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SourcePixelCorrector } from './pixels';
 
@@ -87,6 +90,10 @@ export class RestoreModes {
 	//
 	// `apply` 应用位置，并在可滚动时返回 true，这样遮罩会一直留着，直到编辑器
 	// 报告出那一行（有界）；同步类恢复只等两帧来确认结果已经画出来。
+	//
+	// 盖子从盖上到揭开走**一条**预算（maskDeadline）：内容就绪与揭幕确认共享它，
+	// 所以读者被遮住的时长有确定的上界，而不是各段上限之和。见 wait.ts 的
+	// RESTORE_MASK_BUDGET_PREVIEW。
 	private async maskedRestore(
 		view: MarkdownView,
 		st: EphemeralState | undefined,
@@ -97,11 +104,23 @@ export class RestoreModes {
 		// revealRestoreCover 和 restoreEphemeralState 顶部那一个（给被顶掉的
 		// 恢复用）。
 		this.state.cover.restoreCover(view);
+		// 遮罩从这一刻起算，**整段被遮住的阶段共享这一条预算**：读者能感知的只有「盖上到
+		// 揭开」这一段，所以只该有一个数 —— 拆成几段独立的上限会相加（曾经 2000 + 2000）。
+		const maskDeadline = Date.now() + (view.getMode() === 'preview'
+			? RESTORE_MASK_BUDGET_PREVIEW
+			: RESTORE_PAINT_DEADLINE);
+		// 等待期间的一条触摸基准：比这次恢复更晚的读者输入说明他们接管了 —— 不能再往目标上
+		// 拽（遮罩照揭，由 finally 管）。两个平台各有自己的信号，同 sampler 的 hasUserIntent：
+		// 移动端 touchstart，桌面端 wheel / pointerdown / keydown。这次 open 自己那一下
+		// 的输入早于基准（基准在恢复入口取），所以不会把自己挡掉。
+		const touchBaseline = Math.max(this.state.lastTouchAt, this.state.lastUserInputAt);
+		const stillOurs = () => isCurrent()
+			&& Math.max(this.state.lastTouchAt, this.state.lastUserInputAt) <= touchBaseline;
 		try {
-			// 等阅读渲染器把这篇笔记产出来（有界）。链接高亮的 span 会随这次
-			// 渲染一起出现，所以这也把 .is-flashing 的重检安排在它可能存在
-			// 的时刻。
-			await waitForContentReady(view, isCurrent);
+			// 等阅读渲染器把这篇笔记产出来（有界，且只花遮罩预算里剩下的那部分）。链接高亮的
+			// span 会随这次渲染一起出现，所以这也把 .is-flashing 的重检安排在它可能存在的
+			// 时刻。
+			await waitForContentReady(view, isCurrent, Math.min(CONTENT_READY_MAX_MS, maskDeadline - Date.now()));
 			if (!isCurrent())
 				return;
 
@@ -116,10 +135,14 @@ export class RestoreModes {
 
 			const scrollable = apply();
 
-			// 一直遮着，直到编辑器报告出那一行（有界，免得失败时遮成一片
-			// 空白）。scrollable 已经蕴含 st 非空且可滚动。
+			// 一直遮着，直到编辑器报告出那一行（有界，免得失败时遮成一片空白）。scrollable
+			// 已经蕴含 st 非空且可滚动。这里只花遮罩预算**剩下的那部分** —— 内容就绪可能已经
+			// 吃掉大半，两者的和必须落在同一个 maskDeadline 之内（见 wait.ts 的
+			// RESTORE_MASK_BUDGET_PREVIEW）。剩下的不够就直接揭幕，不等。
 			if (scrollable && st) {
-				await waitForRestorePainted(view, st, isCurrent);
+				const remaining = maskDeadline - Date.now();
+				if (remaining > 0)
+					await waitForRestorePainted(view, st, stillOurs, remaining);
 			} else {
 				// 同步类恢复；两帧确保结果已经画出来。
 				await nextPaint();
