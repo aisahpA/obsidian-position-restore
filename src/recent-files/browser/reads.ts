@@ -232,11 +232,6 @@ export class RecentFilesReads {
 	}
 }
 
-// 读一个 path 的元数据，经由缓存、绝不碰磁盘。`path` 对没有 path 的视图为空：没有文件可查。
-//
-// NULL 的意思是「Obsidian 还没解析这个文件」—— 一个它还在建索引的、或一个同步刚放回来的
-// —— 这与「一个没有标题的文件」不是同一个答案：后者是一次真实的读取，而且会被留下
-// （见 metaFor）。
 // 读者要求一行把笔记**叫作**什么：一个 frontmatter 属性，只在这个属性持有一个**名字**时才读
 // 它。一个**列表**算，取**第一项** —— 那是读者把想要的那个写在最前面的地方，`aliases: [读书笔记,
 // 周会]` 命名的是 读书笔记。一个数字、一个日期、一个被清空的值、或首项不是文本的列表都不是
@@ -268,6 +263,11 @@ function frontmatterName(
 	return undefined;
 }
 
+// 读一个 path 的元数据，经由缓存、绝不碰磁盘。`path` 对没有 path 的视图为空：没有文件可查。
+//
+// NULL 的意思是「Obsidian 还没解析这个文件」—— 一个它还在建索引的、或一个同步刚放回来的
+// —— 这与「一个没有标题的文件」不是同一个答案：后者是一次真实的读取，而且会被留下
+// （见 metaFor）。
 function readMeta(app: App, path: string, titleProperty: string): FileMeta | null {
 	const file = path ? app.vault.getAbstractFileByPath(path) : null;
 	const cache = file instanceof TFile ? app.metadataCache?.getFileCache?.(file) : null;
