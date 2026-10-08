@@ -229,9 +229,10 @@ export function positionSettingsPage(ctx: SettingsPageContext): SettingDefinitio
 						frag.createDiv({ text: t('dataStorage.dbFileName.desc') });
 						frag.createDiv({ cls: 'mod-muted', text: t('dataStorage.dbFileName.current', current) });
 						// 文件在哪，一行弱化说明。默认位置在插件文件夹里，
-						// 而多数同步方案不会整个带着它 —— 这是记录悄悄跟不上
-						// 用户到另一台设备之前，读者需要知道的事实。
-						// 它不点名任何同步客户端：那条规则属于对话框。
+						// Obsidian Sync 不会带走它：这条事实要在记录悄悄跟不上
+						// 读者到另一台设备之前让他看到，所以直接点名，并给出路
+						// （点「更改」挪进仓库）。细节（白名单四件套、隐藏文件夹
+						// 规则）仍留给对话框里的 syncHint。
 						frag.createDiv({
 							cls: 'mod-muted',
 							text: state === 'config'

@@ -3,12 +3,12 @@ import type { En } from './en';
 export const zh: En = {
 	// ═══ 位置记录 ═══ 记什么、怎么回来、记录存在哪
 	'lastPosition.heading': '最后位置',
-	// 整页在说什么，开头说一次（settings/page 的 intro 行）：记住的是什么、
-	// 记录存在哪。下面任何一行都说不了这两件事。「每个标签页各记各的」刻意
-	// 不在这里说：那是本机 localStorage 的覆盖层，放在「记在库里的 JSON 文件里」
-	// 旁边，读者会以为它也能跟着换设备。
+	// 整页开头只说功能本身：记住的是什么、怎么落回。记录存在哪、会不会被
+	// 同步带走，由「数据存储」区的状态行自己讲，不在开头抢先说。「每个标签页
+	// 各记各的」也刻意不在这里说：那是本机 localStorage 的覆盖层，放在这里
+	// 读者会以为它也能跟着换设备。
 	'lastPosition.intro':
-		'每篇笔记都记得光标停在哪一行、滚到了哪里，再次打开直接落回那一处——不会先在文件顶部闪一下再跳过去。位置记在库里的一个 JSON 文件里，默认放在插件目录内——Obsidian Sync 不会从那里带走它；想让位置跟着你换设备，到下面「数据存储」把路径改到仓库内即可。',
+		'每篇笔记都记得光标停在哪一行、滚到了哪里，再次打开直接落回那一处，不会先在文件顶部闪一下再跳过去。',
 
 	'openAndRestore.heading': '打开与恢复',
 
@@ -85,9 +85,10 @@ export const zh: En = {
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
 	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
-	'dataStorage.dbFileName.syncLocal': '位于插件目录内（默认）——它是否随 vault 同步，取决于你使用的同步工具。',
-	'dataStorage.dbFileName.syncVault': '位于仓库内——普通仓库文件，任何同步工具都能同步它。',
-	'dataStorage.dbFileName.syncHidden': '位于隐藏文件夹内——部分同步工具会跳过以“.”开头的文件夹。',
+	'dataStorage.dbFileName.syncLocal':
+		'位于插件目录内（默认）。Obsidian Sync 不会从插件目录带走这个文件；想让位置跟着换设备，点「更改」把路径改到仓库内。其他同步工具是否带走它，取决于它们会不会同步插件目录。',
+	'dataStorage.dbFileName.syncVault': '位于仓库内。这是一个普通仓库文件，任何同步工具都能同步它。',
+	'dataStorage.dbFileName.syncHidden': '位于隐藏文件夹内。部分同步工具会跳过以“.”开头的文件夹。',
 	'dataStorage.dbFileName.syncSummary': '这个文件会被 Obsidian Sync 同步吗？',
 	'dataStorage.dbFileName.syncHint':
 		'Obsidian Sync 只会从社区插件目录中同步 data.json、main.js、manifest.json 和 styles.css，因此数据文件留在默认位置时不会离开写入它的那台设备。想让位置在设备之间跟着你走，请把数据文件指向仓库内的路径（用下方的按钮选择或新建文件夹），并在每台设备的 Obsidian Sync 中开启“同步其他所有类型文件”。以“.”开头的文件夹永远不会被 Obsidian Sync 同步，请选择普通的仓库文件夹。',

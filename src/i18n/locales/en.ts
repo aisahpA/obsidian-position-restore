@@ -2,7 +2,7 @@ export const en = {
 	// ═══ Position record ═══ what is kept, how it comes back, where it lives
 	'lastPosition.heading': 'Last position',
 	'lastPosition.intro':
-		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot — no flash at the top first, no jump afterwards. Positions are kept in a JSON file inside the vault, by default in the plugin folder — Obsidian Sync does not carry it from there, so to take your positions to another device, point the path inside the vault (under Data storage below).',
+		'Every note remembers where its cursor sat and how far it was scrolled, and opening it again lands on that spot, with no flash at the top first and no jump afterwards.',
 
 	'openAndRestore.heading': 'Open & restore',
 	'openAndRestore.linkOpenPosition.name': 'When opening from a link',
@@ -76,9 +76,10 @@ export const en = {
 	'dataStorage.dbFileName.messages.merged': 'Adopted the existing database file and merged {0} record(s) from it.',
 	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',
-	'dataStorage.dbFileName.syncLocal': 'Inside the plugin folder (the default) — whether it travels with your vault depends on the sync client.',
-	'dataStorage.dbFileName.syncVault': 'Inside the vault — an ordinary vault file, which any sync client can carry.',
-	'dataStorage.dbFileName.syncHidden': 'Inside a hidden folder — some sync clients skip folders whose name starts with ".".',
+	'dataStorage.dbFileName.syncLocal':
+		'Inside the plugin folder (the default). Obsidian Sync does not carry this file out of the plugin folder; to take positions to another device, click "Change" and point the path inside the vault. Whether other sync clients carry it depends on whether they sync the plugin folder.',
+	'dataStorage.dbFileName.syncVault': 'Inside the vault. This is an ordinary vault file, which any sync client can carry.',
+	'dataStorage.dbFileName.syncHidden': 'Inside a hidden folder. Some sync clients skip folders whose name starts with ".".',
 	'dataStorage.dbFileName.syncSummary': 'Will Obsidian Sync carry this file?',
 	'dataStorage.dbFileName.syncHint':
 		'Obsidian Sync takes only data.json, main.js, manifest.json and styles.css out of a community plugin folder, so the database never leaves the device it was written on while it sits in the default location. To make positions follow you between devices, point this setting at a path inside the vault — the buttons below pick or create the folder for you — and enable "Sync all other types" in Obsidian Sync on every device. Folders whose name starts with "." are never synced by Obsidian Sync, so choose an ordinary vault folder.',
