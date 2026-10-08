@@ -27,6 +27,7 @@ export default class PositionRestorePlugin extends Plugin {
 		this.manager.installPatches(cleanup => this.register(cleanup));
 		this.manager.installExplorerPreview(cleanup => this.register(cleanup));
 		this.manager.installBackgroundSettle(cleanup => this.register(cleanup));
+		this.manager.installPathBookkeeping(cleanup => this.register(cleanup));
 		this.registerCommands();
 
 		this.registerWorkspaceEvents();

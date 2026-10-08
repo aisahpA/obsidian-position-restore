@@ -186,6 +186,25 @@ describe('PathBookkeeper 删除', () => {
 		expect(h.store.deleteFile).not.toHaveBeenCalled();
 		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
 	});
+
+	// 两次预约都挂在裸的 `setTimeout` 上，不属于任何事件监听器：插件卸载 / 重载时
+	// 没有东西替它们收场，于是它们会在一个已经不认那些 store 的地方动手（见
+	// dispose）。两张表要一起收 —— 清扫窗口和删除窗口一样，到点也会写 store。
+	it('收摊之后，两个窗口里的预约都不再响', async () => {
+		vi.useFakeTimers();
+		const h = makeHarness();
+		h.navStore.knownPaths.mockReturnValue(['b.md']);
+
+		h.bookkeeper.deleteFile(h.file('a.md')); // 删除窗口
+		h.bookkeeper.sweepMissingHistory(); // 清扫窗口
+
+		h.bookkeeper.dispose();
+
+		await vi.advanceTimersByTimeAsync(LONG_AFTER);
+		expect(h.store.deleteFile).not.toHaveBeenCalled();
+		expect(h.navStore.deleteFile).not.toHaveBeenCalled();
+		expect(h.navStore.persist).not.toHaveBeenCalled();
+	});
 });
 
 describe('PathBookkeeper 启动扫描', () => {

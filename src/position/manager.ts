@@ -384,6 +384,12 @@ export class PositionManager {
 		this.bookkeeper.sweepMissingHistory();
 	}
 
+	// 记账器的收场。它没有事件监听器可被 `registerEvent` 收走，只有两个预约窗口 ——
+	// 裸的 `setTimeout`，会在插件已经不在了之后去动那些 store，所以它们得自己有人来收。
+	installPathBookkeeping(registerCleanup: (fn: () => void) => void) {
+		registerCleanup(() => this.bookkeeper.dispose());
+	}
+
 	// 栈的上限变了：把它施加到内存里已有的栈上，而不是等下一次导航一次丢掉一大块。
 	applyNavHistoryCap(): void {
 		this.stack.applyStackCap();

@@ -149,4 +149,16 @@ export class PathBookkeeper {
 		for (const nav of this.navStores)
 			nav.deleteFile(path);
 	}
+
+	// 收摊：两个窗口里的预约一起放掉。它们是裸的 `setTimeout`，不属于任何事件监听器
+	// —— 那些监听器被 `registerEvent` 收走时，这些还在跑，而它们要执行的那次 prune
+	// 会去写一个插件已经不认的 store。取消**一次**预约的正面理由是 cancelPending；
+	// 这里是把它们整个收掉，只在卸载时来一次。
+	dispose(): void {
+		for (const map of [this.pendingDeletes, this.pendingSweeps]) {
+			for (const id of map.values())
+				window.clearTimeout(id);
+			map.clear();
+		}
+	}
 }
