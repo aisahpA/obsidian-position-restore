@@ -22,7 +22,7 @@
   `sampleActiveView`、`navigateBack/Forward`、`goToEdge`、`applyChangedSettings` 等。
 - [`PositionState`](/src/position/state.ts#L16)—— 所有跨阶段状态都挂在它上面。
 
-## 数据怎么流：装配顺序（[`main.ts:17`](/src/main.ts#L17) 起）
+## 数据怎么流：装配顺序（[`main.ts:onload()`](/src/main.ts#L17) 起）
 
 ```
 1. loadSettings()         ← Object.assign 合并进既有对象，对象身份不能换（见下）
@@ -41,7 +41,7 @@
 14. restoreEphemeralState()（最后一次，同步）
 ```
 
-**设置对象身份不能换**（[`main.ts:61`](/src/main.ts#L61)）：`PositionManager` 与 `NavPlaces` 在构造时就抓住这个
+**设置对象身份不能换**（[`main.ts:loadSettings()`](/src/main.ts#L49)）：`PositionManager` 与 `NavPlaces` 在构造时就抓住这个
 引用并实时读它，所以只能用 `Object.assign` 就地合并。
 
 **两个 store 的接线在这里**（[`manager.ts:65`](/src/position/manager.ts#L65) 起）：
@@ -63,7 +63,7 @@ places.attach({openFile→stack.openFilePlain,
 **设置写入只有一条路径**（[`setControlValue()`](/src/settings/tab.ts#L49)）：浅拷贝快照 → 就地写字段 →
 `manager.applyChangedSettings(before)`（按 diff 决定后果）→ 命中 `BROWSER_PREF_KEYS`
 就请求面板重画 → `saveSettings()` → 命中 `PAGE_SHAPE_KEYS` 就整页重绘。
-外部改写 `data.json`（[`main.ts:76`](/src/main.ts#L76)）走**同一张表**。
+外部改写 `data.json`（[`main.ts:onExternalSettingsChange()`](/src/main.ts#L76)）走**同一张表**。
 
 `BROWSER_PREF_KEYS` 装的是「已经站在屏幕上的面板据以绘制的偏好」（四个 recentFiles* 键）——
 它们不产生派生状态，但旁边已经画好的面板得被要求重画一次。

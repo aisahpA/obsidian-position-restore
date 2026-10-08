@@ -34,7 +34,7 @@ PositionStore ──► 按 leaf 的覆盖层（localStorage，同步写）
 CursorPositionDatabase ──► positions.json（默认在插件目录内）
         │
         ▼
-每 5 秒 flush（[`registerDbFlush()`](/src/main.ts#L210)），退出时交给 app 的 Tasks
+每 5 秒 flush（[`registerDbFlush()`](/src/main.ts#L211)），退出时交给 app 的 Tasks
 ```
 
 为什么要两层：**同一篇笔记开在两个标签页，是两个位置**。按文件的记录才是要跟设备走的那个；

@@ -3,7 +3,7 @@
 ## 这段是干什么的
 
 把去过的**笔记**列出来。**它是「笔记登记簿」，不是「走过的路」** —— 这与前进后退栈的区别
-写在 [`places.ts:13`](/src/recent-files/places.ts#L13)：栈是遍历工具（有序、绑游标、跳转即截断，且**照记跳转与落点**），这个
+写在 [`places.ts`](/src/recent-files/places.ts#L12)：栈是遍历工具（有序、绑游标、跳转即截断，且**照记跳转与落点**），这个
 列表是无序登记簿（跳转不截断、按笔记去重、**跳转一律降级成访问**）。
 
 ⇒ **一份记录 = 一行，身份就是它的 path**（无路径视图是它的视图类型），没有第二套身份
@@ -39,7 +39,7 @@
 
 ## 数据怎么流
 
-**一次重画**（[`body.ts:253`](/src/recent-files/browser/body.ts#L268)）：
+**一次重画**（[`body.ts:render()`](/src/recent-files/browser/body.ts#L268)）：
 
 ```
 重指 listOpts.entries / currentIndex
@@ -47,11 +47,11 @@
   → arrowBar.refresh()
 ```
 
-`list.render()` 内部又分（[`list.ts:312`](/src/recent-files/browser/list.ts#L312)）：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
+[`list.render()`](/src/recent-files/browser/list.ts#L312) 内部又分：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
 它印着的那个小节）→ `list.empty()` 整表重建 → 清描述缓存 → `groupByFile` → 钉住的提到顶 →
 标出重名 → 每组先画**文件行**、再画它**搜到的小节**各一行 → 按槽位恢复选中。
 
-**悬停预览这条链路**（[`row-preview.ts:53`](/src/recent-files/browser/row-preview.ts#L53)）：
+**悬停预览这条链路**（[`row-preview.ts:hoverRow()`](/src/recent-files/browser/row-preview.ts#L53)）：
 
 ```
 list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex : undefined)
@@ -65,7 +65,7 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 
 **重画成本几乎全在 DOM**（0.26ms/行，线性）⇒ 只做「少画几次」「别全量重建」；
 **memo / 脏标记 / 合并重画都别做**。仓库里唯一做的「合并」发生在**离开视野**时
-（手机让位 `view.ts`、迟到读取 [`body.ts:294`](/src/recent-files/browser/body.ts#L294) 的 `redrawSoon`），那是延迟，不是去脏。
+（手机让位 `view.ts`、迟到读取 [`body.ts:redrawSoon()`](/src/recent-files/browser/body.ts#L309)），那是延迟，不是去脏。
 
 **点击必须按身份解析**（`list.ts`）**：跳转会让 store 重排，索引立刻失效。
 `el.click()` 这种没有 press 的点击**什么都不打开** —— 打不开是能承受的失败，
@@ -79,14 +79,14 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 笔记下面再画一条声明，说出还剩几个（`hiddenHits`，`.position-restore-nav-more`）—— 它不带
 `role="option"`、不进 `refs`，所以它不是一行。
 
-**hover 的判据是「指针真的动了」**（[`list.ts:861`](/src/recent-files/browser/list.ts#L861)）：`pointerover` 在元素「来到」指针下时
+**hover 的判据是「指针真的动了」**（[`list.ts:hoverAt()`](/src/recent-files/browser/list.ts#L861)）：`pointerover` 在元素「来到」指针下时
 也会触发，热键在鼠标停住时弹出的面板会给每一行都报一次到达。面板听到的第一个事件不算移动。
 
 **MRU 顺序靠数组末尾**（`places.ts`）：碰过的笔记移到数组末尾，因为 list 把索引当钟读
 （`list.ts`）—— 原地更新会让刚碰过的笔记显得更旧。
 
-**两条天花板，同一个数字**（[`places.ts:538`](/src/recent-files/places.ts#L711)）：按行裁（`cap()`）。钉住的行不计入上限也不会
-被淘汰；当前所在的行不被裁掉。钉**也是规则的例外**：⚠️ [`pruneExcluded`](/src/recent-files/places.ts#L515)
+**上限按行裁，钉住行豁免**（[`trim`](/src/recent-files/places.ts#L711)）：数字来自 `cap()`，一篇笔记就是一行。
+钉住的行不计入上限也不会被淘汰；当前所在的行不被裁掉。钉**也是规则的例外**：⚠️ [`pruneExcluded`](/src/recent-files/places.ts#L515)
 的 `kept` 放行 `pinned` 里的 key，一条后来的规则清不掉一个置顶的行 —— 规则管的是列表
 **自己**收录的东西，而钉是读者亲手打下的答案。一行被规则排除却仍在列表上，只可能是它还钉着；
 取消置顶那一刻它**仍然当场走**、不弹确认（[`unpin`](/src/recent-files/places.ts#L372)）：摘钉后
@@ -113,10 +113,10 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 live buffer / 磁盘文本三级链已于 2026-10-05 随落点行一起撤掉。
 
 **缓存不记「未命中」**（`reads.ts`）：未解析 ≠ 无标题，记住一次 miss 会熬过整个同步窗口。
-**`prime` 是性能闸门**（[`reads.ts:188`](/src/recent-files/browser/reads.ts#L188) 的 `ensureText`）：一次 hover 可以等一个 await，
+**`prime` 是性能闸门**（[`reads.ts:ensureText()`](/src/recent-files/browser/reads.ts#L188)）：一次 hover 可以等一个 await，
 五十行的重画不可以。
 
-**`×` 绝对定位、不在流内、且 `stopPropagation`**（[`list.ts:622`](/src/recent-files/browser/list.ts#L622)）：否则按它会顺带把行记为 pressed。
+**`×` 绝对定位、不在流内、且 `stopPropagation`**（[`list.ts:forgetControl()`](/src/recent-files/browser/list.ts#L622)）：否则按它会顺带把行记为 pressed。
 
 **预览是观察器不是等待**（`hover-settle.ts`）：本面板要按 Mod 键，app 可能十秒后才答，
 任何有期限的等待都会先回家。只动 `opacity` 不动布局。
