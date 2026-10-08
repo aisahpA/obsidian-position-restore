@@ -268,6 +268,132 @@ describe('NavStack —— 栈逻辑', () => {
 		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
 	});
 
+	it('推断跳变就落在漂移那处：teleport 落定后摘掉噪声 visit', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// 采样器在跳变事件里推入时读到的还是跳转前的源 scroll（光标已在目标处、
+		// 视口没动），所以此刻 visit 照压、栈长 3。
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		expect(nav.stack.entries.length).toBe(3);
+		// 下一帧的落定更正：就落在漂移那处（同一把尺，10 行以内），visit 被摘。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708, st: { scroll: 705 },
+		});
+		expect(nav.stack.entries.length).toBe(2);
+		expect(nav.stack.index).toBe(1);
+		expect(keyOf(nav.stack.entries[0])).toBe('outline:Foo');
+		expect(keyOf(nav.stack.entries[1])).toBe('teleport:708');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 705 });
+		// 漂移位置不还给 owner 的 leftAt：后退落回 owner 之后它是过期位置，一次不带
+		// leave 的跳转会把它错误兑现成幽灵步；那处位置已由 teleport 自己代表。
+		expect((nav.stack.entries[0] as NavJump).leftAt).toBeUndefined();
+	});
+
+	it('推断跳变把读者带远：visit 保留', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 800, { scroll: 700 });
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 800, st: { scroll: 800 },
+		});
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
+	});
+
+	it('摘步与兑现共用一把尺：差 10 行摘，11 行留', () => {
+		const near = makeNav();
+		near.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		near.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		near.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		near.funnel.recordTeleport('a.md', 'leaf-1', 710, { scroll: 700 });
+		near.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 710, st: { scroll: 710 },
+		});
+		expect(near.stack.entries.length).toBe(2);
+
+		const far = makeNav();
+		far.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		far.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		far.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		far.funnel.recordTeleport('a.md', 'leaf-1', 711, { scroll: 700 });
+		far.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 711, st: { scroll: 711 },
+		});
+		expect(far.stack.entries.length).toBe(3);
+	});
+
+	it('落定读不到 scroll：宁可留着 visit，裁决也不补第二次', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		// 只有光标、没有视口顶行：判不动，保守保留。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708,
+			st: { cursor: { from: { line: 705, ch: 0 }, to: { line: 705, ch: 0 } } },
+		});
+		expect(nav.stack.entries.length).toBe(3);
+		// 配对一次性消费：之后带着 scroll 的同类落定也不再摘。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708, st: { scroll: 705 },
+		});
+		expect(nav.stack.entries.length).toBe(3);
+	});
+
+	it('落定前栈顶已经换了：旧的那对作废，visit 保留', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		// 落定更正到来之前读者又跳了一次：新 push 把旧对顶掉。
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 900);
+		// 迟到的旧落定被身份守卫挡在门外，当前栈顶的落定则无对可裁。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708, st: { scroll: 705 },
+		});
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 900, st: { scroll: 900 },
+		});
+		expect(nav.stack.entries.length).toBe(4);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
+	});
+
+	it('同文再点的 jump 就落在漂移那处：settled 后摘掉 visit', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// 点读者正读小节的标题：落定前 visit 先在栈上（栈长 3），settled 才知道这一步
+		// 落在 705。
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
+		expect(nav.stack.entries.length).toBe(3);
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 705 });
+		expect(nav.stack.entries.length).toBe(2);
+		expect(nav.stack.index).toBe(1);
+		expect(nav.stack.entries.map(e => keyOf(e))).toEqual(['outline:Foo', 'outline:Bar']);
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 705 });
+	});
+
+	it('teleport 的落定更正永远没来：压栈时的源 scroll 不参与裁决，visit 保留', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// 推入带的 st.scroll 是跳转前的源视口（与 visit 相同纯属必然），拿它裁决会把
+		// 每一次 teleport 都错摘，所以必须等下一帧的 landing。
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+	});
+
 	it('读者已经不站在那一步上时，扣住的离开位置就丢掉', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('b.md', 'leaf-1');

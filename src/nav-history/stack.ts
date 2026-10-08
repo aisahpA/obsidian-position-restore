@@ -82,6 +82,15 @@ export class NavStack implements NavFunnelSink {
 	// 描述「当前」所在位置的条目的下标；-1 = 空栈。
 	index = -1;
 
+	// 刚被 flushDeparture 兑现成 visit 的漂移，与把读者带出来的那一步配成的一对，等新步落定
+	// 后裁决（reviewDeparture）。持有对象引用而非下标：截栈、裁剪、遍历都会让旧对失效，裁决
+	// 时凭引用与相邻关系核验。同一时刻至多一对：登记只发生在 pushIfNew，一次导航一条新栈顶。
+	private pendingDepartureCheck?: {
+		visit: NavVisit;
+		owner: NavJump | NavTeleport;
+		nav: NavJump | NavTeleport;
+	};
+
 	constructor(
 		app: App,
 		settings: PluginSettings,
@@ -165,6 +174,8 @@ export class NavStack implements NavFunnelSink {
 			|| top.leafId !== entry.leafId || top.line !== entry.line)
 			return;
 		top.st = entry.st;
+		// 此刻才有 teleport 的真实落点：与跳变前兑现的 visit 是不是同一处，到这才能判。
+		this.reviewDeparture(top);
 	}
 
 	// （没有 onHere：`index` 上那一步「就是」这个类的「此处」。它自己的指针移动由
@@ -210,14 +221,28 @@ export class NavStack implements NavFunnelSink {
 	private pushIfNew(entry: NewNavEntry, force?: boolean) {
 		// 放在去重之前：第二次点同一个标题看起来像「已经是栈顶那一步」，而读者其实在它下面
 		// 200 行，所以那次离开必须先站到栈上，这一次点击才可能算一步。
-		this.flushDeparture();
+		const departed = this.flushDeparture();
 		const top = this.entries[this.index];
 		// 同一地点 = 同一个标签页里的同一个文件（+ 同一个 jump key）。同一个文件的两个标签页
 		// 各自持有独立的位置，所以在它们之间切 leaf 是一条真条目（VSCode 也记编辑器身份，连
 		// 它在哪个分组都算）。
-		if (!force && top && this.sameLocation(top, entry))
+		if (!force && top && this.sameLocation(top, entry)) {
+			// 刚兑现的 visit 被这次记录去重进了栈顶：旧的那一对指向的栈顶已不存在，又没有新步
+			// 要落定，作废它。departed 缺席时栈顶没换，旧对（若有）仍然有效，不动。
+			if (departed)
+				this.pendingDepartureCheck = undefined;
 			return;
+		}
 		this.push(entry);
+		// 只有同 leaf 同文件的 jump/teleport 才可能与漂移是同一处：跨文件的新步本来就把读者
+		// 带离了那处，visit 合法。新步此刻没有真实落点（jump 等 settled、teleport 等下一帧的
+		// 滚动更正），所以只登记，落定后再回头判（reviewDeparture）。
+		const nav = this.entries[this.index];
+		this.pendingDepartureCheck = departed
+			&& (nav.kind === 'jump' || nav.kind === 'teleport')
+			&& nav.path === departed.visit.path && nav.leafId === departed.visit.leafId
+			? { visit: departed.visit, owner: departed.owner, nav }
+			: undefined;
 	}
 
 	// 大纲跳转的 key 比较时归一化：条目上的 key 可能已被升级成标题的源码行写法
@@ -277,6 +302,8 @@ export class NavStack implements NavFunnelSink {
 					// 读者，不该发现那个标题记下的地点被搬到了他离开时待的地方。
 					this.funnel.landing(top);
 				}
+				// jump 的真实落点到这才落定（settled）；teleport 若走这条路径同样在这里裁。
+				this.reviewDeparture(top);
 				return;
 			}
 			if (!top.st) {
@@ -315,15 +342,46 @@ export class NavStack implements NavFunnelSink {
 	// 从一次离开里推：一次离开也发生在这个栈自己的遍历之前，那里推进去会在后退还没动之前
 	// 就砍掉前进的那段。它离开的那一步留着它的落点——漂移是它旁边的一步，不是对它的改写
 	// ——而漂移是一次性的：回到那一步、再离开一次的读者站在新地方，旧的那处不该被给出两次。
-	private flushDeparture() {
+	//
+	// 返回兑现的 visit 与它离开的那一步：新步若与漂移同处，pushIfNew 要登记一对，落定后由
+	// reviewDeparture 把这条噪声 visit 摘掉。门只问「读者离开了旧落点」，没问「新步把他带离
+	// 那处没有」——那一半要等新步落定才答得出来。
+	private flushDeparture(): { visit: NavVisit; owner: NavJump | NavTeleport } | undefined {
 		const top = this.entries[this.index];
 		if (!top || (top.kind !== 'jump' && top.kind !== 'teleport') || !top.leftAt)
-			return;
+			return undefined;
 		const st = top.leftAt;
 		if (!this.leftBehind(top, st))
-			return;
+			return undefined;
 		delete top.leftAt;
+		const owner = top;
 		this.push({ kind: 'visit', path: top.path, leafId: top.leafId, st });
+		return { visit: this.entries[this.index] as NavVisit, owner };
+	}
+
+	// flushDeparture 落锤时新步还没落地：跳到读者正站着的那一处（同文再点同一个标题、推断
+	// 跳变落在附近）会留下一对紧挨的步，后退一步视图不动。新步落定、真实 scroll 知道后在
+	// 这里回头判：两处相距不超过 DEPARTURE_MIN_LINES 就摘掉 visit，同一把尺问相反的方向。
+	// 只删栈私有条目——visit 不经漏斗，地点列表从没见过它。判不出（落定缺 scroll）或配不上
+	// （栈顶已换、栈被截或裁、owner 已不在）一律保守保留：噪声步只是多按一次，错摘会丢掉
+	// 读者真站过的一处。裁决一次性，无论摘没摘。
+	private reviewDeparture(landed: NavJump | NavTeleport) {
+		const pair = this.pendingDepartureCheck;
+		this.pendingDepartureCheck = undefined;
+		if (!pair || pair.nav !== landed)
+			return;
+		const visitIndex = this.index - 1;
+		if (this.entries[this.index] !== pair.nav
+			|| this.entries[visitIndex] !== pair.visit
+			|| this.entries.indexOf(pair.owner) === -1)
+			return;
+		const here = landed.st?.scroll;
+		const there = pair.visit.st?.scroll;
+		if (here === undefined || there === undefined
+			|| Math.abs(here - there) > DEPARTURE_MIN_LINES)
+			return;
+		this.entries.splice(visitIndex, 1);
+		this.index--;
 	}
 
 	// 把正要切走的那个文件的位置，采到栈顶条目上（描述它的那一条）。没有 leaf 持有栈顶

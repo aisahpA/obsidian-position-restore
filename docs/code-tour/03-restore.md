@@ -95,7 +95,7 @@ OpenCover 揭幕 + RestoreCue 闪一下提示
 误判成读者移动，没有宽限就是「一闪而过」。**面包屑的两道静音**（[`show()`](/src/position/ui/cue.ts#L67)）：这一屏里已经
 能看到标题就不复述（[`hasVisibleHeading()`](/src/position/ui/cue.ts#L145)），整篇只有一个标题也不念
 （[`breadcrumbPath()`](/src/position/ui/cue.ts#L38)）。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L102)）：
-前进/后退走到的每一步，编辑模式都把落点居中、落定后闪光标行（[`armLandingMark()`](/src/nav-history/stack.ts#L730)，
+前进/后退走到的每一步，编辑模式都把落点居中、落定后闪光标行（[`armLandingMark()`](/src/nav-history/stack.ts#L788)，
 [`markLandingLine()`](/src/position/restore/modes.ts#L354)），jump 两种模式都闪，visit/teleport 只在编辑模式；
 普通恢复（不是前进后退）走 [`markRestoredLine()`](/src/position/restore/modes.ts#L375)，也只在编辑模式标光标行。
 都**只画一下、绝不移动视图**，方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、
