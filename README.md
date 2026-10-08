@@ -22,7 +22,7 @@ VSCode-style back / forward across file switches, tab switches and in-file jumps
 
 ### Recent files
 
-A record of the notes you have visited.
+A list of the notes you have visited, most recent first, available as a sidebar panel or a modal. Pin the notes you use often, and filter by keyword: a match in a heading jumps straight to that section. You can also keep notes out by folder, image type, or frontmatter property.
 
 ## Installation
 
@@ -61,7 +61,7 @@ VSCode 风格的前进 / 后退，覆盖文件切换、标签页切换和文件�
 
 ### 最近文件
 
-记录你访问过的笔记。
+列出你访问过的笔记，按最近访问排序，可放在侧栏，也可作为对话框打开。可以置顶常用笔记，用关键词过滤，搜中小节标题可直达那一节。也支持按文件夹、图片或 frontmatter 属性排除。
 
 ## 安装
 
