@@ -17,12 +17,12 @@ Obsidian 插件「位置恢复 + 前进后退 + 最近文件列表」。TS + esb
 
 ## 1. 语言政策
 
-- **一律中文**：注释（含 JSDoc）、提交信息、文档（`docs/**`、`README-zh.md`）、AI 记忆、
+- **一律中文**：注释（含 JSDoc）、提交信息、文档（`docs/**`、`README.md` 的中文区块）、AI 记忆、
   给人读的控制台日志和汇报。新增 UI 文案同步 `src/i18n/locales/zh.ts`，
   `en.ts` 保持英文并照 `zh.ts` 的结构对齐。
 - **不许翻译**：标识符（函数/变量/类/类型/常量/文件名）、i18n 的 key、
   Obsidian / CodeMirror / DOM 的 API 名与事件名、CSS 类名与变量名、提交信息的 type
-  （`feat`/`fix`/…）、`en.ts` 的用户文案、`README.md`。（scope 例外，见 §5）
+  （`feat`/`fix`/…）、`en.ts` 的用户文案、`README.md` 的英文区块。（scope 例外，见 §5）
 - 提到代码符号写原名并放进反引号：`navGroupKey`、`markdownViewInUse`。
   译名以 `docs/glossary.md` 为准，表里没有的**先登记再使用**；别生造译名。
 - **给人读的文案不用破折号（`——`）**：那是 AI 腔。要转折就断句，或用冒号、分号。
