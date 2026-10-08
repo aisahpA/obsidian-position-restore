@@ -33,6 +33,8 @@
 //    在谁底下 —— 那条标记用阴影画、而不是用边框，好让这一行保住自己的内边盒、整宽都可
 //    点。它比名字小一档、也淡一档（见 .nav-row-heading）：它说的是「点下去会去哪儿」，
 //    不是「这一行是谁」。它没有时间、也没有 ×，所以没有任何规则为它声明第二条轨。
+//    ……而画不下的那些命中**不**画成行：它们是笔记下面一条更淡、更小的**声明**
+//    （`.position-restore-nav-more`），借的是同两条归属线索，却没有那一行的光标。
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -83,6 +85,18 @@ describe('最近文件面板的两档弱墨', () => {
 		expect(heading).toMatch(/display: grid/);
 		expect(heading).toMatch(/margin-inline-start: 1\.5em/);
 		expect(heading).toMatch(/box-shadow: inset 2px var\(--background-modifier-border\)/);
+		// ……以及**画不下的那些命中**那一条声明：它借了大纲行那两条归属线索（同一个内缩、
+		// 同一条竖标记），却更淡、更小一档 —— 它是这一组的脚注，不是又一个去处（见
+		// list.ts 的 hiddenHits）。
+		const more = browser.match(/(?:^|\n)\.position-restore-nav-more\s*\{[^}]*\}/)?.[0] ?? '';
+		expect(more).not.toBe('');
+		expect(more).toMatch(/margin-inline-start: 1\.5em/);
+		expect(more).toMatch(/box-shadow: inset 2px var\(--background-modifier-border\)/);
+		expect(more).toMatch(/color: var\(--nav-faint\)/);
+		expect(more).toMatch(/font-size: var\(--font-ui-smaller\)/);
+		// ……而这句话没有可点的地方，所以它也不带那一行的光标（它也不带那一行的类）：
+		// 一个亮起的手形光标，会是一个点下去什么都不发生的承诺。
+		expect(browser).not.toMatch(/\.position-restore-nav-more[^{]*\{[^}]*cursor: pointer/);
 		// 而名字是有上限的，不是贪心的
 		expect(browser).toMatch(/\.nav-row-name\s*\{[^}]*max-width: 20em/);
 	});

@@ -32,9 +32,9 @@
 - [`ArrowBar`](/src/recent-files/browser/arrows.ts#L61)：[`refresh`](/src/recent-files/browser/arrows.ts#L89)、[`press`](/src/recent-files/browser/arrows.ts#L99)。
 - [`RowPreview`](/src/recent-files/browser/row-preview.ts#L28)：[`hoverRow`](/src/recent-files/browser/row-preview.ts#L53)、[`askFor`](/src/recent-files/browser/row-preview.ts#L126)、
   [`subpathHeading`](/src/recent-files/browser/row-preview.ts#L160)。
-- [`RecentFilesList`](/src/recent-files/browser/list.ts#L184)：[`render`](/src/recent-files/browser/list.ts#L309)、[`facts`](/src/recent-files/browser/list.ts#L400)、
-  [`fileRow`](/src/recent-files/browser/list.ts#L437)、[`headingRow`](/src/recent-files/browser/list.ts#L557)、[`hoverAt`](/src/recent-files/browser/list.ts#L825)、[`onClick`](/src/recent-files/browser/list.ts#L871)、
-  [`goTo`](/src/recent-files/browser/list.ts#L976)。
+- [`RecentFilesList`](/src/recent-files/browser/list.ts#L187)：[`render`](/src/recent-files/browser/list.ts#L312)、[`facts`](/src/recent-files/browser/list.ts#L418)、
+  [`fileRow`](/src/recent-files/browser/list.ts#L457)、[`headingRow`](/src/recent-files/browser/list.ts#L577)、[`hoverAt`](/src/recent-files/browser/list.ts#L861)、[`onClick`](/src/recent-files/browser/list.ts#L907)、
+  [`goTo`](/src/recent-files/browser/list.ts#L1012)。
 - 行的身份：[`navGroupKey`](/src/nav/entry.ts#L95)。
 
 ## 数据怎么流
@@ -47,7 +47,7 @@
   → arrowBar.refresh()
 ```
 
-`list.render()` 内部又分（[`list.ts:304`](/src/recent-files/browser/list.ts#L309)）：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
+`list.render()` 内部又分（[`list.ts:312`](/src/recent-files/browser/list.ts#L312)）：记下光标所在的**槽位**（所属那一行 + 当它是大纲行时
 它印着的那个小节）→ `list.empty()` 整表重建 → 清描述缓存 → `groupByFile` → 钉住的提到顶 →
 标出重名 → 每组先画**文件行**、再画它**搜到的小节**各一行 → 按槽位恢复选中。
 
@@ -75,9 +75,11 @@ list.hoverAt → preview.hoverRow → hit ? hit.line : (wantsLine? d.lineIndex :
 笔记的**小节标题**时，那一节在笔记那一行**下面**自己画一行（`headingRow`）。它不入库 ——
 没有时间、没有 ×、不能钉选 —— 但它是一个完整的行：可点、可预览、可被键盘走到，而点它去的
 是那一节（`goTo` 一处收口）。判据是 `listing.ts` 的 `matchedHeadings`（严格全 token 优先，
-否则首 token loose，按文档顺序，每篇最多 `OUTLINE_HIT_LIMIT` = 5）。
+否则首 token loose，按文档顺序，每篇最多 `OUTLINE_HIT_LIMIT` = 5）。画不下的那些不沉默：
+笔记下面再画一条声明，说出还剩几个（`hiddenHits`，`.position-restore-nav-more`）—— 它不带
+`role="option"`、不进 `refs`，所以它不是一行。
 
-**hover 的判据是「指针真的动了」**（[`list.ts:814`](/src/recent-files/browser/list.ts#L825)）：`pointerover` 在元素「来到」指针下时
+**hover 的判据是「指针真的动了」**（[`list.ts:861`](/src/recent-files/browser/list.ts#L861)）：`pointerover` 在元素「来到」指针下时
 也会触发，热键在鼠标停住时弹出的面板会给每一行都报一次到达。面板听到的第一个事件不算移动。
 
 **MRU 顺序靠数组末尾**（`places.ts`）：碰过的笔记移到数组末尾，因为 list 把索引当钟读
@@ -114,7 +116,7 @@ live buffer / 磁盘文本三级链已于 2026-10-05 随落点行一起撤掉。
 **`prime` 是性能闸门**（[`reads.ts:188`](/src/recent-files/browser/reads.ts#L188) 的 `ensureText`）：一次 hover 可以等一个 await，
 五十行的重画不可以。
 
-**`×` 绝对定位、不在流内、且 `stopPropagation`**（[`list.ts:581`](/src/recent-files/browser/list.ts#L581)）：否则按它会顺带把行记为 pressed。
+**`×` 绝对定位、不在流内、且 `stopPropagation`**（[`list.ts:622`](/src/recent-files/browser/list.ts#L622)）：否则按它会顺带把行记为 pressed。
 
 **预览是观察器不是等待**（`hover-settle.ts`）：本面板要按 Mod 键，app 可能十秒后才答，
 任何有期限的等待都会先回家。只动 `opacity` 不动布局。
@@ -131,4 +133,5 @@ live buffer / 磁盘文本三级链已于 2026-10-05 随落点行一起撤掉。
 - `npx vitest run tests/recent-files-places.test.ts`、`recent-files-sidebar.test.ts`、
   `recent-files-hover-settle.test.ts`
 - 手工验：搜一个只出现在某个小节标题里的词 —— 那一节应自己成为一行、挂在它的笔记下面，
-  点它应落在那一节（而不是笔记开头）。
+  点它应落在那一节（而不是笔记开头）。再搜一个在某篇长笔记里**命中超过 8 个**小节的词：
+  那篇笔记下面应多出一条更淡的声明，说出还剩几个，而方向键走不过它。

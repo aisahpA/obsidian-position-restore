@@ -289,6 +289,10 @@ export const zh: En = {
 	'recentFiles.close': '关闭',
 	'recentFiles.noMatch': '没有匹配的历史。',
 	'recentFiles.empty': '暂无可跳转的位置。',
+	// 一篇笔记里搜到的小节多到画不下时，那篇笔记下面多出来的一条声明（见 list.ts 的
+	// hiddenHits）：它说的是**没画出来**的那些，所以读者不会把「只看到这几个」读成
+	// 「只有这几个」。{0} 是那个数。
+	'recentFiles.moreHits': '还有 {0} 个匹配的小节',
 
 	// ═══ 悬停预览 ═══ 把笔记打开在哪里
 	// 会向 app 要预览的两处列表共用这一个分组，各有自己的四个键而不是共用一条

@@ -10,6 +10,9 @@
 // 的产物、不是记录，所以它们没有时间、没有 ×、也不能被钉选 —— 但它们是可点、可预览、
 // 可被键盘走到的：点一个就去那一节。
 //
+// 而命中的小节多过 OUTLINE_HIT_LIMIT 时，那篇笔记下面还会多一条**声明**：还有几个没
+// 画出来（见 hiddenHits）。它不是一行，只是那句话。
+//
 // **行是一个整体**：一次点击打开它所代表的东西。它远端的那个 × 把该行从列表里
 // 丢掉；它以绝对定位摆在**流之外**，所以它出现时什么都不动、而行上的每一个像素
 // 仍能打开它。这次移除属于**行** —— store 丢掉该行（见 onForget）—— 这就是为什么
@@ -349,9 +352,13 @@ export class RecentFilesList {
 
 		this.groups.forEach((group, index) => {
 			this.fileRow(group, index, doubles);
-			// 读者搜到的那些小节，画在它们的笔记下面（见 headingRow）。
-			for (const hit of this.hitsFor(group, query))
+			// 读者搜到的那些小节，画在它们的笔记下面（见 headingRow）；画不下的那些由
+			// 最后一条声明说出一共还有几个（见 hiddenHits）。
+			const { hits, hidden } = this.hitsFor(group, query);
+			for (const hit of hits)
 				this.headingRow(hit, index);
+			if (hidden > 0)
+				this.hiddenHits(hidden);
 			// 块以一条**线**结束、而不是一个标题：被钉选的行与任何其它行一样，
 			// 而唯一说出哪些行是这块的东西，就是它停在哪里。
 			if (this.endsPinnedBlock(index))
@@ -420,19 +427,26 @@ export class RecentFilesList {
 	}
 
 	// 读者所搜到的、这篇笔记里的**那些**小节（见 HeadingHit）：按文档顺序，最多
-	// OUTLINE_HIT_LIMIT 个。它们在 `keepAt` 里已经把这篇笔记捞进来了 —— 而它们各自
-	// 成为一行，所以「这一行为什么在列表上」由它们自己说出，不必由那一行替它们说。
+	// OUTLINE_HIT_LIMIT 个，以及**剩下几个没画出来**（见 hiddenHits）。它们在 `keepAt`
+	// 里已经把这篇笔记捞进来了 —— 而它们各自成为一行，所以「这一行为什么在列表上」由
+	// 它们自己说出，不必由那一行替它们说。
 	private hitsFor(
 		group: ReturnType<typeof groupByFile>[number],
 		query: string,
-	): HeadingHit[] {
+	): { hits: HeadingHit[]; hidden: number } {
 		// 没有查询就没有「搜到的东西」；一个无路径的视图没有小节可搜。
 		if (!query || !group.path || !this.opts.outlineSearch())
-			return [];
-		const hits = matchedHeadings(this.opts.headingsFor(group.path), query, OUTLINE_HIT_LIMIT);
+			return { hits: [], hidden: 0 };
+		// **一次问全，再自己截**：截掉的那个数也得说出来，而它只有知道全部命中才算得
+		// 出来；问两遍就是同一份判据算第二遍（见 matchedHeadings 的可选 `limit`）。
+		const all = matchedHeadings(this.opts.headingsFor(group.path), query);
+		const shown = all.slice(0, OUTLINE_HIT_LIMIT);
 		// 去这一行一贯去往的那个标签页：一次前往换的是落点，不是地方。
 		const leafId = this.opts.entries[group.rep]?.leafId ?? '';
-		return hits.map(h => ({ path: group.path, heading: h.heading, line: h.line, leafId }));
+		return {
+			hits: shown.map(h => ({ path: group.path, heading: h.heading, line: h.line, leafId })),
+			hidden: all.length - shown.length,
+		};
 	}
 
 	// 一篇**笔记**。名字单元格放**名字**（最后一段路径，不带扩展名，见
@@ -585,6 +599,22 @@ export class RecentFilesList {
 		// 因为「在新标签页打开」对一个搜到的小节同样成立。
 		if (this.opts.touch)
 			this.menuControl(this.actionStrip(row), ref);
+	}
+
+	// **画不下的那些小节命中**：一条声明，说出上面那篇笔记里还有几个小节命中了同一个
+	// 查询（见 hitsFor）。它**不是一个去处**：不带 role="option"、不进 `refs`（方向键
+	// 走的是 `refs`，所以它既不参与「列表始终有且只有一个选中项」、也不会把那个位置
+	// 吃掉）、没有点击、没有悬停 —— 它就画在它所属那篇笔记的那些大纲行**下面**，所以
+	// 它讲的是谁的账，由它的位置说出来。
+	//
+	// 没有它的时候，一篇长笔记里排在第 OUTLINE_HIT_LIMIT 个之后的命中是不存在的：读者
+	// 看得见笔记行，却看不出自己被截了。想知道那些是哪些，办法是把查询**打得更细**
+	// （多个词要落在同一个标题里，见 matchedHeadings）—— 这句话也就顺带说出了那条路。
+	private hiddenHits(count: number): void {
+		this.opts.list.createDiv({
+			cls: 'position-restore-nav-more',
+			text: t('recentFiles.moreHits', count),
+		});
 	}
 
 	// **一行的远端的那个 ×**。永远是**最后**一个控件，所以一行的远端在每一行上读起来

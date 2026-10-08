@@ -133,13 +133,34 @@ describe('RecentFilesModal —— 大纲行', () => {
 	});
 
 	it('一篇最多五个：这份列表不是一篇笔记的大纲', () => {
-		const many = Array.from({ length: 8 }, (_, i) => ({
+		// 一篇两百个小节的笔记不该把列表撑爆（见 constants.ts 的 OUTLINE_HIT_LIMIT）——
+		// 而截掉的那些**不沉默**：笔记下面多一句声明，说出还剩几个（见 list.ts 的
+		// hiddenHits）。截的是文档顺序的**后**面那些，所以那个数是读者自己算不出来的。
+		const many = Array.from({ length: 10 }, (_, i) => ({
 			heading: `小节 ${i + 1}`, level: 2, position: { start: { line: i * 2 } },
 		}));
 		const h = harness(body(), 1, files, [], {}, { 'a.md': many });
 		search(h, '小节');
 
 		expect(h.headings()).toHaveLength(5);
+		const more = h.el.querySelector<HTMLElement>('.position-restore-nav-more')!;
+		expect(more.textContent).toBe(t('recentFiles.moreHits', 5));
+		// 它画在那篇笔记的大纲行**后面**：它是这一组的脚注，不是另一篇笔记的开头。
+		expect(more.previousElementSibling?.classList.contains('is-heading')).toBe(true);
+		// ……而它**不是一行**：方向键走的是列表持有的那些行，所以它没有 option 的角色、
+		// 也不带那一行的类 —— 它只是那句话，不参与「列表始终有且只有一个选中项」。
+		expect(more.getAttribute('role')).toBeNull();
+		expect(more.classList.contains('position-restore-nav-row')).toBe(false);
+	});
+
+	it('命中没被截完就不说那句话', () => {
+		// 它是**截断**的声明，不是这一组的标题：没有东西被截掉时，它一个字都不说。
+		const h = harness(body(), 1, files, [], {}, SPREAD_HEADINGS);
+
+		search(h, '尾巴');
+
+		expect(h.headings()).toHaveLength(1);
+		expect(h.el.querySelector('.position-restore-nav-more')).toBeNull();
 	});
 
 	it('关掉那个开关就不再画：搜索框那时不认标题', () => {

@@ -675,6 +675,20 @@ body.is-mobile .position-restore-cue {
 	box-shadow: inset 2px var(--background-modifier-border);
 }
 
+/* **画不下的那些小节命中**：它数出这篇笔记里还有几个小节命中了同一个查询（见 list.ts 的
+   hiddenHits）。它是一条**声明**而不是一行，所以它借了大纲行那两条归属线索（同一个内缩、
+   同一条竖标记），却比它们更淡一档、也更矮一档：字比小节名再小一档，上下只留 2px —— 它是
+   这一组的脚注，不是这一组里的又一个去处。
+   它**不带** .position-restore-nav-row 那个类，于是也没有那一行的光标：下面的指针没有
+   任何可点的地方，而一个亮起的手形光标正是在承诺相反的事。 */
+.position-restore-nav-more {
+	margin-inline-start: 1.5em;
+	padding: 2px 8px;
+	box-shadow: inset 2px var(--background-modifier-border);
+	color: var(--nav-faint);
+	font-size: var(--font-ui-smaller);
+}
+
 /* 笔记格：这一行用来自报身份的东西 —— 名字和它的标记作为**一整块**，以及文件夹 ——
    一行放得下就一行，放不下就两行。它拿走的余量归它，因为一个太窄的行最先放弃的就是
    名字（它省略号化；它旁边的标记不会）。

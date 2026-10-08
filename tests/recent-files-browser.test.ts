@@ -300,12 +300,15 @@ describe('matchedHeadings', () => {
 		expect(matchedHeadings(outline, '呈现 设计', 5).map(h => h.heading)).toEqual(['呈现方案']);
 	});
 
-	it('最多给 `limit` 个，多出来的静默截掉', () => {
-		// 一篇两百个小节的笔记不该把列表撑爆（见 constants.ts 的 OUTLINE_HIT_LIMIT）。
+	it('给了 `limit` 就截到那么多个；省掉它就是**全都交出来**', () => {
+		// 一篇两百个小节的笔记不该把列表撑爆（见 constants.ts 的 OUTLINE_HIT_LIMIT）——
+		// 但截到几个是**调用方**的取舍：只有它知道自己还欠一句「截掉了几个」（见
+		// list.ts 的 hitsFor 与 hiddenHits），而那个数要拿全部命中来算。
 		const many: HeadingRef[] = Array.from({ length: 8 }, (_, i) =>
 			({ heading: `第${i}节`, level: 1, line: i }));
 		expect(matchedHeadings(many, '第', 5)).toHaveLength(5);
 		expect(matchedHeadings(many, '第', 0)).toEqual([]);
+		expect(matchedHeadings(many, '第')).toHaveLength(8);
 	});
 
 	it('没有标题、没有查询、或那个词不在任何标题里时都是空', () => {

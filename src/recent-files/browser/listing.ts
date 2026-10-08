@@ -189,9 +189,13 @@ export function rowKept(facts: RowFacts, i: number, query: string): boolean {
 	);
 }
 
-// 查询命中的**那些**小节 —— 「这一篇里有个叫『定价』的小节」这句话的答案，按文档顺序，
-// 最多 `limit` 个。调用方把它们各画成一行，所以这里的次序就是读者看见的次序：一篇笔记
-// 里的小节按它们在那篇笔记里的先后排出来，与它们被访问的先后无关。
+// 查询命中的**那些**小节 —— 「这一篇里有个叫『定价』的小节」这句话的答案，按文档顺序。
+// 调用方把它们各画成一行，所以这里的次序就是读者看见的次序：一篇笔记里的小节按它们在那
+// 篇笔记里的先后排出来，与它们被访问的先后无关。
+//
+// **截断是调用方的事**（`limit` 可选，省掉就是全部交出来）：一篇笔记画不下那么多行是
+// 列表的取舍，而那个取舍还欠一句「截掉了几个」（见 list.ts 的 hitsFor 与 hiddenHits）——
+// 那是只有知道**全部**命中的一方才说得出的数。
 //
 // 谁算命中：**全部** token 都出现在同一个标题里的那些。一个都没这么命中时，才退到
 // 携带**第一个** token 的标题 —— 多个词可能分散在不同标题里，而它们仍然是同一个查询。
@@ -204,10 +208,10 @@ export function rowKept(facts: RowFacts, i: number, query: string): boolean {
 export function matchedHeadings(
 	headings: readonly HeadingRef[] | undefined,
 	query: string,
-	limit: number,
+	limit?: number,
 ): HeadingRef[] {
 	const tokens = queryTokens(query);
-	if (!headings?.length || !tokens.length || limit <= 0)
+	if (!headings?.length || !tokens.length || (limit !== undefined && limit <= 0))
 		return [];
 	const loose: HeadingRef[] = [];
 	const strict: HeadingRef[] = [];
@@ -220,7 +224,9 @@ export function matchedHeadings(
 		else if (hay.includes(tokens[0]))
 			loose.push(ref);
 	}
-	return strict.length ? strict.slice(0, limit) : loose.slice(0, limit);
+	// 两档不混（见上），而截断发生在**胜出的那一档上**，与底下那一档无关。
+	const hits = strict.length ? strict : loose;
+	return limit === undefined ? hits : hits.slice(0, limit);
 }
 
 // 条目自己的可搜索文字：**只有**名字与 path（一个视图是它的类型与名字）。全部并成一个

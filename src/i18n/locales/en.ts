@@ -201,6 +201,7 @@ export const en = {
 	'recentFiles.close': 'Close',
 	'recentFiles.noMatch': 'No matching entry.',
 	'recentFiles.empty': 'Nowhere to go.',
+	'recentFiles.moreHits': '{0} more matching sections',
 
 	// ═══ Hover preview ═══ where the note opens
 	'previewFocus.recentFiles.name': 'Where hovering a row opens the note',
