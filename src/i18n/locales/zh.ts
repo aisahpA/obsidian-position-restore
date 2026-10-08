@@ -282,14 +282,15 @@ export const zh: En = {
 	// 文案：今天写的字一样，但两项落在不同的设置页，迟早要各说各的。两处默认都
 	// 是篇首：指到那一行的话，app 先把整篇画出来再挪过去，等于让卡片先空着一
 	// 下——而同一行的点击本来就把人送到那里。
-	'previewFocus.recentFiles.name': '预览打开在哪里',
+	'previewFocus.recentFiles.name': '悬停一行时预览打开在哪里',
 	'previewFocus.recentFiles.desc':
-		'悬停一行时，预览打开在笔记的哪个位置：篇首（app 自己的各处列表都是这样），还是你上次在那篇里读到的那一行。选「那一行」要多等一下——笔记要先整篇画出来、然后才挪过去，长笔记上会先看到一张空卡片，然后才翻到那一行。标题行不受这一项影响：它本来就打开在那个标题上。',
-	'previewFocus.recentFiles.options.head': '篇首',
-	'previewFocus.recentFiles.options.line': '上次读到的那一行',
+		'悬停列表里的一行时，预览卡片把笔记打开在哪儿：开头，还是你上次离开这篇笔记时的位置。后者就是直接点击这一行会落到的地方，不用真的打开就能先看到，但要多等一下：卡片先把整篇笔记从头画出来，再挪到那一行，长笔记上会先看到一张空白卡片、然后才跳过去。没记下位置的笔记仍从开头显示。搜索小节标题得到的行不受影响，它们本来就直接预览那一节。',
+	'previewFocus.recentFiles.options.head': '笔记开头',
+	'previewFocus.recentFiles.options.line': '上次离开时的位置',
+
 	'previewFocus.fileExplorer.name': '文件列表的预览打开在哪里',
 	'previewFocus.fileExplorer.desc':
-		'app 自己的文件列表悬停出预览时，笔记打开在哪个位置：篇首（app 原本就是这样要的），还是这个插件为那篇笔记记录的最后一行。指到那一行要付的是同样的等待——笔记先整篇画出来、然后才挪过去；而它打开的是这里最后记录的那一行，笔记在别的设备上被改过之后，可能已不在你离开的地方。',
-	'previewFocus.fileExplorer.options.head': '篇首',
-	'previewFocus.fileExplorer.options.line': '上次读到的那一行',
+		'在 Obsidian 自带的文件列表里悬停一个文件时，预览卡片把笔记打开在哪儿：开头（Obsidian 原本的行为），还是你上次离开这篇笔记时的位置。选位置要多等一下：卡片先把整篇笔记从头画出来，再挪到那一行，长笔记上会先空白一下、然后才跳过去。这里用的是最后记下的行号，不会按笔记现在的样子重算，所以笔记在别的设备上被增删改过后，可能停不到你离开时的那一处。没记下位置的笔记仍从开头显示。',
+	'previewFocus.fileExplorer.options.head': '笔记开头',
+	'previewFocus.fileExplorer.options.line': '上次离开时的位置',
 };

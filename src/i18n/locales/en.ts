@@ -198,16 +198,16 @@ export const en = {
 	'recentFiles.empty': 'Nowhere to go.',
 
 	// ═══ Hover preview ═══ where the note opens
-	'previewFocus.recentFiles.name': 'Where a preview opens the note',
+	'previewFocus.recentFiles.name': 'Where hovering a row opens the note',
 	'previewFocus.recentFiles.desc':
-		'The spot the app\'s own preview opens a hovered row\'s note at: its top, the way every list the app itself ships opens one, or the line you were last reading it at. Naming a line costs a wait — the note is drawn whole first and only then moved to it, so on a long note the card stands empty and then jumps. A row standing for a place in a note opens at that place either way.',
-	'previewFocus.recentFiles.options.head': 'Its top',
-	'previewFocus.recentFiles.options.line': 'Your last line',
+		'Where the preview card opens a note hovered on a row: at its top, or where you last left off in that note. The latter is exactly where clicking the row lands you, visible without actually opening the note, but it costs a wait: the card draws the whole note from the top first and only then moves to that line, so on a long note you first see an empty card that then jumps over. Notes with no saved position still open at the top. Rows produced by a heading search are unaffected; they always preview that section directly.',
+	'previewFocus.recentFiles.options.head': 'Note top',
+	'previewFocus.recentFiles.options.line': 'Where you left off',
 	'previewFocus.fileExplorer.name': 'Where a file list preview opens the note',
 	'previewFocus.fileExplorer.desc':
-		'The spot the app\'s own file list opens its hover preview at: a note\'s top, which is what the app asks for and what it ships, or the last line this plugin recorded for that note. Naming a line costs the same wait it costs everywhere — the note is drawn whole first and only then moved there — and the line it opens is the one last recorded here, so a note changed on another device since may not open where you left it.',
-	'previewFocus.fileExplorer.options.head': 'Its top',
-	'previewFocus.fileExplorer.options.line': 'Your last line',
+		'When you hover a file in Obsidian\'s own file list, where the preview card opens the note: at its top (Obsidian\'s native behavior), or where you last left off in that note. The saved spot costs a wait: the card draws the whole note from the top first and only then moves to that line, so on a long note it flashes empty and then jumps. The line used is the last one recorded; it is not recomputed against the note\'s current contents, so after the note has been edited on another device the preview may stop somewhere other than where you left it. Notes with no saved position still open at the top.',
+	'previewFocus.fileExplorer.options.head': 'Note top',
+	'previewFocus.fileExplorer.options.line': 'Where you left off',
 };
 
 export type En = typeof en;
