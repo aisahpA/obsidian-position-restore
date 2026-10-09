@@ -6,7 +6,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `position/storage/database.ts` | `positions.json` 的文件层：读写、合并、裁剪、损坏保护 |
+| `position/storage/database.ts` | `positions.json` 的文件拥有者：读写、合并、换库、裁剪、损坏保护 |
+| `position/storage/disk-format.ts` | 磁盘格式：字节 ↔ `CursorDatabase` 的编解码（纯函数） |
 | `position/storage/position-store.ts` | 两层外观：按文件（同步层）+ 按标签页（本机层） |
 | `position/policy/exclusion.ts` | 总闸：这篇笔记该不该记 |
 | `position/policy/frontmatter.ts` | frontmatter 那一路规则 |
@@ -14,8 +15,9 @@
 
 ## 入口在哪
 
-- [`CursorPositionDatabase`](/src/position/storage/database.ts#L115)：[`setState`](/src/position/storage/database.ts#L330)、[`readDb`](/src/position/storage/database.ts#L378)、
-  [`writeDb`](/src/position/storage/database.ts#L633)、[`mergeExternalChanges`](/src/position/storage/database.ts#L591)、[`switchDbFile`](/src/position/storage/database.ts#L209)、[`pruneDb`](/src/position/storage/database.ts#L279)。
+- [`CursorPositionDatabase`](/src/position/storage/database.ts#L26)：[`setState`](/src/position/storage/database.ts#L241)、[`readDb`](/src/position/storage/database.ts#L289)、
+  [`writeDb`](/src/position/storage/database.ts#L486)、[`mergeExternalChanges`](/src/position/storage/database.ts#L444)、[`switchDbFile`](/src/position/storage/database.ts#L120)、[`pruneDb`](/src/position/storage/database.ts#L190)。
+- [`disk-format.ts:7`](/src/position/storage/disk-format.ts#L7)：[`parseDb`](/src/position/storage/disk-format.ts#L109)、[`parseDbStrict`](/src/position/storage/disk-format.ts#L148)、[`encodeValue`](/src/position/storage/disk-format.ts#L48)、[`cursorIsDefault`](/src/position/storage/disk-format.ts#L36)、[`SCHEMA_VERSION`](/src/position/storage/disk-format.ts#L19)。
 - [`PositionStore`](/src/position/storage/position-store.ts#L22)：[`read`](/src/position/storage/position-store.ts#L136)、[`write`](/src/position/storage/position-store.ts#L151)、
   [`persist`](/src/position/storage/position-store.ts#L255)、[`dropExcluded`](/src/position/storage/position-store.ts#L193)。
 - [`ExclusionChecker`](/src/position/policy/exclusion.ts#L8)：[`shouldSkipRecording`](/src/position/policy/exclusion.ts#L17)。
@@ -31,7 +33,7 @@ Sampler / Restorer / BackgroundSettler
 PositionStore ──► 按 leaf 的覆盖层（localStorage，同步写）
         │
         ▼
-CursorPositionDatabase ──► positions.json（默认在插件目录内）
+CursorPositionDatabase ──► disk-format.ts ──► positions.json（默认在插件目录内）
         │
         ▼
 每 5 秒 flush（[`registerDbFlush()`](/src/main.ts#L211)），退出时交给 app 的 Tasks
@@ -42,25 +44,25 @@ CursorPositionDatabase ──► positions.json（默认在插件目录内）
 
 ## 有哪些坑
 
-**schema 现在的值是 2**（[`SCHEMA_VERSION`](/src/position/storage/database.ts#L29)），形状是 `{schema:2, positions:{path:{s?,c?,t?}}}`。
+**schema 现在的值是 2**（[`SCHEMA_VERSION`](/src/position/storage/disk-format.ts#L19)），形状是 `{schema:2, positions:{path:{s?,c?,t?}}}`。
 **只在形状变化时递增**，加可选字段不算 —— schema 1 用数组长度当类型标签，加不了字段。
 
-**墓碑记录必须落盘**（[`database.ts:649`](/src/position/storage/database.ts#L649)、[`database.ts:658`](/src/position/storage/database.ts#L658)）：既无 `s` 又无 `c` 的记录表示「来过、停在顶部」。
+**墓碑记录必须落盘**（[`database.ts:502`](/src/position/storage/database.ts#L502)、[`database.ts:511`](/src/position/storage/database.ts#L511)）：既无 `s` 又无 `c` 的记录表示「来过、停在顶部」。
 它在恢复行为上与「从未有记录」等价（两种都停在 Obsidian 自己打开笔记的那一行），但仍然要写：它出现在记录数的统计里，
 并且是容量上限优先淘汰的对象（见 `trimToLimit`）。
 
-**容量 `MAX_ENTRIES = 750`，裁到 `TRIM_TARGET = 562`**（[`database.ts:12`](/src/position/storage/database.ts#L12)）：3/4 是滞后防抖。
-墓碑优先出局，但最近 `TOMB_RECENT_WINDOW = 187` 条内豁免（[`database.ts:17`](/src/position/storage/database.ts#L17)）。
+**容量 `MAX_ENTRIES = 750`，裁到 `TRIM_TARGET = 562`**（[`database.ts:19`](/src/position/storage/database.ts#L19)）：3/4 是滞后防抖。
+墓碑优先出局，但最近 `TOMB_RECENT_WINDOW = 187` 条内豁免（[`database.ts:24`](/src/position/storage/database.ts#L24)）。
 
-**默认光标行是 frontmatter 块之后那一行**（[`defaultCursorLine()`](/src/position/storage/database.ts#L496)）：实测 85% 的笔记这一行是空的。
+**默认光标行是 frontmatter 块之后那一行**（[`defaultCursorLine()`](/src/position/storage/database.ts#L369)）：实测 85% 的笔记这一行是空的。
 
-**跨设备谁赢**：记录自带采集戳 `t`，**较新者胜、相等保留我方**（[`database.ts:575`](/src/position/storage/database.ts#L575)）。
+**跨设备谁赢**：记录自带采集戳 `t`，**较新者胜、相等保留我方**（[`database.ts:428`](/src/position/storage/database.ts#L428)）。
 四种「时间」别混：导航 push 的墙钟、笔记 mtime、db mtime、入库时刻。
 
-**换库文件时做严格形状校验**（[`database.ts:550`](/src/position/storage/database.ts#L550)）：只接受 `.md`/`.base` 键 ——
+**换库文件时做严格形状校验**（[`parseDbStrict()`](/src/position/storage/disk-format.ts#L148)）：只接受 `.md`/`.base` 键 ——
 否则误选 `package.json` 会被当成空库，然后把真库删掉。
 
-**解析失败不静默丢弃**（[`preserveUnreadableDb()`](/src/position/storage/database.ts#L511)）：先复制一份到插件目录旁，再弹一个不会自动消失的提示。
+**解析失败不静默丢弃**（[`preserveUnreadableDb()`](/src/position/storage/database.ts#L384)）：先复制一份到插件目录旁，再弹一个不会自动消失的提示。
 
 **按 leaf 读要过路径守卫**（[`position-store.ts:138`](/src/position/storage/position-store.ts#L138)）：leaf 记录里的 `filePath` 必须与请求的
 path 一致才用，否则退回文件记录 —— 防止已经切走的 leaf 去定位别的文件。
