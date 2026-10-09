@@ -23,6 +23,11 @@ const TRIM_TARGET = Math.floor(MAX_ENTRIES * 3 / 4);
 // 好让两者一起变。
 const TOMB_RECENT_WINDOW = Math.floor(MAX_ENTRIES / 4);
 
+// 默认数据文件名，以及它换掉的那个老名字。老名字只在一个地方还要认：把用户插件目录里
+// 那份旧默认文件搬过来，见 migrateDefaultDbFileName()。
+const DEFAULT_DB_FILE_NAME = 'position-restore-data.json';
+const LEGACY_DB_FILE_NAME = 'positions.json';
+
 export class CursorPositionDatabase {
 	db: CursorDatabase = {};
 	dbDirty: boolean = false;
@@ -76,7 +81,7 @@ export class CursorPositionDatabase {
 	}
 
 	get defaultDbFileName(): string {
-		return this.manifestDir + '/positions.json';
+		return this.manifestDir + '/' + DEFAULT_DB_FILE_NAME;
 	}
 
 	private getDbPath(): string {
@@ -86,7 +91,7 @@ export class CursorPositionDatabase {
 	// 放在插件旁边，不是放在 db 旁边（db 通常坐在 vault 里一个同步文件夹中，那里一份残留的
 	// 拷贝会被当成内容捡起来）。让名字唯一的是序号，不是时间戳。
 	private corruptCopyPath(): string {
-		const base = this.getDbPath().split('/').pop() ?? 'positions.json';
+		const base = this.getDbPath().split('/').pop() ?? DEFAULT_DB_FILE_NAME;
 		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 		return `${this.manifestDir}/${base.replace(/\.json$/i, '')}.corrupt-${stamp}-${++this.corruptCopySeq}.json`;
 	}
@@ -286,8 +291,31 @@ export class CursorPositionDatabase {
 		);
 	}
 
+	// 默认数据文件从 `positions.json` 改叫 `position-restore-data.json` 之后的一次性搬迁。
+	// 只搬字节、不重编码：重编码要 metadataCache，而 readDb 跑在 layout ready 之前，那时
+	// meta 还没就绪 ⇒ 墓碑判定会不准（让既有的懒重写去做，第一次脏落盘自然会写成 schema 3）。
+	// 只在「用户没自定义路径」「新名还没文件」「旧名确实有文件」三条同时成立时动手；任何一条
+	// 不满足都什么都不做，所以重复调用是安全的。
+	private async migrateDefaultDbFileName(): Promise<void> {
+		if (this.settings.dbFileName)
+			return;
+		const adapter = this.app.vault.adapter;
+		const oldPath = this.manifestDir + '/' + LEGACY_DB_FILE_NAME;
+		try {
+			if (await adapter.exists(this.defaultDbFileName) || !(await adapter.exists(oldPath)))
+				return;
+			await adapter.rename(oldPath, this.defaultDbFileName);
+		} catch (e) {
+			// 搬不动（权限之类）就越过：旧文件原样还在，本会话从空数据开始，下次启动再试。
+			console.error("Can't rename the legacy default database file:", e);
+		}
+	}
+
 	async readDb(): Promise<void> {
 		this.lastDiskMtime = 0;
+
+		// 必须在按新路径 stat 之前 —— 否则新名这会儿还没有文件，这一趟会被当成「没有库」。
+		await this.migrateDefaultDbFileName();
 
 		await this.cacheDiskMtime();
 		if (this.lastDiskMtime === 0)
@@ -508,7 +536,7 @@ export class CursorPositionDatabase {
 			const defaultLine = (st.scroll ?? 0) > 0 ? undefined : this.defaultCursorLine(key);
 			encoded[key] = encodeValue(st, defaultLine);
 		}
-		const data = JSON.stringify({ schema: SCHEMA_VERSION, positions: encoded });
+		const data = JSON.stringify({ schema: SCHEMA_VERSION, lastPositions: encoded });
 		const dbPath = this.getDbPath();
 
 		try {

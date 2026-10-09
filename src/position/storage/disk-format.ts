@@ -1,12 +1,13 @@
 import { EphemeralState } from '@/types';
 
-// positions.json 的磁盘格式层：字节 ↔ 内存里的 CursorDatabase。全是纯函数，不碰任何状态 ——
-// 读（database.ts 的 readDb / runMergePass / switchDbFile 采纳目标文件）与写（writeDb）
-// 两条路都经过这里，好让「文件长什么样」与「什么时候读写它」分开。
+// 位置库文件（默认 position-restore-data.json）的磁盘格式层：字节 ↔ 内存里的
+// CursorDatabase。全是纯函数，不碰任何状态 —— 读（database.ts 的 readDb / runMergePass /
+// switchDbFile 采纳目标文件）与写（writeDb）两条路都经过这里，好让「文件长什么样」与
+// 「什么时候读写它」分开。
 
 export type CursorDatabase = { [file_path: string]: EphemeralState };
 
-// 磁盘上的形态版本；两个都能读，只写 schema 2。只在**形态**变化时升它 —— 加一个可选字段
+// 磁盘上的形态版本；三个都能读，只写 schema 3。只在**形态**变化时升它 —— 加一个可选字段
 // 不算升，因为读的时候未知字段会被忽略。文件每次落盘都是整份重写，所以最后写的那个
 // writer 拥有它的全部，文件里的版本号保护不了它：一个过期的 writer 连它也一起覆盖掉。
 //   schema 1: {"a.md": [scroll, line, ch, toLine, toCh]} —— 数组的**长度**就是类型标签
@@ -16,7 +17,14 @@ export type CursorDatabase = { [file_path: string]: EphemeralState };
 //               两台设备都持有的同一个键。
 //             —— 一条既没有 `s` 也没有 `c` 的记录是墓碑：笔记被访问过、停在顶部，
 //               这跟从来没有记录不一样。
-export const SCHEMA_VERSION = 2;
+//   schema 3: {"schema": 3, "lastPositions": {"a.md": {...}}} —— 与 schema 2 同形状，
+//             只把容器键从 `positions` 改名成 `lastPositions`：这个文件将来还要装别的
+//             需要同步的数据，各占一个平级键，`lastPositions` 只说它装的是哪一份。
+//             读 1/2 都照旧读出、下一次落盘整份写成 3 ⇒ 这一次改名不丢位置。
+//             ⚠️ 但 parseDb 只取这个容器、writeDb 又整份重写 ⇒ **别的顶层键读进来就被丢掉**。
+//             将来真加平级键（`recentNotes` 之类）之前，得先把这条处理好，否则中间版本
+//             一落盘就把它们抹了。
+export const SCHEMA_VERSION = 3;
 
 // `s` 的含义和对 EphemeralState.scroll 一样是双重的：markdown 存量化后的顶行行号，
 // Bases 视图（唯一另一个可记录的 FileView，由 recordBaseScroll 选择开启 —— pdf/图片/
@@ -112,10 +120,17 @@ export function parseDb(data: string): { schema: number; db: CursorDatabase } {
 		throw new Error('database content is not a JSON object');
 	const raw = parsed as Record<string, unknown>;
 
-	// 没有编号 schema 就是 schema 之前的平坦表，它的键就是笔记路径本身。从 2 起的
-	// 每个 schema 共用一个容器形态，所以更新的文件在这里也能解析。
+	// 没有编号 schema 就是 schema 之前的平坦表，它的键就是笔记路径本身。从 2 起每个
+	// schema 都是「一个容器键装整张表」，只是键名不同，所以更旧的写法在这里逐级回退 ——
+	// 一个比我们新的文件也走这条回退（它的容器键还在，未知字段被忽略）。
 	const schema = typeof raw.schema === 'number' ? raw.schema : 1;
-	const db = schema >= 2 ? parseSchema2(raw) : parseSchema1(raw);
+	let db: CursorDatabase;
+	if (schema >= 3)
+		db = parseSchema3(raw);
+	else if (schema >= 2)
+		db = parseSchema2(raw);
+	else
+		db = parseSchema1(raw);
 	return { schema, db };
 }
 
@@ -128,6 +143,8 @@ function parseSchema1(raw: Record<string, unknown>): CursorDatabase {
 	return db;
 }
 
+// schema 2：容器键叫 `positions`。现在只读不写 —— 留着读 beta 通道与 dev 存量文件，
+// 它们下一次落盘就整份变成 schema 3。
 // {"schema": n, "positions": {"a.md": {...}}} —— 那张表里装的是记录。
 function parseSchema2(raw: Record<string, unknown>): CursorDatabase {
 	const container = raw.positions;
@@ -140,8 +157,23 @@ function parseSchema2(raw: Record<string, unknown>): CursorDatabase {
 	return db;
 }
 
-// 采纳目标文件时的严格形态检查：只接受一个位置 db —— schema 2，或 schema 之前的平坦表
-// —— 且它的每个键都是可记录的笔记路径（.md / .base），恰好是 writeDb 会写出的东西
+// schema 3：与 schema 2 同形状，容器键改叫 `lastPositions`。与那两个一样，这里是这个
+// schema 自己的 parser，不去复用别的 schema 的容器读取 —— 每个 schema 是一段冻结的历史，
+// 改一个不该动到另一个。
+// {"schema": 3, "lastPositions": {"a.md": {...}}} —— 那张表里装的是记录。
+function parseSchema3(raw: Record<string, unknown>): CursorDatabase {
+	const container = raw.lastPositions;
+	if (!container || typeof container !== 'object' || Array.isArray(container))
+		throw new Error('database has no lastPositions map');
+	const map = container as Record<string, unknown>;
+	const db: CursorDatabase = {};
+	for (const key of Object.keys(map))
+		db[key] = decodeValue(map[key]);
+	return db;
+}
+
+// 采纳目标文件时的严格形态检查：只接受一个位置 db —— schema 3、schema 2，或 schema 之前
+// 的平坦表 —— 且它的每个键都是可记录的笔记路径（.md / .base），恰好是 writeDb 会写出的东西
 // （包括空的 `{}`）。这个键检查正是拒掉一个碰巧装着数字数组（图表序列、向量）的外来
 // JSON 的地方；没有它，这样的文件会被采纳，而真文件被删掉。
 // @returns 解析出的 db；内容不是位置 db 时为 null。
