@@ -6,7 +6,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `position/storage/database.ts` | `positions.json` 的文件层：读写、合并、裁剪、损坏保护 |
+| `position/storage/database.ts` | 位置库文件（默认 `position-restore-data.json`）的文件拥有者：读写、合并、换库、裁剪、损坏保护 |
+| `position/storage/disk-format.ts` | 磁盘格式：字节 ↔ `CursorDatabase` 的编解码（纯函数） |
 | `position/storage/position-store.ts` | 两层外观：按文件（同步层）+ 按标签页（本机层） |
 | `position/policy/exclusion.ts` | 总闸：这篇笔记该不该记 |
 | `position/policy/frontmatter.ts` | frontmatter 那一路规则 |
@@ -14,10 +15,11 @@
 
 ## 入口在哪
 
-- [`CursorPositionDatabase`](/src/position/storage/database.ts#L115)：[`setState`](/src/position/storage/database.ts#L330)、[`readDb`](/src/position/storage/database.ts#L378)、
-  [`writeDb`](/src/position/storage/database.ts#L633)、[`mergeExternalChanges`](/src/position/storage/database.ts#L591)、[`switchDbFile`](/src/position/storage/database.ts#L209)、[`pruneDb`](/src/position/storage/database.ts#L279)。
-- [`PositionStore`](/src/position/storage/position-store.ts#L22)：[`read`](/src/position/storage/position-store.ts#L136)、[`write`](/src/position/storage/position-store.ts#L151)、
-  [`persist`](/src/position/storage/position-store.ts#L255)、[`dropExcluded`](/src/position/storage/position-store.ts#L193)。
+- [`CursorPositionDatabase`](/src/position/storage/database.ts#L31)：[`setState`](/src/position/storage/database.ts#L246)、[`readDb`](/src/position/storage/database.ts#L314)、
+  [`writeDb`](/src/position/storage/database.ts#L514)、[`mergeExternalChanges`](/src/position/storage/database.ts#L472)、[`switchDbFile`](/src/position/storage/database.ts#L125)、[`pruneDb`](/src/position/storage/database.ts#L195)。
+- [`disk-format.ts:8`](/src/position/storage/disk-format.ts#L8)：[`parseDb`](/src/position/storage/disk-format.ts#L117)、[`parseDbStrict`](/src/position/storage/disk-format.ts#L180)、[`encodeValue`](/src/position/storage/disk-format.ts#L56)、[`cursorIsDefault`](/src/position/storage/disk-format.ts#L44)、[`SCHEMA_VERSION`](/src/position/storage/disk-format.ts#L27)。
+- [`PositionStore`](/src/position/storage/position-store.ts#L23)：[`read`](/src/position/storage/position-store.ts#L137)、[`write`](/src/position/storage/position-store.ts#L152)、
+  [`persist`](/src/position/storage/position-store.ts#L256)、[`dropExcluded`](/src/position/storage/position-store.ts#L194)。
 - [`ExclusionChecker`](/src/position/policy/exclusion.ts#L8)：[`shouldSkipRecording`](/src/position/policy/exclusion.ts#L17)。
 - [`PathBookkeeper`](/src/position/path-bookkeeping.ts#L34)：`renameFile`（[`renameFile()`](/src/position/path-bookkeeping.ts#L53)）、`deleteFile`（[`deleteFile()`](/src/position/path-bookkeeping.ts#L65)）、
   [`sweepMissingHistory`](/src/position/path-bookkeeping.ts#L91)。
@@ -31,7 +33,7 @@ Sampler / Restorer / BackgroundSettler
 PositionStore ──► 按 leaf 的覆盖层（localStorage，同步写）
         │
         ▼
-CursorPositionDatabase ──► positions.json（默认在插件目录内）
+CursorPositionDatabase ──► disk-format.ts ──► position-restore-data.json（默认在插件目录内）
         │
         ▼
 每 5 秒 flush（[`registerDbFlush()`](/src/main.ts#L211)），退出时交给 app 的 Tasks
@@ -42,27 +44,34 @@ CursorPositionDatabase ──► positions.json（默认在插件目录内）
 
 ## 有哪些坑
 
-**schema 现在的值是 2**（[`SCHEMA_VERSION`](/src/position/storage/database.ts#L29)），形状是 `{schema:2, positions:{path:{s?,c?,t?}}}`。
+**schema 现在的值是 3**（[`SCHEMA_VERSION`](/src/position/storage/disk-format.ts#L27)），形状是 `{schema:3, lastPositions:{path:{s?,c?,t?}}}`。
 **只在形状变化时递增**，加可选字段不算 —— schema 1 用数组长度当类型标签，加不了字段。
+**三种都读，只写 3**：schema 1 的平坦数组、schema 2 的 `positions` 容器都照旧读出来，下一次落盘整份写成 3
+⇒ 把容器键从 `positions` 改名成 `lastPositions` 不丢位置。
 
-**墓碑记录必须落盘**（[`database.ts:649`](/src/position/storage/database.ts#L649)、[`database.ts:658`](/src/position/storage/database.ts#L658)）：既无 `s` 又无 `c` 的记录表示「来过、停在顶部」。
+**默认文件名也从 `positions.json` 改成 `position-restore-data.json`**，只在用的是默认位置时把旧文件搬过来
+（[`migrateDefaultDbFileName()`](/src/position/storage/database.ts#L299)，搬字节、不重编码 —— 重编码要
+`metadataCache`，而 `readDb()` 跑在它就绪之前，那时墓碑判定会不准）。
+**自定义路径不碰**：那是用户选定的，升级后仍在原处，只靠上面的 schema 迁移。
+
+**墓碑记录必须落盘**（[`database.ts:530`](/src/position/storage/database.ts#L530)、[`database.ts:539`](/src/position/storage/database.ts#L539)）：既无 `s` 又无 `c` 的记录表示「来过、停在顶部」。
 它在恢复行为上与「从未有记录」等价（两种都停在 Obsidian 自己打开笔记的那一行），但仍然要写：它出现在记录数的统计里，
 并且是容量上限优先淘汰的对象（见 `trimToLimit`）。
 
-**容量 `MAX_ENTRIES = 750`，裁到 `TRIM_TARGET = 562`**（[`database.ts:12`](/src/position/storage/database.ts#L12)）：3/4 是滞后防抖。
-墓碑优先出局，但最近 `TOMB_RECENT_WINDOW = 187` 条内豁免（[`database.ts:17`](/src/position/storage/database.ts#L17)）。
+**容量 `MAX_ENTRIES = 750`，裁到 `TRIM_TARGET = 562`**（[`database.ts:19`](/src/position/storage/database.ts#L19)）：3/4 是滞后防抖。
+墓碑优先出局，但最近 `TOMB_RECENT_WINDOW = 187` 条内豁免（[`database.ts:24`](/src/position/storage/database.ts#L24)）。
 
-**默认光标行是 frontmatter 块之后那一行**（[`defaultCursorLine()`](/src/position/storage/database.ts#L496)）：实测 85% 的笔记这一行是空的。
+**默认光标行是 frontmatter 块之后那一行**（[`defaultCursorLine()`](/src/position/storage/database.ts#L397)）：实测 85% 的笔记这一行是空的。
 
-**跨设备谁赢**：记录自带采集戳 `t`，**较新者胜、相等保留我方**（[`database.ts:575`](/src/position/storage/database.ts#L575)）。
+**跨设备谁赢**：记录自带采集戳 `t`，**较新者胜、相等保留我方**（[`database.ts:456`](/src/position/storage/database.ts#L456)）。
 四种「时间」别混：导航 push 的墙钟、笔记 mtime、db mtime、入库时刻。
 
-**换库文件时做严格形状校验**（[`database.ts:550`](/src/position/storage/database.ts#L550)）：只接受 `.md`/`.base` 键 ——
+**换库文件时做严格形状校验**（[`parseDbStrict()`](/src/position/storage/disk-format.ts#L180)）：只接受 `.md`/`.base` 键 ——
 否则误选 `package.json` 会被当成空库，然后把真库删掉。
 
-**解析失败不静默丢弃**（[`preserveUnreadableDb()`](/src/position/storage/database.ts#L511)）：先复制一份到插件目录旁，再弹一个不会自动消失的提示。
+**解析失败不静默丢弃**（[`preserveUnreadableDb()`](/src/position/storage/database.ts#L412)）：先复制一份到插件目录旁，再弹一个不会自动消失的提示。
 
-**按 leaf 读要过路径守卫**（[`position-store.ts:138`](/src/position/storage/position-store.ts#L138)）：leaf 记录里的 `filePath` 必须与请求的
+**按 leaf 读要过路径守卫**（[`position-store.ts:139`](/src/position/storage/position-store.ts#L139)）：leaf 记录里的 `filePath` 必须与请求的
 path 一致才用，否则退回文件记录 —— 防止已经切走的 leaf 去定位别的文件。
 
 **落盘只写真正分叉的 leaf 记录**（[`position-store.ts:258`](/src/position/storage/position-store.ts#L258)）：稳态下「一个标签页一个文件」

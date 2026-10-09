@@ -105,7 +105,7 @@ src/
     state.ts              跨阶段协调状态的唯一所有者
     capture/              位置怎么读、怎么记
     restore/              打开时怎么落回去（最复杂的一层）
-    storage/              positions.json + per-tab 覆盖层
+    storage/              position-restore-data.json + per-tab 覆盖层
     policy/               「这篇笔记该不该记」
     ui/                   打开保护盖布、方位提示、库路径弹窗
     hover/                文件列表悬停预览的开场位置

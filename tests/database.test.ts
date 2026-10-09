@@ -18,12 +18,12 @@ import { CursorPositionDatabase } from '@/position/storage/database';
 import { t } from '@/i18n';
 import { DEFAULT_SETTINGS, type PluginSettings } from '@/types';
 
-const DB_PATH = '.obsidian/plugins/position-restore/positions.json';
+const DB_PATH = '.obsidian/plugins/position-restore/position-restore-data.json';
 const PLUGIN_DIR = '.obsidian/plugins/position-restore';
 
 // 读不出来的库内容旁边的那些副本（名字里的时间戳是变的）。
 const copies = (files: Record<string, string>): string[] =>
-	Object.keys(files).filter((p) => p.startsWith(`${PLUGIN_DIR}/positions.corrupt-`)).sort();
+	Object.keys(files).filter((p) => p.startsWith(`${PLUGIN_DIR}/position-restore-data.corrupt-`)).sort();
 
 // 测试桩的 Notice 记下用户被告知了什么、以及展示了多久；obsidian 的类型声明里只有
 // 真实的构造函数。
@@ -109,7 +109,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { scroll: 120 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":120,"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"s":120,"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
 		await db.readDb();
@@ -121,7 +121,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		db.setState('a.md', { cursor: POINT(3, 7) });
 		await db.writeDb();
 		// 没存 scroll → scroll 槽是 0；解码把 0 当成「没有 scroll」
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[3,7,3,7],"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"c":[3,7,3,7],"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
 		await db.readDb();
@@ -132,7 +132,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { cursor: POINT(0, 0) });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 
 		// 盘上已经有的那一个（在这条规则之前写的、或另一台设备写的），读回来时是它真正的样子
 		// —— 一条墓碑，而不是一个位置。
@@ -149,7 +149,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(5, 0) });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 	});
 
 	it('读者真的把光标放到 frontmatter 之下的，要留住', async () => {
@@ -157,14 +157,14 @@ describe('记录编解码（写入 → 读回）', () => {
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(13, 0) });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[13,0,13,0],"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"c":[13,0,13,0],"t":' + db.db['a.md'].time + '}}}');
 	});
 
 	it('有选区的写成 {"s":n,"c":[fl,fc,tl,tc]}', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } } });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":42,"c":[1,2,3,4],"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"s":42,"c":[1,2,3,4],"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
 		await db.readDb();
@@ -176,7 +176,7 @@ describe('记录编解码（写入 → 读回）', () => {
 		db.setState('empty.md', {});
 		db.setState('zero.md', { scroll: 0 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"empty.md":{"t":' + db.db['empty.md'].time + '},"zero.md":{"t":' + db.db['zero.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"empty.md":{"t":' + db.db['empty.md'].time + '},"zero.md":{"t":' + db.db['zero.md'].time + '}}}');
 		expect(db.dbDirty).toBe(false);
 
 		await db.writeDb();
@@ -252,7 +252,7 @@ describe('坏数据加固（readDb / parseDb）', () => {
 
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":1,"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"s":1,"t":' + db.db['a.md'].time + '}}}');
 		expect(copies(files)).toHaveLength(1);
 		expect(files[copies(files)[0]]).toBe('{oops');
 	});
@@ -317,6 +317,24 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		expect(db.db).toEqual({ 'a.md': { scroll: 5 }, 'b.md': { cursor: POINT(3, 7) } });
 	});
 
+	// schema 3 只是把容器键从 `positions` 改名成 `lastPositions`，记录形状一模一样 ——
+	// 所以旧文件整份读得出来，改名不丢位置。
+	it('schema 2 的 positions 旧文件照样读出来，下一次落盘整份写成 schema 3', async () => {
+		const { db, files } = makeHarness({ [DB_PATH]: '{"schema":2,"positions":{"a.md":{"s":7,"c":[1,2,1,2],"t":1695}}}' });
+		await db.readDb();
+		expect(db.db['a.md']).toEqual({ scroll: 7, cursor: POINT(1, 2), time: 1695 });
+
+		// 读回来不脏 —— 得像真实会话那样动一下，落盘才会发生（writeDb 有 dirty 闸门）。
+		db.setState('b.md', { scroll: 1 });
+		await db.writeDb();
+		const written = JSON.parse(files[DB_PATH]);
+		expect(written.schema).toBe(3);
+		expect(written.lastPositions).toEqual({
+			'a.md': { s: 7, c: [1, 2, 1, 2], t: 1695 },
+			'b.md': { s: 1, t: expect.any(Number) },
+		});
+	});
+
 	it('记录里不认识的字段被忽略', async () => {
 		const { db } = makeHarness({ [DB_PATH]: '{"schema":2,"positions":{"a.md":{"s":5,"nope":1}}}' });
 		await db.readDb();
@@ -338,7 +356,7 @@ describe('坏数据加固（readDb / parseDb）', () => {
 
 		db.setState('b.md', { scroll: 1 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{},"b.md":{"s":1,"t":' + db.db['b.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{},"b.md":{"s":1,"t":' + db.db['b.md'].time + '}}}');
 	});
 });
 
@@ -651,7 +669,7 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		await db.writeDb();
 		await inFlight;
 
-		const written = JSON.parse(files[DB_PATH]).positions;
+		const written = JSON.parse(files[DB_PATH]).lastPositions;
 		expect(written['c.md']).toEqual({ s: 7 }); // 外来的记录活了下来
 		expect(written['b.md']).toEqual({ s: 2, t: expect.any(Number) });
 	});
@@ -681,12 +699,12 @@ describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）'
 
 		// 这次落盘采到的是 scroll 2（它的快照早于那个 setState），但那次并发的改动绝不能被它
 		// 清掉。
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":2,"t":' + flushedStamp + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"s":2,"t":' + flushedStamp + '}}}');
 		expect(db.dbDirty).toBe(true);
 
 		// 下一次落盘会把更新的那个值写下去。
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":3,"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"s":3,"t":' + db.db['a.md'].time + '}}}');
 		expect(db.dbDirty).toBe(false);
 	});
 
@@ -802,7 +820,7 @@ describe('schema 版本与旧文件', () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 5 });
 		await h.db.writeDb();
-		expect(JSON.parse(h.files[DB_PATH]).schema).toBe(2);
+		expect(JSON.parse(h.files[DB_PATH]).schema).toBe(3);
 
 		h.db.db = {};
 		await h.db.readDb();
@@ -846,7 +864,7 @@ describe('schema 版本与旧文件', () => {
 
 	it('更新版插件写的文件照样读，不拒绝', async () => {
 		const h = makeHarness({
-			[DB_PATH]: '{"schema":3,"positions":{"a.md":{"s":5,"c":[1,0,1,0],"t":1695}},"extra":{}}',
+			[DB_PATH]: '{"schema":4,"lastPositions":{"a.md":{"s":5,"c":[1,0,1,0],"t":1695}},"extra":{}}',
 		});
 		await h.db.readDb();
 		// 我们共有的字段读出来；我们不认识的那个被忽略
@@ -862,6 +880,42 @@ describe('schema 版本与旧文件', () => {
 		h.externalWrite(DB_PATH, JSON.stringify({ schema: 2, positions: { 'a.md': { t: 2000 } } }));
 		await h.db.mergeExternalChanges();
 		expect(h.db.db['a.md']).toEqual({ time: 2000 });
+	});
+});
+
+// 默认数据文件从 `positions.json` 改叫 `position-restore-data.json`：只在用的是默认位置时
+// 把旧文件搬过来 —— 搬字节，不重编码（重编码要 metadataCache，而 readDb 跑在它就绪之前）。
+describe('默认数据文件改名', () => {
+	const LEGACY_PATH = `${PLUGIN_DIR}/positions.json`;
+
+	it('插件目录里那份旧默认文件被搬成新名字', async () => {
+		const { db, files } = makeHarness({ [LEGACY_PATH]: '{"a.md":[7]}' });
+		await db.readDb();
+		expect(files[LEGACY_PATH]).toBeUndefined();
+		expect(files[DB_PATH]).toBe('{"a.md":[7]}');
+		expect(db.db['a.md']).toEqual({ scroll: 7 });
+	});
+
+	it('新名字已经有文件时不动旧文件', async () => {
+		const { db, files } = makeHarness({
+			[LEGACY_PATH]: '{"a.md":[7]}',
+			[DB_PATH]: '{"b.md":[9]}',
+		});
+		await db.readDb();
+		expect(files[LEGACY_PATH]).toBe('{"a.md":[7]}');
+		expect(db.db['b.md']).toEqual({ scroll: 9 });
+	});
+
+	// 自定义路径是用户明确选定的，插件不碰它 —— 那一类库升级后还在原处，靠 schema 迁移。
+	it('用户自定义了路径时，旧默认文件原样留着', async () => {
+		const custom = 'x/plugins-data/positions.json';
+		const { db, files } = makeHarness(
+			{ [custom]: '{"a.md":[7]}', [LEGACY_PATH]: '{"b.md":[9]}' },
+			{ dbFileName: custom }
+		);
+		await db.readDb();
+		expect(files[LEGACY_PATH]).toBe('{"b.md":[9]}');
+		expect(db.db['a.md']).toEqual({ scroll: 7 });
 	});
 });
 

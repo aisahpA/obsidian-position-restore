@@ -5,7 +5,8 @@ import type { CursorPositionDatabase } from './database';
 
 // 插件两个位置层之上唯一的门面。每一次读、写与路径变更都走这里，所以两层不会各自漂开。
 //
-// 第 1 层 —— 文件层（CursorPositionDatabase，`positions.json`）：每个 vault 路径一条记录。
+// 第 1 层 —— 文件层（CursorPositionDatabase，默认 `position-restore-data.json`）：每个
+//   vault 路径一条记录。
 //   共享、会同步：它是跟着你去另一台设备的那个位置。
 // 第 2 层 —— leaf 层（leafStates）：每个工作区 leaf 一条记录，设备本地，它存在只为一个
 //   理由 —— 同一个文件开在两个标签页就是两个位置，而文件层只装得下其中一个。读取的优先级
