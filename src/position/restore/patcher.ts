@@ -419,19 +419,19 @@ export class OpenPatcher {
 
 	// 「编辑器里装的是不是**这一次要打开的那篇**」—— 拿那个文件的内容来比。
 	//
-	// 取不到文件、或这个 vault 不认 cachedRead（测试桩（patcher-inject 的假 app 只有
-	// workspace）就是这样）时返回 undefined：那一层判据**缺席**，退回与从前一样的
-	// 「文档对象换掉了没有」—— 至少还能挡住读盘那一段。
+	// 拿不到那个**文件**（取不到、或那个路径是个文件夹）、或这个 vault 不认 cachedRead
+	// （测试桩（patcher-inject 的假 app 只有 workspace）就是这样）时返回 undefined：那一层
+	// 判据**缺席**，退回与从前一样的「文档对象换掉了没有」—— 至少还能挡住读盘那一段。
 	//
 	// ⚠️ 比拼是 O(内容长度)，而判据每帧都被求值：按**文档身份**记忆。同一次交换只换一次文档
 	// 对象，所以整段等待里最多比几次。
 	private expectedContent(leaf: WorkspaceLeaf, filePath: string): (() => boolean) | undefined {
 		const vault = this.app.vault as Vault | undefined;
 		const file = vault?.getAbstractFileByPath?.(filePath);
-		if (!file || typeof vault?.cachedRead !== 'function')
+		if (!(file instanceof TFile) || typeof vault?.cachedRead !== 'function')
 			return undefined;
 		let text: string | undefined;
-		void vault.cachedRead(file as TFile).then(
+		void vault.cachedRead(file).then(
 			(content) => { text = content; },
 			() => undefined,
 		);
