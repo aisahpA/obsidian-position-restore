@@ -560,14 +560,14 @@ describe('RecentFilesView —— 常驻面板', () => {
 				.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
 
 			click(row.querySelector<HTMLElement>('.nav-row-menu')!);
-			const menu = trigger.mock.calls[0][1] as { closed: boolean };
-			expect(menu.closed).toBe(false);
+			const menu = trigger.mock.calls[0][1] as { hidden: boolean };
+			expect(menu.hidden).toBe(false);
 
 			// ……然后读者前往，抽屉就折叠了。
 			click(row);
 
 			expect(pane.collapsed).toBe(true);
-			expect(menu.closed).toBe(true);
+			expect(menu.hidden).toBe(true);
 		} finally {
 			Platform.isMobile = wasMobile;
 		}
