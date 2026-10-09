@@ -1,38 +1,37 @@
-// "Open recent files" panel: the MODAL shell around the browser body (see
-// body.ts for everything that is not a shell, and view.ts for the resident
-// sidebar panel that shares it).
+// 「浏览最近文件」面板：包在浏览器主体外面的**模态**外壳（凡不是外壳的东西见 body.ts，
+// 共用它的常驻侧栏面板见 view.ts）。
 //
-// WHAT MAKES IT A MODAL and nothing else does: a dialog of its own lifetime,
-// closed the moment a row is travelled to, with the filter box focused on open.
+// 什么让它成为模态、别的东西做不到：一个自己有生命期的对话框，一旦某一行被行进过去
+// 就关闭，打开时筛选框已获得焦点。
 //
-// It is also the one shell that does NOT subscribe to the places: a dialog is a
-// question asked and answered, and the only change its list can see is one its
-// own reader made from a row's menu, which the body redraws itself. A panel that
-// stays up is the opposite case, and the reason that subscription exists.
+// 它也是**唯一**不订阅地点的外壳：对话框是一个问出来、又被回答的问题，而它的列表
+// 能看到的唯一变化，是它自己的读者从某一行的菜单里做出来的，那个变化由主体自己重画。
+// 一个一直站着不走的则是相反的情形，也正是那个订阅存在的理由。
 
 import { App, Modal, Platform } from 'obsidian';
 import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
 import { FIXED_HEIGHT_MIN_ENTRIES } from './constants';
-import { RecentFilesBrowser, RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import type { RecentFilesBrowserArrows } from './arrows';
 
 export class RecentFilesModal extends Modal {
-	// The toolbar, the rows and the keyboard.
+	// 工具栏、行与键盘。
 	private browser!: RecentFilesBrowser;
-	// Read once, here: it picks the hint and whether the filter box focuses itself.
+	// 在这里只读一次：它决定提示语，以及筛选框是否自己获得焦点。
 	private mobile = Platform.isMobile;
 
 	constructor(
 		app: App,
-		// The panel's only data source.
+		// 面板唯一的数据来源。
 		private places: PlaceList,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The plugin owns and persists these; this shell only hands them down.
+		// 插件拥有并持久化这些；这个外壳只是把它们往下交。
 		private prefs: RecentFilesBrowserPrefs,
-		// The four arrows: a step back and forward, and the two ends of the note the
-		// reader has open. Every shell draws them (see RecentFilesBrowserArrows), and a
-		// dialog closes on every one — it covers the note they act on.
+		// 四个箭头：后退与前进各一步，以及读者打开的那篇笔记的两端。每个外壳都画它们
+		// （见 RecentFilesBrowserArrows），而对话框在每一个上都关闭 —— 它盖住了它们
+		// 所作用的那篇笔记。
 		private arrows: RecentFilesBrowserArrows,
 	) {
 		super(app);
@@ -40,22 +39,19 @@ export class RecentFilesModal extends Modal {
 
 	onOpen() {
 		this.modalEl.addClass('position-restore-nav-modal');
-		// The class the two shells share: what the panel's presentation rules are
-		// written against (see styles.css), so a dialog and a sidebar panel cannot
-		// drift apart in their quiet tiers, their inline panel or their touch layout.
+		// 两个外壳共用的 class：面板的呈现规则就是照它写的（见 styles.css），
+		// 好让对话框和侧栏面板不会在各自的安静层档、内联面板或触摸布局上漂开。
 		this.modalEl.addClass('position-restore-nav-panel');
-		// Pinned once, here. A row can still leave while the dialog is up — the
-		// reader may take one off from its own menu — and the list simply comes out a
-		// row shorter.
+		// 在这里钉一次。对话框开着时仍可能有行离开 —— 读者可能从某行自己的菜单里撤下一个 ——
+		// 列表就干脆短一行出来。
 		this.modalEl.toggleClass('is-touch', this.mobile);
-		// Pinned on anything with a keyboard, whatever the list holds: filtering must
-		// not resize and re-center the dialog. A phone keeps its short history sized to
-		// it — see FIXED_HEIGHT_MIN_ENTRIES.
+		// 任何带键盘的东西上都钉住，无论列表里有什么：筛选不能改变对话框大小、也不能让它
+		// 重新居中。手机让它的短历史按自身来定尺寸 —— 见 FIXED_HEIGHT_MIN_ENTRIES。
 		this.modalEl.toggleClass('is-fixed', !this.mobile || this.places.entries.length > FIXED_HEIGHT_MIN_ENTRIES);
-		// With a keyboard comes a box standing where the app's own prompt puts it, nothing over
-		// it — so the box's own × is the way out as well as the one home: a query is cleared,
-		// an empty box closes (see RecentFilesBrowser.toolbar, and styles.css for the corner
-		// the app's own × gives up rather than sharing).
+		// 有键盘就有一个框站在 app 自己的 prompt 放它的地方，上面没有东西压着 ——
+		// 所以框自己的 × 既是回家的路、也是出去的路：有查询就清掉，空框就关闭
+		// （见 RecentFilesBrowser.toolbar，以及 styles.css 里 app 自己的 × 让出来
+		// 而不是共用的那个角落）。
 		this.modalEl.toggleClass('is-dismissive', !this.mobile);
 		this.titleEl.setText(t('recentFiles.name'));
 		this.browser = new RecentFilesBrowser({
@@ -64,15 +60,13 @@ export class RecentFilesModal extends Modal {
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
 			touch: this.mobile,
-			// The dialog needs no collapse — the first travel closes it.
+			// 对话框不需要折叠 —— 第一次行进就会关掉它。
 			collapseOnJump: false,
 			focusFilter: true,
-			// The dialog has answered its question the moment a row is travelled to,
-			// so it gets out of the way first and the open runs on its own. (The
-			// sidebar shell passes nothing here: staying up is the point of it.)
+			// 一旦某一行被行进过去，对话框就算答完了它的问题，所以它先让开路、打开再自己跑。
+			// （侧栏外壳这里什么都不传：一直站着不走正是它的意义。）
 			onJump: () => this.close(),
-			// The box's × closing with nothing typed to clear is the dialog's own promise, and
-			// nothing about travel: the panel never moved.
+			// 框的 × 在没有东西可清时关闭，是对话框自己的承诺、与行进无关：面板从未移动过。
 			onDismiss: () => this.close(),
 			arrows: this.arrows,
 			prefs: this.prefs,

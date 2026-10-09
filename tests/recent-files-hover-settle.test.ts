@@ -1,24 +1,22 @@
-// The cover over the app's own page preview: what the popover does between being
-// ASKED for a line and arriving at it (see recent-files/browser/hover-settle.ts).
+// 盖在 app 自己那个页面预览上的遮罩：popover 从**被索要**某一行到抵达它之间在做什么
+// （见 recent-files/browser/hover-settle.ts）。
 //
-// Everything here is a stand-in for the core's half of that: nothing about the real
-// PeekPopover can be built in jsdom, but none of it needs to be — the observer asks
-// exactly two things of it (the popover's element, and the core's own mark left on
-// the line it landed on), and those are the two things the two sides agreed on in
-// the core's own code. What is tested is this side of the seam: that no part of the
-// journey is visible, however late the app's answer comes.
+// 这里的一切都是 core 那一半的替身：真实的 PeekPopover 在 jsdom 里造不出来，但也不
+// 需要造 —— 观察者恰好只问它两件事（popover 那个元素，以及 core 在它落到的那一行上留
+// 下的自己的标记），而这两件正是两边在 core 自己的代码里约定的东西。被测的是这道接缝
+// 的这一侧：无论 app 的答复来得多晚，这段路程里没有任何一部分是看得见的。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { HoverParent, HoverPopover } from 'obsidian';
 
 import { PreviewSettle } from '@/recent-files/browser/hover-settle';
 
-// The parent the core writes its popover into, as the app hands it over.
+// core 把它的 popover 写进去的那个 parent，按 app 交过来的样子。
 const parentOf = (el?: HTMLElement): HoverParent => ({
 	hoverPopover: el ? ({ hoverEl: el } as unknown as HoverPopover) : null,
 });
 
-// The popover itself: a card, and inside it whatever the core renders later.
+// popover 自己：一张卡片，里面装着 core 稍后渲染的东西。
 const popover = () => {
 	const el = document.createElement('div');
 	const content = document.createElement('div');
@@ -27,11 +25,11 @@ const popover = () => {
 	return { el, content };
 };
 
-// One look of the observer's eye: its clock is the paint (see shared/wait.ts
-// nextPaint), so one turn of the fake clock past it is one look.
+// 观察者的眼睛看一次：它的时钟是那次绘制（见 shared/wait.ts 的 nextPaint），所以假时钟
+// 走过它一整圈就是看一次。
 const look = () => vi.advanceTimersByTimeAsync(150);
 
-describe('PreviewSettle — the cover over the preview’s own journey', () => {
+describe('PreviewSettle —— 盖在预览自己那段路程上的遮罩', () => {
 	let settle: PreviewSettle;
 	let opened: ReturnType<typeof vi.fn>;
 
@@ -48,11 +46,10 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		document.body.innerHTML = '';
 	});
 
-	it('covers the popover whenever it arrives — the key may come long after the asking', async () => {
-		// The panel's own registration says the Mod key is required (see main.ts), so
-		// the app answers when the reader PRESSES it: ten seconds of hovering first is
-		// an ordinary thing, and a cover that has gone home by then is the jump and
-		// the flash coming back (see hover-settle.ts's header).
+	it('popover 什么时候到都罩住它 —— 钥匙可能比提问晚很久才来', async () => {
+		// 面板自己的注册说明必须按修饰键（见 main.ts），所以 app 是在读者**按下**它的时候才
+		// 答复：先悬停十秒是件寻常事，而到那时已经收工的遮罩，换来的是那一下跳和闪回来
+		// （见 hover-settle.ts 的导言）。
 		const parent = parentOf();
 		settle.attach(parent, opened);
 		settle.ask(true);
@@ -64,16 +61,15 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 
 		expect(content.style.opacity).toBe('0');
 		expect(opened).toHaveBeenCalledTimes(1);
-		// …and the CARD travels with the news: it is the only handle anybody outside
-		// this module has on what the app drew (see RecentFilesBrowser.liftPreview).
+		// ……而这个**卡片**随消息一起走：它是这个模块之外的人对 app 画了什么的唯一把手
+		// （见 RecentFilesBrowser.liftPreview）。
 		expect(opened).toHaveBeenCalledWith(el);
 	});
 
-	it('reveals when the scroll’s own witness arrives, with the search mark already off', async () => {
-		// The core puts `.is-flashing` on the line in the SAME call that moves the
-		// scroller, so the flash is the certain news that the note has landed — and it
-		// is the search hit's three seconds, never meant for a preview, so it is taken
-		// off in the same look that ends the cover.
+	it('滚动自己的见证到达时才揭幕，而且搜索标记已经摘掉', async () => {
+		// core 在移动滚动容器的**同一次**调用里把 `.is-flashing` 放到那一行上，所以那次闪是
+		// 笔记已经落了地的确定消息 —— 而它是搜索命中的那三秒，从来不是给预览准备的，所以在
+		// 结束遮罩的同一次注视里就被摘掉。
 		const { el, content } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -90,9 +86,8 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(el.querySelector('.is-flashing')).toBeNull();
 	});
 
-	it('hides content that arrives after the card itself', async () => {
-		// The content node is later than the popover it belongs to, so the cover is
-		// re-applied at every look rather than once.
+	it('比卡片本身晚到的内容先藏着', async () => {
+		// 内容节点比它所属的 popover 晚来，所以遮罩是每次注视都重新盖上，而不是只盖一次。
 		const { el } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -106,10 +101,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(late.style.opacity).toBe('0');
 	});
 
-	it('stops waiting at the deadline rather than holding a blank card', async () => {
-		// The deadline is for the version of the app that keeps the position and drops
-		// the flash: a popover that never quite caught up is uncovered whole rather
-		// than held blank while we wonder about it.
+	it('到了期限就停止等待，而不是一直举着一张空卡片', async () => {
+		// 这个期限是为那种保留位置、丢掉闪的 app 版本准备的：一个始终没太跟上的 popover，会被
+		// 整个揭开，而不是在我们琢磨它的时候一直空着。
 		const { el, content } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -122,9 +116,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('');
 	});
 
-	it('reports the opening — and covers nothing — when no line was asked', async () => {
-		// A section is drawn where it stands, so there is no journey to hide; but the
-		// OPENING itself is still news the panel is waiting for (see NavRowTip).
+	it('没有请求行号时报告「开了」，但不盖任何东西', async () => {
+		// 小节就画在它所在的地方，没有路程要藏；但**开**这件事本身仍然是面板在等的消息
+		// （见 NavRowTip）。
 		const parent = parentOf();
 		settle.attach(parent, opened);
 		settle.ask(false);
@@ -136,10 +130,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('');
 	});
 
-	it('covers an already-standing popover when the next asking names a line', async () => {
-		// The pointer crossed over from another row: the note about to load into the
-		// open card makes the same journey, so the cover starts with the asking —
-		// one visible frame of the note's head is already too late.
+	it('下一次提问点名了行号时，把已经立着的 popover 罩上', async () => {
+		// 指针从另一行划了过来：即将载入那张已打开卡片的笔记，走的是同一段路程，所以遮罩随
+		// 提问一起开始 —— 露出笔记开头的一帧就已经太晚了。
 		const { el, content } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -152,9 +145,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('0');
 	});
 
-	it('puts the old note back at the deadline when an asking is answered with nothing', async () => {
-		// Covering the standing card is a bet that a journey is beginning; a refused
-		// asking must not keep the reader's note hidden for it.
+	it('提问被回答成「什么都没有」时，到期限就把旧笔记放回去', async () => {
+		// 盖住已经立着的那张卡片，是在赌一段路程即将开始；一次被拒的提问不该因此把读者的笔记
+		// 一直藏着。
 		const { el, content } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -168,10 +161,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(content.style.opacity).toBe('');
 	});
 
-	it('lets go when the hover ends — and watches again when one begins', async () => {
-		// The pointer leaving the list ends the ASKING, not the popover: a cover still
-		// on comes off, but the card stays tracked, so a pointer coming back is not
-		// told a second time that it "opened".
+	it('悬停结束就放手 —— 下一次开始再重新盯着', async () => {
+		// 指针离开列表结束的是**提问**，不是这个 popover：还盖着的遮罩会揭开，但卡片继续被
+		// 跟踪着，所以指针回来时不会再被告知一次它「开了」。
 		const { el, content } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -188,9 +180,8 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(opened).toHaveBeenCalledTimes(1);
 	});
 
-	it('lets a newer popover own the cover', async () => {
-		// Rows are crossed one after another: an older card has no business staying
-		// covered once the app has answered a newer asking.
+	it('让更新的那个 popover 接管遮罩', async () => {
+		// 一行接一行地被划过：app 已经答复了更新的那次提问之后，旧卡片没有道理继续被盖着。
 		const first = popover();
 		const parent = parentOf(first.el);
 		settle.attach(parent, opened);
@@ -207,10 +198,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(opened).toHaveBeenCalledTimes(2);
 	});
 
-	it('answers "is one open" from the app’s own handle, not from memory', async () => {
-		// The rows' hints ask this before speaking (see NavRowTip): a remembered
-		// answer would go stale exactly when it mattered — the popover closing while
-		// the pointer never left the list.
+	it('「有没有开着一个」由 app 自己的句柄回答，不靠记忆', async () => {
+		// 那些行的提示在开口之前先问这个（见 NavRowTip）：一个记下来的答案，恰恰会在它最重要
+		// 的时候过时 —— 指针从未离开列表，而 popover 已经关了。
 		const { el } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);
@@ -223,10 +213,9 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(settle.isOpen()).toBe(false);
 	});
 
-	it('restores a card it is no longer covering when the asking moves on', async () => {
-		// An asking can arrive while another card is still under the cover — the app
-		// replaced its popover between looks, and the new asking names a line. The old
-		// card is the app's to show again exactly as it was.
+	it('提问换了目标时，把已经不再罩着的那张卡片恢复原样', async () => {
+		// 一次提问可能在另一张卡片还盖在遮罩下时到来 —— app 在两次注视之间换掉了它的 popover，
+		// 而新的提问点名了某一行。那张旧卡片该怎么显示，还是 app 的事，照原样就行。
 		const first = popover();
 		const parent = parentOf(first.el);
 		settle.attach(parent, opened);
@@ -242,8 +231,8 @@ describe('PreviewSettle — the cover over the preview’s own journey', () => {
 		expect(second.content.style.opacity).toBe('0');
 	});
 
-	it('leaves nothing hidden when the panel goes away', async () => {
-		// A popover left covered would be a bug that outlives the rows that caused it.
+	it('面板离开时一件藏着的东西都不留', async () => {
+		// 一个被留着盖住的 popover，会是一个比造成它的那些行活得更久的 bug。
 		const { el, content } = popover();
 		const parent = parentOf(el);
 		settle.attach(parent, opened);

@@ -1,26 +1,23 @@
-// Tests for the VSCode-style navigation stack (nav-history/stack.ts) and its
-// integration points:
-//  - stack logic: every jump pushes, a fresh jump truncates the forward part,
-//    dedup drops repeated same-file jumps (key match), force wins;
-//  - gates: the stack's own settings (record tab switches / record cursor
-//    jumps) and the funnel's startup window (layout not ready);
-//  - rename/delete bookkeeping keeps the index meaningful;
-//  - persistence: localStorage round-trip per vault, corrupt degrades to
-//    empty, out-of-range index clamps;
-//  - navigate: pointer movement, same-file jump applies the entry position,
-//    cross-tab traversal reactivates the original leaf and opens the file,
-//    same-tab file switch delegates to the native per-tab history only when
-//    its next entry matches (else openFile fallback);
-//  - graph tab steps: activation records a pathless view entry, traversal
-//    reactivates the graph/file leaf without any open;
-//  - a travel asked for elsewhere (the modifier-held place open), and the landing
-//    words a place carries, which a step does not keep;
-//  - patcher historyNav injection: the saved position rides OVER the native
-//    entry's cursor-only eState, marker consumed exactly once.
+// VSCode 式导航栈（nav-history/stack.ts）及其各接入点的测试：
+//  - 栈逻辑：每一次 jump 都压栈，一次新 jump 会把前进那一段截掉，
+//    去重丢掉重复的同文件 jump（key 相配），force 优先；
+//  - 闸门：栈自己的设置（记标签页切换 / 记光标跳变），以及漏斗的启动窗口
+//    （布局未就绪）；
+//  - 改名/删除的记账让下标一直有意义；
+//  - 落盘：每个仓库一轮 localStorage 存取，垃圾数据退化成空，越界下标被夹回；
+//  - navigate：指针移动、同文件的 jump 应用条目位置、跨标签页遍历重新激活原
+//    来的 leaf 并打开文件、同标签页的文件切换只在下一步对得上时交给原生
+//    的每标签页历史（否则退回 openFile）；
+//  - 图谱标签页的步：激活记下一个无路径的视图条目，遍历重新激活图谱/文件
+//    leaf 而不做任何打开；
+//  - 一次被要求在别处进行的前往（按住修饰键开一个地点），以及一个地点带
+//    的那句落点上的话，步不留它；
+//  - patcher 的 historyNav 注入：存下的位置盖在原生条目那个只带光标的
+//    eState 之上，标记恰好消费一次。
 //
-// The FUNNEL's own contract (the shared gates, what each capture point
-// publishes, the broadcasts) and the sampler's teleport capture sit next door
-// in nav-funnel.test.ts. Both suites share support/nav-recording-harness.ts.
+// 漏斗自己的契约（共享的那几道闸门、每个采集点发布什么、那些广播）以及采样
+// 器的跳变采集就在隔壁 nav-funnel.test.ts。两个套件共用
+// support/nav-recording-harness.ts。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
@@ -38,9 +35,8 @@ import {
 
 const STORAGE_KEY = 'position-restore:nav-history:test-vault';
 
-// The settings panel mutates the settings object the stack was handed (they
-// share one instance, see NavStack.settings) — this is that mutation, without
-// going through the whole settings tab.
+// 设置面板改的是交给栈的那个 settings 对象（它们共用一个实例，见
+// NavStack.settings）—— 这里就是那次改动，不经过整个设置标签页。
 function setCap(nav: ReturnType<typeof makeNav>, cap: number): void {
 	(nav.stack as unknown as { settings: PluginSettings }).settings.navHistoryCap = cap;
 }
@@ -49,11 +45,11 @@ beforeEach(() => {
 	window.localStorage.clear();
 });
 
-describe('NavStack travelling to a view this vault cannot build', () => {
-	// A plugin switched off, uninstalled, or not loaded yet leaves no factory for its type, and
-	// the app answers a tab asking for it with a placeholder that claims to be that type (see
-	// shared/leaf's viewTypeIsMissing). Nothing can be built behind it, so the place is dead and
-	// every door to it has to say so — including the one the placeholder fools.
+describe('NavStack —— 前往一个这个仓库造不出来的视图', () => {
+	// 一个被关掉、卸载、或还没加载的插件不会给它的类型留下工厂，于是 app 会用一
+	// 个自称是该类型的占位符来应答索取它的标签页（见 shared/leaf 的
+	// viewTypeIsMissing）。它背后什么都造不出来，所以这个地点是死的，通向它的
+	// 每一扇门都得这么说 —— 包括被那个占位符骗过的那扇。
 	function missingApp() {
 		const app = makeApp(undefined, ['thino_view']);
 		const ws = app.workspace as unknown as {
@@ -63,14 +59,14 @@ describe('NavStack travelling to a view this vault cannot build', () => {
 		return { app, ws };
 	}
 
-	it('opens no tab it cannot fill, though the placeholder answers to the type', async () => {
+	it('不去开一个填不满的标签页，尽管占位符应答得了那个类型', async () => {
 		const { app, ws } = missingApp();
 		const detach = vi.fn();
 		const built: { id: string; containerEl: string; detach: unknown; view?: { getViewType: () => string }; setViewState: unknown } = {
 			id: 'leaf-new', containerEl: 'main', detach, view: undefined, setViewState: undefined,
 		};
 		built.setViewState = vi.fn((vs: { type: string }) => {
-			built.view = { getViewType: () => vs.type }; // what the placeholder really answers
+			built.view = { getViewType: () => vs.type }; // 占位符真正应答的就是这个
 			return Promise.resolve();
 		});
 		ws.getLeavesOfType = () => [];
@@ -83,7 +79,7 @@ describe('NavStack travelling to a view this vault cannot build', () => {
 		expect(detach).toHaveBeenCalled();
 	});
 
-	it('is not "showing" anywhere: the tab wearing the placeholder is not the place', async () => {
+	it('哪里都不算「正显示着」：披着占位符的那个标签页不是这个地点', async () => {
 		const { app, ws } = missingApp();
 		const ghost = { id: 'leaf-ghost', containerEl: 'main', view: { getViewType: () => 'thino_view' } };
 		const detach = vi.fn();
@@ -101,8 +97,8 @@ describe('NavStack travelling to a view this vault cannot build', () => {
 	});
 });
 
-describe('NavStack stack logic', () => {
-	it('records jumps and truncates the forward part on a fresh jump', () => {
+describe('NavStack —— 栈逻辑', () => {
+	it('记录跳转；一次新跳转会截掉前进那一段', () => {
 		const app = makeApp();
 		(app.workspace as unknown as {
 			iterateAllLeaves: (cb: (l: WorkspaceLeaf) => void) => void;
@@ -110,7 +106,7 @@ describe('NavStack stack logic', () => {
 		const nav = makeNav(app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 		nav.funnel.recordOpen('c.md', 'leaf-1');
 
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'c.md']);
@@ -119,35 +115,35 @@ describe('NavStack stack logic', () => {
 		expect(nav.stack.canNavigate(1)).toBe(false);
 	});
 
-	it('dedups: same file without a key or with the same key is not pushed', () => {
+	it('去重：同一文件不带 key、或带同一个 key，都不再压栈', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordOpen('a.md', 'leaf-1'); // plain re-open: not a jump
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // 朴素重开：不是一次 jump
 		expect(nav.stack.entries.length).toBe(1);
 
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // keyed by target line
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // 以目标行为 key
 		expect(nav.stack.entries.length).toBe(2);
 
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // same line again: same jump
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 42); // 又是同一行：同一次 jump
 		expect(nav.stack.entries.length).toBe(2);
 
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 300); // different target line
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 300); // 不同的目标行
 		expect(nav.stack.entries.length).toBe(3);
 
-		// A teleport is its own kind: a keyed jump carrying the same
-		// teleport key does NOT dedup against it.
+		// 跳变自成一类：一次带着同一个 teleport key 的带名 jump
+		// 不会和它去重。
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'teleport:42' });
 		expect(nav.stack.entries.length).toBe(4);
 
-		nav.funnel.recordOpen('a.md', 'leaf-1', { key: '#other' }); // different anchor target
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: '#other' }); // 不同的锚点目标
 		expect(nav.stack.entries.length).toBe(5);
 
-		nav.funnel.recordOpen('a.md', 'leaf-1', { force: true }); // search match: always
+		nav.funnel.recordOpen('a.md', 'leaf-1', { force: true }); // 搜索命中：总是记
 		expect(nav.stack.entries.length).toBe(6);
 		expect(nav.stack.index).toBe(5);
 	});
 
-	it('gates: pre-layout startup does not record', () => {
+	it('闸门：布局就绪之前的启动阶段什么都不记', () => {
 		const app = makeApp();
 		(app.workspace as unknown as { layoutReady: boolean }).layoutReady = false;
 		const nav = makeNav(app);
@@ -155,34 +151,34 @@ describe('NavStack stack logic', () => {
 		expect(nav.stack.entries.length).toBe(0);
 	});
 
-	it('recordTeleport fills the landing on a fresh push and keeps it on a deduped repeat', () => {
+	it('recordTeleport 在首次压栈时补上落点，去重重放时保住它', () => {
 		const nav = makeNav();
 		const landing: NavEntryState = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42, landing);
 		expect(keyOf(nav.stack.entries[0])).toBe('teleport:42');
 		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
-		// Same line again (deduped): the original landing survives.
+		// 同一行再来一次（被去重）：原来的落点留了下来。
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42, { scroll: 9, cursor: { from: { line: 42, ch: 3 }, to: { line: 42, ch: 3 } } });
 		expect(nav.stack.entries.length).toBe(1);
 		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
-		// A gated call (traversal executing) pushes nothing and fills nothing.
+		// 一次被闸住的调用（遍历正在执行）既不压栈也不填补。
 	});
 
-	it('refreshTop never overwrites a keyed landing; it backfills only an empty one', () => {
+	it('refreshTop 绝不覆盖带 key 的落点，只给空的那个补上', () => {
 		const nav = makeNav();
 		const landing: NavEntryState = { scroll: 7, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42, landing);
 
-		// The user drifted after landing; a leave must not touch the landing.
+		// 用户在落定之后漂走了；一次离开不许碰这个落点。
 		const drifted: NavEntryState = { scroll: 99, cursor: { from: { line: 42, ch: 0 }, to: { line: 42, ch: 0 } } };
 		nav.funnel.leave('a.md', 'leaf-1', drifted);
 		expect(stOf(nav.stack.entries[0])).toBe(landing);
 
-		// Outline/anchor entries follow the same keyed rule: backfill when
-		// empty (the settle-capture or the first leave), never overwrite. Found by key:
-		// the drift off the teleport above is a step of its own by the time this pushes.
+		// 大纲/锚点条目守同一条带名的规则：空的时候回填（落定采集或第一次离
+		// 开），绝不覆盖。按 key 找到：到它压栈时，从那上面跳变走开的漂移
+		// 已经自成一个步了。
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo', force: true });
 		const jump = nav.stack.entries.findIndex(e => keyOf(e) === 'outline:Foo');
 		nav.funnel.leave('a.md', 'leaf-1', drifted);
@@ -190,14 +186,14 @@ describe('NavStack stack logic', () => {
 		nav.funnel.leave('a.md', 'leaf-1', landing);
 		expect(stOf(nav.stack.entries[jump])).toBe(drifted);
 
-		// Legacy persisted entry without a landing: backfilled once.
+		// 旧版落盘条目没有落点：回填一次。
 		const legacy = makeNav();
 		legacy.funnel.recordTeleport('a.md', 'leaf-1', 42);
 		expect(stOf(legacy.stack.entries[0])).toBeUndefined();
 		legacy.funnel.leave('a.md', 'leaf-1', drifted);
 		expect(stOf(legacy.stack.entries[0])).toBe(drifted);
 
-		// Keyless open entries still take every leave read.
+		// 不带 key 的打开条目仍接受每一次离开读取。
 		legacy.funnel.recordOpen('a.md', 'leaf-1', { force: true });
 		const leave: NavEntryState = { scroll: 3, cursor: { from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } } };
 		const plain = legacy.stack.entries.length - 1;
@@ -207,13 +203,12 @@ describe('NavStack stack logic', () => {
 		expect(stOf(legacy.stack.entries[plain])).toBe(landing);
 	});
 
-	it('a reader who moved off a jump leaves the spot they are standing in as its own step', () => {
+	it('读者从一次跳转上走开之后，他们站的那一处自成一个步', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
-		// They read on, then jump to another heading. The leave alone must change nothing —
-		// the step keeps the landing it names — and the drift only becomes a step once the
-		// jump carries them off it.
+		// 他们继续往下读，然后跳到另一个标题。光是离开必须什么都不改 —— 这一步
+		// 保住它点名的那个落点 —— 而漂移只有在 jump 把他们带离它之后才成一个步。
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
 		expect(nav.stack.entries.length).toBe(1);
 		expect(stOf(nav.stack.entries[0])).toEqual({ scroll: 500 });
@@ -222,26 +217,26 @@ describe('NavStack stack logic', () => {
 		expect(nav.stack.entries[1].kind).toBe('visit');
 		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
 		expect(keyOf(nav.stack.entries[2])).toBe('outline:Bar');
-		// Consumed, not copied: the step keeps its landing, so a later back reaches 700
-		// (the step above) and then 500 (this one) instead of landing on 700 twice.
+		// 被消费、不是被复制：这一步保住它的落点，所以之后后退先到 700
+		// （上面那一步），再到 500（这一步），而不是两次都落在 700 上。
 		expect((nav.stack.entries[0] as NavJump).leftAt).toBeUndefined();
-		// A step, not a place: the list beside the stack keeps the jumps it was told about
-		// and must not grow a row for the spot the reader was reading.
-		expect(nav.places.entries.every((p) => p.kind === 'jump')).toBe(true);
+		// 是一个步，不是一个地点：栈旁边的列表只记**笔记**，所以这一串跳转在那边
+		// 是一次访问（见 places.ts 的降级），不为读者正在读的那一处长出第二行。
+		expect(nav.places.entries.map((p) => p.kind)).toEqual(['visit']);
 	});
 
-	it('measures the drift from the viewport, not from a heading the viewport cannot reach', () => {
+	it('漂移是相对视口量的，不是相对视口够不到的那个标题量的', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'Last Heading', level: 2, position: { start: { line: 505 } } },
 		]));
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Last Heading' });
-		// A heading near the end of the note: the viewport stops short of it, so the step
-		// NAMES line 505 while leaving the reader standing at 490.
+		// 一个靠近笔记末尾的标题：视口够不到它，于是这一步点名第 505 行，却把读
+		// 者留在第 490 行站着。
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 490 });
-		// The step does name that line — it is the mismatch the bug hung on.
+		// 这一步确实点名了那一行 —— 这个 bug 就挂在那个对不上上。
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(505);
-		// …and they read to the end. Measured against the heading's line this is no movement
-		// at all; measured against where they were left standing, it is a screenful.
+		// ……然后他们读到了末尾。拿标题那一行来量，这根本不算移动；拿他们被留
+		// 下站着的那处来量，是一屏。
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 505 });
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		expect(nav.stack.entries.length).toBe(3);
@@ -249,49 +244,174 @@ describe('NavStack stack logic', () => {
 		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 505 });
 	});
 
-	it('a drift that never left the landing leaves no step behind', () => {
+	it('没有离开落点的漂移不留步', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
-		// Inside the departure threshold (10 lines): they are still reading what the step
-		// names, so the spot is not somewhere else and no step is made of it.
+		// 在离开阈值之内（10 行）：他们还在读这一步点名的地方，所以那处不算别
+		// 处，也就不拿它成步。
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 508 });
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
 		expect(nav.stack.entries.length).toBe(2);
 	});
 
-	it('a heading clicked a second time is a step again once the reader has moved off it', () => {
+	it('同一个标题再点一次，只要读者已经离开了它，就又是一步', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
-		// Same key as the top step, which is what dedup reads — but the reader is 200 lines
-		// below it, so the click is a real jump only because the departure is on the stack
-		// first. Deduped, it would move them with nowhere to come back to.
+		// 和栈顶那一步同一个 key，而去重读的正是这个 —— 但读者在它下面 200
+		// 行，所以这次点击是真 jump，只因为离开这一点先在栈上。若被去重，就会
+		// 把他们挪走却无处可回。
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		expect(nav.stack.entries.length).toBe(3);
 		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
 	});
 
-	it('a held departure is dropped once the reader is no longer on that step', () => {
+	it('推断跳变就落在漂移那处：teleport 落定后摘掉噪声 visit', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// 采样器在跳变事件里推入时读到的还是跳转前的源 scroll（光标已在目标处、
+		// 视口没动），所以此刻 visit 照压、栈长 3。
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		expect(nav.stack.entries.length).toBe(3);
+		// 下一帧的落定更正：就落在漂移那处（同一把尺，10 行以内），visit 被摘。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708, st: { scroll: 705 },
+		});
+		expect(nav.stack.entries.length).toBe(2);
+		expect(nav.stack.index).toBe(1);
+		expect(keyOf(nav.stack.entries[0])).toBe('outline:Foo');
+		expect(keyOf(nav.stack.entries[1])).toBe('teleport:708');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 705 });
+		// 漂移位置不还给 owner 的 leftAt：后退落回 owner 之后它是过期位置，一次不带
+		// leave 的跳转会把它错误兑现成幽灵步；那处位置已由 teleport 自己代表。
+		expect((nav.stack.entries[0] as NavJump).leftAt).toBeUndefined();
+	});
+
+	it('推断跳变把读者带远：visit 保留', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 800, { scroll: 700 });
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 800, st: { scroll: 800 },
+		});
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
+	});
+
+	it('摘步与兑现共用一把尺：差 10 行摘，11 行留', () => {
+		const near = makeNav();
+		near.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		near.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		near.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		near.funnel.recordTeleport('a.md', 'leaf-1', 710, { scroll: 700 });
+		near.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 710, st: { scroll: 710 },
+		});
+		expect(near.stack.entries.length).toBe(2);
+
+		const far = makeNav();
+		far.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		far.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		far.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		far.funnel.recordTeleport('a.md', 'leaf-1', 711, { scroll: 700 });
+		far.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 711, st: { scroll: 711 },
+		});
+		expect(far.stack.entries.length).toBe(3);
+	});
+
+	it('落定读不到 scroll：宁可留着 visit，裁决也不补第二次', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		// 只有光标、没有视口顶行：判不动，保守保留。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708,
+			st: { cursor: { from: { line: 705, ch: 0 }, to: { line: 705, ch: 0 } } },
+		});
+		expect(nav.stack.entries.length).toBe(3);
+		// 配对一次性消费：之后带着 scroll 的同类落定也不再摘。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708, st: { scroll: 705 },
+		});
+		expect(nav.stack.entries.length).toBe(3);
+	});
+
+	it('落定前栈顶已经换了：旧的那对作废，visit 保留', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		// 落定更正到来之前读者又跳了一次：新 push 把旧对顶掉。
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 900);
+		// 迟到的旧落定被身份守卫挡在门外，当前栈顶的落定则无对可裁。
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 708, st: { scroll: 705 },
+		});
+		nav.funnel.landing({
+			kind: 'teleport', path: 'a.md', leafId: 'leaf-1', line: 900, st: { scroll: 900 },
+		});
+		expect(nav.stack.entries.length).toBe(4);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 700 });
+	});
+
+	it('同文再点的 jump 就落在漂移那处：settled 后摘掉 visit', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// 点读者正读小节的标题：落定前 visit 先在栈上（栈长 3），settled 才知道这一步
+		// 落在 705。
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
+		expect(nav.stack.entries.length).toBe(3);
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 705 });
+		expect(nav.stack.entries.length).toBe(2);
+		expect(nav.stack.index).toBe(1);
+		expect(nav.stack.entries.map(e => keyOf(e))).toEqual(['outline:Foo', 'outline:Bar']);
+		expect(stOf(nav.stack.entries[1])).toEqual({ scroll: 705 });
+	});
+
+	it('teleport 的落定更正永远没来：压栈时的源 scroll 不参与裁决，visit 保留', () => {
+		const nav = makeNav();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
+		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
+		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
+		// 推入带的 st.scroll 是跳转前的源视口（与 visit 相同纯属必然），拿它裁决会把
+		// 每一次 teleport 都错摘，所以必须等下一帧的 landing。
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 708, { scroll: 700 });
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.entries[1].kind).toBe('visit');
+	});
+
+	it('读者已经不站在那一步上时，扣住的离开位置就丢掉', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Foo' });
 		nav.funnel.settled('a.md', 'leaf-1', { scroll: 500 });
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 700 });
-		(nav.stack as unknown as { index: number }).index = 0; // a traversal moved off it
+		(nav.stack as unknown as { index: number }).index = 0; // 一次遍历把它移开了
 		nav.funnel.recordOpen('c.md', 'leaf-1');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md', 'c.md']);
 	});
 
-	it('upgrades an outline key from the cache with its record-time line', () => {
+	it('用缓存里记录当时的那一行，把大纲 key 升级', () => {
 		const nav = makeNav(makeApp([
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
 		]));
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
-		// Source mode: the settled cursor sits on the heading; the upgrade
-		// itself draws from the CACHE (authoritative source + level + line),
-		// the st view line only breaks same-text ties.
+		// 源码模式：落定的光标坐在标题上；升级这件事本身取自缓存（权威来源 +
+		// 层级 + 行号），st 的视图行只在同文本打平时才用。
 		const settle: NavEntryState = {
 			scroll: 14,
 			cursor: { from: { line: 20, ch: 0 }, to: { line: 20, ch: 3 } },
@@ -300,8 +420,7 @@ describe('NavStack stack logic', () => {
 		expect(keyOf(nav.stack.entries[0])).toBe('outline:## **Bold** Title');
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(20);
 
-		// Preview mode: the viewport line only breaks ties; line comes from
-		// the cache.
+		// 预览模式：视口那一行只用于打平，行号来自缓存。
 		const nav2 = makeNav(makeApp([
 			{ heading: 'Heading', level: 3, position: { start: { line: 5 } } },
 		]));
@@ -311,7 +430,7 @@ describe('NavStack stack logic', () => {
 		expect((nav2.stack.entries[0] as NavJump).keyLine).toBe(5);
 	});
 
-	it('upgrades an anchor-link key with its record-time line (key untouched)', () => {
+	it('用记录当时的那一行升级锚点链接的 key（key 本身不动）', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'My Heading', level: 2, position: { start: { line: 12 } } },
 		]));
@@ -321,10 +440,10 @@ describe('NavStack stack logic', () => {
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(12);
 	});
 
-	it('upgrades a block-link key with the block’s own line', () => {
-		// [[a.md#^b1]] hands over `a.md#^b1`, and the `#` in it makes a scan that takes the
-		// first `#` read it as a heading slug — no heading is named after a block id, so the
-		// step kept no keyLine and every block step fell back to the text-snippet remap.
+	it('用块自己所在的那一行升级块链接的 key', () => {
+		// [[a.md#^b1]] 交出 `a.md#^b1`，里面的 `#` 会让一个取第一个 `#` 的扫描
+		// 把它读成标题 slug —— 没有哪个标题是以块 id 命名的，所以这一步留不下
+		// keyLine，每个块步都退回到文本片段重映射。
 		const nav = makeNav(makeApp(undefined, [], { b1: 9 }));
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'a.md#^b1', force: true });
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 9, anchor: 'the block’s text' });
@@ -332,7 +451,7 @@ describe('NavStack stack logic', () => {
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBe(9);
 	});
 
-	it('keeps the recorded key when no cache heading matches (remap fallback)', () => {
+	it('缓存里没有标题对得上时留住记下的 key（重映射兜底）', () => {
 		const nav = makeNav(makeApp([
 			{ heading: 'Other', level: 1, position: { start: { line: 1 } } },
 		]));
@@ -345,21 +464,20 @@ describe('NavStack stack logic', () => {
 		expect((nav.stack.entries[0] as NavJump).keyLine).toBeUndefined();
 	});
 
-	it('dedups a re-click against an upgraded key (normalized outline keys)', () => {
+	it('再点一次能对上升级后的 key 从而去重（归一化后的大纲 key）', () => {
 		const nav = makeNav(makeApp([
 			{ heading: '**Bold** Title', level: 2, position: { start: { line: 20 } } },
 		]));
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title', force: true });
 		nav.funnel.leave('a.md', 'leaf-1', { scroll: 20, anchor: '## **Bold** Title' });
 		expect(keyOf(nav.stack.entries[0])).toBe('outline:## **Bold** Title');
-		// The user clicks the same outline item again: the new record carries
-		// the rendered text, which normalizes equal to the upgraded source
-		// key (# strips) — one jump, no duplicate entry.
+		// 用户再点同一个大纲项：新记录带的是渲染后的文本，归一化后等于升级过
+		// 的源码 key（# 会被剥掉）—— 一次 jump，没有重复条目。
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bold Title' });
 		expect(nav.stack.entries.length).toBe(1);
 	});
 
-	it('rename migrates entries; delete drops them and keeps the index in range', () => {
+	it('改名把各步迁移过去；删除丢掉它们，并把下标收回范围内', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
@@ -368,7 +486,7 @@ describe('NavStack stack logic', () => {
 		nav.stack.renameFile('b.md', 'renamed.md');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'renamed.md', 'c.md']);
 
-		(nav.stack as unknown as { index: number }).index = 2; // sitting at c.md
+		(nav.stack as unknown as { index: number }).index = 2; // 正坐在 c.md 上
 		nav.stack.deleteFile('c.md');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'renamed.md']);
 		expect(nav.stack.index).toBe(1);
@@ -380,8 +498,8 @@ describe('NavStack stack logic', () => {
 	});
 });
 
-describe('NavStack activation recording', () => {
-	it('a same-file activation of another tab is a real step; toggling back records again', () => {
+describe('NavStack —— 激活的记录', () => {
+	it('同一文件在另一个标签页里的激活是真的一步；切回来会再记一次', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.funnel.recordActivation(leafWithFile('leaf-2', 'a.md'));
@@ -392,41 +510,40 @@ describe('NavStack activation recording', () => {
 		expect(nav.stack.index).toBe(2);
 	});
 
-	it('re-activating the same tab of the same file does not record', () => {
+	it('同一文件、同一标签页再次激活不记', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		expect(nav.stack.entries.length).toBe(1);
 	});
 
-	it('an activation that follows an open of the same file in the same leaf merges', () => {
+	it('同一 leaf 里打开同一文件之后紧接着的激活，两步合并', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
-		// The merged step keeps the open's identity.
+		// 合并后的步保住那次打开的身份。
 		expect(nav.stack.entries.length).toBe(1);
 	});
 
-	it('a non-file view activation or a null leaf does not record', () => {
+	it('不是文件视图的激活、或 leaf 为空，都不记', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(leafWithFile('leaf-1'));
 		nav.funnel.recordActivation(null);
 		expect(nav.stack.entries.length).toBe(0);
 	});
 
-	it('a sidebar panel (outline) activation does not record', () => {
+	it('侧边栏面板（大纲）的激活不记', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(leafWithFile('leaf-1', 'a.md'));
 		nav.funnel.recordActivation(leafWithFile('outline-leaf', 'a.md', 'sidebar'));
 		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1']);
 	});
 
-	it('a sidebar activation does not notify browsers — it would eat the press', () => {
-		// The leave-refresh used to run for ANY newly focused pane and notified every
-		// browser (refreshTop → changed) — and the resident panel rebuilt its rows
-		// under the reader's press: clicking into the panel lost the click, so the
-		// same row had to be clicked a second time. The refresh is for tab/pane
-		// switches between FILE views (see refreshTopLeafOnActivation).
+	it('侧边栏的激活不通知面板 —— 那会吃掉这一次点击', () => {
+		// 离开刷新以前对任何新获得焦点的窗格都跑一次，并通知每一个浏览器
+		// （refreshTop → changed）—— 于是常驻面板在读者按下时重建了它的行：点进
+		// 面板会丢掉这次点击，同一行得再点第二次。刷新是给文件视图之间的标
+		// 签页/窗格切换用的（见 refreshTopLeafOnActivation）。
 		const fileLeaf = leafWithFile('leaf-1', 'a.md');
 		const fileView = Object.assign(Object.create(MarkdownView.prototype), {
 			file: { path: 'a.md' },
@@ -449,23 +566,23 @@ describe('NavStack activation recording', () => {
 
 		nav.funnel.recordActivation(sidebarLeaf);
 
-		// The entry was not re-stamped from the file view, and no step was added:
-		// a sidebar taking the focus is not a tab/pane switch the list records.
+		// 条目没有被文件视图重新盖章，也没有加任何步：侧边栏拿到焦点不是列表
+		// 会记的那种标签页/窗格切换。
 		expect(stOf(nav.stack.entries[0])).toBeUndefined();
 		expect(nav.stack.entries).toHaveLength(1);
 	});
 
-	it('a keyed jump with the same key in another tab records its own step', () => {
+	it('同一个 key 的带名跳转出现在另一个标签页里，自记一步', () => {
 		const nav = makeNav();
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42);
 		nav.funnel.recordTeleport('a.md', 'leaf-2', 42);
 		expect(nav.stack.entries.map((e) => e.leafId)).toEqual(['leaf-1', 'leaf-2']);
 	});
 
-	it('switching tabs captures the position of the file being left onto its entry', () => {
-		// A tab switch fires no setViewState, so nothing refreshes the entry
-		// being left — the activation handler must do it, or the browser
-		// shows that file as a bare type badge.
+	it('切标签页时把被离开那个文件的位置补记到它那一步上', () => {
+		// 标签页切换不触发 setViewState，所以没有任何东西会刷新被离开的那个
+		// 条目 —— 激活处理器必须做这件事，否则浏览器会把那个文件显示成一个
+		// 光秃秃的类型徽标。
 		const h = makeSidebarHarness({
 			leaves: [
 				{ id: 'leaf-1', file: 'a.md', markdown: true },
@@ -481,8 +598,8 @@ describe('NavStack activation recording', () => {
 	});
 });
 
-describe('NavStack recording settings', () => {
-	it('navHistoryCap caps the stack, oldest entries drop, index stays at the top', () => {
+describe('NavStack —— 记录相关的设置', () => {
+	it('navHistoryCap 给栈设上限，最旧的步被丢掉，下标停在顶上', () => {
 		const nav = makeNav(makeApp(), { navHistoryCap: 2 });
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
@@ -491,39 +608,39 @@ describe('NavStack recording settings', () => {
 		expect(nav.stack.index).toBe(1);
 	});
 
-	it('a hand-edited navHistoryCap below 1 clamps to 1', () => {
+	it('手工把 navHistoryCap 改到 1 以下会被夹回 1', () => {
 		const nav = makeNav(makeApp(), { navHistoryCap: 0 });
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		expect(nav.stack.entries.map(pathOf)).toEqual(['b.md']);
 	});
 
-	it('a cap that is not a number at all falls back to the default', () => {
-		// "abc" would make every `length > cap` comparison false and disable the
-		// ceiling entirely; null would collapse it to 1.
+	it('根本不是数字的上限退回默认值', () => {
+		// "abc" 会让每一次 `length > cap` 比较都为假，把上限整个关掉；null 则
+		// 会把它塌成 1。
 		const nav = makeNav(makeApp(), { navHistoryCap: 'abc' as unknown as number });
 		expect(nav.stack.stackCap()).toBe(DEFAULT_SETTINGS.navHistoryCap);
 	});
 
-	it('lowering the cap trims the stack at once, keeping the pointer on the top', () => {
+	it('调低上限会当场裁剪，指针停在顶上', () => {
 		const nav = makeNav();
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
 			nav.funnel.recordOpen(p, 'leaf-1');
 		expect(nav.stack.entries.length).toBe(5);
 
-		// The settings panel mutates the settings object the history holds.
+		// 设置面板改的是历史持有的那个 settings 对象。
 		setCap(nav, 2);
 		expect(nav.stack.applyStackCap()).toBe(3);
 
 		expect(nav.stack.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
 		expect(nav.stack.index).toBe(1);
-		// ...and nothing more is dropped on a second call.
+		// ……而且第二次调用不会再丢掉任何东西。
 		expect(nav.stack.applyStackCap()).toBe(0);
 	});
 
-	it('a cap that falls below the current depth stops the pointer on the oldest survivor', () => {
-		// An active file view, so canNavigate reports the STACK's reachability
-		// rather than "nothing is focused".
+	it('上限降到比当前深度还低时，指针停在最旧的那个幸存者上', () => {
+		// 一个活跃的文件视图，好让 canNavigate 报告栈自身的可达性，而不是
+		// 「什么都没聚焦」。
 		const app = makeApp();
 		const leaf = leafWithFile('leaf-1', 'd.md');
 		const ws = app.workspace as unknown as {
@@ -536,23 +653,22 @@ describe('NavStack recording settings', () => {
 		const nav = makeNav(app);
 		for (const p of ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'])
 			nav.funnel.recordOpen(p, 'leaf-1');
-		(nav.stack as unknown as { index: number }).index = 1; // two steps back
+		(nav.stack as unknown as { index: number }).index = 1; // 后退两步
 		setCap(nav, 2);
 
 		nav.stack.applyStackCap();
 
-		// The entry "now" was on is gone. The pointer has to land somewhere
-		// valid: the oldest survivor, so forward still walks what is left
-		// instead of traversal being disabled outright.
+		// 「当下」所在的那个条目没了。指针得落到一个合法的地方：最旧的幸存
+		// 者，这样前进仍能走剩下那些，而不是遍历直接被废掉。
 		expect(nav.stack.entries.map(pathOf)).toEqual(['d.md', 'e.md']);
 		expect(nav.stack.index).toBe(0);
 		expect(nav.stack.canNavigate(-1)).toBe(false);
 		expect(nav.stack.canNavigate(1)).toBe(true);
 	});
 
-	it('a stored stack over the ceiling is trimmed on load', () => {
-		// The cap is lowered (and persisted) while the stack blob still holds
-		// the old, longer history: the ceiling must win from the first render.
+	it('存盘的栈超出上限时，读回当场裁剪', () => {
+		// 上限被调低（并落盘）时，栈那一坨里还握着旧的、更长的历史：从第一次
+		// 渲染起上限就必须赢。
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			v: NAV_HISTORY_VERSION,
 			entries: [entry('a.md'), entry('b.md'), entry('c.md'), entry('d.md')],
@@ -565,7 +681,7 @@ describe('NavStack recording settings', () => {
 		expect(nav.stack.index).toBe(1);
 	});
 
-	it('navHistoryRecordActivation off: a file tab switch is no step, a view tab still is', async () => {
+	it('navHistoryRecordActivation 关闭时：文件标签页的切换不成步，视图标签页仍然成步', async () => {
 		const h = makeSidebarHarness({
 			leaves: [
 				{ id: 'leaf-a', file: 'a.md', markdown: true },
@@ -573,31 +689,29 @@ describe('NavStack recording settings', () => {
 			],
 		});
 		const nav = h.nav;
-		// The gate is read off the object the settings panel mutates (see setCap).
+		// 这道闸门是从设置面板改的那个对象上读的（见 setCap）。
 		(nav.stack as unknown as { settings: PluginSettings }).settings.navHistoryRecordActivation = false;
 
 		nav.funnel.recordOpen('a.md', 'leaf-a');
 		nav.funnel.recordOpen('b.md', 'leaf-b');
-		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf); // back to a.md's tab
+		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf); // 回到 a.md 的标签页
 		expect(nav.stack.entries.map(pathOf)).toEqual(['a.md', 'b.md']);
 
-		// The graph can ONLY be entered by activating its leaf, so the gate must
-		// not reach it: reading the cause alone would take the whole kind out of
-		// the history, which is not what "record tab switches" says.
+		// 关系图谱只能靠激活它的 leaf 进入，所以这道闸门不能管到它：光看原因
+		// 会把这一整类都从历史里拿掉，而那不是「记标签页切换」的意思。
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
 		expect(nav.stack.entries.length).toBe(3);
 		expect(nav.stack.entries[2]).toEqual({ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) });
 		expect(nav.stack.index).toBe(2);
 
-		// That step is what keeps the stack honest about where the reader
-		// stands: unrecorded, back from the graph landed on a.md and skipped
-		// b.md, the note they had just left.
+		// 正是那一步让栈对读者站在哪儿保持诚实：如果不记，从图谱后退会落到
+		// a.md 上、跳过 b.md —— 那是他们刚离开的笔记。
 		await nav.stack.navigate(-1);
 		expect(nav.stack.index).toBe(1);
 		expect(pathOf(nav.stack.entries[nav.stack.index])).toBe('b.md');
 	});
 
-	it('threshold 0: cursor jumps record nothing', () => {
+	it('阈值为 0：光标跳变一个也不记', () => {
 		const nav = makeNav(makeApp(), { navHistoryTeleportMinLines: 0 });
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 42);
 		nav.funnel.recordTeleport('a.md', 'leaf-1', 300);
@@ -605,8 +719,8 @@ describe('NavStack recording settings', () => {
 	});
 });
 
-describe('NavStack persistence', () => {
-	it('round-trips entries and index through localStorage', () => {
+describe('NavStack —— 落盘与读回', () => {
+	it('各步与下标经 localStorage 存取一轮，数据不丢', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-2', { key: '#x' });
@@ -617,7 +731,7 @@ describe('NavStack persistence', () => {
 		expect(restored.stack.index).toBe(nav.stack.index);
 	});
 
-	it('corrupt storage degrades to empty; a stale index clamps into range', () => {
+	it('读到垃圾数据就退化成空；过期的下标夹回合法范围', () => {
 		window.localStorage.setItem(STORAGE_KEY, '{not json');
 		const empty = makeNav();
 		expect(empty.stack.entries.length).toBe(0);
@@ -633,7 +747,24 @@ describe('NavStack persistence', () => {
 		expect(clamped.stack.index).toBe(1);
 	});
 
-	it('a foreign-format blob (missing or other version) is dropped whole', () => {
+	it('小数下标会被夹住，而不是一路顶到 entries.length', () => {
+		// 栈用 `entries.length = index + 1` 截自己，而 2.5 会让它变成 3.5
+		// —— RangeError: Invalid array length，就在下一次压栈时。只有手改过
+		// 或被截断的一坨才带得动这种值。
+		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+			v: NAV_HISTORY_VERSION,
+			entries: [entry('a.md'), entry('b.md')],
+			index: 1.5,
+		}));
+		const nav = makeNav();
+		expect(nav.stack.index).toBe(1);
+		// 而这里正是它本来会抛的地方：压栈先做截断。
+		nav.funnel.recordOpen('c.md', 'leaf-3');
+		expect(nav.stack.entries.length).toBe(3);
+		expect(nav.stack.index).toBe(2);
+	});
+
+	it('别的格式的那一坨（缺版本号或是别的版本）整个丢掉', () => {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			entries: [entry('a.md')],
 			index: 0,
@@ -643,16 +774,16 @@ describe('NavStack persistence', () => {
 		expect(nav.stack.index).toBe(-1);
 	});
 
-	it('malformed entries are dropped, valid ones survive the load filter', () => {
+	it('格式不对的步被丢掉，合法的能过读取过滤', () => {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
 			v: NAV_HISTORY_VERSION,
 			entries: [
-				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }, // ok
-				{ path: 'x.md' }, // no kind, no leafId: dropped
-				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3, t: 1 }, // junk key: dropped
-				{ kind: 'view', viewType: 'thino_view', label: 'Thino', leafId: 'leaf-g', t: 1 }, // ok (a view keeps its own name)
-				{ kind: 'visit', path: 'b.md', leafId: 'leaf-4' }, // no timestamp: dropped
-				{ leafId: 'leaf-3' }, // neither kind nor path/viewType: dropped
+				{ kind: 'visit', path: 'a.md', leafId: 'leaf-1', t: 1 }, // 合法
+				{ path: 'x.md' }, // 没有 kind、没有 leafId：丢掉
+				{ kind: 'jump', path: 'y.md', leafId: 'leaf-2', key: 3, t: 1 }, // 垃圾 key：丢掉
+				{ kind: 'view', viewType: 'thino_view', label: 'Thino', leafId: 'leaf-g', t: 1 }, // 合法（视图保留自己的名字）
+				{ kind: 'visit', path: 'b.md', leafId: 'leaf-4' }, // 没有采集戳：丢掉
+				{ leafId: 'leaf-3' }, // 既没有 kind 也没有 path/viewType：丢掉
 			],
 			index: 1,
 		}));
@@ -661,21 +792,19 @@ describe('NavStack persistence', () => {
 		expect(nav.stack.index).toBe(1);
 	});
 
-	it('the write dedup belongs to the instance, not to the module', () => {
-		// The dedup must not be shared state: a second history (another vault in
-		// the same page, or the next test) would otherwise assume the blob on
-		// disk is its own and skip a write it owes.
+	it('写盘去重属于实例，不属于模块', () => {
+		// 这个去重不许是共享状态：否则第二个历史（同页面里的另一个仓库，或者
+		// 下一个测试）会以为盘上那一坨是自己的，跳过它欠的一次写。
 		const setItem = vi.spyOn(Storage.prototype, 'setItem');
-		// Counted per KEY: persist() now writes two blobs (the stack and the
-		// recent-files list, see NavStack.persist), and the dedup under test is the
-		// stack's.
+		// 按 key 计数：persist() 现在写两坨（栈和最近文件列表，见
+		// NavStack.persist），而被测的这个去重是栈的那个。
 		const writes = () => setItem.mock.calls.filter(c => c[0] === STORAGE_KEY).length;
 		try {
 			const first = makeNav();
 			first.funnel.recordOpen('a.md', 'leaf-1');
 			first.stack.persist();
 			expect(writes()).toBe(1);
-			first.stack.persist(); // unchanged: deduped
+			first.stack.persist(); // 没变：被去重
 			expect(writes()).toBe(1);
 
 			const second = makeNav();
@@ -687,10 +816,10 @@ describe('NavStack persistence', () => {
 	});
 });
 
-// A cross-tab traversal fixture: leaf-2 is the entry's own (target) tab,
-// leaf-1 holds the active file view. `targetLeafView` is what that tab shows
-// now — { file: undefined } forces the open path, a MarkdownView showing the
-// target file exercises the "tab already there" path.
+// 跨标签页遍历的 fixture：leaf-2 是条目自己的（目标）标签页，leaf-1 握着
+// 活跃文件视图。`targetLeafView` 是那个标签页现在显示的东西 ——
+// { file: undefined } 强制走打开那条路，一个显示着目标文件的 MarkdownView
+// 则走「标签页已经在了」那条路。
 function makeCrossTabHarness(app = makeApp(), targetLeafView: unknown = { file: undefined }) {
 	const targetLeaf = {
 		id: 'leaf-2',
@@ -713,16 +842,16 @@ function makeCrossTabHarness(app = makeApp(), targetLeafView: unknown = { file: 
 }
 
 describe('NavStack.navigate', () => {
-	it('never leaves the stack bounds', async () => {
+	it('绝不越出栈的两端', async () => {
 		const nav = makeNav();
 		await nav.stack.navigate(-1);
 		expect(nav.stack.index).toBe(-1);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		await nav.stack.navigate(-1); // nothing before the first entry
+		await nav.stack.navigate(-1); // 第一个条目之前什么都没有
 		expect(nav.stack.index).toBe(0);
 	});
 
-	it('watchdog releases the traversal bracket when an open hangs forever', async () => {
+	it('一次打开永远卡住时，看门狗放开遍历的闸门', async () => {
 		vi.useFakeTimers();
 		try {
 			const app = makeApp();
@@ -730,8 +859,8 @@ describe('NavStack.navigate', () => {
 			nav.funnel.recordOpen('a.md', 'leaf-1');
 			nav.funnel.recordOpen('b.md', 'leaf-1');
 			(nav.stack as unknown as { index: number }).index = 0;
-			// Forward step b.md on the same leaf lands in openInLeaf →
-			// leaf.openFile, stubbed to never resolve.
+			// 在同一 leaf 上前进到 b.md 会落到 openInLeaf → leaf.openFile，
+			// 那里被桩成永不 resolve。
 			const activeLeaf = { id: 'leaf-1', containerEl: 'main' } as unknown as WorkspaceLeaf;
 			const activeView = Object.assign(Object.create(FileView.prototype), {
 				file: { path: 'a.md' },
@@ -743,12 +872,12 @@ describe('NavStack.navigate', () => {
 			(app.workspace as unknown as { getActiveViewOfType: () => unknown })
 				.getActiveViewOfType = () => activeView;
 
-			void nav.stack.navigate(1); // hangs inside openFile
-			expect(nav.stack.canNavigate(-1)).toBe(false); // bracket up: traversal gated
+			void nav.stack.navigate(1); // 卡在 openFile 里
+			expect(nav.stack.canNavigate(-1)).toBe(false); // bracket 开着：遍历被闸住
 
-			await vi.advanceTimersByTimeAsync(5000); // watchdog fires
+			await vi.advanceTimersByTimeAsync(5000); // 看门狗触发
 
-			// Bracket released: a new traversal is no longer blocked.
+			// bracket 松开：新的遍历不再被挡。
 			expect(nav.stack.canNavigate(-1)).toBe(true);
 			await nav.stack.navigate(-1);
 			expect(nav.stack.index).toBe(0);
@@ -757,11 +886,10 @@ describe('NavStack.navigate', () => {
 		}
 	});
 
-	it('a same-file back applies the entry position to the view', async () => {
-		// The leaf's view is the view itself — the shape the app has (a view carries
-		// its own leaf back-reference), and the one execute() applies an in-file jump
-		// to (see the same-file branch): a leaf holding a bare `{ file }` stub is a
-		// shape the app never produces.
+	it('同文件的后退把这一步的位置应用到视图上', async () => {
+		// 这个 leaf 的 view 就是视图本身 —— app 的形状（一个视图带着它自己的
+		// leaf 反引用），也是 execute() 应用文件内 jump 的那个（见同文件那一
+		// 支）：一个 leaf 握着光秃秃的 `{ file }` 桩，是 app 永远不会产生的形状。
 		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
 		const applied: unknown[] = [];
 		const view = Object.assign(Object.create(MarkdownView.prototype), {
@@ -795,16 +923,16 @@ describe('NavStack.navigate', () => {
 		await nav.stack.navigate(-1);
 
 		expect(nav.stack.index).toBe(0);
-		// applied the target entry's position (cursor + quantized scroll)
+		// 应用了目标条目的位置（光标 + 量化后的滚动）
 		expect(applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
-		// the entry left behind was refreshed with the live read
+		// 被落在后面的那个条目用实时读取刷新过
 		expect(stOf(nav.stack.entries[1])).toMatchObject({ scroll: 42 });
 	});
 
-	it('a back off a jump and the forward back onto it land on the jump, not on the drift', async () => {
-		// They jumped to a heading and read on. Back/forward is this stack walking its own
-		// steps, not the reader leaving: forward has to land on the heading the step names.
-		// The drift becomes a step of its own only when a NAVIGATION carries them off it.
+	it('从一次跳转后退、再前进回到它，落在跳转上，不是落在漂移上', async () => {
+		// 他们跳到某个标题然后继续读。后退/前进是这个栈在走它自己的步，不是读者
+		// 离开：前进得落在这一步点名的那个标题上。漂移只有在一次导航把他们带离
+		// 它之后才自成一个步。
 		const h = fileLeafHarness(700.4, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -817,27 +945,23 @@ describe('NavStack.navigate', () => {
 		await nav.stack.navigate(-1);
 		expect(nav.stack.index).toBe(0);
 		expect(h.applied.at(-1)).toMatchObject({ scroll: 100 });
-		// The heading, which is the one spot nothing else in the stack holds.
+		// 那个标题 —— 栈里别的任何东西都不持有的唯一一处地点。
 		await nav.stack.navigate(1);
 		expect(nav.stack.index).toBe(1);
 		expect(h.applied.at(-1)).toMatchObject({ scroll: 500 });
-		// …and the drift the traversal read is gone: a step made of it would sit between
-		// the reader and the heading forever.
+		// ……而遍历读到的那个漂移没了：拿它成步的话，会永远夹在读者和标题之间。
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:Bar' });
 		expect(nav.stack.entries.map((e) => e.kind)).toEqual(['visit', 'jump', 'jump']);
 		expect(keyOf(nav.stack.entries[1])).toBe('outline:Foo');
 	});
 
-	// The two travel paths of the recent-files list (see places.ts): a JUMP place
-	// opens the file and lands on its recorded spot, and it branches from where the
-	// reader is — so back returns to the origin. The place index a test travels to is
-	// found by IDENTITY rather than hard-coded: teleports are not places, so the
-	// list's indices do not line up with the stack's.
-	const placeOf = (nav: ReturnType<typeof makeNav>, pred: (e: NavEntry) => boolean): number =>
-		nav.places.entries.findIndex(pred);
-	// A markdown leaf whose own view reports a position, plus the wiring that makes
-	// it the active (or most recent) file view. Every case below is about what the
-	// open pipeline does to that view.
+	// 一次带名的跳转的两条前往路径：它打开文件并落在它记下的那一处，而且从读者
+	// 所在的地方分叉 —— 所以后退会回到起点。**那个步在栈里**：最近文件列表把跳转
+	// 降级成一次访问（见 places.ts），所以一个「前往某一节」只可能是栈的那一步，
+	// 或列表搜到那一节后自己造出来的一步（travelToHeading）。测试要前往的那个步
+	// 是按身份找的，不是写死的：跳变不是一步，所以下标并不稳定。
+	// 一个 markdown leaf，它自己的 view 会报告位置，外加把它接成活跃（或最近）
+	// 文件视图的那套线。下面每个用例都关于打开管线对这个视图做了什么。
 	function fileLeafHarness(scroll: number, line: number) {
 		const leaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-1', isDeferred: false };
 		const applied: unknown[] = [];
@@ -858,63 +982,63 @@ describe('NavStack.navigate', () => {
 		return { app, leaf, view, applied };
 	}
 
-	it('a place branches from the current entry; back returns to the origin', async () => {
+	it('一个地点从当前这一步分叉；后退回到起点', async () => {
 		const h = fileLeafHarness(42.3, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
 
 		const nav = makeNav(h.app);
-		// Two distinct wall times: the travel's copy must be re-stamped (it is a new
-		// navigation moment), not replay the recorded place's t.
+		// 两个不同的挂钟时刻：这次前往的副本必须重新盖章（它是一个新的导航
+		// 时刻），而不是重放所记地点的 t。
 		const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1000);
 		try {
 			nav.funnel.recordOpen('a.md', 'leaf-1');
 			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 			nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## Two' });
-			const at = placeOf(nav, e => e.kind === 'jump' && e.key === 'outline:## One');
-			// The landing the jump settled on, as the store keeps it: no caret (see
-			// readLandingState) and the heading's own line, which need not be the recorded scroll.
-			(nav.places.entries[at] as NavJump).keyLine = 60;
-			(nav.places.entries[at] as NavJump).st = { scroll: 5 };
+			const one = nav.stack.entries
+				.find(e => e.kind === 'jump' && e.key === 'outline:## One') as NavJump;
+			// 这一步落定的那个落点，按栈保存它的样子：没有光标（见
+			// readLandingState），以及标题自己的行号 —— 它不必等于记下的滚动值。
+			one.keyLine = 60;
+			one.st = { scroll: 5 };
 			expect(nav.stack.index).toBe(2);
 
 			nowSpy.mockReturnValue(2000);
-			await nav.places.travel(at);
+			await nav.stack.travelTo(one);
 		} finally {
 			nowSpy.mockRestore();
 		}
 
-		// the target is re-pushed on top of the current entry (branch semantics)
+		// 目标被重新推到当前条目之上（分叉语义）
 		expect(nav.stack.index).toBe(3);
 		expect(nav.stack.entries.map(keyOf)).toEqual([
 			undefined, 'outline:## One', 'outline:## Two', 'outline:## One',
 		]);
-		// the pushed entry is a copy — the original place keeps its own position
+		// 压进去的条目是一个副本 —— 原来的地点保住它自己的位置
 		expect(nav.stack.entries[3]).not.toBe(nav.stack.entries[1]);
-		// ...and its own (fresh) timestamp
+		// ……以及它自己的（全新的）采集戳
 		expect(nav.stack.entries[1].t).toBe(1000);
 		expect(nav.stack.entries[3].t).toBe(2000);
-		// the same landing a travel to step or place applies: the note at its recorded
-		// scroll, the caret at the head of the LINE the jump names (see landedLine).
+		// 和前往一个步或地点时应用的是同一个落点：笔记停在它记下的滚动处，光
+		// 标在 jump 点名的**那一行的行首**（见 landedLine）。
 		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
-		// the origin is the entry right below — back one step returns to it
+		// 起点就是正下方那个条目 —— 后退一步就回到它
 		expect(nav.stack.canNavigate(-1)).toBe(true);
 		expect(nav.stack.canNavigate(1)).toBe(false);
 
 		await nav.stack.navigate(-1);
 		expect(nav.stack.index).toBe(2);
 		expect(h.applied[1]).toMatchObject({ scroll: 42 });
-		// the landing cue is suppressed for the traversal (armed at the travel and
-		// again at the same-file apply)
+		// 遍历期间落点 cue 被抑制（在前往时武装一次，在同文件应用时再武装
+		// 一次）
 		const state = (nav.stack as unknown as { state: PositionState }).state;
 		expect(state.cueSuppressUntil).toBeGreaterThan(Date.now());
 	});
 
-	it('marks the line the jump names once the note has landed on it', async () => {
-		// A jump NAMES a line, so the landing has to read like the app's own answer to
-		// clicking that heading in the outline — and a recent-files heading row IS that
-		// outline. Asked for at the travel and answered after the landing settled, so
-		// what gets marked is the line as it stands now, not the one asked for.
+	it('笔记落到那行之后，标出跳转点名的那一行', async () => {
+		// jump 会点名一行，所以落点得读起来像 app 自己对「在大纲里点那个标题」
+		// 的应答 —— 而最近文件里一个标题行正是那个大纲。在前往时提出、在落点落定
+		// 后才回答，所以被标出的是这一行现在的样子，不是当初求的那一行。
 		const h = fileLeafHarness(42.3, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -922,23 +1046,44 @@ describe('NavStack.navigate', () => {
 		const nav = makeNav(h.app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
-		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so this is a travel to somewhere else
-		const at = placeOf(nav, e => e.kind === 'jump');
-		(nav.places.entries[at] as NavJump).keyLine = 60;
-		(nav.places.entries[at] as NavJump).st = { scroll: 5 };
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步，所以这是一次去别处的前往
+		const one = nav.stack.entries.find(e => e.kind === 'jump') as NavJump;
+		one.keyLine = 60;
+		one.st = { scroll: 5 };
 		const state = (nav.stack as unknown as { state: PositionState }).state;
 		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
 
-		await nav.places.travel(at);
+		await nav.stack.travelTo(one);
 
 		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
-		// Asked once and spent: a line left asked for belongs to no travel at all.
+		// 求一次便用掉：一个仍被留作待求的行，不属于任何一次前往。
 		expect(state.pendingLineFlash).toBeUndefined();
 	});
 
-	it('marks nothing for a step that names no line', async () => {
-		// A step records a READING POSITION, not a heading, so there is no line to mark
-		// and the caret it recorded rides along untouched.
+	it('一次改道的前往落在它印出的那一节上，并标出那一行', async () => {
+		// 搜索命中某一节而改道的那一档（见 list.ts 的 HeadingHit）：这一条记录是**凭空**造
+		// 出来的，它没有「落定」可读 —— 撑开落点吸收窗口的是大纲点击那个采集点，这条路径从
+		// 没经过它。所以落点必须由记录自己说出：光有 keyLine 的话，施加落点的那一套会一路
+		// 回落到位置数据库保存的阅读位置，也就是改道要绕开的那个地方。
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.places.travelToHeading('a.md', 'One', 60, 'leaf-1');
+
+		// 笔记停在被点名的那一行，光标在行首 —— 与点大纲面板里的同一个标题一模一样。
+		expect(h.applied[0]).toMatchObject({ scroll: 60, cursor: { from: { line: 60, ch: 0 } } });
+		// ……而那一行被标出来：这一行印着「小节：One」，不标就等于没兑现。
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+	});
+
+	it('visit 步落定后标出光标那一行', async () => {
+		// visit 记的是一个阅读位置：回到它时，标出条目自己记下的光标行，即使它与视口顶
+		// （scroll 5）不是同一行；光标行原样一路带过去。
 		const h = fileLeafHarness(42.3, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -953,14 +1098,54 @@ describe('NavStack.navigate', () => {
 		await nav.stack.navigate(-1);
 
 		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+	});
+
+	it('teleport 步落定后标出目标行', async () => {
+		// teleport 是一次光标大跳：目标行条目自带，即使没记下 st 也标得出。
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 60, {
+			scroll: 60,
+			cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } },
+		});
+		// teleport 不是可直接前往的地点（travelTo 会拒绝）：再开一篇，后退一步才走到它。
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.stack.navigate(-1);
+
+		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+	});
+
+	it('visit/teleport 的标记在阅读模式不兑现', async () => {
+		// 阅读模式没有光标，视口顶就是唯一落点：visit 步走过去不闪。
+		const h = fileLeafHarness(42.3, 3);
+		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
+			.getActiveViewOfType = () => h.view;
+
+		const nav = makeNav(h.app);
+		nav.funnel.recordOpen('a.md', 'leaf-1');
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+		(nav.stack.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		Object.assign(h.view, { getMode: () => 'preview' });
+		const state = (nav.stack as unknown as { state: PositionState }).state;
+		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
+
+		await nav.stack.navigate(-1);
+
 		expect(flashLine).not.toHaveBeenCalled();
 	});
 
-	it('re-lands the place the reader is already on instead of duplicating it', async () => {
-		// A second press on the row the reader is standing on must re-land that place,
-		// not push a copy of it: the traversal top IS the place, and a duplicate step
-		// would make the origin the new "previous" entry, so the next back bounced
-		// straight forward again (A → B → A …), adding one entry per press.
+	it('读者已经站着的那个地点就地重落，而不是复制一份', async () => {
+		// 在读者正站着的那个行上再按一次，必须就地重落那个地点，而不是压一份副
+		// 本：遍历的栈顶就是那个地点，而一个重复的步会让起点成为新的「上一个」
+		// 条目，于是下一次后退又会直接弹回前进（A → B → A …），每按一次多一条。
 		const h = fileLeafHarness(1, 0);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -970,119 +1155,113 @@ describe('NavStack.navigate', () => {
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 		expect(nav.stack.index).toBe(1);
 
-		await nav.places.travel(placeOf(nav, e => e.kind === 'jump'));
+		await nav.stack.travelTo(nav.stack.entries[1]);
 
 		expect(nav.stack.index).toBe(1);
 		expect(nav.stack.entries.map(keyOf)).toEqual([undefined, 'outline:## One']);
 	});
 
-	it('lands an unsettled teleport on the line it recorded, not nowhere', async () => {
-		// A teleport whose post-jump read never arrived keeps only the line it aimed at
-		// (`st` missing). It is not a place (see places.ts), but a traversal can still
-		// reach it — and then it must take the reader to that line rather than nowhere.
+	it('没有落定的跳变落在它记下的那一行，而不是哪儿都不去', async () => {
+		// 一个跳转后读取始终没到的跳变只留着它瞄准的那一行（`st` 缺失）。它不
+		// 是一个地点（见 places.ts），但遍历仍够得到它 —— 那时必须把读者带到那
+		// 一行，而不是哪儿都不去。
 		const h = fileLeafHarness(0, 0);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
 
 		const nav = makeNav(h.app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordTeleport('a.md', 'leaf-1', 60); // recorded with no landing read
-		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away, so leaving a.md does not fill it
+		nav.funnel.recordTeleport('a.md', 'leaf-1', 60); // 记下时没有落点读取
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步，好让离开 a.md 不去填补它
 		expect(stOf(nav.stack.entries[1])).toBeUndefined();
 
 		await nav.stack.navigate(-1);
 
-		// the line the entry itself recorded is the landing the traversal applies
+		// 条目自己记下的那一行，就是遍历所应用的落点
 		expect(h.applied[0]).toMatchObject({ scroll: 60 });
 	});
 
-	it('applies the saved record for a place that recorded no landing of its own', async () => {
-		// Such a place draws its line from the file's saved record (see
-		// describeNavEntry), so travelling to it applies that record: without it the
-		// row named a line and the click applied nothing at all.
+	it('地点自己没记下落点时，应用存盘的那条记录', async () => {
+		// 这样的地点从文件的存盘记录里取走它的行（见 describeNavEntry），所以
+		// 前往它时会应用那条记录：没有它，行点名了一行而点击什么都没应用。
 		const h = fileLeafHarness(0, 0);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
 
 		const nav = makeNav(h.app, {}, (path) => (path === 'a.md' ? { scroll: 41 } : undefined));
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // no landing ever settled
-		nav.funnel.recordOpen('b.md', 'leaf-1'); // step away
-		const at = placeOf(nav, e => e.kind === 'jump');
-		expect(stOf(nav.places.entries[at])).toBeUndefined();
+		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' }); // 从没有落点落定
+		nav.funnel.recordOpen('b.md', 'leaf-1'); // 走开一步
+		const one = nav.stack.entries.find(e => e.kind === 'jump') as NavJump;
+		expect(stOf(one)).toBeUndefined();
 
-		await nav.places.travel(at);
+		await nav.stack.travelTo(one);
 
-		// the record the row borrowed its line from is the landing the travel applies
+		// 行借来它那一行的那条记录，就是这次前往所应用的落点
 		expect(h.applied[0]).toMatchObject({ scroll: 41 });
 	});
 
-	it('applies a same-file jump while a sidebar holds the focus', async () => {
-		// With the resident recent-files panel focused there is NO active file view —
-		// the workspace's active view is the sidebar, not a FileView — while the file
-		// tab behind it still shows the note. The entry's OWN leaf is what the jump
-		// applies to and what the origin is captured from; the workspace's active view
-		// would answer neither.
+	it('侧边栏拿着焦点时，同文件的跳转照样应用', async () => {
+		// 常驻的最近文件面板拿着焦点时，没有活跃的文件视图 —— 工作区的活跃视图
+		// 是侧边栏，不是 FileView —— 而它背后的文件标签页仍然显示着笔记。jump
+		// 应用的是条目**自己的** leaf，起点也是从那里采集的；工作区的活跃视图两
+		// 样都答不上。
 		const h = fileLeafHarness(90, 90);
-		// getActiveViewOfType stays null (makeApp's default): the sidebar is active.
+		// getActiveViewOfType 保持 null（makeApp 的默认）：侧边栏是活跃的。
 		(h.app.workspace as unknown as { getMostRecentLeaf: () => unknown }).getMostRecentLeaf = () => h.leaf;
 
 		const nav = makeNav(h.app, {}, (path) => (path === 'a.md' ? { scroll: 41 } : undefined));
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## One' });
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		nav.funnel.recordOpen('a.md', 'leaf-1'); // the note the reader is in, keyless
-		const at = placeOf(nav, e => e.kind === 'jump');
-		expect(at).toBeGreaterThanOrEqual(0);
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // 读者所在的那篇笔记，不带 key
+		const one = nav.stack.entries.find(e => e.kind === 'jump') as NavJump;
 		const origin = nav.stack.index;
 
-		await nav.places.travel(at);
+		await nav.stack.travelTo(one);
 
-		// …the older place of the note already on screen is applied
+		// ……已在屏幕上的这篇笔记较老的那个地点被应用
 		expect(h.applied[0]).toMatchObject({ scroll: 41 });
-		// …and the origin was captured from the entry's OWN leaf before the travel, so
-		// "back" returns to where the reader actually was (see
-		// refreshTopFromActiveView): with a sidebar focused there is no active file view
-		// to read it from.
+		// ……而起点是在前往之前从条目**自己的** leaf 采到的，所以「后退」会回到
+		// 读者实际所在的地方（见 refreshTopFromActiveView）：侧边栏拿着焦点时没
+		// 有活跃文件视图可读。
 		const branch = nav.stack.entries.findIndex((e, i) => i > origin && keyOf(e) === 'outline:## One');
 		expect(branch).toBeGreaterThan(0);
 		expect(stOf(nav.stack.entries[branch - 1])).toMatchObject({ scroll: 90 });
 	});
 
-	it('takes a jump place\'s landing from the settle, never from the leave', () => {
-		// The stack backfills a keyed entry with the reader's LEAVE so a later back
-		// returns somewhere. That read is not the jump's own spot, and a place's row
-		// PROMISES the spot it prints — so a reader who clicked a heading, read on and
-		// then switched files must not find that heading's recorded place moved to
-		// wherever they happened to drift to.
+	it('一次跳转的落点只活在栈里，从不进地点列表', () => {
+		// 栈用读者的「离开」回填一个带名的步，好让之后的后退有处可回。那次读取不是
+		// 这个跳转自己的那处落点，所以一个点了标题、继续读、然后切换文件的读者，绝
+		// 不能发现那个标题所记的落点被挪到了他们碰巧漂到的地方 —— 而那一次回填只
+		// 发生在栈里：最近文件列表连位置都不记（见 places.ts 的降级），所以它既拿
+		// 不到落定、也拿不到漂移。
 		const settled = makeNav();
 		settled.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
-		const a = settled.places.entries.findIndex(e => e.kind === 'jump');
 		settled.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
-		expect(stOf(settled.places.entries[a])).toEqual({ scroll: 152 });
+		expect(stOf(settled.stack.entries[settled.stack.index])).toEqual({ scroll: 152 });
+		expect(stOf(settled.places.entries[0])).toBeUndefined();
 
 		const left = makeNav();
 		left.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
-		const b = left.places.entries.findIndex(e => e.kind === 'jump');
 		left.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
-		// the stack kept the drift (back needs a position) …
+		// 栈留住了漂移（后退需要一个位置）……
 		expect(stOf(left.stack.entries[left.stack.index])).toEqual({ scroll: 900 });
-		// …and the place kept none: its row falls back to the file's own record
-		// rather than freezing the drift as the heading's spot.
-		expect(stOf(left.places.entries[b])).toBeUndefined();
+		// ……而地点列表一个都没留：那一行退回到文件自己的记录，落点由位置数据库
+		// 回答，而不是把漂移冻成标题所记的那一处。
+		expect(stOf(left.places.entries[0])).toBeUndefined();
 
-		// A landing that arrives AFTER that backfill still wins, and the place hears of it
-		// then: a jump the reader left before it settled is not a jump with no landing.
+		// 在那次回填**之后**才到的落点仍然赢 —— 在栈里：一个读者在它落定之前就
+		// 离开的跳转，不是一个没有落点的跳转。
 		const late = makeNav();
 		late.funnel.recordOpen('a.md', 'leaf-1', { key: 'outline:## H' });
-		const c = late.places.entries.findIndex(e => e.kind === 'jump');
 		late.funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		late.funnel.settled('a.md', 'leaf-1', { scroll: 152 });
 		expect(stOf(late.stack.entries[late.stack.index])).toEqual({ scroll: 152 });
-		expect(stOf(late.places.entries[c])).toEqual({ scroll: 152 });
+		expect(stOf(late.places.entries[0])).toBeUndefined();
 	});
 
-	it('a cross-tab back reactivates the original leaf and opens the file there', async () => {
+	it('跨标签页后退会重新激活原来那个 leaf，并在那里打开文件', async () => {
 		const targetLeaf = {
 			id: 'leaf-2',
 			isDeferred: false,
@@ -1113,11 +1292,10 @@ describe('NavStack.navigate', () => {
 		expect(targetLeaf.openFile.mock.calls[0][0]).toMatchObject({ path: 'a.md' });
 	});
 
-	it('a cross-tab open arms pendingHistoryNav so the traversal lands instantly', async () => {
-		// openInLeaf must arm the same flag delegateNative arms: the
-		// setViewState patch then injects the per-file record over the plain
-		// open and bypasses the glide choice (history traversals land
-		// instantly; a raw glide here swept blank through unrendered content).
+	it('跨标签页打开会触发 pendingHistoryNav，好让遍历立刻落地', async () => {
+		// openInLeaf 必须武装 delegateNative 武装的同一个标记：setViewState 补
+		// 丁随后把按文件的记录注在朴素打开之上，走注入那一档（历史遍历瞬时
+		// 落定；走「从顶部恢复」那一档会先扫过一大段未渲染的内容）。
 		vi.useFakeTimers();
 		try {
 			const targetLeaf = {
@@ -1153,15 +1331,15 @@ describe('NavStack.navigate', () => {
 
 			expect(armedDuringOpen).toBe(true);
 			vi.advanceTimersByTime(1000);
-			expect(state.pendingHistoryNav).toBe(false); // timeout cleared: no leak onto later opens
-			// the landing cue is suppressed for the traversal's restore
+			expect(state.pendingHistoryNav).toBe(false); // 超时清掉了：不漏到之后的打开上
+			// 遍历的恢复期间落点 cue 被抑制
 			expect(state.cueSuppressUntil).toBeGreaterThan(0);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	it('a cross-tab back arms the target entry its own landing, not the file record', async () => {
+	it('跨标签页后退触发的，是目标步自己的落点，不是文件记录', async () => {
 		vi.useFakeTimers();
 		try {
 			const { app } = makeCrossTabHarness();
@@ -1176,15 +1354,13 @@ describe('NavStack.navigate', () => {
 
 			await nav.stack.navigate(-1);
 
-			// The entry's OWN position rides along to the open pipeline (the
-			// file record is only the fallback), so the line the browser row
-			// shows is the line the open is told to land on.
+			// 条目**自己的**位置一路带到打开管线（文件记录只是兜底），所以
+			// 浏览器那一行显示的行，就是这次打开被告知要落在的那一行。
 			expect(state.pendingHistoryNav).toBe(true);
 			expect(state.pendingHistoryNavState).toMatchObject({ scroll: 42 });
 
-			// ...and the safety timeout drops the landing WITH the flag: a
-			// command that never reached setViewState must not leak it onto a
-			// later unrelated open.
+			// ……而安全超时把落点和标记一起丢掉：一个从没走到
+			// setViewState 的命令，不许把它漏到之后某次无关的打开上。
 			vi.advanceTimersByTime(1000);
 			expect(state.pendingHistoryNav).toBe(false);
 			expect(state.pendingHistoryNavState).toBeUndefined();
@@ -1193,11 +1369,10 @@ describe('NavStack.navigate', () => {
 		}
 	});
 
-	it('a cross-file landing is structurally re-anchored through its heading', async () => {
-		// The heading moved 40 -> 100 (+60) after the entry was recorded. The
-		// injected open has no target editor to run the text-snippet remap
-		// against, so the structural shift is the only edit correction it can
-		// get — and it must be applied BEFORE the landing is handed over.
+	it('跨文件的落点经由它的标题做结构性重锚', async () => {
+		// 条目记下之后，标题从 40 挪到了 100（+60）。注入的这次打开没有目标编
+		// 辑器可跑文本片段重映射，所以结构性位移是它能得到的唯一编辑校正 ——
+		// 而且必须在落点移交之前应用。
 		const app = makeApp([{ heading: 'T', level: 2, position: { start: { line: 100 } } }]);
 		makeCrossTabHarness(app);
 		const nav = makeNav(app);
@@ -1213,10 +1388,10 @@ describe('NavStack.navigate', () => {
 		expect(state.pendingHistoryNavState).toMatchObject({ scroll: 105 });
 	});
 
-	it('a cross-tab back to a tab that still shows the file applies the entry landing', async () => {
-		// The tab was left at L7 when the user switched away, but the entry
-		// (and the browser row) promise L42 — so the traversal re-positions
-		// the live tab instead of only activating it where it happens to be.
+	it('跨标签页后退到仍显示该文件的标签页时，应用这一步的落点', async () => {
+		// 用户切走时那个标签页被留在 L7，但条目（以及浏览器那一行）承诺的是
+		// L42 —— 所以遍历会重新摆放那个活着的标签页，而不是只在它碰巧所在的
+		// 位置激活它。
 		const applied: unknown[] = [];
 		const targetLeaf: { id: string; isDeferred: boolean; view?: unknown } = { id: 'leaf-2', isDeferred: false };
 		targetLeaf.view = Object.assign(Object.create(MarkdownView.prototype), {
@@ -1242,7 +1417,7 @@ describe('NavStack.navigate', () => {
 		expect(applied[0]).toMatchObject({ scroll: 42 });
 	});
 
-	it('a same-tab file switch delegates to the native history when its next entry matches', async () => {
+	it('同标签页的文件切换，在下一步对得上时交给原生历史', async () => {
 		const leaf = {
 			id: 'leaf-1',
 			isDeferred: false,
@@ -1278,14 +1453,14 @@ describe('NavStack.navigate', () => {
 		expect(leaf.openFile).not.toHaveBeenCalled();
 	});
 
-	it('a native/native-target mismatch falls back to openFile', async () => {
+	it('原生历史与原生目标对不上时退回 openFile', async () => {
 		const leaf = {
 			id: 'leaf-1',
 			isDeferred: false,
 			containerEl: document.createElement('div'),
 			view: { file: { path: 'b.md' } },
 			history: {
-				backHistory: [{ state: { state: { file: 'x.md' } } }], // native disagrees
+				backHistory: [{ state: { state: { file: 'x.md' } } }], // 原生对不上
 				forwardHistory: [],
 			},
 			openFile: vi.fn().mockResolvedValue(undefined),
@@ -1313,11 +1488,11 @@ describe('NavStack.navigate', () => {
 	});
 });
 
-// ===== NavStack.navigate from sidebar focus =====
+// ===== 侧边栏拿着焦点时的 NavStack.navigate =====
 
-// A sidebar (file explorer, search, outline…) holds focus: getActiveViewOfType
-// is null until the traversal's setActiveLeaf reactivates a file tab — the
-// mock switches the "active view" exactly like the real workspace would.
+// 一个侧边栏（文件浏览器、搜索、大纲……）拿着焦点：在遍历的 setActiveLeaf
+// 重新激活一个文件标签页之前，getActiveViewOfType 一直是 null —— 这个 mock
+// 切换「活跃视图」的方式和真实工作区一模一样。
 type HarnessLeaf = { id: string; isDeferred: boolean; containerEl: string; openFile: ReturnType<typeof vi.fn>; setViewState: ReturnType<typeof vi.fn>; detach?: ReturnType<typeof vi.fn>; view?: unknown };
 
 function makeSidebarHarness(opts: {
@@ -1334,10 +1509,10 @@ function makeSidebarHarness(opts: {
 		getLeavesOfType: (viewType: string) => unknown[];
 	};
 	const openFile = vi.fn().mockResolvedValue(undefined);
-	// A leaf that is TOLD to show a view shows it: the app builds the view it was
-	// asked for, and the open pipeline checks afterwards that it arrived (see
-	// stack.ts's showViewInNewTab). A leaf that already shows something keeps it —
-	// those are the SWAP cases, and they assert the call, not the leaf's contents.
+	// 一个被**告知**去显示某个视图的 leaf 就显示它：app 会把它要的视图造出来，
+	// 打开管线之后再确认它到位了（见 stack.ts 的 showViewInNewTab）。一个已经
+	// 显示着东西的 leaf 则保留原样 —— 那些是 SWAP 的情形，它们断言的是调用，
+	// 不是 leaf 的内容。
 	const setViewState = vi.fn(function (this: HarnessLeaf, vs: { type: string }) {
 		if (!this.view)
 			this.view = { getViewType: () => vs.type };
@@ -1347,10 +1522,9 @@ function makeSidebarHarness(opts: {
 	const applied: unknown[] = [];
 	const viewsByLeaf: Record<string, unknown> = {};
 	const leaves: HarnessLeaf[] = opts.leaves.map((spec) => {
-		// The file tabs of the MAIN area: isMainAreaLeaf asks the workspace root
-		// whether it holds the leaf's element, and makeApp's root holds 'main' (see
-		// isMainAreaLeaf) — a leaf without one would read as a sidebar and be skipped
-		// by the activation refresh.
+		// 主区的文件标签页：isMainAreaLeaf 问工作区根节点是否持有这个 leaf 的元
+		// 素，而 makeApp 的根节点持有 'main'（见 isMainAreaLeaf）—— 一个没有它的
+		// leaf 会被读成侧边栏，被激活刷新跳过。
 		const leaf: HarnessLeaf = { id: spec.id, isDeferred: false, containerEl: 'main', openFile, setViewState };
 		if (spec.markdown) {
 			leaf.view = Object.assign(Object.create(MarkdownView.prototype), {
@@ -1367,9 +1541,9 @@ function makeSidebarHarness(opts: {
 				setEphemeralState: (st: unknown) => { applied.push(st); },
 			});
 		} else if (spec.viewType) {
-			// A non-file view tab. It reports its type and its OWN state, which is what
-			// the activation refresh re-reads on the way out (see stack.ts's
-			// refreshTopLeafOnActivation).
+			// 一个非文件的视图标签页。它报告自己的类型和自己的 state，那正是激活
+			// 刷新在离开时重读的东西（见 stack.ts 的
+			// refreshTopLeafOnActivation）。
 			leaf.view = {
 				getViewType: () => spec.viewType,
 				getDisplayText: () => undefined,
@@ -1388,23 +1562,23 @@ function makeSidebarHarness(opts: {
 		activeView = viewsByLeaf[(target as { id: string }).id] ?? null;
 	});
 	ws.getMostRecentLeaf = () => leaves.find((l) => l.id === opts.mostRecentLeafId) ?? null;
-	// What the view branch of the open pipeline asks of the workspace: every leaf
-	// SHOWING this view type, read off the leaf as it stands now (a leaf that has been
-	// told to show a view has it from that moment on — see setViewState above).
+	// 打开管线的视图那一支向工作区要的东西：每一个**正显示着**这个视图类型的
+	// leaf，按它现在的样子读（一个被告知去显示某个视图的 leaf，从那一刻起就有
+	// 了它 —— 见上面的 setViewState）。
 	ws.getLeavesOfType = (viewType: string) => leaves.filter(
 		(l) => (l.view as { getViewType?: () => string } | undefined)?.getViewType?.() === viewType,
 	);
-	// A BRAND-NEW leaf, as workspace.getLeaf hands one over for a target the reader
-	// asked for elsewhere (a tab, a split, a window) — or for a view whose own tab is
-	// gone. One object, so a test can ask whether the open landed HERE (the `openFile`
-	// mock is shared, and its `this` is the answer).
+	// 一个全新的 leaf，正如 workspace.getLeaf 为读者在别处要的目标（一个标签
+	// 页、一次分屏、一个窗口）交出那种 —— 或者为一个自己的标签页已经没了的视
+	// 图。同一个对象，所以测试能问这次打开是不是落**在这里**（`openFile` 那个
+	// 桩是共用的，它的 `this` 就是答案）。
 	const newLeaf: HarnessLeaf = { id: 'leaf-new', isDeferred: false, containerEl: 'main', openFile, setViewState, detach };
 	ws.getLeaf = vi.fn(() => newLeaf);
 	return { ws, nav: makeNav(app), openFile, setViewState, detach, applied, leaves, newLeaf };
 }
 
-describe('NavStack.navigate from sidebar focus', () => {
-	it('a same-file back reactivates the tab and applies the entry position', async () => {
+describe('NavStack.navigate —— 侧边栏拿着焦点时', () => {
+	it('同文件的后退重新激活标签页，并应用这一步的位置', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
@@ -1420,13 +1594,13 @@ describe('NavStack.navigate from sidebar focus', () => {
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
-	it('a closed start leaf falls back to the most recently active leaf', async () => {
+	it('起点那个 leaf 已经关了，退回最近活跃的 leaf', async () => {
 		const h = makeSidebarHarness({
 			leaves: [{ id: 'leaf-2', file: 'd.md' }],
 			mostRecentLeafId: 'leaf-2',
 		});
 		const nav = h.nav;
-		nav.funnel.recordOpen('a.md', 'leaf-1'); // leaf-1 has since been closed
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // leaf-1 后来被关了
 		nav.funnel.recordOpen('b.md', 'leaf-1');
 		await nav.stack.navigate(-1);
 
@@ -1435,21 +1609,21 @@ describe('NavStack.navigate from sidebar focus', () => {
 		expect(h.openFile.mock.calls[0][0]).toMatchObject({ path: 'a.md' });
 	});
 
-	it('canNavigate follows the same fallbacks as navigate', () => {
+	it('canNavigate 跟着 navigate 用同一套兜底', () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md' }] });
 		const nav = h.nav;
-		expect(nav.stack.canNavigate(-1)).toBe(false); // empty stack
+		expect(nav.stack.canNavigate(-1)).toBe(false); // 空栈
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		expect(nav.stack.canNavigate(-1)).toBe(false); // bottom of the stack
+		expect(nav.stack.canNavigate(-1)).toBe(false); // 栈底
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		expect(nav.stack.canNavigate(-1)).toBe(true); // sidebar focused, tab resolvable
+		expect(nav.stack.canNavigate(-1)).toBe(true); // 侧边栏拿着焦点，标签页解得出来
 		expect(nav.stack.canNavigate(1)).toBe(false);
 
-		h.ws.setActiveLeaf(h.leaves[0]); // user focuses the file tab again
+		h.ws.setActiveLeaf(h.leaves[0]); // 用户又聚焦到文件标签页
 		expect(nav.stack.canNavigate(-1)).toBe(true);
 	});
 
-	it('canNavigate is false with sidebar focus and nothing resolvable', () => {
+	it('侧边栏拿着焦点又什么都解不出来时，canNavigate 为 false', () => {
 		const h = makeSidebarHarness({ leaves: [] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
@@ -1458,14 +1632,14 @@ describe('NavStack.navigate from sidebar focus', () => {
 	});
 });
 
-// ===== NavStack: view-tab steps =====
+// ===== NavStack：视图标签页的步 =====
 
 function graphLeaf(id: string, containerEl: unknown = 'main'): WorkspaceLeaf {
 	return viewLeaf(id, 'graph', { containerEl });
 }
 
-describe('NavStack entry timestamps', () => {
-	it('stamps every pushed entry with the push time', () => {
+describe('NavStack —— 步的采集戳', () => {
+	it('每一步压栈时都盖上压栈那一刻的时间', () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date('2025-09-12T10:00:00Z'));
@@ -1481,31 +1655,31 @@ describe('NavStack entry timestamps', () => {
 	});
 });
 
-describe('NavStack view-tab steps', () => {
-	it('graph activation records a pathless view entry and dedups; sidebar does not record', () => {
+describe('NavStack —— 视图标签页的步', () => {
+	it('关系图谱的激活记下一个无路径视图步并去重；侧边栏不记', () => {
 		const nav = makeNav();
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
-		nav.funnel.recordActivation(graphLeaf('leaf-g')); // re-click same tab: dedup
+		nav.funnel.recordActivation(graphLeaf('leaf-g')); // 再点同一个标签页：去重
 		expect(nav.stack.entries).toEqual([{ kind: 'view', leafId: 'leaf-g', viewType: 'graph', t: expect.any(Number) }]);
 
-		nav.funnel.recordActivation(graphLeaf('leaf-s', 'sidebar')); // sidebar local graph: not a step
+		nav.funnel.recordActivation(graphLeaf('leaf-s', 'sidebar')); // 侧边栏局部图谱：不是一步
 		expect(nav.stack.entries.length).toBe(1);
 	});
 
-	it('any view tab is a step, not just the graph — with the name it goes by', () => {
-		// The stack is not the list (see nav-history/stack.ts): its steps are
-		// traversed, never drawn, so it keeps the label only because it persists the
-		// entry whole — and a view tab of any type is a place this plugin moved to.
+	it('任何视图标签页都是一步，不只是关系图谱 —— 连同它自称的名字', () => {
+		// 栈不是列表（见 nav-history/stack.ts）：它的步只被遍历、从不被画出来，
+		// 所以它留着 label 只因它整条持久化条目 —— 而任何类型的视图标签页都是
+		// 本插件移动到过的一个地点。
 		const nav = makeNav();
 		nav.funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
-		nav.funnel.recordActivation(viewLeaf('leaf-t2', 'empty')); // the empty tab: nothing to return to
+		nav.funnel.recordActivation(viewLeaf('leaf-t2', 'empty')); // 空标签页：没有东西可回
 
 		expect(nav.stack.entries).toEqual([
 			{ kind: 'view', leafId: 'leaf-t', viewType: 'thino_view', label: 'Thino', t: expect.any(Number) },
 		]);
 	});
 
-	it('back from the graph tab reactivates the previous file tab without reopening', async () => {
+	it('从关系图谱标签页后退，重新激活上一个文件标签页，不重新打开', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
@@ -1513,31 +1687,31 @@ describe('NavStack view-tab steps', () => {
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
 		expect(nav.stack.index).toBe(1);
 
-		await nav.stack.navigate(-1); // graph active (no FileView): current entry is the graph step
+		await nav.stack.navigate(-1); // 图谱活跃（没有 FileView）：当前条目就是图谱那一步
 
 		expect(nav.stack.index).toBe(0);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.leaves[0], { focus: true });
-		expect(h.openFile).not.toHaveBeenCalled(); // a.md already in that tab
+		expect(h.openFile).not.toHaveBeenCalled(); // a.md 已经在那标签页里
 	});
 
-	it('forward from a file tab reactivates the graph tab without opening', async () => {
+	it('从文件标签页前进，重新激活关系图谱标签页，不打开', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		const gLeaf = graphLeaf('leaf-g');
 		h.leaves.push(gLeaf as never);
 		nav.funnel.recordActivation(gLeaf);
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 
 		await nav.stack.navigate(1);
 
 		expect(nav.stack.index).toBe(1);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(gLeaf, { focus: true });
-		expect(h.setViewState).not.toHaveBeenCalled(); // the graph is already showing
+		expect(h.setViewState).not.toHaveBeenCalled(); // 图谱已经显示着了
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
-	it('a view step whose state has not moved is only activated', async () => {
+	it('state 没动过的视图步，只是把它激活', async () => {
 		const live = { file: 'x.md' };
 		const h = makeSidebarHarness({
 			leaves: [
@@ -1546,9 +1720,9 @@ describe('NavStack view-tab steps', () => {
 			],
 		});
 		const nav = h.nav;
-		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf); // the graph, on x.md
-		nav.funnel.recordOpen('a.md', 'leaf-a'); // …then a note
-		h.ws.setActiveLeaf(h.leaves[0]); // the reader is in the note
+		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf); // 图谱，开在 x.md 上
+		nav.funnel.recordOpen('a.md', 'leaf-a'); // ……然后一篇笔记
+		h.ws.setActiveLeaf(h.leaves[0]); // 读者在那篇笔记里
 
 		await nav.stack.navigate(-1);
 
@@ -1556,11 +1730,10 @@ describe('NavStack view-tab steps', () => {
 		expect(h.setViewState).not.toHaveBeenCalled();
 	});
 
-	it('a view step whose state HAS moved has it put back on the leaf showing it', async () => {
-		// The case this exists for: a local graph follows the active file, so its
-		// tab keeps drawing a different neighbourhood while the reader is away —
-		// activating it answers with the view's default behaviour rather than the
-		// place the step names.
+	it('state 动过的视图步，把那个 state 放回正显示它的 leaf 上', async () => {
+		// 这条存在的理由：局部图谱跟着活跃文件走，所以读者不在时它的标签页会一
+		// 直画着另一个邻域 —— 激活它得到的是视图的默认行为，而不是这一步点名的
+		// 那处地点。
 		const live = { file: 'x.md' };
 		const h = makeSidebarHarness({
 			leaves: [
@@ -1570,11 +1743,11 @@ describe('NavStack view-tab steps', () => {
 		});
 		const nav = h.nav;
 		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
-		expect((nav.stack.entries[0] as NavView).state).toEqual({ file: 'x.md' }); // a snapshot, not a reference
+		expect((nav.stack.entries[0] as NavView).state).toEqual({ file: 'x.md' }); // 是快照，不是引用
 		nav.funnel.recordOpen('a.md', 'leaf-a');
 		h.ws.setActiveLeaf(h.leaves[0]);
 
-		live.file = 'y.md'; // the view moved on while the reader was elsewhere
+		live.file = 'y.md'; // 读者在别处时视图往前走了
 
 		await nav.stack.navigate(-1);
 
@@ -1583,11 +1756,10 @@ describe('NavStack view-tab steps', () => {
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
-	it('a view step reads its state off the place, even after its own tab was rebuilt', () => {
-		// A view entry's leafId is never written back (see execute), so once the
-		// place comes back in a NEW tab the step names a tab that is gone. The
-		// snapshot still has to keep up with the PLACE, or a traversal would go on
-		// replaying the state from before the rebuild.
+	it('视图步从地点上读它的 state，即使它自己那个标签页已经重建过', () => {
+		// 视图条目的 leafId 从不被写回（见 execute），所以一旦这个地点在一个
+		// **新**标签页里回来，这一步点名的就是一个已消失的标签页。快照仍得跟上
+		// 那个地点，否则遍历会一直重放重建之前的状态。
 		const before = { file: 'x.md' };
 		const after = { file: 'y.md' };
 		const h = makeSidebarHarness({
@@ -1601,20 +1773,20 @@ describe('NavStack view-tab steps', () => {
 		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
 		expect((nav.stack.entries[1] as NavView).state).toEqual({ file: 'x.md' });
 
-		h.leaves.splice(1, 1); // the graph's tab is closed…
-		h.leaves.push(viewLeaf('leaf-g2', 'graph', { state: after }) as never); // …and the place rebuilt
+		h.leaves.splice(1, 1); // 图谱的标签页被关掉……
+		h.leaves.push(viewLeaf('leaf-g2', 'graph', { state: after }) as never); // ……然后那个地点重建
 
-		// Leaving the graph (activating the note) is when the step's state is read.
+		// 离开图谱（激活那篇笔记）时，就是读这一步 state 的时机。
 		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
 
 		expect((nav.stack.entries[1] as NavView).state).toEqual({ file: 'y.md' });
 	});
 
-	it('leaving a view re-reads its NAME, not only its state', () => {
-		// The built-in browser is the case: its tab header is the page TITLE
-		// (Obsidian's WebviewerView answers getDisplayText with this.title), so the
-		// name a view gives changes while the reader sits in it. The step and the
-		// row standing for that place have to end up called what they last read.
+	it('离开一个视图会重读它的名字，不只是它的 state', () => {
+		// 内置浏览器就是那个情形：它的标签页标题是网页标题（Obsidian 的
+		// WebviewerView 用 this.title 应答 getDisplayText），所以读者坐在里面
+		// 时视图给出的名字会变。代表那个地点的步和行，最终得叫它们最后一次读到
+		// 的名字。
 		const spec = { label: 'Page one', icon: 'globe-2', state: { url: 'https://one.example/' } };
 		const viewer = viewLeaf('leaf-w', 'webviewer', spec);
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-a', file: 'a.md', markdown: true }] });
@@ -1625,8 +1797,7 @@ describe('NavStack view-tab steps', () => {
 		expect(nav.stack.entries[0]).toMatchObject({ label: 'Page one' });
 		expect(nav.places.entries.find(p => p.kind === 'view')).toMatchObject({ label: 'Page one' });
 
-		// The reader browses on, then switches to a note: leaving is the last moment
-		// either of them can be asked.
+		// 读者继续浏览，然后切到一篇笔记：离开是它们俩最后能被问到的时刻。
 		spec.label = 'Page two';
 		spec.state = { url: 'https://two.example/' };
 		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
@@ -1637,14 +1808,14 @@ describe('NavStack view-tab steps', () => {
 		expect(nav.places.entries.find(p => p.kind === 'view')).toMatchObject({ label: 'Page two' });
 	});
 
-	it('forward re-asserts the graph view when a file replaced it in the same leaf', async () => {
-		// graph:open tab reuse / a graph node click: the file open swapped the
-		// graph out of its own leaf, so the graph entry shares the leaf id.
+	it('同一 leaf 里文件把关系图谱挤掉之后，前进会把图谱重新立起来', async () => {
+		// graph:open 的标签页复用 / 一次图谱节点点击：文件打开把图谱从它自己的
+		// leaf 里挤掉了，所以图谱条目与文件共用那个 leaf id。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 
 		await nav.stack.navigate(1);
 
@@ -1653,7 +1824,7 @@ describe('NavStack view-tab steps', () => {
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
-	it('the same-leaf graph restore rides the native history when its entry matches', async () => {
+	it('同 leaf 的图谱还原在下一步对得上时，搭原生历史的车', async () => {
 		const app = makeApp();
 		const leaf = {
 			id: 'leaf-1',
@@ -1685,31 +1856,30 @@ describe('NavStack view-tab steps', () => {
 		});
 
 		const nav = makeNav(app);
-		// file → graph (one leaf, swapped) → node click opened the file again
+		// 文件 → 图谱（同一个 leaf，被换掉）→ 节点点击又打开了文件
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 
-		await nav.stack.navigate(-1); // back to the graph step
+		await nav.stack.navigate(-1); // 回到图谱那一步
 
 		expect(app.commands.executeCommandById).toHaveBeenCalledWith('app:go-back');
 		expect(leaf.setViewState).not.toHaveBeenCalled();
 		expect(leaf.openFile).not.toHaveBeenCalled();
 	});
 
-	it('a view whose leaf is gone is built in a NEW tab, never over the active file', async () => {
-		// The reader's own case: they went to Thino, closed every tab, opened other
-		// notes, and then clicked the entry from back then. The place outlives the tab
-		// it was recorded in, so the view is CONSTRUCTED — and never in the tab the
-		// reader is reading, which is the one thing a pathless entry must not be taken
-		// to mean (with `state: {}`, the same thing Obsidian's own `graph:open` asks
-		// for).
+	it('leaf 已经没了的视图建在新标签页里，绝不盖在正读着的文件上', async () => {
+		// 读者自己的情形：他们去了 Thino，关掉了所有标签页，打开了别的笔记，
+		// 然后点了当初的那个条目。这个地点比记录它的标签页活得久，所以视图是被
+		// **构造**出来的 —— 而且绝不在读者正读着的那个标签页里，这是无路径条目
+		// 最不能被误读成的那一件事（`state: {}` 时，正是 Obsidian 自己的
+		// `graph:open` 所要的东西）。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		nav.funnel.recordOpen(undefined, 'leaf-gone', { viewType: 'graph' }); // leaf since closed
-		(nav.stack as unknown as { index: number }).index = 1; // simulate having gone back once
+		nav.funnel.recordOpen(undefined, 'leaf-gone', { viewType: 'graph' }); // leaf 后来被关了
+		(nav.stack as unknown as { index: number }).index = 1; // 模拟已经后退过一次
 
 		await nav.stack.navigate(1);
 
@@ -1717,13 +1887,13 @@ describe('NavStack view-tab steps', () => {
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 		expect(h.setViewState).toHaveBeenCalledWith({ type: 'graph', state: {}, active: true });
 		expect(h.openFile).not.toHaveBeenCalled();
-		expect(h.detach).not.toHaveBeenCalled(); // the view arrived, so the tab stays
+		expect(h.detach).not.toHaveBeenCalled(); // 视图到位了，所以标签页留着
 	});
 
-	it('a view ROW whose tab is gone opens the view again — the reader scenario', async () => {
-		// The same question asked from the recent-files list rather than a traversal:
-		// the row was written when the reader was in Thino, Thino's tab is long gone, and
-		// the row still has to take them there (see places.ts's travel).
+	it('标签页没了的视图行会把视图再打开一次 —— 读者的真实场景', async () => {
+		// 同一个问题，从最近文件列表而不是一次遍历提出：这一行是读者还在 Thino
+		// 时写下的，Thino 的标签页早已不在，而这一行仍得把他们带到那儿（见
+		// places.ts 的 travel）。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view', { label: 'Thino' }));
@@ -1735,34 +1905,34 @@ describe('NavStack view-tab steps', () => {
 		expect(h.openFile).not.toHaveBeenCalled();
 	});
 
-	it('another tab already showing the view answers for the place', async () => {
-		// Two Thino tabs are ONE place (see places.ts's placeKey), and the entry names
-		// whichever of them was activated last. Closing that one leaves the place
-		// standing in the tab the reader still has, so nothing is built: the entry was
-		// a name for "Thino", not a handle on one particular tab.
+	it('已经有别的标签页在显示这个视图时，由它来应答这个地点', async () => {
+		// 两个 Thino 标签页是**一个**地点（见 entry.ts 的 navGroupKey），而条目点
+		// 名的是最后被激活的那个。关掉它，这个地点仍立在读者手里还剩的那个标签页
+		// 里，所以什么都不用建：条目是「Thino」这个名字，不是某个特定标签页的把
+		// 手。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const other = viewLeaf('leaf-t2', 'thino_view');
 		h.leaves.push(other as never);
 		const nav = h.nav;
 		nav.funnel.recordOpen('a.md', 'leaf-1');
-		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // recorded there, tab since closed
-		(nav.stack as unknown as { index: number }).index = 0; // simulate having gone back
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // 记在那儿，标签页后来被关了
+		(nav.stack as unknown as { index: number }).index = 0; // 模拟已经后退过
 
 		await nav.stack.navigate(1);
 
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(other, { focus: true });
-		expect(h.ws.getLeaf).not.toHaveBeenCalled(); // nothing had to be built
+		expect(h.ws.getLeaf).not.toHaveBeenCalled(); // 什么都不用建
 		expect(h.setViewState).not.toHaveBeenCalled();
 	});
 
-	it('a sidebar panel is not the place: a main-area tab is built instead', async () => {
-		// A panel showing the same view is not where the reader went — it is not
-		// recorded for the same reason (see isMainAreaLeaf). So it does not stand in
-		// for the place either: the entry means a tab of its own.
+	it('侧边栏面板不算这个地点：改为建一个主区标签页', async () => {
+		// 一个显示着同一个视图的面板不是读者去过的地方 —— 出于同样的理由它也不
+		// 被记（见 isMainAreaLeaf）。所以它也不代表那个地点：条目指的是它自己的
+		// 一个标签页。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		h.leaves.push(viewLeaf('leaf-side', 'thino_view', { containerEl: 'sidebar' }) as never);
 		const nav = h.nav;
-		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // since closed
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // 后来被关了
 		const at = nav.places.entries.findIndex(e => e.kind === 'view');
 
 		await nav.places.travel(at);
@@ -1770,12 +1940,11 @@ describe('NavStack view-tab steps', () => {
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
 	});
 
-	it('a view tab is rebuilt with the state the view had, not at its defaults', async () => {
-		// The reader's own case, one step past the tab being gone: they were in Thino
-		// with a filter set, closed every tab, and came back days later. The place is
-		// rebuilt by TYPE, and the state recorded while they were there is what it is
-		// rebuilt WITH — the whole of the difference between "the view" and "the place
-		// they went to" (see nav/entry's NavView.state).
+	it('视图标签页按这个视图当初的 state 重建，而不是用它的默认值', async () => {
+		// 读者自己的情形，比标签页消失再进一步：他们在设了过滤器的 Thino 里，
+		// 关掉所有标签页，几天后回来。这个地点按**类型**重建，而他们在时记下的
+		// state 就是重建所用之物 —— 这就是「视图」与「他们去过的那个地点」之间
+		// 的全部差别（见 nav/entry 的 NavView.state）。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const nav = h.nav;
 		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view', { state: { filter: 'today' } }));
@@ -1788,12 +1957,12 @@ describe('NavStack view-tab steps', () => {
 		});
 	});
 
-	it('leaving a view re-reads its state, and both lists hear it', async () => {
-		// The state a place is rebuilt with has to be the state the reader LEFT it in,
-		// and the moment of leaving is the last one it is readable in (see stack.ts's
-		// refreshTopLeafOnActivation). Both lists hear the same refresh — the stack
-		// through onLanded, the place list through settle — so a view STEP and a view
-		// PLACE cannot disagree about where the reader was.
+	it('离开一个视图会重读它的 state，两份列表都听得到', async () => {
+		// 一个地点重建所用的 state，必须是读者**离开**它时的那个 state，而离开的
+		// 那一刻是它还能被读到的最后时刻（见 stack.ts 的
+		// refreshTopLeafOnActivation）。两个列表听到的是同一次刷新 —— 栈通过
+		// onLanded，地点列表通过 settle —— 所以一个视图**步**和一个视图**地点**
+		// 不会对读者在哪儿产生分歧。
 		const h = makeSidebarHarness({
 			leaves: [
 				{ id: 'leaf-1', file: 'a.md', markdown: true },
@@ -1806,7 +1975,7 @@ describe('NavStack view-tab steps', () => {
 		expect(nav.stack.entries[nav.stack.entries.length - 1])
 			.toMatchObject({ kind: 'view', viewType: 'thino_view', state: { filter: 'today' } });
 
-		// The reader works in the view: the filter moves on. Then they switch away.
+		// 读者在这个视图里干活：过滤器往前变了。然后他们切走。
 		(h.leaves[1].view as { getState: () => unknown }).getState = () => ({ filter: 'week' });
 		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
 
@@ -1814,11 +1983,11 @@ describe('NavStack view-tab steps', () => {
 		expect(nav.places.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'week' } });
 	});
 
-	it('does not re-read the state of a tab that no longer shows the view', async () => {
-		// A graph node click opens the file OVER the graph in the same tab, so the
-		// entry's leaf can be alive and showing something else: what is readable from it
-		// then is the NOTE's state, and writing that onto the view place would trade a
-		// real snapshot for a wrong one (see the guard in refreshTopLeafOnActivation).
+	it('标签页已经不再显示这个视图时，不去重读它的 state', async () => {
+		// 一次图谱节点点击会在同一个标签页里把文件打开**盖在**图谱之上，所以条
+		// 目的 leaf 可能还活着却在显示别的东西：那时从它读到的是**笔记**的 state，
+		// 把它写到视图地点上就是拿一个真快照换一个错快照（见
+		// refreshTopLeafOnActivation 里那道守卫）。
 		const h = makeSidebarHarness({
 			leaves: [
 				{ id: 'leaf-1', file: 'a.md', markdown: true },
@@ -1827,7 +1996,7 @@ describe('NavStack view-tab steps', () => {
 		});
 		const nav = h.nav;
 		nav.funnel.recordActivation(h.leaves[1] as unknown as WorkspaceLeaf);
-		// The tab was swapped to a note in the meantime.
+		// 与此同时那个标签页被换成了笔记。
 		(h.leaves[1].view as { getViewType: () => string }).getViewType = () => 'markdown';
 		(h.leaves[1].view as { getState: () => unknown }).getState = () => ({ elsewhere: true });
 		nav.funnel.recordActivation(h.leaves[0] as unknown as WorkspaceLeaf);
@@ -1835,10 +2004,10 @@ describe('NavStack view-tab steps', () => {
 		expect(nav.stack.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'today' } });
 	});
 
-	it('does not re-read the state of a deferred leaf', async () => {
-		// A background tab that has been unloaded cannot be asked anything: the view
-		// behind the DeferredView is not there, so an "empty" answer read off it must not
-		// be allowed to erase the snapshot (see refreshTopLeafOnActivation).
+	it('延迟 leaf 的 state 不去重读', async () => {
+		// 一个被卸载的后台标签页什么都问不出来：DeferredView 背后的视图不在那
+		// 儿，所以从它读到的「空」答案不许抹掉快照（见
+		// refreshTopLeafOnActivation）。
 		const h = makeSidebarHarness({
 			leaves: [
 				{ id: 'leaf-1', file: 'a.md', markdown: true },
@@ -1854,15 +2023,14 @@ describe('NavStack view-tab steps', () => {
 		expect(nav.stack.entries.find(e => e.kind === 'view')).toMatchObject({ state: { filter: 'today' } });
 	});
 
-	it('a view nothing can construct any more leaves no half-open tab behind', async () => {
-		// The plugin behind the view is disabled or gone: the type is asked for and
-		// never arrives (the app answers with the empty page). The tab is closed again
-		// rather than left standing on a place this vault no longer has — the click
-		// doing nothing being the honest outcome there, and what it always used to do.
+	it('已经没有东西造得出来的视图，不留半个开着的标签页', async () => {
+		// 视图背后的插件被禁用或没了：要了这个类型却从不到来（app 用空页应答）。
+		// 这个标签页又被关上，而不是留立在一个本仓库已不再有的地点上 —— 在那里
+		// 点击什么都不做才是最诚实的结果，也是它一向的做法。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		h.newLeaf.view = { getViewType: () => 'empty' };
 		const nav = h.nav;
-		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // since closed
+		nav.funnel.recordActivation(viewLeaf('leaf-t1', 'thino_view')); // 后来被关了
 		const at = nav.places.entries.findIndex(e => e.kind === 'view');
 
 		await nav.places.travel(at);
@@ -1871,7 +2039,7 @@ describe('NavStack view-tab steps', () => {
 		expect(h.detach).toHaveBeenCalled();
 	});
 
-	it('a persisted graph entry survives the load filter', () => {
+	it('落盘的关系图谱步能过读取过滤', () => {
 		const nav = makeNav();
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordActivation(graphLeaf('leaf-g'));
@@ -1883,19 +2051,18 @@ describe('NavStack view-tab steps', () => {
 	});
 });
 
-// A travel the reader asked to happen SOMEWHERE ELSE — the modifier-click, the
-// middle button, the keyboard's Cmd/Ctrl+Enter (see PaneTarget / list.ts). It is a
-// different question from every other branch of the open pipeline, which exists to go
-// BACK to a place: here the place's own tab must not move.
-describe('NavStack — a travel asked for elsewhere', () => {
-	// The arming flag the setViewState patch consumes: the landing a traversal injects
-	// over the native entry's cursor-only state (see armHistoryNav).
+// 一次读者要求**在别处**进行的前往 —— 按住修饰键的点击、中键、键盘的
+// Cmd/Ctrl+Enter（见 PaneTarget / list.ts）。它和打开管线的其他每一支都是不同
+// 的问题：那些的存在是为了**回到**一个地点，而在这里，地点自己的标签页不许动。
+describe('NavStack —— 要去别处的一次前往', () => {
+	// setViewState 补丁消费的那个武装标记：遍历注入的落点，盖在原生条目那个只
+	// 带光标的状态之上（见 armHistoryNav）。
 	const armed = (nav: ReturnType<typeof makeNav>) =>
 		(nav.stack as unknown as {
 			state: { pendingHistoryNav: boolean; pendingHistoryNavState?: unknown; pendingHistoryNavPath?: string };
 		}).state;
 
-	it('opens a JUMP place in the leaf the app picks, with the same landing armed', async () => {
+	it('在 app 挑中的 leaf 里打开一个跳转地点，触发同一个落点', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const place: NavEntry = {
 			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
@@ -1904,15 +2071,15 @@ describe('NavStack — a travel asked for elsewhere', () => {
 
 		await h.nav.stack.travelTo(place, 'tab');
 
-		// The app's own answer decides the leaf (see Keymap.isModEvent): the plugin only
-		// passes it on.
+		// 由 app 自己的应答决定 leaf（见 Keymap.isModEvent）：插件只是把它转
+		// 交。
 		expect(h.ws.getLeaf).toHaveBeenCalledWith('tab');
-		// …and the open landed in THAT leaf, not in the tab the entry came from.
+		// ……而这次打开落在**那个** leaf 里，不是条目来的那个标签页里。
 		expect(h.openFile.mock.contexts[0]).toBe(h.newLeaf);
 		expect(h.ws.setActiveLeaf).toHaveBeenCalledWith(h.newLeaf, { focus: true });
-		// The landing is not part of the difference: this is the same injection a plain
-		// travel arms, so the same note opened one tab over lands in the same spot —
-		// scroll and the caret that spot puts on the line (see landingOf).
+		// 落点不在差别之列：这就是一次朴素前往所武装的同一个注入，所以同一篇笔
+		// 记在隔壁标签页打开时会落在同一处 —— 那处地点给这一行带来的滚动和光标
+		// （见 landingOf）。
 		expect(armed(h.nav).pendingHistoryNav).toBe(true);
 		expect(armed(h.nav).pendingHistoryNavState).toEqual({
 			scroll: 30, cursor: { from: { line: 30, ch: 0 }, to: { line: 30, ch: 0 } },
@@ -1920,9 +2087,9 @@ describe('NavStack — a travel asked for elsewhere', () => {
 		expect(armed(h.nav).pendingHistoryNavPath).toBe('b.md');
 	});
 
-	it('opens a FILE place in the new leaf with nothing injected', async () => {
-		// A file place carries no position of its own (see places.ts): the position
-		// database decides where it lands, in a new tab exactly as in the old one.
+	it('在新 leaf 里打开一个文件地点，什么也不注入', async () => {
+		// 一个文件地点不带自己的位置（见 places.ts）：由位置数据库决定它落在哪
+		// 儿，在新标签页里和旧标签页里一模一样。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 
 		await h.nav.stack.openFilePlain('b.md', 'leaf-1', 'tab');
@@ -1932,9 +2099,9 @@ describe('NavStack — a travel asked for elsewhere', () => {
 		expect(armed(h.nav).pendingHistoryNav).toBe(false);
 	});
 
-	it('SHOWS a pathless view in the new leaf rather than opening a file', async () => {
-		// The graph has no file to open: the leaf has to be told to show it, and
-		// `active` is what brings it to the front.
+	it('在新 leaf 里显示一个无路径视图，而不是打开文件', async () => {
+		// 图谱没有文件可打开：得告诉 leaf 去显示它，而 `active` 才是把它带到前
+		// 台的东西。
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 
 		await h.nav.stack.openViewPlace({ kind: 'view', viewType: 'graph', leafId: 'leaf-1', t: 1 }, 'tab');
@@ -1945,29 +2112,30 @@ describe('NavStack — a travel asked for elsewhere', () => {
 	});
 });
 
-// A place carries the words its landing was recorded among — the recent-files list's quote, the
-// thing its search box matches. A step is restored by POSITION, so it leaves them behind at the one
-// place it is written (see nav-history/store.ts).
-describe('NavStack — a step is stored without the landing words', () => {
-	it('writes the step it travelled to with its position and none of the words', async () => {
+// 一个地点带着它落点被记下时周围的那句话 —— 最近文件列表的引文，它的搜索框所
+// 一个步写下去时**原样**落盘：它携带的就是它带的东西，一个字都不剥。曾经这里有一层
+// 剥离（栈在归档时摘掉 `st.context` —— 落点下面那句话只喂最近文件列表的搜索与引文）；
+// 2026-10-03 那份快照连同它的搜索面一起撤掉之后，这层剥离整个没有存在过了。
+describe('NavStack —— 落盘时不剥任何东西', () => {
+	it('一步带什么就写什么', async () => {
 		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
 		const place: NavEntry = {
 			kind: 'jump', path: 'b.md', leafId: 'leaf-1', key: 'outline:## T', t: 1,
-			st: { scroll: 30, context: ['## T'] },
+			st: { scroll: 30, anchor: '### T', mtime: 1_730_000_000_000 },
 		};
 
 		await h.nav.stack.travelTo(place, 'tab');
 		h.nav.stack.persist();
 
 		const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}');
-		expect(stored.entries[stored.entries.length - 1].st).toEqual({ scroll: 30 });
-		// The step in memory is the state it travelled with: the words are dropped at the WRITE, not
-		// on the way in — one place, however a state reached this list.
+		expect(stored.entries[stored.entries.length - 1].st)
+			.toEqual({ scroll: 30, anchor: '### T', mtime: 1_730_000_000_000 });
+		// 内存里的那一步就是它前往时所带的状态：一个字段都没在路上被改。
 		expect(stOf(h.nav.stack.entries[h.nav.stack.index])).toEqual(place.st);
 	});
 });
 
-// ===== Patcher: historyNav injection =====
+// ===== Patcher：historyNav 注入 =====
 
 type ViewState = { type?: unknown; state?: { file?: unknown; mode?: unknown } };
 type InjectFn = (
@@ -2014,9 +2182,8 @@ function makePatcherHarness(db: Record<string, unknown> = {}) {
 		},
 	} as never;
 	const store = new PositionStore(app, { db } as never);
-	// The funnel the patcher writes to. Like the sampler, the patcher is purely a
-	// CAPTURE point — it records the open and the leave-read, never reads the
-	// stack — so a spy funnel stands in for it.
+	// patcher 写入的那个漏斗。和采样器一样，patcher 纯粹是一个**采集**点 —— 它
+	// 记录打开和离开读取，从不读栈 —— 所以用一个间谍漏斗替身代替它。
 	const funnel = {
 		recordOpen: vi.fn(),
 		recordTeleport: vi.fn(),
@@ -2036,13 +2203,13 @@ afterEach(() => {
 	disposables = [];
 });
 
-describe('OpenPatcher navigation integration', () => {	it('every file-changing open records a jump entry', () => {
+describe('OpenPatcher —— 导航接入', () => {	it('每一次改动文件的打开都记下一个跳转步', () => {
 		const { leaf, inject, funnel } = makePatcherHarness({});
 		inject(leaf, SOURCE_OPEN_A('a.md'), undefined);
 		expect(funnel.recordOpen).toHaveBeenCalledWith('a.md', 'leaf-1', { key: undefined, force: false });
 	});
 
-	it('a same-file caller target (match) records with force and a unique caller key', () => {
+	it('同文件的调用方目标（match）带 force 和独有的 caller key 记录', () => {
 		const { state, leaf, inject, funnel } = makePatcherHarness({});
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		inject(leaf, SOURCE_OPEN_A(), { match: {} });
@@ -2052,27 +2219,26 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		});
 	});
 
-	it('a history traversal injects the saved position OVER the native eState', () => {
+	it('历史遍历把存下的位置盖在原生 eState 之上注入', () => {
 		const { state, leaf, inject } = makePatcherHarness({ 'a.md': RECORD });
 		state.pendingHistoryNav = true;
 		const eState = { cursor: { from: { line: 2, ch: 0 }, to: { line: 2, ch: 0 } } };
 
 		const result = inject(leaf, SOURCE_OPEN_A(), eState) as Record<string, unknown>;
 
-		// our record wins over the native cursor, and the native cursor slot is gone
+		// 我们的记录赢过原生光标，而原生光标那个槽位没了
 		expect(result).toMatchObject({ scroll: 10, cursor: RECORD.cursor });
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
+		// 遍历的注入同样预遮 leaf —— 空白账见 modes.ts 的 restoreInjectedSource。
 		expect(state.cover.isCovered(leaf)).toBe(true);
-		// ...and the landing is handed to the restorer, so its injected settle
-		// verifies the same line core was given.
+		// ……而落点被交给恢复器，好让它注入的落定核验的是交给 core 的同一行。
 		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 10 });
 	});
 
-	it('a traversal carrying the target entry landing injects THAT over the file record', () => {
-		// A cross-file history jump: the entry's own landing (what the row
-		// shows) must win over the file record, which after reading on holds
-		// the spot the user had drifted to.
+	it('带着目标步落点的遍历，把它盖在文件记录之上注入', () => {
+		// 一次跨文件的历史 jump：条目自己的落点（行所显示的那个）必须赢过文件记
+		// 录 —— 后者在继续阅读之后握着用户漂到的那处地点。
 		const { state, leaf, inject } = makePatcherHarness({ 'a.md': RECORD });
 		state.pendingHistoryNav = true;
 		state.pendingHistoryNavPath = 'a.md';
@@ -2085,15 +2251,14 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 
 		expect(result).toMatchObject({ scroll: 99 });
 		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 99 });
-		// the landing is consumed with the flag — one shot, no leak
+		// 落点随标记一起被消费 —— 一发即止，不漏
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.pendingHistoryNavState).toBeUndefined();
 	});
 
-	it('a landing armed for another file never lands on the open that stole the flag', () => {
-		// The flag is global: an unrelated open inside the arming window takes
-		// it. The landing is file-specific, so it must be dropped and the
-		// record of the file actually being opened must stand.
+	it('为另一个文件触发的落点，绝不落在抢走标记的那次打开上', () => {
+		// 这个标记是全局的：武装窗口内一次无关的打开会拿走它。落点是按文件的，
+		// 所以必须把它丢掉，让实际正在打开的那个文件的记录立住。
 		const { state, leaf, inject } = makePatcherHarness({ 'b.md': RECORD });
 		state.pendingHistoryNav = true;
 		state.pendingHistoryNavState = { scroll: 99 };
@@ -2107,7 +2272,7 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.pendingHistoryNavPath).toBeUndefined();
 	});
 
-	it('a traversal without a saved record keeps the native target and consumes the flag', () => {
+	it('没有存盘记录的遍历保留原生目标，并消费掉标记', () => {
 		const { state, leaf, inject } = makePatcherHarness({});
 		state.pendingHistoryNav = true;
 		const eState = { cursor: { from: { line: 2, ch: 0 }, to: { line: 2, ch: 0 } } };
@@ -2117,7 +2282,7 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 	});
 
-	it('a traversal on a replay consumes the flag without injecting', () => {
+	it('重放中的遍历只消费标记，不注入', () => {
 		const { state, leaf, inject } = makePatcherHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');
 		state.pendingHistoryNav = true;
@@ -2129,7 +2294,7 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
 	});
 
-	it('a traversal of a non-markdown view is left native (flag consumed)', () => {
+	it('非 markdown 视图的遍历保持原生（标记照样消费）', () => {
 		const { state, leaf, inject } = makePatcherHarness({ 'a.pdf': { scroll: 3 } });
 		state.pendingHistoryNav = true;
 		const eState = { scroll: 3 };
@@ -2141,23 +2306,26 @@ describe('OpenPatcher navigation integration', () => {	it('every file-changing o
 	});
 });
 
-describe('serializeNavHistory — what a step leaves behind', () => {
-	it('leaves the landing words behind; the position carries no stamp', () => {
+describe('serializeNavHistory —— 一步在身后留下什么', () => {
+	it('原样写出：位置、锚点、mtime 都在，步自己的 t 也在', () => {
 		const entries: NavEntry[] = [{
 			kind: 'jump', leafId: 'leaf-1', t: 1000, path: 'a.md', key: 'outline:H',
-			st: { scroll: 42, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } }, context: ['w'] },
+			st: {
+				scroll: 42,
+				cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
+				anchor: '### H',
+				mtime: 1_730_000_000_000,
+			},
 		}];
 
 		const parsed = JSON.parse(serializeNavHistory(entries, 0)) as {
 			entries: { st: Record<string, unknown> }[];
 		};
+		const st = (entries[0] as NavJump).st;
 
-		// The step's OWN t (when it was pushed) stays — the row prints "5m ago"
-		// from it. The position needs no stamp of its own: the store puts one on
-		// a record when it files it, and this history never goes through it.
-		expect(parsed.entries[0].st).toEqual({
-			scroll: 42,
-			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
-		});
+		// 步**自己的** t（它被压栈的时间）留着 —— 行印出的「5 分钟前」就取自它。
+		// 位置不需要自己的采集戳：store 在归档一条记录时给它盖上，而这段历史从
+		// 不经过那里。锚点与 mtime 都是这一步自己的事实，所以一起写下去。
+		expect(parsed.entries[0].st).toEqual(st);
 	});
 });

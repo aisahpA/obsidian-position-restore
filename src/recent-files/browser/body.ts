@@ -1,320 +1,230 @@
-// The recent-files browser's BODY: everything about the panel that is not a shell. Two shells stand
-// around it — the modal and the resident sidebar panel — and everything they share lives here: the
-// toolbar, the list, the keyboard, travel. A shell owns its own lifetime and nothing else, which is
-// why travel is a callback: the modal closes when the reader goes somewhere, the sidebar stays.
+// 最近文件浏览器的 **BODY**：关于这个面板、且不属于 shell 的一切。两个 shell 立在它周围
+// —— 模态框与常驻侧边栏面板 —— 而它们共享的一切住在这里：工具栏、列表、键盘、行走。
+// 一个 shell 只拥有它自己的生命周期、别无其它，这就是为什么行走是一个回调：
+// 读者去往某处时模态框关闭，而侧边栏留下。
 //
-// READ-ONLY BUT FOR TWO THINGS, and that is what makes a resident panel possible at all: the body
-// draws whatever the places hold at the moment render() is called, and the only things it says back
-// are what ONE ROW can be asked for — go there, and go away.
+// **除了两件事之外是只读的**，而这正是常驻面板得以可能的原因：body 画出地点在
+// render() 被调用那一刻所持有的东西，而它唯一能说回去的，是一行**可以**被要求的两件事
+// —— 去那里，以及走开。
 
-import { App, CachedMetadata, EventRef, HoverParent, Menu, MenuPositionDef, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
-import { NavEntry, NavJump, navGroupKey, outlineHeading } from '@/nav/entry';
+import { App, EventRef, Menu, MenuPositionDef, Notice, TAbstractFile, TFile, setIcon, Keymap } from 'obsidian';
+import { navGroupKey, NavEntry } from '@/nav/entry';
 import { PaneTarget } from '@/nav/pane';
-import { PlaceList, placeKey, ReclaimedLine } from '@/recent-files/places';
-import { EphemeralState, LandingsMode, PathDisplayMode, PreviewFocusMode } from '@/types';
+import { PlaceList, PlaceExclusionReason, UnpinOutcome } from '@/recent-files/places';
+import { EphemeralState, PathDisplayMode, PreviewFocusMode } from '@/types';
 import { t } from '@/i18n';
-import { linesSource } from '@/position/capture/ephemeral';
-import { markdownViewFor } from '@/shared/leaf';
-import { nowLineFor, NowLineFacts } from './now-line';
-import { headingTrailAtLine, NavEntryDescription } from './model';
 import { RecentFilesReads } from './reads';
-import { RecentFilesList, RecentFilesListOptions } from './list';
-import { PreviewSettle } from './hover-settle';
-import { LATE_READ_REDRAW_MS, NAV_SOURCE_ID, TIME_REFRESH_MS } from './constants';
+import { HeadingHit, RecentFilesList, RecentFilesListOptions } from './list';
+import { ArrowBar, type RecentFilesBrowserArrows } from './arrows';
+import { RowPreview } from './row-preview';
+import { LATE_READ_REDRAW_MS, TIME_REFRESH_MS, UNPIN_UNDO_NOTICE_MS } from './constants';
 
-// Per-body sequence for the list element's id.
+// 列表元素 id 用的每体序号。
 let browserSeq = 0;
 
-// A heading that cannot travel inside a linktext: each of these is read as link syntax rather than
-// as part of the section's name — `#` and `^` open a subpath, `|` an alias, `[` and `]` the link.
-const UNTRAVELABLE = /[#^|[\]]/;
-
-// ONE ARROW, and the four there are: two walk the reader's own steps, two go to the ends
-// of the note they are standing in.
-type ArrowAct = 'back' | 'forward' | 'top' | 'bottom';
-
-// TWO CAPSULES AND NOT ONE ROW OF FOUR: the pairs are different things, and four arrows
-// standing over a list read as four ways to scroll that list — which is the one thing
-// they cannot be mistaken for. The gap between the two is the whole of the telling apart.
-const ARROW_GROUPS: readonly (readonly [ArrowAct, ArrowAct])[] = [
-	['back', 'forward'],
-	['top', 'bottom'],
-];
-
-// Arrow-to-line, and not a bare arrow: the glyph the reader is shown is one whose shaft
-// ENDS ON A LINE, which is what an end of a note is. A chevron is the opposite claim —
-// one step, in the direction it points.
-const ARROW_ICON: Record<ArrowAct, string> = {
-	back: 'arrow-left',
-	forward: 'arrow-right',
-	top: 'arrow-up-to-line',
-	bottom: 'arrow-down-to-line',
-};
-
-// What a button is CALLED, borrowed from the commands these four run: the same words in
-// the palette and on the button, and the only place in the panel that says WHOSE ends the
-// two of them go to ("top of note" — the note, not this list).
-const ARROW_NAME: Record<ArrowAct, Parameters<typeof t>[0]> = {
-	back: 'navHistory.commands.navigateBack',
-	forward: 'navHistory.commands.navigateForward',
-	top: 'noteEdge.commands.top',
-	bottom: 'noteEdge.commands.bottom',
-};
-
-// Put on the card the app opens for this panel, and on nothing else: the popover is the core's
-// object, drawn by the core's own rules, and the one thing this panel says about how it looks is
-// WHERE IT STANDS.
-const PREVIEW_CLASS = 'position-restore-nav-preview';
-
-// The preferences the browser DRAWS BY, handed to every shell by the plugin that persists them. All
-// are READERS rather than values: a resident panel draws its list from a call made during render, so
-// a change made elsewhere is picked up by the next redraw instead of being frozen into the panel
-// that happened to be open.
-export interface RecentFilesBrowserPrefs {
-	// How much of one note the list prints (see LandingsMode).
-	landings: () => LandingsMode;
-	// How many places the recent-files list keeps.
-	placesCap: () => number;
-	// How much of a row's path the list prints, and on which side of the name.
-	pathDisplay: () => PathDisplayMode;
-	rowTime: () => boolean;
-	// The frontmatter property a row prints as the note's name, EMPTY for none
-	// (see PluginSettings.recentFilesTitleProperty). Read per render: it decides
-	// what the next one prints.
-	titleProperty: () => string;
-	// WHERE A ROW'S PREVIEW OPENS THE NOTE (see PreviewFocusMode). Read per hover rather than
-	// per render: it names nothing that is drawn, and it decides whether a hover has to go looking
-	// for that note's lines at all.
-	previewFocus: () => PreviewFocusMode;
+// 一类排除在设置页上的那个名字：提示要念出「是哪条规则把行带走的」，而 places 只交出
+// 类别，名字归文案。system 没有读者立的规则，提示只说结果（见 explainUnpinDrop）。
+function excludedRuleLabel(reason: PlaceExclusionReason): string | undefined {
+	switch (reason) {
+		case 'folder':
+			return t('recentFiles.folders.name');
+		case 'property':
+			return t('recentFiles.frontmatterExclude.name');
+		case 'image':
+			return t('recentFiles.excludeImages.name');
+		case 'system':
+			return undefined;
+	}
 }
 
-// THE FOUR ACTS THE ARROWS CARRY, and whether each one can be done. The body holds no
-// history and no note of its own — the stack's ends and the note standing under them are
-// the plugin's — so a shell hands the acts down and the body only asks, which is what
-// greys a button that would do nothing (see refreshArrows).
-//
-// EVERY SHELL DRAWS THEM, and there is no switch to say otherwise: four buttons at the
-// foot of a list cost the list nothing (they are not rows, and they scroll with nothing),
-// while a reader with no keyboard has no other way to ask for any of the four. An act may
-// be ASYNC — a step opens a note and waits for it — and the promise is the body's cue to
-// ask again (see pressArrow).
-export interface RecentFilesBrowserArrows {
-	back: () => void | Promise<void>;
-	forward: () => void | Promise<void>;
-	top: () => void | Promise<void>;
-	bottom: () => void | Promise<void>;
-	canBack: () => boolean;
-	canForward: () => boolean;
-	// Whether a note is open for the two ends to act on at all.
-	canEdge: () => boolean;
+// 浏览器**据以绘制的**偏好，由持久化它们的插件交给每个 shell。全部都是**读取器**而不是值：
+// 常驻面板在 render 期间的一次调用里画出它的列表，所以别处做出的一次改动会被下一次重画拾取，
+// 而不是被冻结进碰巧打开着的那一个面板里。
+export interface RecentFilesBrowserPrefs {
+	// 搜索框是否把各篇笔记的小节标题也算进搜索面 —— 也就是是否在大纲命中时画大纲行
+	// （见 list.ts 的 headingRow）。
+	outlineSearch: () => boolean;
+	// 最近文件列表保留多少个地点。
+	placesCap: () => number;
+	// 列表打印一行的路径多少，以及打印在名字的哪一侧。
+	pathDisplay: () => PathDisplayMode;
+	rowTime: () => boolean;
+	// 一行作为笔记名字来打印的 frontmatter 属性，为空表示没有
+	// （见 PluginSettings.recentFilesTitleProperty）。每次重画时读：它决定下一次
+	// 打印什么。
+	titleProperty: () => string;
+	// 一行的预览**在笔记的哪里**打开（见 PreviewFocusMode）。每次悬停读、而不是每次重画读：
+	// 它不命名任何被绘制的东西，而它决定一次悬停究竟是否非得去寻找那篇笔记的行号。
+	previewFocus: () => PreviewFocusMode;
 }
 
 export interface RecentFilesBrowserOptions {
 	app: App;
-	// The PLACES the rows are drawn from — the recent-files list, never the back/forward stack: a
-	// stack that truncates on a fresh jump cannot answer "which files have I been in".
+	// 行的绘制所依据的**地点** —— 最近文件列表，绝不是前进/后退栈：一个在新跳转上会截断的
+	// 栈回答不出「我去过哪些文件」。
 	places: PlaceList;
-	// The element the body builds itself into. Its size is the shell's business.
+	// body 把自己构建进去的那个元素。它的大小是 shell 的事。
 	host: HTMLElement;
-	// The file's saved record: the position every FILE row's line is drawn from (a place carries
-	// none), and the spot a plain open restores.
+	// 文件保存的记录：一行（以及它的预览）说到「会落在哪里」时所用的位置 —— 一份记录
+	// 自身不携带任何位置，所以它说的正是普通打开所恢复的那个。
 	savedPosition?: (path: string) => EphemeralState | undefined;
-	// The device's own ergonomics and nothing else — an on-screen keyboard covering half a phone, a
-	// × worth tapping. The list is click-only either way.
+	// 设备自身的人机考量、别无其它 —— 一个盖住半个手机的屏幕键盘，一个值得轻点的 ×。
+	// 无论哪种，列表都只用点击。
 	touch: boolean;
-	// Whether a travel CLEARS the reader's place in the list first. A shell that stays up needs it:
-	// the jump pins another note in that slot, and any position left standing would name whatever
-	// slid into it.
+	// 一次行走是否**先清空**读者在列表里的位置。一个保持立着的 shell 需要它：那次跳转会把
+	// 另一篇笔记钉选在那个槽位里，而任何留下的位置都会命名滑进它的那个东西。
 	collapseOnJump: boolean;
-	// Whether the filter box takes the focus on mount. A dialog wants it; a resident panel must not
-	// — it is restored with the workspace, and stealing the caret out of the editor is not something
-	// the reader asked for.
+	// 过滤框是否在挂载时取得焦点。对话框想要它；常驻面板不该 —— 它随工作区被恢复，
+	// 而从编辑器里抢走光标不是读者要求的事。
 	focusFilter: boolean;
-	// The shell's own reaction to a travel, run BEFORE the history is asked to move.
+	// shell 自己对一次行走的反应，在历史被要求移动**之前**运行。
 	onJump?: () => void;
-	// A reader with NO KEYBOARD, and the four things they would otherwise have no way to
-	// ask for: a step back and forward, and the two ends of the note they have open. The
-	// shell hands them down (see RecentFilesBrowserArrows).
+	// 一个**没有键盘**的读者，以及他们否则无从要求的那四件事：一步后退与前步，以及
+	// 他们打开着的笔记的两端。由 shell 交下来（见 RecentFilesBrowserArrows）。
 	arrows: RecentFilesBrowserArrows;
-	// The shell's way OUT, offered only by a shell that has one: pressed with nothing typed,
-	// the box's × dismisses rather than clears (see toolbar, and the quick switcher's own).
-	// A panel that stays up offers none, and its × keeps to clearing.
+	// shell 的**出路**，只由拥有它的 shell 提供：没输入任何东西时按下，框的 × 是关闭
+	// 而不是清空（见 toolbar，以及快速切换器自己的）。一个保持立着的面板不提供，它的 ×
+	// 只做清空。
 	onDismiss?: () => void;
 	prefs: RecentFilesBrowserPrefs;
 }
 
 export class RecentFilesBrowser {
 	private list!: RecentFilesList;
-	// The list's options object, kept because two of its fields are re-pointed before every render:
-	// a resident panel is refreshed by assigning to it rather than by rebuilding the list (which
-	// would drop the position the reader was on).
+	// 列表的选项对象，保留是因为它的两个字段在每次重画前被重新指向：常驻面板靠给它赋值来
+	// 刷新，而不是重建列表（那样会丢掉读者所在的位置）。
 	private listOpts!: RecentFilesListOptions;
-	// The search box's text. The list's own query.
+	// 搜索框的文本。也就是列表自己的查询。
 	private filter = '';
 	private filterInput!: HTMLInputElement;
-	// The four buttons, kept because every draw asks whether each of them can still be
-	// pressed (see refreshArrows).
-	private arrowsByAct = new Map<ArrowAct, HTMLButtonElement>();
-	// Every vault lookup the panel makes, cached — all metadata-cache lookups: an entry's display
-	// pieces and a file's parsed headings.
+	// 列表**脚下**的那四个箭头（见 arrows.ts）：在列表之后建、每次绘制问、随本体一起走。
+	private arrowBar!: ArrowBar;
+	// 一行的**预览**（见 row-preview.ts）：app 的 popover 是它去要的，而它守候的那个答案
+	// 属于它自己。
+	private preview!: RowPreview;
+	// 面板所做的每次 vault 查找，都被缓存 —— 全都是元数据缓存查找：一个条目的展示碎片、
+	// 以及一个文件已解析的标题。
 	private reads: RecentFilesReads;
-	// Unique per body: the rows' option ids are built from it and the filter box's
-	// aria-activedescendant points at one, so a sidebar panel and the modal at once cannot collide.
+	// 每体唯一：行的选项 id 由它构建，而过滤框的 aria-activedescendant 指向其中一个，
+	// 所以侧边栏面板与模态框同时存在也不会撞车。
 	private readonly listId = `position-restore-nav-list-${++browserSeq}`;
-	// This panel's slot in the app's hover-preview system, ONE object for the life of the body: the
-	// app writes the popover it opens back into it and asks it later, so one built per arrival would
-	// be one with no memory.
-	private readonly hoverParent: HoverParent = { hoverPopover: null };
-	// What hides the popover's own journey to the line it was asked for: whether the app answered at
-	// all is decided outside this panel, several frames after the row was asked for.
-	private readonly settle = new PreviewSettle();
-	// The group order the list is being HELD at while the pointer is on it. Keys rather than rows:
-	// the order has to survive the redraw it exists to stop.
+	// 指针停在列表上时列表被**保持**在的组次序。是 key 而不是行：这个次序必须活过它存在
+	// 所为了阻止的那次重画。
 	private frozenOrder?: string[];
 	private timer?: number;
-	// The redraw owed to something that arrived after the row was drawn — a section chain, or a
-	// note's own existence. Coalesced: the whole list asks at once, and a redraw apiece would
-	// rebuild every row.
+	// 欠给「在该行被画出之后才到达的某样东西」的重画 —— 一条节链，或一篇笔记自己的存在。
+	// 被合并：整份列表一次发问，而每个各来一次重画会重建每一行。
 	private lateTimer?: number;
-	// The vault's file events, watched for as long as this body stands (see watchExistence).
+	// vault 的文件事件，在这个 body 立着期间一直被监视（见 watchExistence）。
 	private existenceRefs: EventRef[] = [];
-	// The menu this body raised, while one is standing. Held here for the two ends the app cannot
-	// see: the control that raised it (whose press the app never hears) and a shell stepping out of
-	// the reader's way.
+	// 这个 body 升起的那个菜单，在它立着期间。留在这里是为了 app 看不见的两端：升起它的那个
+	// 控件（它的按下 app 永远听不到），以及一个让开读者道路的 shell。
 	private menu?: Menu;
-
-	// The three facts the vault has to answer for a line number to be re-found. Read through on
-	// every asking: a copy of them would be a copy that goes stale.
-	private nowLines: NowLineFacts;
-	// Where each place's line stands NOW, one answer per entry for one DRAW, shared by the two
-	// things that ask it — the reclaim below, and the chain every row prints. Keyed by the entry's
-	// INDEX, which is this draw's own answer about it (see reclaim).
-	private nowLineBy = new Map<number, number | undefined>();
 
 	constructor(private opts: RecentFilesBrowserOptions) {
 		this.reads = new RecentFilesReads(opts.app, {
 			savedPosition: opts.savedPosition,
-			// The live list, re-pointed per render: a resident panel describes the places as they
-			// stand, not as they stood when it opened.
+			// 活列表，每次重画重新指向：常驻面板描述的是地点现在的样子，而不是它打开时
+			// 的样子。
 			entries: () => opts.places.entries,
-			// A chain read out of a note's own text lands one render late: the row it belongs to
-			// was already drawn without it.
+			// 从笔记自己的文本里读出的一条链会晚一次重画到达：它所属的那一行已经被画出、
+			// 没有它。
 			onLateRead: () => this.redrawSoon(),
-			// What a row calls the note, and the one thing that can change it while the
-			// reader is looking: they are typing in the property that names it.
+			// 一行称呼这篇笔记用什么，以及读者在看的时候唯一能改变它的东西：他们正在
+			// 输入那个命名它的属性。
 			titleProperty: () => this.opts.prefs.titleProperty(),
 			onTitleChange: () => this.render(),
 		});
-		this.nowLines = {
-			mtimeOf: path => this.reads.mtimeOf(path),
-			cacheFor: (path: string): CachedMetadata | null => {
-				const file = this.opts.app.vault.getAbstractFileByPath(path);
-				return file instanceof TFile
-					? this.opts.app.metadataCache.getFileCache(file)
-					: null;
-			},
-		// A note that is OPEN is the only source that cannot be behind: its own buffer is what the
-		// reader is looking at, saved or not. Everything else is read off the disk, and only when
-		// the asker will wait for it.
-		linesOf: (path, prime) => {
-				const open = markdownViewFor(this.opts.app, path);
-				if (open)
-					return open.editor;
-				const lines = this.reads.linesFor(path, prime);
-				return lines ? linesSource(lines) : undefined;
-			},
-		};
 	}
 
-	// Build the toolbar and the list inside the shell's element. One call per body: the toolbar is
-	// NOT rebuilt per render, so the filter input keeps its focus and its caret while typing
-	// redraws the list underneath it.
+	// 在 shell 的元素里构建工具栏与列表。每个 body 调用一次：工具栏**不**随每次重画重建，
+	// 所以在输入重画它下面的列表时，过滤输入框保有自己的焦点与光标。
 	mount(): void {
-		// The bands the panel is made of — the filter, the list, the arrows — are a flex
-		// column (see styles.css), and the class is the shell's own element's to carry
-		// rather than a rule written against a shell. `is-touch` rides on it too: the dialog
-		// carries it on the dialog's root, the resident panel on this very element.
+		// 面板由之构成的那些条带 —— 过滤、列表、箭头 —— 是一个 flex 列（见 styles.css），
+		// 而这个 class 由 shell 自己的元素来携带，而不是针对某个 shell 写的一条规则。
+		// `is-touch` 也搭在它上面：对话框把它带在对话框的根上，常驻面板则带在这个元素上。
 		this.opts.host.addClass('position-restore-nav-host');
 		if (this.opts.touch)
 			this.opts.host.addClass('is-touch');
 		this.toolbar();
 		const listEl = this.opts.host.createDiv({ cls: 'position-restore-nav-list' });
-		// A listbox whose options are the rows, and whose current option the filter box names
-		// through aria-activedescendant — which is what the id makes possible.
+		// 一个 listbox，它的 option 就是那些行，而它的当前 option 由过滤框通过
+		// aria-activedescendant 命名 —— 这正是那个 id 使之成为可能的事。
 		listEl.setAttr('id', this.listId);
 		listEl.setAttr('role', 'listbox');
 		listEl.setAttr('aria-label', t('recentFiles.name'));
 		this.listOpts = {
 			list: listEl,
 			listId: this.listId,
-			// Read LIVE, so the toolbar's setting reaches a panel that is already up.
-			landings: () => this.opts.prefs.landings(),
+			// **活读**，好让工具栏的设置能到达一个已经立着的面板。
+			outlineSearch: () => this.opts.prefs.outlineSearch(),
 			pathDisplay: () => this.opts.prefs.pathDisplay(),
 			rowTime: () => this.opts.prefs.rowTime(),
-			// Read per render: the pins are the reader's, and a panel that is
-			// standing there has to hear about one the moment it is made.
+			// 每次重画时读：钉选是读者的，而立在那里的面板必须在一次钉选被做出的
+			// 那一刻就听到它。
 			pinned: () => this.opts.places.pinned,
-			// Read per render, so a render that happens while the reader is on the list comes out
-			// in the order they are reading.
+			// 每次重画时读，好让一次发生在读者正停在列表上时的重画，按他们正在阅读的
+			// 次序出来。
 			order: () => this.frozenOrder,
-			// What makes two places one, for a click whose row has been rebuilt away from under it.
-			// The store's own notion of identity.
+			// 让两个地点成为一个的东西，为了一次其行已在它下面被重建掉的点击。
+			// 是 store 自己对身份的看法。
 			keyOf: (rep) => {
 				const entry = this.opts.places.entries[rep];
-				return entry ? placeKey(entry) : undefined;
+				return entry ? navGroupKey(entry) : undefined;
 			},
 			entries: this.opts.places.entries,
 			currentIndex: this.opts.places.index,
 			filter: () => this.filter,
 			describe: rep => this.reads.describe(rep),
 			clearDescribeCache: () => this.reads.clearDescribeCache(),
-			// Whether a place may be listed at all: a name the list cannot open is not a row. The
-			// store prunes such a place on its own; this is the list agreeing.
+			// 一个地点究竟能否被列出：列表打不开的名字不是一行。store 会自己修剪这样一个
+			// 地点；这里只是列表在认同。
 			noteExists: path => this.reads.hasFile(path),
-			trailFor: (entry, d, i) => this.trailFor(entry, d, i),
-			// Whether this row's landing has LOST the heading it names (see landingLost): one
-			// answer, given by the ONE side that has already asked where the line stands now, so
-			// that a row's words, what it warns about and where it goes cannot disagree.
-			lostLanding: (entry, d, i) => this.landingLost(entry, this.nowLineAt(i, entry, d)),
-			// The file's other names: searchable, and printed nowhere but the tooltip.
+			// 这一篇的**各个**标题，搜索面与大纲行都用它们。
+			// 现查、不存：metadataCache 没答时经 cachedRead 兜底（见 reads.ts），
+			// 所以它永远是最新的，而体积与笔记长度无关。
+			headingsFor: path => this.reads.headingsFor(path),
+			// 文件的其它名字：可搜索，且除 tooltip 外哪都不打印。
 			otherNames: (path, printed) => this.reads.otherNamesFor(path, printed),
 			onActiveRow: id => this.setActiveRow(id),
 			onTravel: (rep, target) => this.jump(rep, target),
-			// Which FILE the row names, and whether the row is the note's own rather than a spot in
-			// it, handed over for the app's own preview. Nothing here travels for it.
-			onHoverRow: (rep, ev, el, file) => this.hoverRow(rep, ev, el, file),
-			tipsQuiet: () => this.settle.isOpen(),
-			onHoverEnd: () => this.settle.hoverEnded(),
-			// A right-click asks the APP what it can do with this file; the menu is built here
-			// because the list does not hold the app.
-			onContextRow: (rep, ev, note) => this.contextRow(rep, ev, note),
+			// 一次按标题词的搜索命中的那一节：去那里（见 list.ts 的 HeadingHit）。那一节
+			// 此刻还没有记录，这次行走会为它造出一条 —— 与点大纲面板的标题同类的一步。
+			onTravelHeading: (hit, target) => this.jumpToHeading(hit, target),
+			// 该行命名的是**哪个文件**，该行是笔记本身还是它内部的一个点，以及（对一个大纲行）
+			// 它去往的那一节 —— 交给 app 自己的预览用。这里没有任何东西为它行走。
+			onHoverRow: (rep, ev, el, file, hit) => this.preview.hoverRow(rep, ev, el, file, hit),
+			tipsQuiet: () => this.preview.quiet(),
+			onHoverEnd: () => this.preview.hoverEnded(),
+			// 一记右键问 **app** 它能拿这个文件做什么；菜单在这里构建，是因为列表不持有 app。
+			onContextRow: (rep, ev, note, hit) => this.contextRow(rep, ev, note, hit),
 			takeMenuBack: () => this.takeMenuBack(),
-			// A row's own ×: the removal the list asks for and cannot make itself, because the
-			// places are here and not there.
+			// 一行自己的 ×：列表所要求、却无法自己做出的移除，因为地点在这里、不在那里。
 			onForget: key => this.forgetRow(key),
-			// …and the same × on a LANDING's row, which drops the spot and leaves the note standing.
-			onForgetLanding: keys => this.forgetLanding(keys),
-			// A finger that stopped on a row is heard only where there is no hover to arm one with.
+			// 一根停在一行上的手指，只在没有悬停可用来武装该行时才被听到。
 			touch: this.opts.touch,
 		};
 		this.list = new RecentFilesList(this.listOpts);
-		// The settle's two ends, tied once: WHO to watch for the app's answer (the parent every
-		// hoverRow hands over), and what to do when it comes — give the card the room it needs over
-		// this panel's shell, and take the rows' hint off a page that has answered.
-		this.settle.attach(this.hoverParent, card => {
-			this.liftPreview(card);
-			this.list.hideTip();
-		});
-		// The pointer is how the body knows the reader is USING this list, which is the question the
-		// held order answers.
+		// 预览的两端，一次绑好：**谁**去守候 app 的答案（每次 hoverRow 都交出的那个
+		// parent），以及它到来时做什么 —— 给这张卡片在面板 shell 之上所需的空间，并把行上的
+		// 提示从一篇已作答的页面上拿开（见 row-preview.ts）。
+		this.preview = new RowPreview(
+			this.opts.app,
+			this.reads,
+			// **活读**：常驻面板下面的地点列表会动，而列表按索引解析它的条目。
+			() => this.opts.places.entries,
+			() => this.opts.prefs.previewFocus(),
+			() => this.list.hideTip(),
+		);
+		// 指针是 body 得知读者**正在用**这份列表的方式，而那正是被保持的次序所回答的问题。
 		//
-		// pointerover rather than pointerenter: a panel that comes up under a pointer already
-		// resting there (the sidebar restored at startup, the modal opened while the mouse sits
-		// mid-screen) never crosses the boundary, so the enter never fires.
+		// 用 pointerover 而不是 pointerenter：一个在已经停在那里的指针下面冒出来的面板
+		// （启动时恢复的侧边栏、鼠标停在屏幕中央时打开的模态框）从不跨越边界，所以 enter
+		// 从不触发。
 		//
-		// A FINGER IS NOT A POINTER HERE: touch delivers the same pair, and the leave arrives while
-		// the finger is STILL DOWN, so thawOrder's redraw would replace every row under a touch
-		// becoming a scroll — the row it landed on gone, and with it the gesture.
+		// **手指在这里不是一个指针**：触摸投递同一对事件，而 leave 在手指**仍按着**时到达，
+		// 于是 thawOrder 的重画会在一次触摸变成滚动时替换掉每一行 —— 它落在的那一行没了，
+		// 连同那个手势一起。
 		listEl.addEventListener('pointerover', (ev) => {
 			if (ev.pointerType !== 'touch')
 				this.freezeOrder();
@@ -323,20 +233,24 @@ export class RecentFilesBrowser {
 			if (ev.pointerType !== 'touch')
 				this.thawOrder();
 		});
-		// …and the click the ROWS did not answer: one whose row element was rebuilt away between
-		// the press and the release, which is exactly the click the list answers by identity.
+		// ……以及那些行**没有**回答的点击：一次其行元素在按下与松开之间被重建掉的点击，
+		// 而那正是列表按身份作答的那种点击。
 		listEl.addEventListener('click', (ev) => this.list.onUnansweredClick(ev));
-		// THE ARROWS COME LAST, because that is where they stand — under the list, on every
-		// device (see styles.css). Built before the first draw, so that draw greys the ones
-		// that cannot be pressed rather than leaving them live until the next one.
-		this.arrows();
-		// One keydown listener on the shell's element covers both the filter input and the list:
-		// while typing, arrows navigate and Enter jumps (the input would otherwise move its caret).
+		// **箭头最后来**，因为那是它们立的地方 —— 在列表下面，在每台设备上（见 styles.css）。
+		// 在第一次绘制之前建好，好让那次绘制把不能按下的变灰，而不是留它们活着直到下一次。
+		this.arrowBar = new ArrowBar(
+			this.opts.host,
+			this.opts.arrows,
+			// 按下之前 shell 自己的反应 —— 让开路（见 shellReacts）。
+			() => this.shellReacts(),
+		);
+		// shell 元素上的一个 keydown 监听器同时覆盖过滤输入框与列表：输入时方向键导航、
+		// Enter 跳转（否则输入框会移动自己的光标）。
 		this.opts.host.addEventListener('keydown', (ev) => this.onKeyDown(ev));
 		this.render();
-		// The ages are read off a clock, so a panel nobody is touching drifts. Two things keep it
-		// honest: the interval for a panel standing there, and becoming visible again — the case an
-		// interval cannot cover, since a backgrounded tab has its timers throttled for hours.
+		// 那些「多久以前」是从时钟读出的，所以一个没人碰的面板会漂。两样东西让它诚实：
+		// 立在那里的面板所用的间隔，以及重新变得可见 —— 间隔覆盖不到的那种情形，因为一个
+		// 切到后台的标签页的计时器会被节流好几个小时。
 		this.timer = window.setInterval(() => {
 			if (document.hidden || !this.opts.prefs.rowTime())
 				return;
@@ -344,45 +258,44 @@ export class RecentFilesBrowser {
 		}, TIME_REFRESH_MS);
 		document.addEventListener('visibilitychange', this.onVisibilityChange);
 		this.watchExistence();
-		// On touch the box stays unfocused: the on-screen keyboard covers half a small screen.
+		// 在触摸下框保持不聚焦：屏幕键盘会盖住小屏幕的一半。
 		if (this.opts.focusFilter && !this.opts.touch && this.opts.places.entries.length > 0)
 			this.filterInput.focus();
 	}
 
-	// (Re)draw everything the places and the filter decide. Called by the shell when it mounts and —
-	// for a resident panel — every time the places change.
+	// （重）画地点与过滤所决定的一切。由 shell 在挂载时调用，且 —— 对常驻面板而言 ——
+	// 每次地点变化时调用。
 	render(): void {
-		// A line the note moved, put back BEFORE anything is drawn from it: the rows below print
-		// the coordinate they travel to, and asking twice would print two answers (see reclaim).
-		this.reclaim();
-		// The places as they stand NOW, before anything reads them: the list resolves its entries by
-		// index, so a list that moved under a resident panel is picked up by re-pointing these two
-		// fields and nothing else. The describe cache is keyed by index too, and goes with them.
+		// 一行据以被描述的东西，在发问之前丢掉：它描述的是那篇笔记**现在**的样子
+		// （它的名字、它保存的位置），而不是它上次被打开时的样子。每个 shell 只留一帧，
+		// 所以下一次重画必须重新问一遍。
+		this.reads.clearDescribeCache();
+		// 地点**此刻**的样子，在有任何东西读它们之前：列表按索引解析它的条目，所以一个在
+		// 常驻面板下面移动了的列表，只靠重新指向这两个字段、别无其它就被拾取。describe 缓存
+		// 也按索引作键，随它们一同走。
 		this.listOpts.entries = this.opts.places.entries;
 		this.listOpts.currentIndex = this.opts.places.index;
 		this.list.render();
-		// …and the arrows, whose four answers are not this body's to keep: a step taken
-		// anywhere — even from these very buttons — changes whether each of them can be
-		// pressed, and the note under the two ends is a note this panel does not hold.
-		this.refreshArrows();
+		// ……以及那些箭头，它们的四个答案不是这个 body 该留的：在**任何地方**做出的一步
+		// —— 哪怕是从这些按钮本身 —— 都会改变它们每一个是否能被按下，而那两端之下的是
+		// 一篇这个面板不持有的笔记。
+		this.arrowBar.refresh();
 	}
 
-	// The pointer is on the list, so the list is being READ: hold the order it is showing. The
-	// question is not which change was real but whether anyone is still looking, and the pointer is
-	// that question's honest answer. Idempotent.
+	// 指针在列表上，所以列表**正被阅读**：保持它正在展示的次序。问题不是哪次变化是真的，
+	// 而是是否还有人看着，而指针是那个问题的诚实答案。幂等。
 	private freezeOrder(): void {
 		if (this.frozenOrder)
 			return;
 		const keys = this.list.orderedKeys();
-		// An empty list holds nothing: holding `[]` would pin every later arrival to the front (see
-		// groupByFile's rank).
+		// 空列表什么都不保持：保持 `[]` 会把此后每一次到达都钉到最前（见 groupByFile 的
+		// rank）。
 		if (keys.length)
 			this.frozenOrder = keys;
 	}
 
-	// The pointer has left: nobody is reading this list, so it may catch up with the places. The
-	// redraw happens HERE — while the reader's attention is on the note they just opened — rather
-	// than on the next history change, which may not come for minutes.
+	// 指针离开了：没人在读这份列表了，所以它可以追上地点。重画发生**在这里** —— 在读者的
+	// 注意力落在他们刚打开的笔记上时 —— 而不是在下一次历史变化时，那可能几分钟都不来。
 	private thawOrder(): void {
 		if (!this.frozenOrder)
 			return;
@@ -390,9 +303,9 @@ export class RecentFilesBrowser {
 		this.render();
 	}
 
-	// One redraw for a burst of arrivals that carry no redraw of their own, rather than one apiece
-	// or none: a chain read out of a note's own text lands after the row was drawn, and the next
-	// redraw a resident panel owes on its own is the five-minute tick.
+	// 为一串自身不携带重画的到达做一次重画，而不是每个各来一次、或一次也没有：从一篇笔记
+	// 自己的文本里读出的一条链在该行被画出之后才到达，而常驻面板自己欠的下一次重画是
+	// 五分钟那个 tick。
 	private redrawSoon(): void {
 		if (this.lateTimer !== undefined)
 			return;
@@ -402,12 +315,11 @@ export class RecentFilesBrowser {
 		}, LATE_READ_REDRAW_MS);
 	}
 
-	// Whether a row may be drawn at all is the VAULT's answer at draw time (see list.ts's
-	// noteExists), and a change in that answer carries no event of its own: a sync replacing a
-	// note takes it away and puts it back, and a row drawn in between — or the one standing
-	// from before — is filtered out until something redraws, which on a resident panel can be
-	// minutes. The place itself outlives the gap by design (see PathBookkeeper), so the row is
-	// not gone from the list; it is a list that has not been asked again.
+	// 一行究竟能否被画出，是绘制时 **vault** 的答案（见 list.ts 的 noteExists），而这个答案
+	// 的变化自身不携带任何事件：一次同步替换一篇笔记会把它拿走再放回，而在这中间被画出的行
+	// —— 或之前就立着的那一行 —— 会被过滤掉，直到有东西重画，那在常驻面板上可能是几分钟。
+	// 地点本身按设计活过这段空隙（见 PathBookkeeper），所以那一行并没有从列表里消失；
+	// 是列表没被再次问及而已。
 	private watchExistence(): void {
 		const vault = this.opts.app.vault;
 		this.existenceRefs = [
@@ -420,35 +332,33 @@ export class RecentFilesBrowser {
 		];
 	}
 
-	// Only a path this list names: a sync fires for the note it replaced and for nothing the
-	// reader has been in, and a vault creating anything else is not a change to this list.
+	// 只对这份列表命名的路径：一次同步为它替换的那篇笔记触发，不为读者没去过的任何东西，
+	// 而 vault 创建别的任何东西都不是这份列表的变化。
 	private redrawForPath(path: string): void {
-		// A VIEW place names no file, so the vault's answer about one is not about it.
+		// 一个 **VIEW** 地点不命名任何文件，所以 vault 关于一个文件的答案不是关于它的。
 		if (!this.opts.places.entries.some(e => e.kind !== 'view' && e.path === path))
 			return;
 		this.redrawSoon();
 	}
 
-	// Throw away what belongs to this body: everything below was registered beside elements the
-	// shell owns, and each of them outlives those elements.
+	// 丢掉属于这个 body 的东西：下面每一件都是在 shell 拥有的元素旁边注册的，而它们每一个
+	// 都活过那些元素。
 	destroy(): void {
-		// The menu stands on the DOCUMENT rather than in the panel's element, so a shell that closes
-		// takes nothing of it with it.
+		// 菜单立在 **document** 上而不是面板的元素里，所以关闭的 shell 带不走它的任何东西。
 		this.closeMenu();
-		// The list put its tooltip on the document, so a body that goes without this leaves a stray
-		// element behind for every dialog ever opened.
+		// 列表把它的 tooltip 放在了 document 上，所以一个不走这一步就离开的 body，会为每一个
+		// 曾打开过的对话框留下一个游离的元素。
 		this.list.destroy();
-		// The metadata watcher belongs to the reads and outlives the DOM it was built beside: a
-		// dialog is a new reads object every time it opens.
+		// 元数据监视器属于 reads，并活过它被建在其旁边的 DOM：一个对话框每次打开都是一个新
+		// reads 对象。
 		this.reads.dispose();
-		// A popover the app built is still the app's and outlives us, so uncovering what we hid is
-		// ours to do before we go.
-		this.settle.stop();
+		// app 建起的 popover 仍是 app 的、并活过我们，所以在走之前把我们所遮住的揭开是我们
+		// 该做的事（见 row-preview.ts）。
+		this.preview.stop();
 		if (this.timer !== undefined)
 			window.clearInterval(this.timer);
 		this.timer = undefined;
-		// …and the redraw a late reading may still owe: it would redraw a list whose elements are
-		// already gone.
+		// ……以及一次迟到的读取可能仍欠的重画：它会重画一张元素已经没了的列表。
 		if (this.lateTimer !== undefined)
 			window.clearTimeout(this.lateTimer);
 		this.lateTimer = undefined;
@@ -456,9 +366,9 @@ export class RecentFilesBrowser {
 		for (const ref of this.existenceRefs)
 			this.opts.app.vault.offref(ref);
 		this.existenceRefs = [];
-		// …and the asking a press may still owe the arrows (see pressArrow): it is answered
-		// for buttons that are off the screen with the shell that held them.
-		this.arrowsByAct.clear();
+		// ……以及一次按下可能仍欠箭头的发问（见 arrows.ts 的 press）：它是为那些随持有
+		// 它们的 shell 一起离开屏幕的按钮作答的。
+		this.arrowBar.forget();
 	}
 
 	private onVisibilityChange = (): void => {
@@ -467,9 +377,8 @@ export class RecentFilesBrowser {
 	};
 
 	private onKeyDown(ev: KeyboardEvent): void {
-		// A key pressed while one of the ARROWS holds the focus is that button's own to
-		// answer: Enter is its press, and an arrow key belongs to the control under the
-		// reader's hands rather than to the list below it.
+		// 在某个**箭头**持焦点时按下的键，由那个按钮自己作答：Enter 是它的按下，而方向键
+		// 属于读者手下的控件，不属于它下面的列表。
 		const on = ev.target instanceof Element ? ev.target : null;
 		if (on?.closest('.position-restore-nav-arrows'))
 			return;
@@ -480,22 +389,20 @@ export class RecentFilesBrowser {
 			ev.preventDefault();
 			this.list.move(-1);
 		} else if (ev.key === 'Enter') {
-			// Enter acts on the POSITION and on nothing else — the row the arrows walk — and with no
-			// position it does nothing. The travel goes through the list, which is what knows which
-			// row the position is on.
+			// Enter 作用于**位置**、别的什么都不作用 —— 即箭头所走的那个行 —— 没有位置时它
+			// 什么都不做。行走经由列表进行，那是知道位置在哪一行的一方。
 			//
-			// 'Mod' is the app's platform-independent name for Cmd/Ctrl; reading metaKey/ctrlKey
-			// here would be a second copy of that rule. The keyboard needs its own "new tab": the
-			// focus never leaves the filter box, so the row's modifier-click is out of reach.
+			// 'Mod' 是 app 对 Cmd/Ctrl 的平台无关名称；在这里读 metaKey/ctrlKey 会是那条
+			// 规则的第二份副本。键盘需要它自己的「新标签页」：焦点从不离开过滤框，所以行的
+			// 修饰键点击够不着。
 			const target = Keymap.isModifier(ev, 'Mod') ? 'tab' : undefined;
 			if (this.list.travel(undefined, target))
 				ev.preventDefault();
 		}
 	}
 
-	// Tell assistive tech which option the keyboard is on. The focus never leaves the filter box, so
-	// this attribute is the ONLY thing that makes the arrow keys audible — without it the box reads
-	// as an empty text field.
+	// 告诉辅助技术键盘正停在哪个 option 上。焦点从不离开过滤框，所以这个属性是让方向键
+	// **唯一**能被听见的东西 —— 没有它，这个框读起来就像一个空的文本字段。
 	private setActiveRow(id: string | undefined): void {
 		if (id)
 			this.filterInput.setAttr('aria-activedescendant', id);
@@ -503,88 +410,18 @@ export class RecentFilesBrowser {
 			this.filterInput.removeAttribute('aria-activedescendant');
 	}
 
-	// The four arrows, built ONCE per body like the toolbar: a strip rebuilt per render
-	// would drop the button the reader is reaching for out from under them.
-	private arrows(): void {
-		const bar = this.opts.host.createDiv({ cls: 'position-restore-nav-arrows' });
-		for (const group of ARROW_GROUPS) {
-			const capsule = bar.createDiv({ cls: 'position-restore-nav-arrow-group' });
-			for (const act of group)
-				this.arrowsByAct.set(act, this.arrowButton(capsule, act));
-		}
-	}
-
-	private arrowButton(capsule: HTMLElement, act: ArrowAct): HTMLButtonElement {
-		const name = t(ARROW_NAME[act]);
-		const button = capsule.createEl('button', {
-			cls: 'clickable-icon position-restore-nav-arrow',
-			attr: { type: 'button', 'aria-label': name, title: name },
-		});
-		setIcon(button, ARROW_ICON[act]);
-		// THE PRESS IS REFUSED THE FOCUS, as the box's × refuses it: a control that takes
-		// the caret turns the next keystroke into nothing, and what a reader is typing goes
-		// into the box beside this one. It stays a stop on the keyboard's way through the
-		// panel all the same — Tab reaches it and Enter presses it — which is the only way
-		// there is to press a button without a pointer.
-		button.addEventListener('mousedown', (ev) => ev.preventDefault());
-		button.addEventListener('click', () => this.pressArrow(act));
-		return button;
-	}
-
-	// One arrow pressed. THE SHELL STEPS OUT OF THE WAY FIRST, exactly as it does for a
-	// row: on a phone the panel covers the note these act on, so a move the reader cannot
-	// see is a move that did not happen.
-	private pressArrow(act: ArrowAct): void {
-		this.shellReacts();
-		const arrows = this.opts.arrows;
-		const ran = act === 'back' ? arrows.back()
-			: act === 'forward' ? arrows.forward()
-			: act === 'top' ? arrows.top()
-			: arrows.bottom();
-		// ASKED AGAIN WHEN THE ACT HAS LANDED, and not on the spot: a step opens a note and
-		// waits for it, and asking under it greys BOTH arrows for as long as it takes — which
-		// is how two live buttons come to look like two broken ones. A dialog closes on the
-		// press, so the asking it owes may find the four of them already off the screen.
-		void Promise.resolve(ran).then(() => this.refreshArrows());
-	}
-
-	// Whether each arrow can be pressed, asked of the plugin rather than worked out here:
-	// the steps are the stack's and the note is the workspace's. Asked again on EVERY draw
-	// — a step taken from anywhere changes both answers — and the two ends go quiet when no
-	// note is open, which is the one thing on the panel that says whose ends they are.
-	private refreshArrows(): void {
-		const arrows = this.opts.arrows;
-		this.arrowEnabled('back', arrows.canBack());
-		this.arrowEnabled('forward', arrows.canForward());
-		const edge = arrows.canEdge();
-		this.arrowEnabled('top', edge);
-		this.arrowEnabled('bottom', edge);
-	}
-
-	// A greyed button is not merely unpressable: it is the answer "there is nothing there",
-	// given where the reader is already looking.
-	private arrowEnabled(act: ArrowAct, on: boolean): void {
-		const button = this.arrowsByAct.get(act);
-		if (!button)
-			return;
-		button.disabled = !on;
-		button.toggleClass('is-disabled', !on);
-	}
-
 	private toolbar(): void {
 		const bar = this.opts.host.createDiv({ cls: 'position-restore-nav-toolbar' });
-		// The box and its × are one control: the × hangs on the box's own line, and stays out of
-		// the way while there is nothing for it to do.
+		// 框与它的 × 是一个控件：× 挂在框自己那一行上，在没有它可做的事时让开路。
 		const strip = bar.createDiv({ cls: 'position-restore-nav-search' });
 		const input = strip.createEl('input', {
 			type: 'text',
 			cls: 'position-restore-nav-filter',
 			attr: {
 				placeholder: t('recentFiles.searchPlaceholder'),
-				// The box IS the list's keyboard: it keeps the focus while the arrow keys walk the
-				// rows, so it is a combobox over the list (always expanded — the list is on screen,
-				// not a popup) and the current option is reported through aria-activedescendant
-				// instead of by moving focus.
+				// 这个框**就是**列表的键盘：方向键走那些行时它保持焦点，所以它是列表之上的一个
+				// combobox（永远展开 —— 列表在屏幕上，不是一个弹出层），而当前 option 通过
+				// aria-activedescendant 报告，而不是靠移动焦点。
 				role: 'combobox',
 				'aria-controls': this.listId,
 				'aria-expanded': 'true',
@@ -593,9 +430,8 @@ export class RecentFilesBrowser {
 		});
 		const clear = strip.createDiv({ cls: 'clickable-icon position-restore-nav-clear' });
 		setIcon(clear, 'x');
-		// One glyph, two acts (see the click below), so its NAME says which one it is about to
-		// do: a control reached by anything but sight has to say "Close" while close is what
-		// it does.
+		// 一个字形、两个动作（见下面的点击），所以它的**名字**说出它即将做哪一个：一个
+		// 不是靠视觉到达的控件，在它做的事是关闭时就得说「关闭」。
 		const nameClear = (): void => {
 			const name = input.value !== '' || !this.opts.onDismiss
 				? t('recentFiles.clearFilter')
@@ -603,374 +439,144 @@ export class RecentFilesBrowser {
 			clear.setAttr('aria-label', name);
 			clear.setAttr('title', name);
 		};
-		// What the reader typed IS the list's query, so the list is redrawn from it.
+		// 读者输入的东西**就是**列表的查询，所以列表据它重画。
+		//
+		// 但**组合中不重画**：中文/日文/韩文经输入法打字时，每一次击键都会发一个 input，
+		// 而那时框里还是一串没定型的中间态（拼音、未提交的假名）—— 它不是读者的查询，
+		// 画它只是白画一整表。判据取**事件自带**的 `isComposing`，不自己维护一个布尔：
+		// 某些平台（老 iOS WKWebView）不发 compositionend，自己维护的标志会永远卡在
+		// 「组合中」、搜索框从此再不刷新，而那个属性的真假随事件来、卡不住。
 		const apply = (): void => {
 			this.filter = input.value;
 			nameClear();
 			this.render();
 		};
-		input.addEventListener('input', apply);
+		input.addEventListener('input', (ev) => {
+			if ((ev as InputEvent).isComposing)
+				return;
+			apply();
+		});
+		// 组合结束：有的平台此后**不再补发** input，所以这里必须自己画一次。
+		input.addEventListener('compositionend', apply);
 		this.filterInput = input;
 		nameClear();
-		// THE ×: the press is REFUSED so the caret never leaves the box — a control that takes the
-		// focus turns the next keystroke into nothing. A plain div and not a button, as the app's
-		// own is: it is not a stop on the keyboard's way through the panel.
+		// **那个 ×**：按下被**拒绝**，好让光标从不离开框 —— 一个取得焦点的控件会把下一次
+		// 击键变成什么都没有。是一个普通的 div 而不是 button，正如 app 自己的那个：它不是
+		// 键盘穿过面板途中的一个停靠点。
 		clear.addEventListener('mousedown', (ev) => ev.preventDefault());
 		clear.addEventListener('click', () => {
-			// THE TWO ACTS, AT THE ONE SPOT the app's own prompt puts them at: what is typed
-			// goes, and with nothing typed the press is the shell's way OUT instead — the shell
-			// offering none keeps the glyph to the one job (see onDismiss).
+			// **两个动作，就在 app 自己的 prompt 把它们放的那一个位置**：输入的清空，
+			// 而没输入任何东西时这次按下反而是 shell 的**出路** —— 不提供出路的 shell
+			// 让这个字形只做那一件事（见 onDismiss）。
 			if (input.value === '') {
 				this.opts.onDismiss?.();
 				return;
 			}
 			input.value = '';
 			apply();
-			// On TOUCH the focus is left as it was: summoning the on-screen keyboard over half the
-			// panel is the opposite of what the tap asked for.
+			// 在**触摸**下焦点保持原样：在半个面板上召出屏幕键盘，与那次轻点所求的正好
+			// 相反。
 			if (!this.opts.touch)
 				input.focus();
 		});
 	}
 
-	// LINES THE NOTE HAS MOVED OUT FROM UNDER, put back before a single row exists.
-	//
-	// ONE PASS OVER THE WHOLE LIST, and before anything else asks a line of it: every row below is
-	// drawn from the line it will travel to (see trailFor), and a list whose rows were half built
-	// when one of them moved would have grouped itself by two different answers.
-	//
-	// NOTHING HERE READS A FILE. Only what the vault has already parsed is asked — which is the whole
-	// of what makes this affordable for fifty rows, and also the whole of what keeps it honest: where
-	// those say nothing, nothing is written, and the row is left to say so itself (see list.ts's
-	// landingNote).
-	//
-	// NEITHER A VISIT NOR A RE-READING. What moved is an ADDRESS; the place keeps the stamp the
-	// reader knows it by, and keeps the words it was recorded with.
-	private reclaim(): void {
-		this.nowLineBy.clear();
-		// What a row is described by, dropped before the asking: a write below changes the very
-		// line those rows print.
-		this.reads.clearDescribeCache();
-		const entries = this.opts.places.entries;
-		const moved: ReclaimedLine[] = [];
-		for (let i = 0; i < entries.length; i++) {
-			const entry = entries[i];
-			// Only a landing NAMED BY A KEY has an address to put back: anything else that carries
-			// one got it from the position database, which answers for itself every time.
-			if (entry.kind !== 'jump' || typeof entry.keyLine !== 'number')
-				continue;
-			// A place the reader is standing IN: its landing is about to be read whole again by the
-			// settle that follows leaving it, and an answer written here would be one given by a
-			// panel looking at a file nobody has left.
-			if (i === this.opts.places.index)
-				continue;
-			const d = this.reads.describe(i);
-			const line = this.nowLineAt(i, entry, d);
-			if (line === undefined || line === d.lineIndex)
-				continue;
-			moved.push({ key: placeKey(entry), line, mtime: this.reads.mtimeOf(entry.path) });
-		}
-		if (moved.length)
-			this.opts.places.reland(moved);
-	}
-
-	// Where one entry's line stands NOW, or undefined when this panel cannot say (see now-line.ts).
-	// Answered ONCE PER PLACE PER DRAW: the reclaim above and the chain below ask the same question
-	// of the same note, and two answers to it could disagree.
-	//
-	// `prime` is false, exactly as it was before this existed: a row is drawn without waiting for a
-	// file to be read, and the line arrives with the reading instead.
-	private nowLineAt(i: number, entry: NavEntry, d: NavEntryDescription): number | undefined {
-		if (this.nowLineBy.has(i))
-			return this.nowLineBy.get(i);
-		const line = nowLineFor(entry, d, this.nowLines, false);
-		this.nowLineBy.set(i, line);
-		return line;
-	}
-
-	// WHETHER A LANDING HAS LOST THE HEADING IT NAMES: the row stands for a heading, and after the
-	// note was written there is nothing left in it that this panel can find the row's spot by.
-	//
-	// THREE things hang on this answer and are not allowed to disagree, which is why it is asked
-	// here rather than in each of them: what the row PRINTS as its section (trailFor), what it
-	// WARNS about on hover (list.ts's landingNote), and which section its preview is pointed at
-	// (previewAsk). A row reading "Beta" while warning about a lost "Alpha" was the whole of the
-	// oddity here: three answers read off three places, and only one of them true.
-	//
-	// `line` is what nowLineFor answered for this row, however it was asked — once per draw for the
-	// rows, once per hover for the preview, whose own asking MAY read the file (see nowLineAt).
-	private landingLost(entry: NavEntry, line: number | undefined): entry is NavJump {
-		// Only a landing whose ADDRESS was the anchor behind its key can lose one; everything else
-		// carries a number the position database answers for, and a row walking in the note's own
-		// name never had a heading to lose.
-		if (entry.kind !== 'jump' || typeof entry.keyLine !== 'number')
-			return false;
-		if (line !== undefined)
-			return false;
-		// …and only where the vault has actually READ the note: one a sync has just put back carries
-		// no parsed headings for a while (on a phone, for good), and that silence is no verdict.
-		return this.reads.hasHeadings(entry.path);
-	}
-
-	// The section chain a place sits in, read at the line it is at NOW rather than the line it was
-	// recorded at — the two halves have to come from the same "now".
-	//
-	// A chain read at a line number the file has moved out from under names the section a DIFFERENT
-	// spot is in, and does so without moving, flashing, or anything else that would give it away:
-	// the row quietly says "Beta" about a line now under "Alpha", and the preview opens Alpha. The
-	// recorded number still stands for the ROW'S OWN WORDS: a few lines of drift inside one section
-	// is not a different section.
-	//
-	// NOT once the row's OWN HEADING is GONE (see landingLost). There is no drift to forgive then —
-	// the note was rewritten out from under the anchor, and a chain read at the recorded line names
-	// whichever section that number happens to fall in today, which is one this row never stood
-	// for. What it prints instead is the heading it was recorded with: those words are its own, they
-	// are what the reader knows the place by, and they are the very words its warning speaks about.
-	// A key carrying none — a linktext, a block id — is given no chain rather than the wrong one.
-	//
-	// `prime` where the answer is asked for is nowLineAt's business (including the rule that fifty
-	// rows may not read fifty files): a chain that arrives a draw late arrives with the reading
-	// (see redrawSoon).
-	private trailFor(entry: NavEntry, d: NavEntryDescription, i: number): string[] {
-		if (entry.kind === 'view')
-			return [];
-		const line = this.nowLineAt(i, entry, d);
-		if (line === undefined && this.landingLost(entry, line)) {
-			const named = outlineHeading(entry.key);
-			return named ? [named] : [];
-		}
-		const at = line ?? d.lineIndex;
-		if (at === undefined)
-			return [];
-		return headingTrailAtLine(this.reads.headingsFor(entry.path), at);
+	// 一次行走之前的那一套，两种行走共用：先在 shell 保持立着的地方处理读者的位置
+	// （去往一个地点会重排列表，而一次跳转会重新压入栈，所以一个留在原处的位置会命名
+	// 滑进那个槽位的那个东西），然后是 shell 自己的反应，好让对话框在它所触发的打开
+	// 之前让开路。
+	private depart(run: () => Promise<void>): void {
+		if (this.opts.collapseOnJump)
+			this.list.collapse();
+		this.shellReacts();
+		void run().catch(e => console.error('Position Restore: recent-files travel failed:', e));
 	}
 
 	private jump(i: number, target?: PaneTarget): void {
-		// The reader's place first where the shell is staying up: going to a place re-orders the
-		// list and a jump re-pushes the stack, so a position left where it was would name whatever
-		// slid into that slot.
-		if (this.opts.collapseOnJump)
-			this.list.collapse();
-		// …then the shell's own reaction, so a dialog is out of the way before the open it triggers.
-		this.shellReacts();
-		void this.opts.places.travel(i, target)
-			.catch(e => console.error('Position Restore: recent-files travel failed:', e));
+		this.depart(() => this.opts.places.travel(i, target));
 	}
 
-	// A row the pointer MOVED ONTO, handed over to the APP: asked, once, whether it would like to be
-	// previewed.
-	//
-	// The app's own preview is ASKED FOR rather than rebuilt here. Every other place in Obsidian that
-	// names a note is previewed by ONE core mechanism, answering the reader's one setting about it;
-	// a preview of our own would be a second popover with second rules, open whether or not the
-	// reader ever wanted one. Asking inherits everything, including "nothing happens".
-	//
-	// Nothing here is NAVIGATION: the places are untouched, no row moves, no list is drawn again. A
-	// pathless view is not asked about — there is no page behind it.
-	private hoverRow(rep: number, ev: PointerEvent, row: HTMLElement, file: boolean): void {
-		const entry = this.opts.places.entries[rep];
-		if (!entry || entry.kind === 'view')
-			return;
-		// WHERE THE ROW'S LINE IS TODAY, not where it was recorded: a line number is an address
-		// rather than a place. When this panel cannot say, the asking carries no line at all and the
-		// note opens at the app's own default. `prime` is true here, and only here: one hover may
-		// wait one await for one file, and nothing is drawn with the answer.
-		//
-		// NOT LOOKED FOR when the answer would be thrown away (see wantsLine): naming no line costs
-		// one whole read less, and with it the redraw the reading owes to rows already drawn — due
-		// sixty milliseconds after an asking the app may still be answering.
-		const d = this.reads.describe(rep);
-		const line = this.wantsLine(file)
-			? nowLineFor(entry, d, this.nowLines)
-			: undefined;
-		// A LOST landing says so out loud (see landingLost), so nothing here may contradict it —
-		// and asking the app for a section would, exactly as printing one would.
-		const ask = this.previewAsk(entry, entry.path, file, line, this.landingLost(entry, line));
-		this.opts.app.workspace.trigger('hover-link', {
-			event: ev,
-			// Who is asking: the id the plugin registered, which is what lets the app apply the
-			// answer the reader gave THIS panel — and only that reading decides whether anything
-			// opens at all.
-			source: NAV_SOURCE_ID,
-			hoverParent: this.hoverParent,
-			// The ROW, and not the child the pointer landed on: the popover belongs to the line of
-			// the list rather than to whichever word is crossed.
-			targetEl: row,
-			// The note by the path it is opened by — its own name on disk rather than the shortened
-			// one printed on the row.
-			linktext: ask.linktext,
-			sourcePath: entry.path,
-			state: ask.state,
-		});
-		// From here the asking is the settle's: armed with whether it named a line — the only kind
-		// with a journey to cover — it watches for the app's answer for as long as the HOVER lasts,
-		// not for as long as a guess would. The reader's key can come ten seconds after the row.
-		this.settle.ask(ask.state !== undefined);
+	// **大纲行**上的一次前往：这一行所印的那一节（见 HeadingHit）。它不是一条记录 ——
+	// 这一节是读者搜到的 —— 所以这次前往为它造出一条、交给打开管线（与点大纲面板的标题
+	// 同类的一步）。
+	private jumpToHeading(hit: HeadingHit, target?: PaneTarget): void {
+		this.depart(() => this.opts.places.travelToHeading(
+			hit.path, hit.heading, hit.line, hit.leafId, target,
+		));
 	}
 
-	// HOW A ROW NAMES ITS SPOT: by the SECTION it sits in, by its LINE NUMBER, or not at all.
-	// Handed a number (state.scroll), the popover draws the whole note first and moves the scroller
-	// there once that render lands, flashing the target (see hover-settle.ts). Handed a section
-	// (`note.md#Heading`) none of that happens: the loader draws ONLY that section. Handed neither,
-	// the note opens at its head, the way every list the app ships opens it.
+	// 一行被右键点击：为它背后的文件升起 **app** 自己的菜单，上面放**我们**的条目。读者能拿
+	// 一个文件做什么是 app 的事，而在这里再写一份那些命令的列表会是一份陈旧的副本。所加的是
+	// app 无法知道的：这一行代表一个**地点**，所以这里的「在新标签页中打开」承诺的是这一行
+	// 所代表的落点 —— 以及一个钉选，那是这份列表关于一篇笔记自己的答案、别人的都不是。
 	//
-	// A ROW STANDING FOR THE FILE is asked for the line at the READER'S OPTION: what that buys is the
-	// arrival the row's own click already gives, one gesture early, and what it costs is a whole note
-	// rendered and then moved — so the app's own answer is the one that ships (see PreviewFocusMode).
+	// 所请求的上下文是**链接**那一个，不是文件浏览器的：一行是指向一个文件的指针，而不是它
+	// 在自己那棵树里的文件。一个**无路径视图**不被问及任何东西：没有文件可供 app 的菜单关于
+	// 它，所以为它升起的菜单单是我们自己的。
 	//
-	// A LANDING ROW names a place IN the note, and is asked for one. Rows whose line has no heading
-	// above it, or whose heading cannot be trusted to name the same place on the other side of the
-	// link, fall back to the number — a wrong section delivered without moving once is worse than
-	// the right place arriving late. A row whose line this panel cannot find names neither.
+	// **触摸设备从另一扇门到这里**：一次长按武装该行，所以菜单从已武装行自己的控件升起。
+	// 两扇门在同一处汇合，这就是为什么菜单按一个**点**摆放、而不是按事件。
 	//
-	// Whether a row names a line at all is settled here rather than where the hover began because it
-	// is ONE answer both need: hoverRow asks it to know whether to go read a file, this one to know
-	// what to hand the app.
-	private wantsLine(file: boolean): boolean {
-		return !file || this.opts.prefs.previewFocus() === 'line';
-	}
-
-	// A landing row whose own HEADING IS GONE is named by no section at all: the one its recorded
-	// line now falls in belongs to another row, and the app would open the note reading about a
-	// place the reader never went to. Its row prints the heading it was recorded with and warns
-	// that it is gone (see trailFor); what the preview can still carry is the LINE.
-	private previewAsk(
-		entry: NavEntry,
-		path: string,
-		file: boolean,
-		line: number | undefined,
-		lost: boolean,
-	): { linktext: string; state?: { scroll: number } } {
-		if (file) {
-			if (!this.wantsLine(file))
-				return { linktext: path };
-			return {
-				linktext: path,
-				// WHERE IN THE NOTE the preview opens is this panel's to say, and it is the one thing a
-				// preview asked from here can offer that one asked elsewhere cannot: the popover opens
-				// ON THAT LINE instead of at the note's head. `scroll` is the app's own name for a
-				// markdown view's top visible line — the same number the position database keeps — so
-				// nothing here invents a state shape. The number is TODAY's, not the recorded one.
-				state: line === undefined ? undefined : { scroll: line },
-			};
-		}
-		const heading = line === undefined || lost
-			? undefined
-			: this.subpathHeading(entry, path, line);
-		if (heading !== undefined)
-			return { linktext: `${path}#${heading}` };
-		return {
-			linktext: path,
-			state: line === undefined ? undefined : { scroll: line },
-		};
-	}
-
-	// The deepest heading over a line, when it can be TRUSTED to name the same section after the app
-	// resolves `#heading` again. Two guards: the app takes the FIRST heading with that text, so a
-	// note saying "Notes" twice would open the wrong one; and a heading carrying `#`, `^`, `|`, `[`
-	// or `]` would be read as link syntax.
-	//
-	// What needs no guard is that the heading still exists — the trail is read from the cache, which
-	// is the note as it stands NOW. What DOES need one is the LINE it is read at: the recorded
-	// number names a different spot once the note is edited above it, so a heading is only ever read
-	// here at a line already re-found.
-	private subpathHeading(entry: NavEntry, path: string, line: number): string | undefined {
-		if (entry.kind === 'view')
-			return undefined;
-		const headings = this.reads.headingsFor(path);
-		const trail = headingTrailAtLine(headings, line);
-		const deepest = trail[trail.length - 1];
-		if (!deepest || UNTRAVELABLE.test(deepest))
-			return undefined;
-		if (headings && headings.filter(h => h.heading === deepest).length !== 1)
-			return undefined;
-		return deepest;
-	}
-
-	// The card THE APP HAS JUST OPENED, and the one thing about it this panel says.
-	//
-	// A preview asked for from the DIALOG opens behind that dialog: the core puts every popover on
-	// the document's body and paints it at `--layer-popover` (30), while a modal container sits at
-	// `--layer-modal` (50). The card answered, and every line of it is covered by the shell that
-	// asked for it. No surface the core previews from is itself inside a dialog, and half of THIS
-	// panel's surfaces are — so every card is lifted above the dialog layer rather than ONTO it,
-	// because two elements sharing one z-index are ordered by which was appended last, and when that
-	// happens is the app's business.
-	private liftPreview(card: HTMLElement): void {
-		card.addClass(PREVIEW_CLASS);
-	}
-
-	// A row was right-clicked: raise the APP's own menu for the file behind it, with OUR entries on
-	// top. What a reader can do with a file is the app's business, and a second list of those
-	// commands here would be a stale copy. What is added is what the app cannot know: this row
-	// stands for a PLACE, so "open in a new tab" here promises the landing this row stands for —
-	// and a pin, which is this list's own answer about a note and nobody else's.
-	//
-	// The context asked for is the LINK one, not the file explorer's: a row is a pointer at a file
-	// rather than the file in its own tree. A PATHLESS VIEW is asked about nothing: there is no
-	// file for the app's menu to be about, so the menu raised for one is ours alone.
-	//
-	// A TOUCH DEVICE GETS HERE BY ANOTHER DOOR: a long press arms the row, so the menu is raised
-	// from the armed row's own control. The two doors meet in the same place, which is why the menu
-	// is placed by a POINT and not by the event.
-	//
-	// `note` says WHICH row this is — the note's own, or one spot inside it.
-	private contextRow(rep: number, at: MenuPositionDef, note: boolean): void {
+	// `note` 说出这是**哪一种**行 —— 一篇笔记，还是它内部搜到的一个节（见 HeadingHit）。
+	// 一个大纲行没有钉选可给：钉选是给一篇笔记的书签，而那一节不是一条记录。
+	// 但它**有**「在新标签页打开」：菜单那一项答应的是「打开这一行所去的地方」，而对一个
+	// 大纲行来说那个地方就是那一节 —— 一个写着「在这里打开」却把读者送到别处的菜单，
+	// 比没有这一项更糟。
+	private contextRow(rep: number, at: MenuPositionDef, note: boolean, hit?: HeadingHit): void {
 		const entry = this.opts.places.entries[rep];
 		if (!entry)
 			return;
-		// ONE DOOR, TWO ENDS, and which one this tap is depends on whether a menu is already
-		// standing. THE APP CANNOT ANSWER THIS TAP: the control stops its own press, so the press
-		// never reaches the document and the app never hears the click-away that would close its
-		// menu. Without this the tap would take the standing menu off and put it back in one breath.
+		// **一扇门、两端**，而这次轻点是哪一端，取决于是否已有一个菜单立着。**app 无法回答
+		// 这次轻点**：控件停住了自己的按下，所以按下永远到不了 document，而 app 永远听不到
+		// 那记本会关闭它菜单的移开点击。没有这个，这次轻点会在一次呼吸里把立着的菜单拿掉、
+		// 又放回来。
 		if (this.menu) {
 			this.closeMenu();
 			return;
 		}
 		const menu = new Menu();
-		// Our own item goes FIRST ('action', which the app sorts ahead of its own sections): only
-		// this list knows the landing the row stands for.
+		// 我们自己的条目排**最前**（'action'，app 会把它排在自己的各个 section 之前）：只有
+		// 这份列表知道该行所代表的落点。
 		menu.addItem(item => item
 			.setSection('action')
-			.setTitle(t(entry.kind === 'jump'
+			// 一个大纲行也说「在这里打开」：它去的是一个**地方**，而不只是一个文件。
+			.setTitle(t(hit
 				? 'recentFiles.openHereInNewTab'
 				: 'recentFiles.openInNewTab'))
-			// The app's own glyph for this promise (`lucide-file-plus`, on every file menu
-			// of its own): the item stands where the app's would, and a second glyph for
-			// the same promise would read as a different one.
+			// app 对这个承诺自己的字形（`lucide-file-plus`，在它自己的每一个文件菜单上）：
+			// 这个条目立在 app 的条目会立的地方，而对同一个承诺用第二个字形会读起来像另一个
+			// 承诺。
 			.setIcon('file-plus')
-			.onClick(() => this.jump(rep, 'tab')));
-		// …and the pin, which is about THE ROW and not about the file: only a note's
-		// own row has one to give (see pinItems).
+			.onClick(() => (hit ? this.jumpToHeading(hit, 'tab') : this.jump(rep, 'tab'))));
+		// ……以及钉选，它是关于**行**的、不是关于文件的：只有笔记自己的行才有可给的
+		// （见 pinItems）。
 		if (note)
 			this.pinItems(menu, navGroupKey(entry));
-		// …and nothing else is asked of the app for a view: what a reader can do with a FILE is
-		// the app's business, and a copy of that here would be a stale one, but a view names no
-		// file at all.
+		// ……而对一个视图，不再向 app 要求别的：读者能拿一个**文件**做什么是 app 的事，在这里
+		// 那份的一个副本会是一份陈旧的，但一个视图根本不命名任何文件。
 		if (entry.kind !== 'view') {
 			const file = this.opts.app.vault.getAbstractFileByPath(entry.path);
-			// A file that went between the render and this right-click — a sync removing it, a
-			// delete landing a moment ago — leaves nothing to ask about.
+			// 一个在重画与这次右键之间消失的文件 —— 一次同步把它移除了、一次删除刚刚落地
+			// —— 不留下任何可问的东西。
 			if (!(file instanceof TFile))
 				return;
 			this.opts.app.workspace.trigger('file-menu', menu, file, 'link-context-menu');
 		}
 		this.menu = menu;
-		// …and when the app takes it off by one of ITS OWN gestures, the control goes back to
-		// raising one rather than taking one back.
+		// ……而当 app 用它**自己的**某个手势把它拿掉时，那个控件回到「升起一个」而不是
+		// 「收回一个」。
 		menu.onHide(this.forgetMenu);
 		menu.showAtPosition(at);
 		this.hearPresses(true);
 	}
 
-	// THE PIN ITEMS, on a note's own row and on nobody else's: a pin is a bookmark for the NOTE, so
-	// a landing's row — one spot inside a note — has nothing to pin. `key` is the row's identity,
-	// the same one the × hands over (see navGroupKey).
+	// **钉选条目**，在笔记自己的行上、别人谁的行上都没有：钉选是给**一篇笔记**的书签，
+	// 所以一个大纲行 —— 一个读者**搜到**的小节，而不是去过的一个地方 —— 没有什么可钉。
+	// `key` 是该行的身份，与 × 交出的同一个（见 navGroupKey）。
 	//
-	// MOVE UP / MOVE DOWN come up only where a step EXISTS: at either end of the block an item that
-	// would do nothing is worse than an item that is not there, and the block's order is the only
-	// order these are about. THE WHOLE WAY is offered only where it is MORE than one step — beside
-	// an end it would do exactly what the item above it just offered.
+	// 上移/下移只在**存在**一步时出现：在块的两端，一个什么都不会做的条目比一个不存在的
+	// 条目更糟，而块的次序是这些唯一关于的次序。「一路到头」只在它**多于**一步时提供 ——
+	// 紧挨着一个端点时它做的正好是它上面那个条目刚刚提供的。
 	private pinItems(menu: Menu, key: string): void {
 		const at = this.opts.places.pinned.indexOf(key);
 		if (at < 0) {
@@ -978,7 +584,12 @@ export class RecentFilesBrowser {
 			return;
 		}
 		const last = this.opts.places.pinned.length - 1;
-		this.pinItem(menu, 'recentFiles.unpin', 'pin-off', () => this.unpin(key));
+		// 这一行只靠钉顶着规则时，取钉就是把它交给规则：项名提前说出后果、标成警示色，
+		// 免得读者忘了自己立过的规则，把行的消失读成删除（见 places.ts 的 unpin）。
+		const excluded = this.opts.places.wouldUnpinDrop(key);
+		this.pinItem(menu,
+			excluded ? 'recentFiles.unpinExcluded' : 'recentFiles.unpin',
+			'pin-off', () => this.unpin(key), !!excluded);
 		if (at > 0) {
 			this.pinItem(menu, 'recentFiles.pinUp', 'arrow-up', () => this.movePin(key, -1));
 			if (at > 1)
@@ -996,26 +607,51 @@ export class RecentFilesBrowser {
 		title: Parameters<typeof t>[0],
 		icon: string,
 		run: () => void,
+		// 这项的后果是把一行从列表上带走：app 的菜单自己会把警示项画成红色。
+		warn = false,
 	): void {
-		menu.addItem(item => item
-			.setSection('action')
-			.setTitle(t(title))
-			.setIcon(icon)
-			.onClick(run));
+		menu.addItem(item => {
+			item
+				.setSection('action')
+				.setTitle(t(title))
+				.setIcon(icon)
+				.onClick(run);
+			if (warn)
+				item.setWarning(true);
+		});
 	}
 
-	// A pin is the reader's own answer about a note, written down by the store at once (see
-	// NavPlaces.pin). The REDRAW is asked for here rather than left to the shells, for the same
-	// reason a removal's is: a DIALOG does not subscribe to the store, so a pin would otherwise
-	// leave the row where it stood until the dialog was reopened.
+	// 钉选是读者关于一篇笔记自己的答案，由 store 立刻写下（见 NavPlaces.pin）。**重画**在这里
+	// 被要求、而不是留给各个 shell，理由同一次移除的：一个**对话框**不订阅 store，所以钉选
+	// 否则会让那一行停在原处，直到对话框被重新打开。
 	private pin(key: string): void {
 		this.opts.places.pin(key);
 		this.render();
 	}
 
 	private unpin(key: string): void {
-		this.opts.places.unpin(key);
+		const outcome = this.opts.places.unpin(key);
 		this.render();
+		if (outcome.dropped && outcome.place)
+			this.explainUnpinDrop(outcome, outcome.place);
+	}
+
+	// 行不是被「取消置顶」本身拿走的，是被一条读者自己立过、多半已经忘了的规则拿走的：
+	// 提示念出规则的名字，并留一颗「撤销」把行原样钉回来（见 restorePinned）。system
+	// 那类（配置目录、废纸篓）没有读者立的规则可念，只说结果。
+	private explainUnpinDrop(outcome: UnpinOutcome, place: NavEntry): void {
+		const rule = outcome.reason ? excludedRuleLabel(outcome.reason) : undefined;
+		const notice = new Notice(rule
+			? t('recentFiles.unpin.removedByRule', rule)
+			: t('recentFiles.unpin.removed'), UNPIN_UNDO_NOTICE_MS);
+		const undo = notice.messageEl.createEl('button', {
+			text: t('recentFiles.unpin.undo'), cls: 'position-restore-unpin-undo',
+		});
+		undo.addEventListener('click', () => {
+			this.opts.places.restorePinned(place);
+			this.render();
+			notice.hide();
+		});
 	}
 
 	private movePin(key: string, delta: number): void {
@@ -1023,9 +659,8 @@ export class RecentFilesBrowser {
 		this.render();
 	}
 
-	// Take a standing menu off the screen. Asked by the control that raised it, by the shell stepping
-	// out of the reader's way, and by destroy — everything ELSE a menu does is the app's business,
-	// and these are the parts about this panel rather than about the file.
+	// 把一个立着的菜单从屏幕上拿掉。由升起它的控件、由让开读者道路的 shell、以及由 destroy
+	// 要求 —— 菜单做的**别的**一切都是 app 的事，而这些都是关于这个面板而不是关于文件的部分。
 	closeMenu(): void {
 		this.hearPresses(false);
 		const menu = this.menu;
@@ -1033,18 +668,17 @@ export class RecentFilesBrowser {
 		menu?.close();
 	}
 
-	// The app closed it itself: it is no longer ours to close.
+	// app 自己关闭了它：它不再归我们关闭。
 	private forgetMenu = (): void => {
 		this.hearPresses(false);
 		this.menu = undefined;
 	};
 
-	// Whether a menu this body raised is standing — and if one is, TAKE IT BACK.
+	// 这个 body 升起的菜单是否立着 —— 若立着，则**收回**它。
 	//
-	// Asked at the PRESS rather than at the click: by the time the click arrives, the app's menu may
-	// be standing over the control that raised it. With no room below the point it was given, the
-	// app moves a menu UP BY ITS OWN HEIGHT, which puts it over the row — and a press landing on the
-	// menu's own surface reaches nobody.
+	// 在**按下**时问而不是在点击时问：到点击到达时，app 的菜单可能正立在升起它的那个控件
+	// 上方。在给它的那个点下方没有空间时，app 会把菜单**按它自己的高度向上移**，那会把它
+	// 放到该行上方 —— 而一次落在菜单自己表面上的按下，谁都到不了。
 	takeMenuBack(): boolean {
 		if (!this.menu)
 			return false;
@@ -1052,18 +686,18 @@ export class RecentFilesBrowser {
 		return true;
 	}
 
-	// While a menu stands, a press ANYWHERE that is not one of its own items takes it back —
-	// including a press on the menu's own blank surface, which the app answers with nothing at all.
+	// 在一个菜单立着期间，**任何地方**、只要不是它自己的某个条目的一次按下都会把它收回 ——
+	// 包括落在菜单自己空白表面上的一次按下，而那 app 是完完全全用「没有」来作答的。
 	//
-	// HEARD IN THE CAPTURE PHASE AND AT THE DOCUMENT, the only place it can be heard before the menu
-	// swallows it: the menu is put on the document's body rather than into this panel. A reader
-	// aiming at the control is often aiming at the menu.
+	// **在捕获阶段、在 document 上听**，那是唯一一个能在菜单吞掉它之前听到它的地方：菜单被
+	// 放在 document 的 body 上、而不是放进这个面板。一个瞄准那个控件的读者，常常正瞄准着
+	// 那个菜单。
 	private onAnyPress = (ev: Event): void => {
 		if (!this.menu)
 			return;
 		const el = ev.target instanceof Element ? ev.target : null;
-		// …but not on one of its ITEMS: that is the menu's own answer to give. Nor on the control
-		// that raised it, which must find the menu still standing.
+		// ……但不是在它某个**条目**上：那是菜单自己该给的答案。也不是在升起它的那个控件上，
+		// 那个控件必须发现菜单仍立着。
 		if (el?.closest('.menu-item, .nav-row-menu'))
 			return;
 		this.closeMenu();
@@ -1079,28 +713,19 @@ export class RecentFilesBrowser {
 			doc.removeEventListener('pointerdown', this.onAnyPress, true);
 	}
 
-	// The reader asked for a row to go, from the × on it. The KEY arrives WITH the × rather than
-	// being worked out here: the control was built by the render that drew the row, so it carries
-	// that row's identity rather than an index something may have moved under.
+	// 读者从行上的 × 要求一行离开。**key 随 × 一同到达**，而不是在这里算出来：控件是由画出
+	// 该行的那次重画构建的，所以它携带的是那一行的身份，而不是某个可能已在它下面移动过的
+	// 索引。
 	//
-	// The redraw is asked for HERE rather than left to the shells: a DIALOG does not subscribe to the
-	// store, so a removal would otherwise leave the row standing until the dialog was reopened.
+	// 重画在**这里**被要求、而不是留给各个 shell：一个**对话框**不订阅 store，所以一次移除
+	// 否则会让那一行一直立着，直到对话框被重新打开。
 	private forgetRow(key: string): void {
 		this.opts.places.forget(key);
 		this.render();
 	}
 
-	// ONE LANDING taken off, from the × on its own row: the note and its other spots stay. What
-	// arrives is a set of place KEYS rather than the row's index — which of a note's places one row
-	// stands for is a question about the row as it was DRAWN.
-	private forgetLanding(keys: string[]): void {
-		this.opts.places.forgetLanding(keys);
-		this.render();
-	}
-
-	// Run the shell's own reaction to a travel, and let NOTHING it does stop the journey behind it:
-	// the reader asked to go somewhere, so a shell that throws must cost them the reaction, not the
-	// travel.
+	// 运行 shell 自己对一次行走的反应，并让它所做的**任何事**都不拦住它后面的旅程：读者要求
+	// 去某处，所以一个抛异常的 shell 让他们失去的必须是那个反应，而不是那次行走。
 	private shellReacts(): void {
 		try {
 			this.opts.onJump?.();

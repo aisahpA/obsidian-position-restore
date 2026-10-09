@@ -2,10 +2,9 @@ import { App, FileView, MarkdownView } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { frontmatterDecisionFor } from './frontmatter';
 
-// Consulted by the 100ms poll before every record, and deliberately uncached: both
-// answers are already cheap in memory — a metadata read, a few startsWith — so a memo
-// buys a Map get by paying for one, and adds a staleness rule for a working set whose
-// size it cannot know.
+// 每次记录之前由那个 100ms 轮询查询，且故意不缓存：两个答案在内存里本来就很便宜 —— 一次
+// metadata 读、几次 startsWith —— 一个 memo 省下一次 Map 取，却要先付出一次 Map 取，还给一个
+// 规模未知的工作集添了一条过期规则。
 export class ExclusionChecker {
 	private app: App;
 	private settings: PluginSettings;
@@ -17,8 +16,8 @@ export class ExclusionChecker {
 
 	shouldSkipRecording(view: FileView): boolean {
 		if (view.file) {
-			// Escape hatch `position-restore: true`: record regardless of every
-			// rule below (excluded folders, min lines, the B property rule).
+			// 逃生口 `position-restore: true`：无视下面每一条规则（排除的文件夹、
+			// 最小行数、B 属性规则）照记。
 			const decision = frontmatterDecisionFor(this.app, view.file, this.settings);
 			if (decision?.forceRecord)
 				return false;
@@ -28,8 +27,8 @@ export class ExclusionChecker {
 				return true;
 		}
 
-		// minLinesToRecord is a text-only concern: only the markdown editor
-		// has an Editor; other FileViews always pass this gate.
+		// minLinesToRecord 只管文本：只有 markdown 编辑器才有 Editor；
+		// 别的 FileView 一律过这道门。
 		const editor = view instanceof MarkdownView ? view.editor : undefined;
 		const minLinesToRecord = this.settings.minLinesToRecord;
 		if (minLinesToRecord > 0 && editor && editor.lineCount() < minLinesToRecord) {

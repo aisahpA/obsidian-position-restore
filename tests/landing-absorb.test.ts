@@ -1,19 +1,17 @@
-// Regression tests for the landing-absorb fix: an open-kind jump
-// (anchorLink/startPlainLink/callerTarget — a sidebar search-result click or
-// link target) lands asynchronously, so recording must stay in absorb mode
-// until the landing settles, or the jump itself gets written as user
-// movement.
+// 「落点吸收」修复的回归测试：open 型跳跃
+// （anchorLink/startPlainLink/callerTarget —— 侧栏搜索结果点击或链接
+// 目标）是异步落地的，所以记录必须一直待在吸收模式里，直到落点落定，
+// 否则这次跳跃本身会被写成用户移动。
 //
-//  - the patcher arms the absorb synchronously at setViewState time — NOT in
-//    the restorer's file-open handler, because a same-file search-result
-//    click fires no 'file-open' and the restorer would never arm;
-//  - while armed, the 100ms poll re-baselines lastEphemeralState to the
-//    landing point without writing to the db;
-//  - the poll expires the finite absorb early once the view stops moving
-//    (stability check), so the ceiling (LANDING_ABSORB_MS) is not a hard
-//    delay swallowing post-landing user movement;
-//  - the search-input blur grace timer must not expire the armed finite
-//    anchor mid-landing.
+//  - 补丁在 setViewState 那一刻同步武装吸收 —— **不是**在恢复器的
+//    file-open 处理函数里，因为同文件的搜索结果点击不触发 'file-open'，
+//    恢复器根本不会武装；
+//  - 武装期间，100ms 轮询把 lastEphemeralState 的重置基准挪到落点，
+//    且不写库；
+//  - 视图一停下，轮询就提前结束这个有限吸收（稳定性检查），所以
+//    上限（LANDING_ABSORB_MS）不是一个吞掉落定后用户移动的硬延时；
+//  - 搜索输入框的失焦宽限计时器，绝不能在落点途中让已武装的有限
+//    锚过期。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -30,8 +28,8 @@ type DatabaseStub = {
 	deleteFile: ReturnType<typeof vi.fn>;
 };
 
-// OpenCover styles leaf DOM via Obsidian's HTMLElement.setCssStyles
-// extension, which jsdom lacks.
+// OpenCover 通过 Obsidian 给 HTMLElement 加的 setCssStyles 扩展
+// 来给 leaf 的 DOM 上样式，jsdom 没有这个扩展。
 beforeEach(() => {
 	Object.defineProperty(HTMLElement.prototype, 'setCssStyles', {
 		value(this: HTMLElement, styles: Record<string, string>) {
@@ -68,7 +66,7 @@ function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownV
 		containerEl,
 		contentEl: containerEl,
 		leaf: { id: 'leaf-1', containerEl },
-		currentMode: { getScroll: () => 42.3 }, // quantizes to 42
+		currentMode: { getScroll: () => 42.3 }, // 量化为 42
 		editor: {
 			lineCount: () => 100,
 			getCursor: () => ({ line: 3, ch: 7 }),
@@ -78,9 +76,8 @@ function makeFakeMarkdownView(path: string, containerEl: HTMLElement): MarkdownV
 	return view;
 }
 
-// A spy funnel: the sampler and the patcher are pure CAPTURE points — they write
-// to the funnel and never read a reader — so spies over its whole surface are
-// all either of them needs.
+// spy 漏斗：sampler 与补丁都是纯粹的**采集**点 —— 它们只往漏斗里写、
+// 从不读读者 —— 所以把整个面 spy 起来就是两者各自所需的全部。
 function spyFunnel() {
 	return {
 		recordOpen: vi.fn(),
@@ -114,8 +111,8 @@ function setCursor(view: MarkdownView, line: number, ch: number) {
 		() => ({ line, ch });
 }
 
-describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
-	it('arms a finite absorb when a caller-target open (search match) is dispatched', () => {
+describe('OpenPatcher —— 在 setViewState 那一刻撑开落点吸收窗口', () => {
+	it('派发带 caller 目标的打开（搜索命中）时撑开一个有限吸收窗口', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
@@ -123,10 +120,9 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		const patcher = new OpenPatcher(app, DEFAULT_SETTINGS, store, state, spyFunnel() as never, { flushOnLeave: vi.fn() } as never);
 		const inject = (patcher as unknown as { injectEphemeralStateOnOpen: InjectFn }).injectEphemeralStateOnOpen.bind(patcher);
 
-		// Search-result clicks pass eState.match (verified against core's
-		// search-view onResultClick). The absorb must be armed synchronously
-		// here — a same-file result click fires no 'file-open', so the
-		// restorer would never get the chance.
+		// 搜索结果点击会传 eState.match（已对照 core 的 search-view
+		// onResultClick 核实）。吸收必须在这里同步武装 —— 同文件的结果点击
+		// 不触发 'file-open'，所以恢复器永远等不到机会。
 		const eState = { match: {} };
 		const result = inject(leaf, SOURCE_OPEN_A(), eState);
 
@@ -137,7 +133,7 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 		expect(Number.isFinite(state.searchAnchorUntil)).toBe(true);
 	});
 
-	it('does not arm for an injected (non-overridden) open', () => {
+	it('注入式（未被覆盖）的打开不撑开', () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		const leaf = makeLeaf('leaf-1');
 		const app = { workspace: { layoutReady: true } } as never;
@@ -152,50 +148,49 @@ describe('OpenPatcher — arms the landing absorb at setViewState time', () => {
 	});
 });
 
-describe('Sampler poll — absorbs the landing while armed', () => {
-	it('re-baselines lastEphemeralState to the landing without a db write', () => {
+describe('Sampler 轮询 —— 撑开期间吸收落点', () => {
+	it('把 lastEphemeralState 的重置基准挪到落点，且不写库', () => {
 		const { sampler, state, database, view } = makePollHarness();
 
-		// Patcher armed the absorb for the open-kind jump.
+		// 补丁已为这次 open 型跳跃武装了吸收。
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
-		// Tick 1: baseline seed (pre-landing state, cursor at 3:7).
+		// Tick 1：给基线播种（落点前的状态，光标在 3:7）。
 		sampler.sampleActiveView();
 		expect(database.setState).not.toHaveBeenCalled();
 		expect(state.lastEphemeralState?.cursor).toMatchObject({ from: { line: 3, ch: 7 } });
 
-		// The jump lands: cursor hops to the search match.
+		// 跳跃落地：光标跳到搜索命中处。
 		setCursor(view, 12, 3);
 		sampler.sampleActiveView();
-		// Absorbed: no db write, baseline tracks the landing.
+		// 被吸收：不写库，基线跟着落点走。
 		expect(database.setState).not.toHaveBeenCalled();
 		expect(state.lastEphemeralState?.cursor).toMatchObject({ from: { line: 12, ch: 3 } });
 
-		// Absorb expired: the first deliberate user move records normally.
+		// 吸收过期：头一次有意的用户移动正常记录。
 		state.searchAnchorUntil = Date.now() - 1;
-		state.lastUserInputAt = Date.now(); // the reader moved the cursor themselves
+		state.lastUserInputAt = Date.now(); // 读者自己挪了光标
 		setCursor(view, 20, 0);
 		sampler.sampleActiveView();
 		expect(database.setState).toHaveBeenCalledTimes(1);
 	});
 
-	it('expires the finite absorb early once the view stops moving and captures the landing', () => {
+	it('视图一停下就提前结束这个有限吸收窗口，并抓住落点', () => {
 		const { sampler, state, settled } = makePollHarness();
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
-		// Seed the baseline (prev undefined on tick 1).
+		// 给基线播种（tick 1 时 prev 是 undefined）。
 		sampler.sampleActiveView();
 		expect(state.searchAnchorUntil).toBeGreaterThan(Date.now());
 
-		// Two consecutive stable ticks = the landing has settled -> expire,
-		// and the settled read attaches as the landing entry's precise
-		// position (settle-capture).
+		// 连续两个稳定 tick = 落点已落定 -> 过期，
+		// 而这次落定读数会作为落点记录的精确位置挂上去（落定采集）。
 		sampler.sampleActiveView();
 		sampler.sampleActiveView();
 		expect(state.searchAnchorUntil).toBeLessThanOrEqual(Date.now());
-		// The SETTLE broadcast (distinct from a leave) says this read IS the
-		// landing: the recent-files list only takes a place's position from here,
-		// never from a leave — see NavFunnel.settled.
+		// SETTLE 广播（区别于一次离开）说的是这次读数**就是**落点：
+		// 最近文件列表只从这里取一个地点的位置，从不从离开取 —— 见
+		// NavFunnel.settled。
 		expect(settled).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 42,
 			cursor: { from: { line: 3, ch: 7 }, to: { line: 3, ch: 7 } },
@@ -203,7 +198,7 @@ describe('Sampler poll — absorbs the landing while armed', () => {
 	});
 });
 
-describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', () => {
+describe('Sampler.installSearchAnchor —— 失焦宽限计时器与落点吸收之争', () => {
 	let cleanups: (() => void)[];
 
 	beforeEach(() => {
@@ -242,24 +237,24 @@ describe('Sampler.installSearchAnchor — blur grace timer vs landing absorb', (
 		input.dispatchEvent(new FocusEvent('focusout', { bubbles: true, composed: true }));
 	}
 
-	it('does not expire a finite anchor armed for a landing', () => {
+	it('为落点撑开的有限锚不会提前过期', () => {
 		const { state } = makeAnchorHarness();
 		const input = makeSearchInput();
 
-		// Focus the search input (anchor = Infinity), then the patcher
-		// re-arms a finite landing-absorb window at the result click.
+		// 聚焦搜索输入框（锚 = Infinity），随后补丁在结果点击处
+		// 重新武装一个有限的落点吸收窗口。
 		focusInput(input);
 		expect(state.searchAnchorUntil).toBe(Number.POSITIVE_INFINITY);
 		state.searchAnchorUntil = Date.now() + LANDING_ABSORB_MS;
 
-		// The result click blurs the input; 250ms later the grace timer must
-		// NOT expire the armed absorb (it only expires the Infinity blur).
+		// 结果点击让输入框失焦；250ms 后宽限计时器绝不能
+		// 让已武装的吸收过期（它只过期那个 Infinity 失焦）。
 		blurInput(input);
 		vi.advanceTimersByTime(300);
 		expect(state.searchAnchorUntil).toBeGreaterThan(Date.now());
 	});
 
-	it('still expires a plain blur normally', () => {
+	it('普通的失焦宽限照常过期', () => {
 		const { state } = makeAnchorHarness();
 		const input = makeSearchInput();
 

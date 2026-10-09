@@ -1,23 +1,20 @@
-// Tests for the RECORDING FUNNEL (nav/funnel.ts) — the neutral layer that holds
-// what a navigation WAS and publishes it to whoever keeps it.
+// 「记录漏斗」（nav/funnel.ts）的测试 —— 那个中立的层：它握住一次导航**是什么**，
+// 并把它发布给每一个保留它的人。
 //
-// This suite is what the funnel's extraction bought: a funnel plus a spy sink
-// is the whole fixture, with no stack and no workspace behind them, because a
-// capture point's job is to write the right RECORDING and the funnel's is to
-// deliver it. Whether a recording is worth KEEPING is the readers' business.
-//  - the shared gate: the startup window (layout not ready) and the traversal
-//    bracket (runBracketed, watchdog included) publish nothing;
-//  - what each capture point publishes — recordOpen (a keyless visit, a keyed
-//    jump, a pathless view), recordTeleport, recordActivation (a tab switch is
-//    a leave of the old tab plus a visit of the new one — or, for a view tab of
-//    any type but the empty tab, a place of its own);
-//  - the two kinds of position read: `leave` (where the reader was) versus
-//    `settled` (where the jump landed) — ungated, and told apart so that a
-//    place list can take only the second;
-//  - the broadcasts: `visit` bypasses the gate on purpose, `landing`/`here`
-//    reach every listener, a listener implements only the hooks it wants, and
-//    unsubscribing stops delivery;
-//  - the sampler's teleport capture, a capture point writing to this funnel.
+// 这个套件正是漏斗被抽出来所换来的东西：一个漏斗加一个探子 sink 就是全部 fixture，
+// 背后既没有栈也没有工作区，因为采集点的职责是写下正确的**记录**，而漏斗的职责是把
+// 它送到。一条记录值不值得**留下**，是读取方的事。
+//  - 共享闸门：启动窗口（布局未就绪）与遍历 bracket（runBracketed，含看门狗）
+//    什么都不发布；
+//  - 每个采集点发布什么 —— recordOpen（不带 key 的 visit、带 key 的 jump、无路径的
+//    视图）、recordTeleport、recordActivation（一次标签页切换 = 旧标签页的一次离开 +
+//    新标签页的一次 visit —— 或者，对一个除空标签页以外任何类型的视图标签页，是它
+//    自己的一个地点）；
+//  - 两种位置读取：`leave`（读者当时在哪）与 `settled`（跳转落到哪）—— 都不受闸门
+//    管，且分得很清，好让地点列表只取第二种；
+//  - 那些广播：`visit` 故意绕开闸门，`landing`/`here` 送到每一个监听者，一个监听者
+//    只实现它要的钩子，而退订会停止投递；
+//  - 采样器的跳变采集，一个往这个漏斗写数据的采集点。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
@@ -35,8 +32,8 @@ beforeEach(() => {
 	window.localStorage.clear();
 });
 
-// A funnel with a spy sink. Every hook records what it heard, so a test can ask
-// what was published without any reader standing behind it.
+// 一个带探子 sink 的漏斗。每个钩子都记下它听到了什么，好让测试能问出发布了什么，
+// 而背后没有任何读取方站着。
 function makeFunnel(app = makeApp()) {
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const funnel = new NavFunnel(app, state);
@@ -53,10 +50,10 @@ function makeFunnel(app = makeApp()) {
 	return { funnel, state, visits, leaves, landings, heres };
 }
 
-describe('NavFunnel — the shared gate', () => {
-	it('publishes nothing before the workspace has finished coming up', () => {
-		// The startup rebuild opens every restored tab through the same patched
-		// setViewState an ordinary open uses; none of it is a navigation.
+describe('NavFunnel —— 公共闸门', () => {
+	it('工作区还没起来之前不发布任何东西', () => {
+		// 启动时的重建会经由普通打开所用的同一个打过补丁的 setViewState 打开每一个被恢复的
+		// 标签页；其中没有一次是导航。
 		const app = makeApp();
 		const { funnel, visits } = makeFunnel(app);
 		(app.workspace as { layoutReady: boolean }).layoutReady = false;
@@ -68,9 +65,9 @@ describe('NavFunnel — the shared gate', () => {
 		expect(visits).toEqual([]);
 	});
 
-	it('publishes nothing for a move the plugin is making, and releases the gate after', async () => {
-		// A traversal's own opens ARE the traversal, not new jumps; the bracket
-		// says so for exactly as long as it is up.
+	it('插件自己在挪的那次移动什么都不发布，并在之后放开闸门', async () => {
+		// 一次遍历自己的那些打开**就是**这次遍历，不是新的跳转；bracket 立着多久，它就替这
+		// 件事说多久。
 		const { funnel, visits } = makeFunnel();
 		expect(funnel.isMoving()).toBe(false);
 
@@ -81,22 +78,21 @@ describe('NavFunnel — the shared gate', () => {
 
 		expect(visits).toEqual([]);
 		expect(funnel.isMoving()).toBe(false);
-		// …and recording is live again once the bracket is down.
+		// ……而 bracket 一落下，记录就重新活了。
 		funnel.recordOpen('a.md', 'leaf-1');
 		expect(visits).toHaveLength(1);
 	});
 
-	it('a second bracket is refused while one is up, and the watchdog releases a hung one', async () => {
-		// An open that never resolves (loadIfDeferred can hang) must not leave the
-		// gate up forever, or back/forward would be dead for the rest of the
-		// session.
+	it('已经有一个 bracket 开着时第二个会被拒绝；卡住的那个由看门狗放开', async () => {
+		// 一次永不 resolve 的打开（loadIfDeferred 可能挂住）绝不能把闸门永远立着，否则前进
+		// 后退在这一节的余下时间就全废了。
 		vi.useFakeTimers();
 		try {
 			const { funnel, visits } = makeFunnel();
-			void funnel.runBracketed(() => new Promise<void>(() => undefined)); // never settles
+			void funnel.runBracketed(() => new Promise<void>(() => undefined)); // 永不落定
 			expect(funnel.isMoving()).toBe(true);
 
-			// A command pressed inside the bracket must not start a second one.
+			// 在 bracket 里按下的一条命令，绝不能开启第二个 bracket。
 			await funnel.runBracketed(async () => {
 				funnel.recordOpen('nested.md', 'leaf-1');
 			});
@@ -110,8 +106,8 @@ describe('NavFunnel — the shared gate', () => {
 	});
 });
 
-describe('NavFunnel — what a capture point publishes', () => {
-	it('a plain open is a keyless visit; a keyed one is a jump', () => {
+describe('NavFunnel —— 采集点发布些什么', () => {
+	it('普通打开是不带 key 的 visit；带 key 的是 jump', () => {
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordOpen('a.md', 'leaf-1');
@@ -128,7 +124,7 @@ describe('NavFunnel — what a capture point publishes', () => {
 		});
 	});
 
-	it('a pathless view is reached by ACTIVATING its leaf; a pathless, typeless call is nothing', () => {
+	it('无路径的视图靠激活它的 leaf 抵达；既无路径又无类型的调用什么都不是', () => {
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordOpen(undefined, 'leaf-1', { viewType: 'graph' });
@@ -140,7 +136,7 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a teleport carries the line it aimed at, plus the landing when one arrived', () => {
+	it('teleport 带着它瞄准的那一行，落定之后再带上落点', () => {
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordTeleport('a.md', 'leaf-1', 300);
@@ -152,10 +148,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a tab activation is a LEAVE of the tab being left plus a visit of the one taking over', () => {
-		// The two are separate facts on purpose: only the leave knows where the
-		// reader was, and it is readable only at this moment (focusing another tab
-		// fires no setViewState).
+	it('一次标签页激活 = 被离开那个的 LEAVE + 接管过来那个的 visit', () => {
+		// 这两者是刻意分开的两个事实：只有那次离开知道读者当时在哪，而且它只在这一刻可读
+		// （聚焦另一个标签页不会触发 setViewState）。
 		const { funnel, visits, leaves } = makeFunnel();
 		const next = leafWithFile('leaf-2', 'b.md');
 
@@ -167,9 +162,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a sidebar taking the focus is not a navigation at all', () => {
-		// A panel tracks the active file in its own view state; recording one would
-		// make a phantom step out of the panel itself.
+	it('侧边栏拿到焦点这件事根本不算导航', () => {
+		// 面板在自己的 view state 里跟着当前文件走；把它记下来，会把面板本身变成一个幽灵
+		// 的步。
 		const { funnel, visits, leaves } = makeFunnel();
 		const sidebar = {
 			id: 'side', containerEl: 'sidebar', view: { getViewType: () => 'outline' },
@@ -182,11 +177,10 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(leaves).toEqual([]);
 	});
 
-	it('a main-area view of ANY type is a place: the type is no longer a whitelist', () => {
-		// The list used to hold 'graph' and nothing else. A reader who went to Thino
-		// therefore kept the FILE THEY CAME FROM as the newest place on their list —
-		// an unrelated note standing in for where they actually were (see
-		// nav/entry.ts's NON_DESTINATION_VIEW_TYPES).
+	it('主区视图不论什么类型都算地点：类型不再是白名单', () => {
+		// 这份列表从前只留 'graph'，别的什么都不留。所以一个去了 Thino 的读者，会把
+		// **他们来的那个文件**当成列表上最新的地点 —— 一篇无关的笔记替了他们真正去的地方
+		// （见 nav/entry.ts 的 NON_DESTINATION_VIEW_TYPES）。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
@@ -197,10 +191,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		}]);
 	});
 
-	it('a view that never named itself records no label: the browser has its own wording', () => {
-		// Not an empty string and not the view type either: the recording says only
-		// what it knows, and what a row prints for it is the browser's call (see
-		// recent-files/browser/model.ts's viewName).
+	it('从没给自己起过名的视图不记 label：面板自己有说法', () => {
+		// 既不是空串，也不是视图类型：这条记录只说它知道的东西，而那一行给它印什么由浏览器
+		// 决定（见 recent-files/browser/model.ts 的 viewName）。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(viewLeaf('leaf-g', 'graph'));
@@ -211,9 +204,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		}]);
 	});
 
-	it('the empty tab is the one view that is not a place', () => {
-		// What a main-area leaf shows with nothing in it: there is nothing behind it
-		// to go back to, so nothing is published for it.
+	it('空标签页是唯一不算地点的视图', () => {
+		// 主区 leaf 什么都不装的时候显示的东西：它背后没有任何东西可以回去，所以不为它发布
+		// 任何东西。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(viewLeaf('leaf-e', 'empty'));
@@ -221,12 +214,11 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(visits).toEqual([]);
 	});
 
-	it('a main-area leaf whose view is the empty tab is still a leave', () => {
-		// The tab being left keeps its position whatever is taking over — only the
-		// half that would make a STEP out of the new view is skipped, and the empty
-		// tab is the one view that is not a place.
+	it('视图是空标签页的那个主区 leaf，仍然算一次离开', () => {
+		// 被离开的那个标签页无论如何都保留它的位置 —— 只有那半截会把新视图变成**一步**的东西
+		// 被跳过，而空标签页是唯一不算地点的视图。
 		const { funnel, visits, leaves } = makeFunnel();
-		const empty = leafWithFile('leaf-2'); // view type 'empty'
+		const empty = leafWithFile('leaf-2'); // 视图类型 'empty'
 
 		funnel.recordActivation(empty);
 
@@ -234,12 +226,11 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(leaves).toHaveLength(1);
 	});
 
-	it('a tab restored with its view still unbuilt is the note it stands for', () => {
-		// Mobile comes back to the note it was last reading as a DEFERRED tab: a placeholder
-		// that answers a view's questions off the state it was saved with, and is not a
-		// FileView at all. Recorded as a view it would mint a place keyed `view:markdown`,
-		// wearing the note's own name and the file icon, which no delete could ever clean up
-		// — and whose row opens the note without its saved position.
+	it('视图还没建起来就被恢复的标签页，就是它所代表的那篇笔记', () => {
+		// 移动端回到它上次在读的那篇笔记时，它是一个**延迟**标签页：一个照着保存下来的 state
+		// 回答视图问题的占位符，压根不是 FileView。把它记成视图，会凭空造出一个 key 为
+		// `view:markdown` 的地点 —— 还挂着这篇笔记自己的名字与文件图标 —— 任何删除都清理不掉
+		// 它，而且它那一行打开这篇笔记时还不带保存的位置。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(deferredLeaf('leaf-2', { file: 'b.md', mode: 'source' }));
@@ -249,10 +240,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a deferred tab whose saved state names no file is still the view it stands in for', () => {
-		// A pathless view restored this way keeps its place (the type is the one thing the
-		// placeholder answers honestly) — dropping it would leave a reader standing in the
-		// view with no step behind them.
+	it('存下的 state 没点名文件的延迟标签页，仍然是它所代替的那个视图', () => {
+		// 这样恢复的无路径视图保留它的地点（类型是占位符唯一老实回答的东西）—— 把它丢掉，会让
+		// 一个站在该视图里的读者背后没有任何一步。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(deferredLeaf('leaf-2', undefined, 'graph'));
@@ -262,11 +252,10 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a view this vault can no longer build is not a place', () => {
-		// A plugin switched off, uninstalled, or not loaded yet: restoring its tab raises a
-		// placeholder pane that answers getViewType() with the type it stands in for. Recorded
-		// as itself it takes the real place's OWN key and overwrites it, and nothing the reader
-		// does later can return to it.
+	it('这个仓库已经造不出来的视图不算地点', () => {
+		// 一个被关掉、卸载、或还没加载的插件：恢复它的标签页会得到一个占位面板，它用自己代替
+		// 的那个类型来回答 getViewType()。把它按它自己记下来，会拿走真实地点**自己的** key 并
+		// 覆盖掉它，而读者之后做什么都回不到那个真地点了。
 		const app = makeApp(undefined, ['thino_view']);
 		const { funnel, visits } = makeFunnel(app);
 
@@ -275,9 +264,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(visits).toEqual([]);
 	});
 
-	it('the same view, in a vault that can still build it, is recorded all the same', () => {
-		// The registry read is the ONLY thing that tells the two apart, and it must never
-		// exclude by accident: a table this build does not expose keeps every view a place.
+	it('同一个视图，在还造得出它的仓库里照样被记录', () => {
+		// 读注册表是分辨这两者**唯一**的东西，而它绝不能误伤：这个构建没有暴露出来的那张表，
+		// 会让每一个视图都保住它的地点。
 		const { funnel, visits } = makeFunnel(makeApp());
 
 		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', { label: 'Thino' }));
@@ -285,9 +274,9 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(visits).toHaveLength(1);
 	});
 
-	it('a markdown tab that fails to say it is a file view is not a view place', () => {
-		// Same phantom as the two above, from the last door left: a markdown tab is always a
-		// note, so a place keyed `view:markdown` can never be one the reader went to.
+	it('没能说清自己是 file view 的 markdown 标签页，不算一个视图地点', () => {
+		// 与上面两个一样的幽灵，从剩下的最后一扇门进来：一个 markdown 标签页永远是一篇笔记，
+		// 所以一个 key 为 `view:markdown` 的地点，永远不可能是读者去过的。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(viewLeaf('leaf-2', 'markdown', { label: 'b', icon: 'file' }));
@@ -295,16 +284,14 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(visits).toEqual([]);
 	});
 
-	it('a file view whose file has gone is not a place of its own', () => {
-		// A sync replaces a note by removing the file and renaming the download over
-		// it (see position/path-bookkeeping.ts), and for that instant the tab still
-		// showing the note is a FileView whose `file` is null. Recording it as a view
-		// used to mint a phantom place — keyed `view:markdown`, wearing the note's own
-		// name and the file view's icon, indistinguishable from a real row — that no
-		// delete could ever clean up, because a view row has no file to go missing;
-		// it sat in the list until the reader took it off by hand. A FileView is
-		// either the visit it names or nothing at all: an instant is not a
-		// destination. The tab it stands in is still a leave.
+	it('文件已经不在了的 file view 不算自己的地点', () => {
+		// 一次同步替换一篇笔记的做法是先删掉文件、再把下载的那个改名盖上去（见
+		// position/path-bookkeeping.ts），在那一个瞬间，仍显示着这篇笔记的标签页就是一个
+		// `file` 为 null 的 FileView。把它记成视图，从前会凭空造出一个幽灵地点 —— key 为
+		// `view:markdown`、挂着这篇笔记自己的名字与文件视图的图标、与真实的一行无从分辨 ——
+		// 而任何删除都清理不掉它，因为视图那一行背后没有文件可以「失踪」；它会一直坐在列表上，
+		// 直到读者亲手把它拿掉。一个 FileView 要么是它点名的那次访问，要么什么都不是：一个
+		// 瞬间不是目的地。它所在的标签页仍然算一次离开。
 		const { funnel, visits, leaves } = makeFunnel();
 		const emptied = {
 			id: 'leaf-2',
@@ -318,12 +305,11 @@ describe('NavFunnel — what a capture point publishes', () => {
 		expect(leaves).toHaveLength(1);
 	});
 
-	it('a panel view following the note is the VIEW it is, not a second visit to the note', () => {
-		// Outline, backlinks, the local graph and the properties panes extend FileView and turned
-		// the app's own destination flag off: they show whatever note the reader is standing in.
-		// The sidebar hides them (they are not main-area leaves), but "open in main" puts one in
-		// the reader's way — and recorded as the file it points at, the list grows a second row
-		// for a note they never went to.
+	it('跟着笔记走的面板视图就是它那个视图，不是对这篇笔记的第二次 visit', () => {
+		// 大纲、反向链接、局部图谱与属性这几个面板继承 FileView，并把 app 自己的目的地标记关掉
+		// 了：它们显示读者正站在其中的那篇笔记。侧边栏把它们藏起来（它们不是主区 leaf），但
+		// 「在主区打开」会把其中一个放到读者眼前 —— 而把它记成它指向的那个文件，列表就会为
+		// 一篇读者从未去过的笔记多长出一行。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(followingLeaf('leaf-o', 'outline', 'b.md', { label: 'Outline' }));
@@ -333,9 +319,8 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a panel view with no note to follow is still the view it is', () => {
-		// Nothing changes about what it IS when the file it tracks is gone: the row with no note
-		// behind it is no truer than the one above.
+	it('没有笔记可跟的面板视图仍然是它那个视图', () => {
+		// 它跟着的那个文件没了，也不改变它**是什么**：背后没有笔记的那一行并不比上面那一行更真。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(followingLeaf('leaf-o', 'backlink'));
@@ -345,10 +330,10 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('a file view that lost the flag is the note it names', () => {
-		// The flag is runtime-only, so a build that renames it reads undefined, and the test above
-		// is then indistinguishable from the ordinary note below it: ONLY `false` may exclude, or
-		// losing the field would take every file recording with it.
+	it('丢了那个标记的 file view 就是它点名的那篇笔记', () => {
+		// 这个标记只在运行时存在，所以改了它名字的构建会读到 undefined，而上面那个测试就跟它
+		// 下面那个普通笔记无从分辨了：**只有** `false` 可以排除，否则丢了这个字段会把每一条
+		// 文件记录一起带走。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(leafWithFile('leaf-2', 'b.md'));
@@ -358,11 +343,10 @@ describe('NavFunnel — what a capture point publishes', () => {
 		]);
 	});
 
-	it('records the state and the icon the view reports, beside its name', () => {
-		// All three are the view's own account of itself (see shared/leaf.ts), and all
-		// three are read at the one moment they are readable. The state is what the
-		// place gets REBUILT with if this tab is gone by the time the reader comes back
-		// (see NavView.state); the icon is the mark its row wears.
+	it('除名字之外，还记下视图自己报告的 state 与图标', () => {
+		// 三样都是视图对自己的说法（见 shared/leaf.ts），而且都在唯一读得到的那一刻读。读者
+		// 回来时这个标签页若已经没了，那个地点**靠什么重建**就是 state（见 NavView.state）；
+		// 图标是它那一行戴着的标记。
 		const { funnel, visits } = makeFunnel();
 
 		funnel.recordActivation(viewLeaf('leaf-t', 'thino_view', {
@@ -378,11 +362,10 @@ describe('NavFunnel — what a capture point publishes', () => {
 		}]);
 	});
 
-	it('a view that throws about itself is still recorded, without the extras', () => {
-		// getDisplayText / getIcon / getState are foreign methods called from a
-		// workspace event handler: a view that throws in one of them must not take the
-		// reader's own tab switch down with it, and the PLACE is worth more than any of
-		// the three (see the guards in shared/leaf.ts).
+	it('一个介绍自己时抛异常的视图照样被记录，只是不带那些附加项', () => {
+		// getDisplayText / getIcon / getState 是从 workspace 事件处理程序里调用的外来方法：
+		// 一个在其中一个里抛异常的视图，绝不能把读者自己的那次标签页切换一起拖垮，而且**这个
+		// 地点**比那三样里的任何一个都值钱（见 shared/leaf.ts 里的那些守卫）。
 		const { funnel, visits } = makeFunnel();
 		const hostile = {
 			id: 'leaf-x',
@@ -404,12 +387,11 @@ describe('NavFunnel — what a capture point publishes', () => {
 	});
 });
 
-describe('NavFunnel — the two kinds of position read', () => {
-	it('leave (where the reader was) and settled (where the jump landed) are told apart, and neither is gated', () => {
-		// The distinction is the whole reason a place list can take only the
-		// second: a jump's row promises the jump's own spot, never wherever the
-		// reader drifted to before leaving. Ungated because the capture points that
-		// call them (the patch, the sampler) have already decided.
+describe('NavFunnel —— 两种位置读取', () => {
+	it('leave（读者当时在哪）与 settled（跳转落到哪）分得很清，两者都不受闸门管', () => {
+		// 这个区分正是地点列表能只取第二种的全部理由：一个 jump 的那一行承诺的是它自己那一处，
+		// 从来不是读者离开之前漂到哪。不受闸门管，因为调用它们的那些采集点（补丁、采样器）已经
+		// 拍过板了。
 		const app = makeApp();
 		const { funnel, leaves } = makeFunnel(app);
 		(app.workspace as { layoutReady: boolean }).layoutReady = false;
@@ -424,10 +406,9 @@ describe('NavFunnel — the two kinds of position read', () => {
 	});
 });
 
-describe('NavFunnel — the broadcasts', () => {
-	it('visit is a decided navigation, so the shared gate does not apply to it', () => {
-		// What the stack hands over when it travels to a place: inside its own
-		// bracket the gate would (correctly) refuse everything.
+describe('NavFunnel —— 广播', () => {
+	it('visit 是已经拍板的一次导航，所以公共闸门不适用于它', () => {
+		// 栈前往一个地点时交出来的东西：在它自己的 bracket 里，闸门会（正确地）把一切都拒掉。
 		const app = makeApp();
 		const { funnel, visits } = makeFunnel(app);
 		(app.workspace as { layoutReady: boolean }).layoutReady = false;
@@ -437,7 +418,7 @@ describe('NavFunnel — the broadcasts', () => {
 		expect(visits).toHaveLength(1);
 	});
 
-	it('landing and here reach every listener', () => {
+	it('landing 与 here 送到每一个订阅者', () => {
 		const { funnel, landings, heres } = makeFunnel();
 		const jumped = entry('a.md');
 		const other = { onLanded: vi.fn(), onHere: vi.fn() };
@@ -452,9 +433,8 @@ describe('NavFunnel — the broadcasts', () => {
 		expect(other.onHere).toHaveBeenCalledWith(jumped);
 	});
 
-	it('a listener is told only about the hooks it implements', () => {
-		// The place list never implements onLeave: its rows promise where a jump
-		// LANDED, not where the reader drifted.
+	it('订阅者只收到它实现了的那些钩子', () => {
+		// 地点列表从不实现 onLeave：它的那些行承诺的是一个 jump **落到**了哪，不是读者漂到了哪。
 		const { funnel } = makeFunnel();
 		const onlyLanded = { onLanded: vi.fn() };
 		funnel.subscribe(onlyLanded);
@@ -467,7 +447,7 @@ describe('NavFunnel — the broadcasts', () => {
 		expect(onlyLanded.onLanded).toHaveBeenCalledTimes(1);
 	});
 
-	it('unsubscribing stops delivery to that listener only', () => {
+	it('取消订阅只停止发给那一个订阅者', () => {
 		const { funnel, visits } = makeFunnel();
 		const second: NavRecording[] = [];
 		const unhook = funnel.subscribe({ onVisit: (recording) => second.push(recording) });
@@ -481,10 +461,9 @@ describe('NavFunnel — the broadcasts', () => {
 	});
 });
 
-describe('NavFunnel — one recording, several readers', () => {
-	it('the stack and the place list both hear it, and neither knows the other exists', () => {
-		// The composition root wires this (see position/manager.ts); the funnel
-		// itself only ever publishes.
+describe('NavFunnel —— 一份记录，多个读取方', () => {
+	it('栈与地点列表都听得到它，而且谁也不知道对方存在', () => {
+		// 组合根把它接起来（见 position/manager.ts）；漏斗自己只管发布。
 		const { funnel, stack, places } = makeNav();
 
 		funnel.recordOpen('a.md', 'leaf-1');
@@ -493,10 +472,9 @@ describe('NavFunnel — one recording, several readers', () => {
 		expect(places.entries.map(pathOf)).toEqual(['a.md']);
 	});
 
-	it('the gate is shared, so a recording the stack is told not to keep still reaches the places', () => {
-		// The stack's own gates (record tab switches / cursor jumps) are about ITS
-		// list; the funnel publishes before any of them, which is exactly why the
-		// two stores could be split apart.
+	it('闸门是共用的，所以一条栈被吩咐不留的记录仍然会到达地点列表', () => {
+		// 栈自己那几道闸门（记标签页切换 / 记光标跳跃）管的是**它**那张列表；漏斗在它们任何
+		// 一个之前就发布了，这正是两个 store 能被拆开的原因。
 		const { funnel, stack, places } = makeNav(makeApp(), { navHistoryRecordActivation: false });
 
 		funnel.recordActivation(leafWithFile('leaf-2', 'b.md'));
@@ -506,7 +484,7 @@ describe('NavFunnel — one recording, several readers', () => {
 	});
 });
 
-// ===== Sampler: in-file teleport detection =====
+// ===== 采样器：文件内的跳变检测 =====
 
 type DatabaseStub = { db: Record<string, unknown>; setState: ReturnType<typeof vi.fn>; deleteFile: ReturnType<typeof vi.fn> };
 
@@ -533,16 +511,16 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 		},
 		metadataCache: { getFileCache: () => null },
 	};
-	// The threshold is pinned: DEFAULT_SETTINGS ships 0 (inferred steps off), and
-	// these tests are about the detector, not about the default.
+	// 阈值是钉死的：DEFAULT_SETTINGS 出厂是 0（推断出来的步关着），而这些测试讲的是这个
+	// 探测器，不是默认值。
 	const fullSettings = { ...DEFAULT_SETTINGS, navHistoryTeleportMinLines: 10,
 		...settings } as PluginSettings;
 	const state = new PositionState(fullSettings);
 	const leave = vi.fn();
 	const recordTeleport = vi.fn();
 	const store = new PositionStore(app as never, database as never);
-	// The funnel the sampler writes to. The sampler is purely a CAPTURE point —
-	// it never reads the stack — so a spy funnel is the whole of what it needs.
+	// 采样器往哪个漏斗写。采样器纯粹是一个**采集点** —— 它从不读栈 —— 所以一个探子漏斗就是
+	// 它需要的全部。
 	const funnel = {
 		recordOpen: vi.fn(),
 		recordTeleport,
@@ -558,10 +536,10 @@ function makeSamplerHarness(settings: Partial<PluginSettings> = {}) {
 	return { sampler, state, recordTeleport, leave, database, view, cursor, onSelection };
 }
 
-describe('Sampler in-file teleport detection', () => {
-	it('a ≥10-line cursor jump records via the selection event and refreshes the left entry', () => {
-		const h = makeSamplerHarness(); // view cursor sits at line 60; poll read at line 3
-		h.onSelection(h.view.editor); // baseline: line 60
+describe('Sampler 的文件内跳变检测', () => {
+	it('一次 ≥10 行的光标跳跃经 selection 事件记录，并刷新那条离开记录', () => {
+		const h = makeSamplerHarness(); // 视图光标停在第 60 行；轮询读到的是第 3 行
+		h.onSelection(h.view.editor); // 基线：第 60 行
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor);
 		expect(h.recordTeleport).toHaveBeenCalledTimes(1);
@@ -569,40 +547,36 @@ describe('Sampler in-file teleport detection', () => {
 			scroll: 42,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 		}]);
-		// the entry being left got the poll's read — the harness seeds that
-		// baseline by hand, so unlike a real poll read it carries no stamp
+		// 被离开的那个条目拿到了轮询的读数 —— 这个 fixture 是手工播下那个基线的，所以它不像
+		// 一次真正的轮询读取那样带着采集戳
 		expect(h.leave).toHaveBeenCalledWith('a.md', 'leaf-1', {
 			scroll: 0,
 			cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } },
 		});
 	});
 
-	it('recording rules never gate navigation: an excluded file still records teleports, positions stay unwritten', () => {
+	it('记录规则从不拦导航：被排除的文件照样记录跳变，位置则不写', () => {
 		const h = makeSamplerHarness({ excludedFolders: ['a.md'] });
-		// Poll path: the db record is dropped, nothing written — rules
-		// govern positions only.
+		// 轮询这条路：数据库记录被丢掉，什么都没写 —— 规则只管位置。
 		h.sampler.sampleActiveView();
 		expect(h.database.deleteFile).toHaveBeenCalledWith('a.md');
 		expect(h.database.setState).not.toHaveBeenCalled();
-		// Event path: nav recording never consults exclusions.
-		h.onSelection(h.view.editor); // baseline: line 60
+		// 事件这条路：导航记录从不查排除规则。
+		h.onSelection(h.view.editor); // 基线：第 60 行
 		h.cursor.line = 3;
 		h.onSelection(h.view.editor);
 		expect(h.recordTeleport).toHaveBeenCalledWith('a.md', 'leaf-1', 3, expect.anything());
 	});
 
-	it('on mobile the poll infers nothing: a 57-line cursor move writes the position and pushes no step', () => {
-		// The poll is the only cursor sampler a touch device has, and it has
-		// nothing worth inferring from: a swipe moves no cursor and a tap lands
-		// within the screenful already on screen. So a mobile reader's
-		// back/forward is about which FILE they came from — which is also the
-		// part of it no scroll-back can replace.
+	it('手机上轮询不做任何推断：一次 57 行的光标移动写位置、但不压步', () => {
+		// 轮询是触摸设备唯一有的光标采样器，而它没有什么值得推断的东西：一次滑动不移动光标，
+		// 一次轻点也落在本就在屏幕上的这一屏之内。所以移动端读者的前进后退讲的是他们从哪个
+		// **文件**来 —— 这也正是它之中任何滚动回退都替代不了的那部分。
 		const origMobile = Platform.isMobileApp;
 		Platform.isMobileApp = true;
 		try {
-			const h = makeSamplerHarness(); // view cursor at 60, poll read at 3
-			// The reader tapped the note: their touch is what makes the move
-			// theirs rather than a re-render's.
+			const h = makeSamplerHarness(); // 视图光标在 60，轮询读到的是 3
+			// 读者点了这篇笔记：是他们的触摸让这次移动属于他们，而不是属于一次重渲染。
 			h.state.lastTouchAt = Date.now();
 			h.sampler.sampleActiveView();
 			expect(h.recordTeleport).not.toHaveBeenCalled();
@@ -613,16 +587,16 @@ describe('Sampler in-file teleport detection', () => {
 		}
 	});
 
-	it('threshold 0: the selection event path stays fully silent', () => {
+	it('阈值为 0 时，selection 事件这条路径完全沉默', () => {
 		const h = makeSamplerHarness({ navHistoryTeleportMinLines: 0 });
-		h.onSelection(h.view.editor); // baseline: line 60
+		h.onSelection(h.view.editor); // 基线：第 60 行
 		h.cursor.line = 3;
-		h.onSelection(h.view.editor); // 57-line jump, threshold 0
+		h.onSelection(h.view.editor); // 57 行的跳跃，阈值 0
 		expect(h.recordTeleport).not.toHaveBeenCalled();
 		expect(h.leave).not.toHaveBeenCalled();
 	});
 
-	it('flushOnLeave writes the exact leaving state; recording rules still gate it', () => {
+	it('flushOnLeave 写下精确的离开状态；记录规则照样管着它', () => {
 		const st = { scroll: 7, cursor: { from: { line: 5, ch: 0 }, to: { line: 5, ch: 0 } } };
 
 		const h = makeSamplerHarness();
@@ -632,5 +606,21 @@ describe('Sampler in-file teleport detection', () => {
 		const excluded = makeSamplerHarness({ excludedFolders: ['a.md'] });
 		excluded.sampler.flushOnLeave(excluded.view, 'a.md', st);
 		expect(excluded.database.setState).not.toHaveBeenCalled();
+	});
+
+	it('恢复还没落定时 flushOnLeave 什么都不写 —— 它同步读到的中间态会顶掉保存的位置', () => {
+		// 它是唯一同步发生的写入，所以不像轮询与滚动采集那样等得起：一篇笔记打开后还在等首绘
+		// （阅读模式最长 2 秒）时读者点链接跳走，这里读到的正是尚未落地的顶部。滞后的那三个
+		// 写者都守着恢复这道门，它必须同样守着 —— 否则一次快速切文件就把那篇笔记的位置永久
+		// 改成了开头。
+		const h = makeSamplerHarness();
+		const top = { scroll: 0, cursor: { from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } } };
+		h.state.restoreStarted();
+		h.sampler.flushOnLeave(h.view, 'a.md', top);
+		expect(h.database.setState).not.toHaveBeenCalled();
+		// 门只在恢复期间关着：落定之后它照旧写 —— 那次跳过赔掉的只是一个 tick 的滞后。
+		h.state.restoreEnded();
+		h.sampler.flushOnLeave(h.view, 'a.md', top);
+		expect(h.database.setState).toHaveBeenCalledWith('a.md', top);
 	});
 });

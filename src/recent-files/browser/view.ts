@@ -1,60 +1,54 @@
-// The recent-files panel as a RESIDENT sidebar: the same body as the modal (see
-// body.ts), standing in a workspace leaf instead of a dialog.
+// 最近文件面板作为**常驻**侧栏：与模态框同一个主体（见 body.ts），站在一个工作区 leaf 里、
+// 而不是对话框里。
 //
-// Why it exists beside the modal: the modal answers "where was I, and take me there"
-// once and closes. A reader who works that way repeatedly pays an open, a read and a
-// close for every hop, and the panel that would help them is the one thing they cannot
-// see while they work. Resident, the same list is a place in the workspace: it stays
-// where they put it and a travel leaves it standing.
+// 它为什么与模态框并存：模态框回答一次「我刚才在哪儿，带我去」就关闭。一个反复这样做的
+// 读者，每次跳都要付一次打开、一次阅读、一次关闭，而那个本该帮他的面板，恰是他工作时
+// 唯一看不到的东西。常驻之后，同一份列表是工作区里的一个地方：它待在他们放它的地方，
+// 一次行进把它留在原地站着。
 //
-// WHAT THE SHELL OWNS, and nothing else: the leaf's lifetime, the classes the
-// stylesheet reads, and getting out of the way on a PHONE after a travel (see
-// standAside).
+// 这个外壳**拥有**的东西，仅此而已：leaf 的生命期、样式表所读的那些 class，以及在
+// 一次行进之后（手机上）让开路（见 standAside）。
 //
-// It is a VIEW and not a floating panel so that Obsidian's own machinery does the
-// rest: the leaf remembers its place in the layout across restarts, it can be dragged
-// to the other sidebar or into the main area, it obeys the pane's own "Close", and
-// `revealLeaf` brings it back.
+// 它是一个**视图**、而不是浮动面板，好让 Obsidian 自己的机制去做其余的事：leaf 会跨重启
+// 记住它在布局里的位置，它可以被拖到另一侧侧栏或主区域，它服从窗格自己的「关闭」，
+// 而 `revealLeaf` 会把它带回来。
 
 import { App, ItemView, Menu, Platform, WorkspaceLeaf } from 'obsidian';
 import { navGroupKey } from '@/nav/entry';
 import { PlaceList } from '@/recent-files/places';
 import { EphemeralState } from '@/types';
 import { t } from '@/i18n';
-import { RecentFilesBrowser, RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from './body';
+import { RecentFilesBrowser, RecentFilesBrowserPrefs } from './body';
+import type { RecentFilesBrowserArrows } from './arrows';
 import { NAV_SOURCE_ID, PANEL_EXIT_GRACE_MS } from './constants';
 
-// Also the name the panel answers by in the app's hover-preview system (see
-// constants.ts's NAV_SOURCE_ID): the dialog says it too, so hovering a row there and
-// here is one name to the app. Which is also why changing this string would orphan a
-// saved sidebar: it is a persisted id before it is a label.
+// 它也是面板在 app 悬停预览体系里应答用的名字（见 constants.ts 的 NAV_SOURCE_ID）：
+// 对话框也用它，所以在那里和这里悬停一行，对 app 来说是同一个名字。这也正是改这个字符串
+// 会把一个保存下来的侧栏变成孤儿的原因：它是一个持久的 id，然后才是一个标签。
 export const RECENT_FILES_VIEW_TYPE = NAV_SOURCE_ID;
 
 export class RecentFilesView extends ItemView {
-	// Both are the view's own: the modal has no equivalent of either, because nothing
-	// outlives a dialog.
+	// 两者都是这个视图自己的：模态框没有相应的东西，因为没有任何东西比对话框活得久。
 	private browser: RecentFilesBrowser | null = null;
 	private unsubscribe: (() => void) | null = null;
-	// The timer IS the flag — something is being waited out only while it stands — and
-	// it is cleared with the panel, so a closed view is never drawn into again.
+	// 定时器**就是**那个标志 —— 只有在它立着的时候才是在等某件事过去 —— 而它会随面板一起
+	// 清掉，所以一个已关闭的视图绝不会再被画进去。
 	private suspendTimer?: number;
-	// Caught up in ONE redraw once the panel is gone, however many changes arrived on
-	// the way out: a panel nobody is looking at does not owe a redraw per change, it
-	// owes a list that is true when it is looked at again.
+	// 面板一走后，用**一次**重画补齐，无论离开的路上到了多少变化：一个没人在看的面板，
+	// 不欠每次变化一次重画，它欠的是一份在再次被看时是**真**的列表。
 	private missedRender = false;
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		// The panel's only data source. The back/forward stack is NOT here — this pane
-		// lists places, and every one travels the way its own record says.
+		// 面板唯一的数据来源。前进/后退的栈**不**在这里 —— 这个窗格列的是地点，
+		// 而每一个都按照它自己的记录所说的方式行进。
 		private places: PlaceList,
 		private savedPosition: ((path: string) => EphemeralState | undefined) | undefined,
-		// The plugin owns and persists these; this shell only hands them down.
+		// 插件拥有并持久化这些；这个外壳只是把它们往下交。
 		private prefs: RecentFilesBrowserPrefs,
-		// The four arrows: a step back and forward, and the two ends of the note the
-		// reader has open. Every shell draws them, and hands them down rather than
-		// keeping them — the steps are the history's and the note is the workspace's
-		// (see RecentFilesBrowserArrows).
+		// 四个箭头：后退与前进各一步，以及读者打开的那篇笔记的两端。每个外壳都画它们，
+		// 而且是往下交、而不是自己留着 —— 那些步是历史的、那篇笔记是工作区的
+		// （见 RecentFilesBrowserArrows）。
 		private arrows: RecentFilesBrowserArrows,
 	) {
 		super(leaf);
@@ -64,21 +58,21 @@ export class RecentFilesView extends ItemView {
 		return RECENT_FILES_VIEW_TYPE;
 	}
 
-	// Not a second name for the panel: the toolbar inside it names nothing, and the
-	// pane is where a reader looks for it (see modal.ts, which sets the same string).
+	// 不是给面板起的第二个名字：它里面的工具栏什么都不命名，而窗格是读者找它的地方
+	// （见 modal.ts，它设的也是同一个字符串）。
 	getDisplayText(): string {
 		return t('recentFiles.name');
 	}
 
-	// A clock, because the rows are ordered by WHEN they were last sat in. Not 'list':
-	// that is the outline's icon, and borrowing it would put two panes under one mark.
+	// 一个时钟，因为各行是按它们上次被坐进去的**时间**排序的。不用 'list'：
+	// 那是大纲的图标，借它过来会让两个窗格顶着同一个标记。
 	getIcon(): string {
 		return 'clock';
 	}
 
 	async onOpen(): Promise<void> {
 		this.contentEl.addClass('position-restore-nav-panel', 'position-restore-nav-view');
-		// A touch layout is a fact about the pane, not about the room it is in.
+		// 触摸布局是关于这个窗格的一个事实，而不是关于它所在的房间的。
 		if (Platform.isMobile)
 			this.contentEl.addClass('is-touch');
 		this.browser = new RecentFilesBrowser({
@@ -86,20 +80,16 @@ export class RecentFilesView extends ItemView {
 			places: this.places,
 			host: this.contentEl,
 			savedPosition: this.savedPosition,
-			// The list is click-only, exactly as in the dialog (see list.ts): nothing
-			// follows a pointer that merely passes over it. The DEVICE still answers for
-			// its own ergonomics.
+			// 这份列表只认点击，与对话框里完全一样（见 list.ts）：没有任何东西会跟随一个只是从它
+			// 上面经过的指针。**设备**仍然为它自己的工效学作答。
 			touch: Platform.isMobile,
-			// A travel starts from a cleared list: it re-orders the rows (the place
-			// visited moves to the end), so the row pointed at is about to stand for a
-			// different place in the same slot (see RecentFilesList.collapse).
+			// 一次行进从一份清空的列表开始：它会重排各行（被访问的地点移到末尾），所以被指着的那一行
+			// 即将在同一个槽位里代表一个不同的地点（见 RecentFilesList.collapse）。
 			collapseOnJump: true,
-			// On a PHONE the panel itself gets out of the way: a resident panel is a
-			// drawer over the whole screen there, so a row that opens a note behind it
-			// looks like a row that did nothing.
+			// 手机上，面板自己让开路：常驻面板在那里是盖住整个屏幕的抽屉，所以一行在它背后打开
+			// 一篇笔记，看起来就像一行什么都没做。
 			onJump: () => this.standAside(),
-			// A resident panel is restored WITH the workspace, so taking the caret out
-			// of the editor is not something the reader asked for.
+			// 常驻面板是**随工作区一起**恢复的，所以把光标从编辑器里拿走不是读者要的事。
 			focusFilter: false,
 			arrows: this.arrows,
 			prefs: this.prefs,
@@ -113,50 +103,45 @@ export class RecentFilesView extends ItemView {
 		this.unsubscribe = null;
 		this.browser?.destroy();
 		this.browser = null;
-		// Whatever it was holding a redraw back for, it is not standing any more: a
-		// timer that outlived the view would draw into a body that has been torn down.
+		// 无论它之前是为了什么压着一次重画，它都不再立着了：一个比视图活得还久的定时器，
+		// 会画进一个已经被拆掉的主体里。
 		this.stopSuspending();
 	}
 
-	// A preference changed in the settings tab is read live by the body, so this is all
-	// it takes for an open panel to show the answer just chosen. Asked of the panel
-	// rather than pushed into it, because whether it is up at all is the workspace's
-	// business (see PositionManager.refreshNavPanels).
+	// 在设置标签页里改的一项偏好，是由主体实时读的，所以一个开着的面板要展示刚选的那个答案，
+	// 只需要这么多。是问面板、而不是推进它，因为它到底有没有立着是工作区的事
+	// （见 PositionManager.refreshNavPanels）。
 	refresh(): void {
 		this.browser?.render();
 	}
 
-	// THE TAB'S OWN MENU — the app raises it for a right-click on the tab and for the
-	// pane's "more options", and hands it to the view to add to (the door the app's
-	// own views use for "Close" and "Toggle reading view"). What the app puts there is
-	// about the PANE; what this panel adds is about the LIST.
+	// **标签页自己的菜单** —— app 在标签页上右键、以及窗格的「更多选项」时会升起它，
+	// 并把它交给视图去添东西（app 自己的视图用来加「关闭」和「切换阅读视图」的那扇门）。
+	// app 放在那里的是关于**窗格**的；这个面板添加的是关于**列表**的。
 	//
-	// ONE item, and only when there is something for it to take off: an item that
-	// would empty nothing is worse than an item that is not there (see body.ts's
-	// pinItems). It clears the WHOLE list and leaves the pinned block standing — a
-	// shelf the reader built by hand (see NavPlaces.clear). Nothing is confirmed:
-	// what goes is where they have been, not a file, and a note opened again takes
-	// its row back.
+	// **一个**条目，而且只在有东西可拿走时：一个会清空不了任何东西的条目，比一个根本不在的
+	// 条目更糟（见 body.ts 的 pinItems）。它清空**整份**列表、让钉选块继续立着 ——
+	// 那是读者亲手搭起的一个搁板（见 NavPlaces.clear）。不做任何确认：走掉的是他们去过的
+	// 地方，不是一个文件，而一篇被再次打开的笔记会把它那一行要回来。
 	onPaneMenu(menu: Menu): void {
 		if (!this.clearable())
 			return;
 		menu.addItem(item => item
 			.setSection('action')
 			.setTitle(t('recentFiles.clearList'))
-			// The app's own glyph for emptying a history — the web viewer's
-			// "Clear history" stands in this very menu. One promise, one mark.
+			// app 自己用来清空历史的字形 —— web viewer 的「清除历史」就站在这个菜单里。
+			// 一个承诺，一个标记。
 			.setIcon('eraser')
 			.onClick(() => this.places.clear()));
 	}
 
-	// Whether a clear would take anything off: what survives one is the pinned block,
-	// so a list of nothing but pins has nothing left to empty.
+	// 一次清空会不会拿走任何东西：熬过它的是钉选块，所以一份全是钉选的列表没什么可清的了。
 	private clearable(): boolean {
 		return this.places.entries.some(e => !this.places.isPinned(navGroupKey(e)));
 	}
 
-	// A panel the reader can still see is drawn again on the spot; one on its way out
-	// is not (see suspendRedraws) — it is drawn once, when it has gone.
+	// 一个读者仍看得见的面板会当场再画一次；一个正在离开的不会（见 suspendRedraws）——
+	// 它在走后被画一次。
 	private hearPlaces(): void {
 		if (this.suspendTimer !== undefined) {
 			this.missedRender = true;
@@ -165,36 +150,29 @@ export class RecentFilesView extends ItemView {
 		this.browser?.render();
 	}
 
-	// A travel on a phone: the panel gets out of the way, and so does the list it
-	// leaves behind — one event to the reader, so one reaction here. The drawer folds
-	// first (see dismissOnMobile), because that is the half that answers "why did
-	// nothing seem to happen". Then the list stops being drawn, because the travel
-	// re-orders it at once and a list that shuffles itself on the way out is a change
-	// nobody asked for.
+	// 手机上的一次行进：面板让开路，它留在身后的那份列表也让开 —— 对读者来说是一件事，
+	// 所以这里是同一个反应。抽屉先合上（见 dismissOnMobile），因为那正是回答
+	// 「为什么好像什么都没发生」的那一半。然后列表停止被画，因为行进会立刻重排它，
+	// 而一份在离开的路上自己洗牌的列表，是没人要的变化。
 	//
-	// On a DESKTOP neither happens: the panel stands beside the note it just opened,
-	// and that re-ordering IS the answer — the row they aimed at climbs to the top and
-	// takes the "you are here" mark with it.
+	// 桌面上两者都不发生：面板站在它刚打开的笔记旁边，而那次重排**就是**答案 ——
+	// 他们瞄准的那一行爬到顶部，并带着「你在这里」标记一起。
 	private standAside(): void {
 		if (!Platform.isMobile)
 			return;
-		// The menu goes FIRST: it was raised from a row of this panel and stands on the
-		// document, so the app has no way to hear that the panel is leaving — folding a
-		// drawer is not one of the gestures it takes a menu off the screen for (see
-		// RecentFilesBrowser.closeMenu).
+		// 菜单**最先**走：它是从这个面板的某一行升起的、站在文档上，所以 app 没法听到面板正在
+		// 离开 —— 合上一个抽屉不是它据以把菜单从屏幕上拿掉的那些手势之一
+		// （见 RecentFilesBrowser.closeMenu）。
 		this.browser?.closeMenu();
 		this.dismissOnMobile();
 		this.suspendRedraws();
 	}
 
-	// Nothing the panel would draw in those few hundred milliseconds is worth drawing:
-	// the reader's attention has followed the note they opened. What the panel owes is
-	// a list that is TRUE when the drawer is pulled open again — and ONE redraw
-	// delivers that however many changes arrived, because the list is drawn from the
-	// places as they stand then (see RecentFilesBrowser.render).
+	// 面板在这几百毫秒里会画的东西，没有一样值得画：读者的注意力已经跟着他打开的笔记走了。
+	// 面板欠的是一份在抽屉被再次拉开时是**真**的列表 —— 而无论到了多少变化，**一次**重画
+	// 就能兑现这一点，因为列表是从当时地点的样子画的（见 RecentFilesBrowser.render）。
 	private suspendRedraws(): void {
-		// A second travel inside the same window restarts it rather than stacking a
-		// second timer: a panel has only one exit.
+		// 同一个窗口期内的第二次行进会重启它、而不是叠加第二个定时器：一个面板只有一个出口。
 		this.stopSuspending();
 		this.suspendTimer = window.setTimeout(() => {
 			this.suspendTimer = undefined;
@@ -213,15 +191,12 @@ export class RecentFilesView extends ItemView {
 		this.missedRender = false;
 	}
 
-	// The panel itself STAYS in the layout — collapsing is not closing, and where to
-	// put it is the reader's business. The drawer IS the leaf's parent on a phone, so
-	// there is no question of which side it is on — and it is checked by SHAPE, never
-	// with `instanceof`.
+	// 面板本身**留在**布局里 —— 折叠不是关闭，而把它放哪儿是读者的事。手机上的抽屉**就是**
+	// leaf 的父级，所以不存在它在哪一侧的问题 —— 而它是按**形状**检查的，绝不用 `instanceof`。
 	//
-	// That is not a style preference: the typings declare WorkspaceMobileDrawer, but a
-	// typings-only package is not the app's runtime module, and an `instanceof` against
-	// a name the bundle does not export THROWS — and this runs as the shell's reaction
-	// to a travel, so the panel answered no click at all on a phone.
+	// 这不是一个风格偏好：类型定义里声明了 WorkspaceMobileDrawer，但一个只有类型定义的包
+	// 并不是 app 的运行时模块，而对一个打包产物并不导出的名字做 `instanceof` 会**抛异常** ——
+	// 而这段代码是外壳对一次行进的反应，所以结果是手机上这个面板对点击一概不应答。
 	private dismissOnMobile(): void {
 		const parent = this.leaf.parent as unknown as
 			{ collapsed?: boolean; collapse?: () => void } | undefined;
@@ -231,9 +206,9 @@ export class RecentFilesView extends ItemView {
 
 }
 
-// Bring the panel up, or bring it back: the panel is a PLACE, so a second invocation
-// must find the one already open rather than open a second copy of the same list (two
-// panels of one history, each with its own filter, is a way to be shown two answers).
+// 把面板升起来，或把它带回来：面板是一个**地方**，所以第二次调用必须找到已经开着的那个，
+// 而不是打开同一份列表的第二份拷贝（同一段历史的两块面板、各有各的筛选，是一种会显示
+// 两个答案的做法）。
 export async function activateRecentFilesView(
 	app: App,
 	places: PlaceList,
@@ -252,8 +227,7 @@ export async function activateRecentFilesView(
 	await app.workspace.revealLeaf(leaf);
 }
 
-// Kept beside the class it builds so the leaf's runtime wiring is one thing in one
-// file.
+// 放在它所构建的那个类旁边，好让 leaf 的运行时接线是一份文件里的一件事。
 export function createRecentFilesView(
 	places: PlaceList,
 	savedPosition: ((path: string) => EphemeralState | undefined) | undefined,

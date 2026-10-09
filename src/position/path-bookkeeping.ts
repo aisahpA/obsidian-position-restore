@@ -2,35 +2,28 @@ import { App, TAbstractFile } from 'obsidian';
 import { PositionStore } from './storage/position-store';
 import { PositionState } from './state';
 
-// Path-keyed state — the position store (which owns BOTH the per-file record and the per-leaf
-// records, so a path change re-keys or drops them together), the navigation stores (which re-key or
-// drop their OWN records), the pipeline's current-file pointer — kept in step with the vault's
-// rename and delete events in one place, so they cannot disagree about what a path change means.
+// 按 path 作键的那些状态 —— 位置 store（它同时拥有逐文件记录与逐 leaf 记录，所以 path 一变就一起
+// 改键或一起丢）、几个导航 store（各自改键或丢自己的记录）、流水线的当前文件指针 —— 集中在一处
+// 跟随 vault 的 rename / delete 事件，好让它们对「path 变了意味着什么」不会各说各话。
 //
-// A delete cannot be acted on when the event arrives: the vault fires the same 'delete' both for a
-// file the user removed and for a sync plugin replacing a changed file (Nutstore Sync on mobile
-// removes the target and renames the download over it), so acting on it drops records that are
-// valid again a moment later. The delete is therefore scheduled, and the VAULT decides when the
-// window closes: a path that is back is not deleted at all. Reading the vault, rather than pairing
-// the delete with a create/rename event, also makes the answer independent of the two events'
-// delivery order.
+// delete 事件到达时不能立即动手：用户删掉一个文件、与某个同步插件替换一个改动过的文件
+// （手机上坚果云同步会先删目标、再把下载下来的文件改名覆盖上去），vault 发出的是同一个 'delete'；
+// 照它动手会丢掉一批片刻之后又恢复有效的记录。所以删除是**预约**的，由 **vault** 决定窗口何时
+// 关闭：又回来的 path 就根本不删。读 vault 而不是把 delete 跟 create/rename 事件配对，
+// 也让结论与两个事件的到达顺序无关。
 //
-// The window is only the BACKSTOP. A replacement that reaches the vault as its own event — a
-// create, or the rename over the target — cancels the pending prune outright (see cancelPending),
-// because a phone's sync does not promise to put the file back inside any window: the download is
-// a network round trip and the app may be frozen for part of it.
+// 窗口只是**兜底**。一次替换若以自身事件的形式到达 vault —— 一次 create，或覆盖到目标上的
+// rename —— 会直接取消待处理的 prune（见 cancelPending）：手机上的同步不承诺在任何窗口内把文件
+// 放回来，下载是一次网络往返，app 还可能在其中一段被冻住。
 
-// How long a deleted path has to stay gone before its records are dropped. The wait is the trade
-// in the mechanism: a real delete's records live exactly this long. Long, because what it has to
-// cover is no longer an adjacent pair of adapter calls but a replacement the vault never reported
-// at all — a slow one, or one written behind the vault's back.
+// 一个被删的 path 要消失多久，它的记录才被丢弃。这段等待就是这套机制的代价：一次真删除的记录
+// 恰好活这么久。之所以长，是因为要罩住的不再是相邻两次 adapter 调用，而是一次 vault 压根没
+// 报告过的替换 —— 慢的，或者背着 vault 写的。
 const DELETE_PRUNE_GRACE_MS = 10_000;
 
-// What the bookkeeper needs from a navigation store: the stack and the recent-files list are both
-// keyed by path and both answer these four — but they keep DIFFERENT records, so each is told
-// separately and each re-keys/drops its own. Declared here rather than imported so the bookkeeper
-// does not have to know which stores exist: the composition root hands it the list (see
-// position/manager.ts).
+// 记账器对一个导航 store 的需求：栈与最近文件列表都按 path 作键、都答这四个方法 —— 但两者存的
+// 记录不同，所以各自单独通知、各自改键或丢弃自己的。在这里声明而不是 import，是为了让记账器
+// 不必知道有哪些 store 存在：由组装点把列表交给它（见 position/manager.ts）。
 export interface PathStore {
 	renameFile(oldPath: string, newPath: string): void;
 	deleteFile(path: string): void;
@@ -39,29 +32,27 @@ export interface PathStore {
 }
 
 export class PathBookkeeper {
-	// Deleted paths waiting out their window (path → timer).
+	// 正在窗口期里等待的被删 path（path → 定时器）。
 	private pendingDeletes = new Map<string, number>();
-	// The startup sweep's paths, waiting out the same window. A map of its own because the outcome
-	// differs, not the timing: a vault delete drops the position records too, while a swept path
-	// keeps them — the db is a SYNCED file, so a vault that has not finished materializing a file on
-	// this device must not erase the positions the other devices still need (which is also why db
-	// pruning never consults the vault, see pruneDatabase).
+	// 启动清扫的那些 path，等的是同一个窗口。单独一张表是因为结果不同、不是时机不同：vault 的
+	// 删除连位置记录一起丢，而清扫掉的 path 保留它们 —— db 是**同步**文件，一台设备上 vault 还没
+	// 物化出某个文件，不能就此抹掉别的设备还需要的位置（这也是 db 修剪从不查 vault 的原因，
+	// 见 pruneDatabase）。
 	private pendingSweeps = new Map<string, number>();
 
 	constructor(
 		private app: App,
 		private store: PositionStore,
-		// The navigation stores, told separately and each accountable for its own records.
+		// 各导航 store，单独通知，各自对自己的记录负责。
 		private navStores: PathStore[],
 		private state: PositionState,
 	) {}
 
-	// Each store re-keys itself; the pointer follows only the file it named. The position store is
-	// one call because a per-leaf record still naming the old path would fail its path guard and
-	// silently collapse the per-tab split onto the file record.
+	// 每个 store 自己改键；指针只跟它点过名的那个文件走。位置 store 是一次调用，因为一条仍然
+	// 写着旧 path 的逐 leaf 记录会过不了自己的 path 守卫，把分标签的位置静默塌缩到文件记录上。
 	renameFile(file: TAbstractFile, oldPath: string) {
-		// The path is back — a rename is the second half of a sync's remove-and-rename
-		// replacement, and the delete it undoes must not survive it.
+		// path 又回来了 —— rename 是一次「同步先删后改名」替换的后半程，它撤销掉的那次
+		// delete 不能活过它。
 		this.cancelPending(file.path);
 		this.store.renameFile(file.path, oldPath);
 		for (const nav of this.navStores)
@@ -70,20 +61,19 @@ export class PathBookkeeper {
 			this.state.lastLoadedFilePath = file.path;
 	}
 
-	// A second delete for the same path restarts the window, so windows never overlap.
+	// 同一个 path 第二次 delete 会重启窗口，窗口因此永不重叠。
 	deleteFile(file: TAbstractFile) {
 		this.deferMissing(this.pendingDeletes, file.path, () => this.prune(file.path));
 	}
 
-	// Vault 'create' — the other half a sync replacement can arrive as, and the one a
-	// remove-then-write lands. Same answer as the rename above: the file is here, so the
-	// delete was never a delete.
+	// vault 的 'create' —— 同步替换可能以它作为另一半到达，也是「先删后写」落下的那半。
+	// 答案同上一个 rename：文件在，那次 delete 就从来不是 delete。
 	fileCreated(file: TAbstractFile) {
 		this.cancelPending(file.path);
 	}
 
-	// Drop a scheduled prune whose path is back. Both maps: a swept path that the sync has
-	// since delivered is as alive as a deleted one it replaced, and neither owes a prune.
+	// 丢掉一条 path 已回来的预约修剪。两张表都查：同步后来送来的一个被清扫 path，与它替换掉的
+	// 那个被删 path 一样是活的，两个都不欠修剪。
 	private cancelPending(path: string) {
 		for (const map of [this.pendingDeletes, this.pendingSweeps]) {
 			const pending = map.get(path);
@@ -94,14 +84,12 @@ export class PathBookkeeper {
 		}
 	}
 
-	// The startup sweep for the navigation stores: a file deleted while Obsidian was closed fires no
-	// 'delete' event, so its entries would sit in the stack and the list as dead rows forever — and,
-	// worse, hold slots in their caps. Only the navigation stores are swept, deliberately: see
-	// pendingSweeps. Deferred through the same window as a live delete, and for the same reason —
-	// which also means the sweep's vault check runs well after onload, with the index built.
+	// 对导航 store 的启动清扫：Obsidian 关闭期间被删的文件不会触发 'delete' 事件，它的条目就会
+	// 永远在栈和列表里当死行 —— 更糟的是还占着各自上限里的槽位。只清扫导航 store 是有意的：
+	// 见 pendingSweeps。与一次真删除走同一个窗口推迟，理由也一样 —— 这也意味着清扫的 vault
+	// 检查远在 onload 之后、索引已建好时才跑。
 	sweepMissingHistory() {
-		// One pass over the union of the paths the stores name, so a path both of them know is
-		// scheduled (and re-checked) once.
+		// 对几个 store 所点名的 path 取并集跑一遍，好让两个都认识的 path 只被预约（与复查）一次。
 		const paths = new Set<string>();
 		for (const nav of this.navStores)
 			for (const path of nav.knownPaths())
@@ -111,16 +99,15 @@ export class PathBookkeeper {
 				this.deferMissing(this.pendingSweeps, path, () => {
 					for (const nav of this.navStores)
 						nav.deleteFile(path);
-					// The prune is the point: don't leave it to the next flush (each store is
-					// device-local, so writing it out cannot race another device).
+					// 修剪才是重点：别留给下一次 flush（每个 store 都是本机私有的，
+					// 写出去不会与另一台设备抢）。
 					for (const nav of this.navStores)
 						nav.persist();
 				});
 	}
 
-	// (Re)start the grace window for `path`, then run `act` only if the path is still missing.
-	// The vault is the arbiter (see the class comment): the same 'delete' arrives for a sync plugin's
-	// temporary remove, and a path that is back a moment later is not deleted at all.
+	// 为 `path`（重新）启动宽限窗口，然后只在 path 仍然不在时才执行 `act`。vault 是裁决者
+	// （见类的注释）：同步插件的临时删除发来的也是同一个 'delete'，片刻后回来的 path 根本不算被删。
 	private deferMissing(map: Map<string, number>, path: string, act: () => void) {
 		const pending = map.get(path);
 		if (pending !== undefined)
@@ -131,11 +118,10 @@ export class PathBookkeeper {
 		map.set(path, id);
 	}
 
-	// The vault's index is not the last word on whether a path exists. A sync plugin writing
-	// straight through the adapter — what Nutstore Sync and Remotely Save both do on a phone —
-	// puts the file back ON THE DISK without the index hearing about it, and acting on an index
-	// that still says "gone" erases the saved position. The disk is therefore asked too, and
-	// either one having the path leaves the record alone.
+	// vault 的索引在「path 是否存在」上不是最终答案。同步插件直接穿过 adapter 写文件 ——
+	// 坚果云同步与 Remotely Save 在手机上都这么干 —— 会把文件放回**磁盘**而索引毫不知情；
+	// 照一个还说「没了」的索引动手就会抹掉保存的位置。所以磁盘也要问一次，
+	// 两者任一说有，记录就留着不动。
 	private async confirmGone(map: Map<string, number>, path: string, id: number, act: () => void) {
 		if (this.app.vault.getAbstractFileByPath(path)) {
 			map.delete(path);
@@ -145,22 +131,34 @@ export class PathBookkeeper {
 		try {
 			onDisk = await this.app.vault.adapter.exists(path);
 		} catch {
-			// An adapter that cannot answer is not a path that is gone: a record kept that the
-			// reader no longer wants costs nothing, one dropped is exactly what they notice.
+			// 答不上来的 adapter 不等于 path 没了：留一条读者其实不再想要的记录不要钱，
+			// 丢一条却正是他察觉到的。
 			onDisk = true;
 		}
-		// The await opens a second window in which the path can come back, or a newer deferral
-		// can replace this one. Only the deferral this timer belongs to may act.
+		// 这个 await 开出第二个窗口：path 可能回来，也可能有更新的延后顶掉这一条。
+		// 只有本定时器所属的那次延后才有资格动手。
 		if (onDisk || map.get(path) !== id)
 			return;
 		map.delete(path);
 		act();
 	}
 
-	// The path really is gone: drop it from every store.
+	// path 真的没了：从每个 store 里丢掉它。
 	private prune(path: string) {
 		this.store.deleteFile(path);
 		for (const nav of this.navStores)
 			nav.deleteFile(path);
+	}
+
+	// 收摊：两个窗口里的预约一起放掉。它们是裸的 `setTimeout`，不属于任何事件监听器
+	// —— 那些监听器被 `registerEvent` 收走时，这些还在跑，而它们要执行的那次 prune
+	// 会去写一个插件已经不认的 store。取消**一次**预约的正面理由是 cancelPending；
+	// 这里是把它们整个收掉，只在卸载时来一次。
+	dispose(): void {
+		for (const map of [this.pendingDeletes, this.pendingSweeps]) {
+			for (const id of map.values())
+				window.clearTimeout(id);
+			map.clear();
+		}
 	}
 }

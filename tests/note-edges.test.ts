@@ -1,21 +1,18 @@
-// A note's two ends, as commands of ours (see position/edges.ts and
-// manager.goToEdge). What is worth pinning is the part that is NOT the
-// scrolling:
-//  - which element is moved, and to which end of its range — the bottom being the end of
-//    the NOTE at the end of what the reader can SEE: not the furthest the view can
-//    scroll once the app's backlinks pane is inside the same scroller, and not the
-//    bottom of the window once the app floats one of its bars over it;
-//  - the caret an editor key leaves, in BOTH modes: a reading view shows none, but
-//    the editor behind it is real and outlives the switch to editing;
-//  - a command pressed at the end it asks for moving nothing and recording
-//    nothing — otherwise back needs as many presses to get back to where the
-//    reader was;
-//  - the arrival being told to the VIEW as well, which is what a mode switch
-//    carries across — a move made on the DOM never reaches it in reading mode;
-//  - the caret being the half that still moves when the view already stands
-//    at that end: a note can show its top with the cursor 200 lines down;
-//  - the step: where the reader stood stays on the stack, and the arrival is
-//    a step of its own rather than a rewrite of it.
+// 一篇笔记的两端，作为我们自己的命令（见 position/edges.ts 与
+// manager.goToEdge）。值得钉住的是其中**不是**滚动的部分：
+//  - 移动的是哪个元素、移到它那段范围的哪一端 —— 底部是笔记的末尾、在读者**看得
+//    见**的末尾：既不是 app 的反向链接面板进了同一个滚动容器之后视图还能滚到的最远
+//    处，也不是 app 把某条栏浮在它上面之后窗口的底部；
+//  - 编辑器按键留下的光标，**两种**模式下都算：阅读视图一个都不显示，但它背后的
+//    编辑器是真实存在的，而且比切回编辑活得更久；
+//  - 在它索要的那一端按下命令时，什么都不挪、也什么都不记 —— 否则 back 要按同样
+//    多次才能回到读者原来的位置；
+//  - 这次抵达也要告诉**视图**，切模式带过去的正是它 —— 在 DOM 上做的一次移动，在
+//    阅读模式下永远到不了视图；
+//  - 视图已经站在那一端时，光标是仍然会动的那一半：一篇笔记可以一边显示着顶部、
+//    一边把光标留在 200 行开外；
+//  - 那一步：读者原先站的位置留在栈上，而这次抵达是它自己单独的一步，不是对它的
+//    改写。
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { App, MarkdownView } from 'obsidian';
@@ -26,10 +23,9 @@ import type { NavFunnel } from '@/nav/funnel';
 import type { NavStack } from '@/nav-history/stack';
 import { DEFAULT_SETTINGS, PluginSettings } from '@/types';
 
-// A scroll container with a real range: jsdom has no layout, so scrollHeight
-// and clientHeight are stated here and scrollTop clamps the way a browser's
-// does — the clamping is what puts the last line at the END of the viewport,
-// which is the whole point of asking for the bottom.
+// 一个带真实范围的滚动容器：jsdom 没有布局，所以 scrollHeight 和 clientHeight 在这里
+// 是写死的，而 scrollTop 按浏览器的方式夹住 —— 正是这个夹取把最后一行放在视口的
+// **末端**，而这正是索要底部的全部意义。
 function makeScroller(content: number, viewport: number, top = 0): HTMLElement {
 	const el = document.createElement('div');
 	let cur = top;
@@ -45,7 +41,7 @@ function makeScroller(content: number, viewport: number, top = 0): HTMLElement {
 	return el;
 }
 
-// jsdom has no layout, so a box is stated here — a scroller's own top reads as 0.
+// jsdom 没有布局，所以盒子在这里是写死的 —— 滚动容器自己的 top 读出来是 0。
 function rectAt(top: number, height: number): DOMRect {
 	const width = height > 0 ? 150 : 0;
 	return {
@@ -61,9 +57,9 @@ function rectAt(top: number, height: number): DOMRect {
 	} as DOMRect;
 }
 
-// The app's backlinks pane, appended inside the scroller it shares with the note (reading: the
-// renderer's footer section; source: the sizer). A height of 0 stands for the pane while the
-// setting is off: created, hidden, and collapsed to no box at all.
+// app 的反向链接面板，追加在它与笔记共享的那个滚动容器里面（阅读模式：渲染器的页脚
+// 小节；源码模式：那个 sizer）。高度为 0 代表设置关着时的面板：创建了、藏起来了、并
+// 塌缩成一个没有盒子可言的东西。
 function withBacklinks(scroller: HTMLElement, topInContent: number, height = 300): HTMLElement {
 	const el = document.createElement('div');
 	el.className = 'embedded-backlinks';
@@ -75,7 +71,7 @@ function withBacklinks(scroller: HTMLElement, topInContent: number, height = 300
 	return el;
 }
 
-// Gives an element the box jsdom will not compute for it.
+// 给元素补上 jsdom 不会为它算出来的盒子。
 function stubRect(el: HTMLElement, top: number, height: number): void {
 	Object.defineProperty(el, 'getBoundingClientRect', {
 		configurable: true,
@@ -83,8 +79,8 @@ function stubRect(el: HTMLElement, top: number, height: number): void {
 	});
 }
 
-// One of the app's own bars, floating over the foot of a note instead of above or below it. Both
-// are mobile-only, so a desktop has none and measures nothing.
+// app 自己的一条栏，浮在笔记的脚部之上，而不是在它上面或下面。两者都只在移动端出现，
+// 所以桌面端一条也没有，什么都量不到。
 function withFloatingBar(top: number, height: number, className = 'mobile-navbar'): HTMLElement {
 	const el = document.createElement('div');
 	el.className = className;
@@ -103,7 +99,7 @@ function makeView(opts: {
 	scroller: HTMLElement;
 	topLine?: number;
 	cursor?: { line: number; ch: number };
-	// What the mode reports as its own position; null is a reading renderer that has not caught up.
+	// 该模式报告的自己那点位置；null 表示一个还没追上来的阅读渲染器。
 	modeScroll?: number | null;
 }) {
 	const lines = ['one', 'two', 'three'];
@@ -120,7 +116,7 @@ function makeView(opts: {
 	contentEl.appendChild(opts.scroller);
 	const containerEl = document.createElement('div');
 	containerEl.appendChild(contentEl);
-	// Attached: the hold after a move stops when the view is no longer in the document.
+	// 已挂到文档上：一次移动之后的按住，会在视图不再位于文档里时停下。
 	document.body.appendChild(containerEl);
 	const view = Object.assign(Object.create(MarkdownView.prototype), {
 		file: { path: 'a.md', stat: { mtime: 1 } },
@@ -129,8 +125,8 @@ function makeView(opts: {
 			getScroll: () => (opts.modeScroll !== undefined ? opts.modeScroll : opts.topLine ?? 300),
 		},
 		setEphemeralState: vi.fn(),
-		// Both modes: `view.editor` is the leaf's edit mode, present and live whatever is
-		// being displayed (see caretToEdge) — no caret is SHOWN in reading mode.
+		// 两种模式都算：`view.editor` 是这个 leaf 的编辑模式，无论正在显示什么它都在、都活着
+		// （见 caretToEdge）—— 阅读模式下不**显示**光标而已。
 		editor,
 		contentEl,
 		containerEl,
@@ -144,8 +140,8 @@ function makeView(opts: {
 
 function makeManager(
 	view: MarkdownView | null,
-	// The leaves walked when the active leaf is NOT the note (see markdownViewInUse):
-	// a fixture whose active view is the note never reaches them.
+	// 当活动的 leaf **不是**那篇笔记时会去走的那些 leaf（见 markdownViewInUse）：活动视图
+	// 就是那篇笔记的 fixture 永远到不了它们。
 	leaves: { id?: string; view: unknown }[] = [],
 ) {
 	const db: Record<string, { scroll: number }> = {};
@@ -161,10 +157,9 @@ function makeManager(
 			layoutReady: true,
 			rootSplit: { containerEl: { contains: () => false } },
 			getActiveViewOfType: () => view,
-			// …and the walk the plugin falls back on when the ACTIVE leaf is a panel
-			// rather than the note: a control standing in a panel is that leaf the moment
-			// it is tapped (see markdownViewInUse). A fixture with no note anywhere has to
-			// be able to answer "there is nothing to go to" without throwing.
+			// ……以及**活动** leaf 是面板而不是那篇笔记时插件退而求其次的那趟遍历：立在面板里的
+			// 一个控件，在被点的那一刻就是那个 leaf（见 markdownViewInUse）。一个哪儿都没有笔记的
+			// fixture，必须能在不抛异常的前提下答出「没有可去之处」。
 			getLeavesOfType: () => leaves,
 			iterateAllLeaves: () => undefined,
 			setActiveLeaf: vi.fn(),
@@ -186,8 +181,8 @@ function makeManager(
 	};
 }
 
-describe('moving to an end of a note', () => {
-	it('scrolls the view to the top of its own range', () => {
+describe('移到笔记的一端', () => {
+	it('把视图滚到它自己那段范围的顶端', () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 
@@ -196,18 +191,18 @@ describe('moving to an end of a note', () => {
 		expect(scroller.scrollTop).toBe(0);
 	});
 
-	it('scrolls to the far end, where the last line sits at the bottom', () => {
+	it('滚到最远端，让最后一行落在底部', () => {
 		const scroller = makeScroller(1000, 200, 0);
 		const { view } = makeView({ mode: 'preview', scroller });
 
 		moveToEdge(view, 'bottom');
 
-		// 1000 - 200: asking for more than the range has is clamped, and the
-		// clamped value is the one that shows the last screenful.
+		// 1000 - 200：索要超出范围的东西会被夹住，而夹住之后的那个值正是能显示出最后一屏的
+		// 那一个。
 		expect(scroller.scrollTop).toBe(800);
 	});
 
-	it('leaves the caret at the head of the first line, being an editor key', () => {
+	it('把光标留在第一行的行首（它是编辑器的按键行为）', () => {
 		const { view, editor } = makeView({ mode: 'source', scroller: makeScroller(1000, 200, 400) });
 
 		moveToEdge(view, 'top');
@@ -215,43 +210,42 @@ describe('moving to an end of a note', () => {
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
 	});
 
-	it('leaves the caret at the end of the last line', () => {
+	it('把光标留在最后一行的行尾', () => {
 		const { view, editor } = makeView({ mode: 'source', scroller: makeScroller(1000, 200, 0) });
 
 		moveToEdge(view, 'bottom');
 
-		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three"
+		expect(editor.setCursor).toHaveBeenCalledWith({ line: 2, ch: 5 }); // "three" 的末尾
 	});
 
-	it('moves a reading view too, whose caret is not for showing', () => {
+	it('阅读视图也一样移动，它的光标不是用来显示的', () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view, editor } = makeView({ mode: 'preview', scroller, cursor: { line: 2, ch: 3 } });
 
 		moveToEdge(view, 'top');
 
 		expect(scroller.scrollTop).toBe(0);
-		// Placed, not shown: switching to editing afterwards is when it becomes visible, and
-		// the mode switch carries the scroll and the folds, never the selection.
+		// 是把它放好，不是把它显示出来：切到编辑之后它才变得可见，而切模式带过去的是滚动和
+		// 折叠，从来不是选区。
 		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
 	});
 });
 
-// The bottom of a note is the end of what the reader wrote. The backlinks pane is a pane of the
-// TAB, appended inside the same scroller, and one taller than a window puts the furthest
-// scrollable point past the note's last line altogether.
-describe('the end of the note, not the end of the tab', () => {
-	it('stops where the pane starts, keeping the last line in view', () => {
+// 一篇笔记的底部是读者写下的东西的末尾。反向链接面板是**标签页**的一块面板，追加在同一个
+// 滚动容器里面，而一个比窗口还高的面板会把最远可滚点整个推到笔记最后一行之外。
+describe('是笔记的末尾，不是标签页的末尾', () => {
+	it('停在面板开始的地方，让最后一行还看得见', () => {
 		const scroller = makeScroller(1000, 200, 0);
-		withBacklinks(scroller, 700); // the pane fills 700..1000 of a 200-tall window
+		withBacklinks(scroller, 700); // 面板填满 200 高窗口的 700..1000 这一段
 		const { view } = makeView({ mode: 'preview', scroller });
 
 		moveToEdge(view, 'bottom');
 
-		// 700 - 200, not 800: 800 is the end of the pane, not of the note.
+		// 700 - 200，不是 800：800 是面板的末尾，不是笔记的。
 		expect(scroller.scrollTop).toBe(500);
 	});
 
-	it('goes to the furthest when the pane is switched off', () => {
+	it('面板被关掉时就走到最远处', () => {
 		const scroller = makeScroller(1000, 200, 0);
 		withBacklinks(scroller, 700, 0);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -261,19 +255,18 @@ describe('the end of the note, not the end of the tab', () => {
 		expect(scroller.scrollTop).toBe(800);
 	});
 
-	it('reads the pane\'s edge as the end, so the far end is no longer "already there"', () => {
+	it('把面板的那条边当作末端，于是远端不再算「已经在那里」', () => {
 		const scroller = makeScroller(1000, 200, 800);
 		withBacklinks(scroller, 700);
 		const { view } = makeView({ mode: 'preview', scroller });
 
-		expect(atEdge(view, 'bottom')).toBe(false); // the far end is past the note
+		expect(atEdge(view, 'bottom')).toBe(false); // 最远处在笔记之外
 		scroller.scrollTop = 500;
 		expect(atEdge(view, 'bottom')).toBe(true);
 	});
 
-	// Too short to scroll: the pane's edge is above the window, so there is nowhere to stop
-	// short of — and nowhere to go.
-	it('asks for nothing of a note that cannot be scrolled', () => {
+	// 短到滚不动：面板的那条边在窗口上方，所以没有地方可以提前停 —— 也没有地方可去。
+	it('对滚不动的笔记什么都不要求', () => {
 		const scroller = makeScroller(200, 200);
 		withBacklinks(scroller, 150);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -284,11 +277,11 @@ describe('the end of the note, not the end of the tab', () => {
 	});
 });
 
-// The bottom of the window is not the bottom of what the reader can SEE: on a phone the app floats
-// one of its own bars over the foot of a note. Which bar is there depends on the mode, and a soft
-// keyboard moves it, so the strip is measured rather than read off a variable.
-describe('the part of the window a reader cannot see', () => {
-	// A 200-tall window, the note ending at 700, and a bar over its foot.
+// 窗口的底部不是读者**看得见**的东西的底部：在手机上，app 会把自己的一条栏浮在笔记的脚部
+// 之上。那条栏是哪一个取决于模式，而软键盘会把它挪走，所以那条带子是量出来的，不是从一个
+// 变量上读出来的。
+describe('窗口里读者看不见的那一部分', () => {
+	// 一个 200 高的窗口、在 700 处结束的笔记，以及压在它脚部上的一条栏。
 	function underBar(barTop: number, barHeight = 40, withPane = true) {
 		const scroller = makeScroller(1000, 200, 0);
 		stubRect(scroller, 0, 200);
@@ -298,17 +291,17 @@ describe('the part of the window a reader cannot see', () => {
 		return { scroller, view: makeView({ mode: 'preview', scroller }).view };
 	}
 
-	it('ends the note above the bar rather than behind it', () => {
+	it('让笔记结束在那条栏之上，而不是藏在它后面', () => {
 		const { scroller, view } = underBar(160);
 
 		moveToEdge(view, 'bottom');
 
-		// 700 - (200 - 40): the last line clears the bar, which the pane below it does not.
+		// 700 - (200 - 40)：最后一行越过了那条栏，而它下面的面板没有。
 		expect(scroller.scrollTop).toBe(540);
 	});
 
-	// A soft keyboard pushes the bar off the window instead of over it.
-	it('takes nothing off for a bar that is no longer in the way', () => {
+	// 软键盘把那条栏推离窗口，而不是让它压在上面。
+	it('栏已经不挡道了就一点都不扣', () => {
 		const { scroller, view } = underBar(210);
 
 		moveToEdge(view, 'bottom');
@@ -316,9 +309,9 @@ describe('the part of the window a reader cannot see', () => {
 		expect(scroller.scrollTop).toBe(500);
 	});
 
-	// No pane means the app has already padded the foot of the note by half a window, so the last
-	// line clears the bar on its own — and there is nowhere further to go anyway.
-	it('asks for the furthest when there is no pane to stop short of', () => {
+	// 没有面板意味着 app 已经给笔记的脚部垫了半个窗口，所以最后一行自己就越过了那条栏 ——
+	// 而且本来也没有再远的地方可去。
+	it('没有面板可以提前停时就要求最远处', () => {
 		const { scroller, view } = underBar(160, 40, false);
 
 		moveToEdge(view, 'bottom');
@@ -327,11 +320,11 @@ describe('the part of the window a reader cannot see', () => {
 	});
 });
 
-// The end is not always kept: the reading renderer re-applies a scroll it captured BEFORE the
-// move, one render pass later — a pass the reader's own scrolling queued, which finishes after
-// the command has run. That is the flash at the top followed by the slide back.
-describe('holding the end', () => {
-	// Every write to the scroller is followed, a tick later, by the old position coming back.
+// 端点不总是守得住：阅读渲染器会在晚一轮的渲染里，重新应用它在这次移动**之前**采集到的
+// 滚动 —— 那一轮是读者自己的滚动排进队列的，在命令跑完之后才结束。这就是先闪到顶部、
+// 再滑回去的那一幕。
+describe('把端点按住', () => {
+	// 每一次写进滚动容器之后，隔一拍都会跟着旧位置回来。
 	function clobber(scroller: HTMLElement, backTo: number, times = 1) {
 		const inner = Object.getOwnPropertyDescriptor(scroller, 'scrollTop')!;
 		const counter = { writes: 0 };
@@ -349,7 +342,7 @@ describe('holding the end', () => {
 		return counter;
 	}
 
-	it('puts the end back when a late render pass restores the old position', async () => {
+	it('晚到的那一轮渲染把旧位置贴回来时，把端点放回去', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		clobber(scroller, 400);
@@ -360,9 +353,9 @@ describe('holding the end', () => {
 		expect(scroller.scrollTop).toBe(0);
 	});
 
-	// Two corrections and out: a view that keeps being clobbered is one the plugin cannot win,
-	// and a command must not spend the rest of the session fighting it.
-	it('stops correcting rather than fighting something that keeps winning', async () => {
+	// 校正两次就收手：一个一直被覆盖的视图是插件赢不了的那种，而一条命令不该把这一整节都拿去
+	// 跟它对着打。
+	it('停止校正，而不是跟一个一直赢的东西对打', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		const writes = clobber(scroller, 400, 99);
@@ -370,12 +363,12 @@ describe('holding the end', () => {
 		moveToEdge(view, 'top');
 		await holdEdge(view, 'top');
 
-		// The move and two corrections: a view that keeps being clobbered is one the plugin
-		// cannot win, and a command must not spend the rest of the session fighting it.
+		// 一次移动加两次校正：一个一直被覆盖的视图是插件赢不了的那种，而一条命令不该把这一整节
+		// 都拿去跟它对着打。
 		expect(writes.writes).toBeLessThanOrEqual(3);
 	});
 
-	it('yields the moment the reader moves on their own', async () => {
+	it('读者自己一动就立刻让位', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		const writes = clobber(scroller, 400, 99);
@@ -385,13 +378,13 @@ describe('holding the end', () => {
 		scroller.dispatchEvent(new Event('pointerdown'));
 		await holding;
 
-		// The move alone: the moment the reader takes over, the hold is fighting THEM.
+		// 只有这一次移动：读者一接手，按住就是在跟他们对着打。
 		expect(writes.writes).toBe(1);
 	});
 
-	// The hold re-applies the end it moved to, which with a pane in the way is NOT the furthest:
-	// every correction would otherwise land at the end of the pane instead of the note.
-	it('holds the note\'s end rather than being pushed on to the far end', async () => {
+	// 按住会重新应用它移到的那个端点，而这个端点在中间隔着面板时**不是**最远处：否则每一次
+	// 校正都会落在面板的末尾，而不是笔记的末尾。
+	it('停在笔记的末尾，而不是被推到远端', async () => {
 		const scroller = makeScroller(1000, 200, 0);
 		withBacklinks(scroller, 700);
 		const { view } = makeView({ mode: 'preview', scroller });
@@ -403,7 +396,7 @@ describe('holding the end', () => {
 		expect(scroller.scrollTop).toBe(500);
 	});
 
-	it('leaves a scroller no longer in the document alone', async () => {
+	it('已经不在文档里的滚动容器随它去', async () => {
 		const scroller = makeScroller(1000, 200, 400);
 		const { view } = makeView({ mode: 'preview', scroller });
 		scroller.remove();
@@ -412,8 +405,8 @@ describe('holding the end', () => {
 	});
 });
 
-describe('already standing at that end', () => {
-	it('is true at the top for the top, and at the bottom for the bottom', () => {
+describe('本来就已经站在那一端', () => {
+	it('顶部那端算在顶部，底部那端算在底部', () => {
 		const atTop = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 0) }).view;
 		const atBottom = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 800) }).view;
 		const between = makeView({ mode: 'preview', scroller: makeScroller(1000, 200, 400) }).view;
@@ -425,17 +418,17 @@ describe('already standing at that end', () => {
 		expect(atEdge(between, 'bottom')).toBe(false);
 	});
 
-	// A note shorter than its window cannot be scrolled to either end, so both
-	// commands are already satisfied — and neither should record an arrival.
-	it('is true of both ends in a note too short to scroll', () => {
+	// 比窗口还短的笔记，两端都滚不到，所以两条命令本来就都已满足 —— 而两者都不该记下一次
+	// 抵达。
+	it('短到根本滚不动的笔记，两端都算', () => {
 		const { view } = makeView({ mode: 'preview', scroller: makeScroller(200, 200) });
 
 		expect(atEdge(view, 'top')).toBe(true);
 		expect(atEdge(view, 'bottom')).toBe(true);
 	});
 
-	// The scroll is only half of "already there" — see the caret below.
-	it('is still true of the scroll when the caret is somewhere else', () => {
+	// 滚动只是「已经在那里」的一半 —— 见下面的光标。
+	it('光标在别处时，scroll 那一端仍然算', () => {
 		const { view } = makeView({
 			mode: 'source',
 			scroller: makeScroller(1000, 200, 0),
@@ -447,24 +440,24 @@ describe('already standing at that end', () => {
 	});
 });
 
-// The caret is what a reader still wants moved when the view already shows the end they asked
-// for: a note can be sitting at its top with the cursor 200 lines down, and "go to the top" that
-// answers "you are already there" leaves the reader to find it by hand.
-describe('the caret standing at that end', () => {
+// 视图已经显示出读者要的那一端时，光标才是他们仍然想挪的东西：一篇笔记可以一边待在顶部、
+// 一边把光标留在 200 行开外，而一条答「你已经在那儿了」的「到页顶」，会让读者自己去用手
+// 找。
+describe('光标站在那一端', () => {
 	const atTop = (cursor: { line: number; ch: number }) =>
 		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 0), cursor }).view;
 	const atBottom = (cursor: { line: number; ch: number }) =>
 		makeView({ mode: 'source', scroller: makeScroller(1000, 200, 800), cursor }).view;
 
-	it('is true only where the move would leave it', () => {
+	it('只有在移动会把它留在那儿时才算', () => {
 		expect(caretAtEdge(atTop({ line: 0, ch: 0 }), 'top')).toBe(true);
 		expect(caretAtEdge(atTop({ line: 0, ch: 2 }), 'top')).toBe(false);
-		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // end of "three"
+		expect(caretAtEdge(atBottom({ line: 2, ch: 5 }), 'bottom')).toBe(true); // "three" 的末尾
 		expect(caretAtEdge(atBottom({ line: 2, ch: 3 }), 'bottom')).toBe(false);
 	});
 
-	// Reading mode is no exception: its caret is invisible, not absent.
-	it('is read off a reading view the same way', () => {
+	// 阅读模式不是例外：它的光标是看不见，不是不存在。
+	it('在阅读视图上用同样的方式读', () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 0),
@@ -476,13 +469,12 @@ describe('the caret standing at that end', () => {
 	});
 });
 
-// A mode switch does not resume from the DOM: setMode() carries `view.scroll`, and only
-// view.syncScroll() fills that in — which a reading view calls from its own scroll handler only
-// when the last render is at least 100ms old, something scrolling a virtualized preview never is.
-// Asking for an end in reading mode and switching to editing therefore resumed where the reader
-// stood BEFORE the command.
-describe('the arrival reaching the view, not just the scroller', () => {
-	it('is told to the view, which is what setMode() carries across', async () => {
+// 切模式不从 DOM 续上：setMode() 带的是 `view.scroll`，而只有 view.syncScroll() 会把它填
+// 上 —— 阅读视图只在上一轮渲染至少有 100ms 旧时，才会从它自己的滚动处理程序里调用它，
+// 而滚一个虚拟化的预览永远达不到这个年纪。所以在阅读模式下要到某一端、再切到编辑，就会
+// 续到读者**按下命令之前**站的位置。
+describe('抵达要送到视图，而不只是送到滚动容器', () => {
+	it('要告诉视图本身 —— setMode() 带过去的就是它', async () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 400),
@@ -494,7 +486,7 @@ describe('the arrival reaching the view, not just the scroller', () => {
 		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 142 });
 	});
 
-	it('waits for a renderer that has not caught up, rather than carrying a stale number', async () => {
+	it('等一个还没追上的渲染器，而不是捧着一个陈旧的数字往前走', async () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 400),
@@ -511,7 +503,7 @@ describe('the arrival reaching the view, not just the scroller', () => {
 		expect(view.setEphemeralState).toHaveBeenCalledWith({ scroll: 42 });
 	});
 
-	it('says nothing when the renderer never answers', async () => {
+	it('渲染器始终不回答时就什么也不说', async () => {
 		const { view } = makeView({
 			mode: 'preview',
 			scroller: makeScroller(1000, 200, 400),
@@ -524,8 +516,8 @@ describe('the arrival reaching the view, not just the scroller', () => {
 	});
 });
 
-describe('the step an end takes', () => {
-	// Stand in a.md at line 300, then ask for the bottom.
+describe('到端点这一下算不算一步', () => {
+	// 站在 a.md 的第 300 行，然后索要底部。
 	function standingAt(
 		topLine: number,
 		mode: 'source' | 'preview' = 'preview',
@@ -539,22 +531,21 @@ describe('the step an end takes', () => {
 		return { ...rig, scroller, view, editor };
 	}
 
-	it('keeps where the reader stood and gives the arrival a step of its own', async () => {
+	it('保留读者原来站的位置，并给这次抵达单独一步', async () => {
 		const { manager, stack, funnel } = standingAt(300);
 
 		manager.goToEdge('bottom');
 		await Promise.resolve();
 
-		// Two steps: the one holding line 300, and the arrival — which is a
-		// step and not a rewrite of the first, so the first is still returnable.
+		// 两步：持有第 300 行的那一步，以及这次抵达 —— 它是一步，不是对第一步的改写，所以第一步
+		// 仍然回得去。
 		expect(stack.entries).toHaveLength(2);
 		expect(stack.entries[0].kind).toBe('visit');
 		expect(stack.entries[0].kind !== 'view' && stack.entries[0].st?.scroll).toBe(300);
 		expect(stack.entries[1].kind !== 'view' && stack.entries[1].st).toBeUndefined();
 
-		// Where they ended up lands on the arrival, leaving the standing place intact for
-		// back. The hold is still open — the plugin is still moving the view — so wait it
-		// out before asking whether back is available.
+		// 他们最终落到的位置落在这次抵达上，把原先站的那个地点完好地留给 back。按住还开着 ——
+		// 插件还在挪视图 —— 所以先等它结束，再问 back 可不可用。
 		funnel.leave('a.md', 'leaf-1', { scroll: 900 });
 		expect(stack.entries[1].kind !== 'view' && stack.entries[1].st?.scroll).toBe(900);
 		expect(stack.entries[0].kind !== 'view' && stack.entries[0].st?.scroll).toBe(300);
@@ -562,8 +553,8 @@ describe('the step an end takes', () => {
 		expect(stack.canNavigate(-1)).toBe(true);
 	});
 
-	it('records nothing when the view already stands at that end', async () => {
-		const { manager, stack } = standingAt(800); // the furthest this view goes
+	it('视图本来就在那一端时不记任何东西', async () => {
+		const { manager, stack } = standingAt(800); // 这个视图能走到的最远处
 
 		manager.goToEdge('bottom');
 		await Promise.resolve();
@@ -571,10 +562,9 @@ describe('the step an end takes', () => {
 		expect(stack.entries).toHaveLength(1);
 	});
 
-	// The view showing the top is not the same as the reader being there: the caret is half of
-	// what the command moves. No step for it — back from a press that stirred nothing the eye
-	// could see would answer with another such press.
-	it('still moves a caret the view had left behind, taking no step', async () => {
+	// 视图显示着顶部，不等于读者就在那儿：光标是这条命令挪动的一半。不为它记步 —— 从一次眼睛
+	// 看不出任何动静的按压退回来，只会再用另一次这样的按压作答。
+	it('仍然挪动视图落在后面的光标，但不记步', async () => {
 		const { manager, stack, editor } = standingAt(0, 'source', { line: 2, ch: 3 });
 
 		manager.goToEdge('top');
@@ -584,8 +574,8 @@ describe('the step an end takes', () => {
 		expect(stack.entries).toHaveLength(1);
 	});
 
-	// …in reading mode too, where what gets placed is the caret the mode switch will uncover.
-	it('moves the same hidden caret in a reading view, taking no step', async () => {
+	// ……阅读模式下也一样，那里被放好的是切模式将会露出来的那个光标。
+	it('阅读视图里那个看不见的光标同样挪动，也不记步', async () => {
 		const { manager, stack, editor } = standingAt(0, 'preview', { line: 2, ch: 3 });
 
 		manager.goToEdge('top');
@@ -595,7 +585,7 @@ describe('the step an end takes', () => {
 		expect(stack.entries).toHaveLength(1);
 	});
 
-	it('does nothing when the caret already stands at that end too', async () => {
+	it('光标本来也在那一端时就什么都不做', async () => {
 		const { manager, stack, editor } = standingAt(0, 'source', { line: 0, ch: 0 });
 
 		manager.goToEdge('top');
@@ -605,9 +595,9 @@ describe('the step an end takes', () => {
 		expect(stack.entries).toHaveLength(1);
 	});
 
-	// …and the arrival has to reach the view too, or switching modes resumes the place the reader
-	// stood before the command (see the sync above).
-	it('tells the view where the arrival is, so a later mode switch resumes there', async () => {
+	// ……而这次抵达也必须到达视图，否则切模式会续到读者按下命令之前站的那个位置（见上面的
+	// sync）。
+	it('把抵达的位置告诉视图，好让之后切模式还在那儿', async () => {
 		const { manager, view } = standingAt(300, 'preview');
 
 		manager.goToEdge('top');
@@ -616,16 +606,16 @@ describe('the step an end takes', () => {
 		expect(view.setEphemeralState).toHaveBeenCalled();
 	});
 
-	it('is available only while a note is the active view', () => {
+	it('只有在笔记是当前视图时才可用', () => {
 		expect(makeManager(null).manager.canGoToEdge()).toBe(false);
 		expect(standingAt(300).manager.canGoToEdge()).toBe(true);
 	});
 
-	// …and a note the reader was in when the active leaf is NOT it: a control standing in
-	// a panel — the arrows — IS the active leaf the moment it is tapped, and the app's own
-	// `getActiveViewOfType` answers off that leaf alone, so a panel asking for an end would
-	// be given nothing. This is the whole of what makes a button in a panel pressable.
-	it('acts on the tab the reader was in, not on the leaf holding the focus', () => {
+	// ……以及活动 leaf **不是**那篇笔记、而读者就在其中的情形：立在面板里的一个控件 —— 那些
+	// 箭头 —— 在被点的那一刻**就是**活动的 leaf，而 app 自己的 `getActiveViewOfType` 只根据
+	// 那个 leaf 作答，所以一个索要端点的面板会被给到空。这正是让面板里的一个按钮按得下去的
+	// 全部。
+	it('作用在读者所在的那个标签页上，而不是握着焦点的那个 leaf', () => {
 		const scroller = makeScroller(1000, 200, 300);
 		const { view } = makeView({ mode: 'preview', scroller, topLine: 300 });
 		const { manager } = makeManager(null, [{ id: 'leaf-1', view }]);

@@ -1,25 +1,23 @@
 import { App, FuzzySuggestModal, Modal, Setting, TFolder, TFile, TextComponent, Notice } from 'obsidian';
 import { t } from '@/i18n';
 
-// obsidian@1.13.2 types omit getAllPropertyInfos (added in Obsidian 1.4).
-// The augmentation stands next to its only consumer (PropertySuggestModal
-// below) rather than with the tab: it is a fact about what a property picker
-// may ask the app, not about the settings surface.
+// obsidian@1.13.2 的类型定义漏了 getAllPropertyInfos（1.4 才加的）。这段类型扩展
+// 放在它唯一的用处旁边（下面的 PropertySuggestModal），而不是跟 tab 放一起：它是
+// 「属性选择器可以问 app 什么」这件事，与设置界面无关。
 declare module 'obsidian' {
 	interface MetadataCache {
-		getAllPropertyInfos(): Record<string, unknown>;
+		// 键是「小写折叠后」的名字——app 靠它把 `MyProp` 和 `myprop` 合成同一个属性
+		// ——而笔记里真正写的那个拼法在 `name` 里。
+		getAllPropertyInfos(): Record<string, { name: string }>;
 	}
 }
 
-// THE SMALL MODALS THAT ASK FOR ONE THING — a folder, a JSON file, a property
-// name, then that property's value. They are kept in one file because they are
-// one family with one shape (fuzzy list over something the vault already has,
-// or a two-step name-then-value input), and because two of them are shared:
-// FolderSuggestModal answers for the excluded-folder lists on the last-position
-// page AND on the recent-files page, and the property pair is one flow split in
-// two. Which PAGE a picker is opened from is not visible here — a picker is
-// handed a list to avoid and a callback to answer through, so the same modal
-// serves both.
+// 只问一件事的小模态框——一个文件夹、一个 JSON 文件、一个属性名，然后是那个属性的值。
+// 它们放一个文件里，是因为属于同一族、形状也一样（在仓库已有的东西上做模糊列表，或者
+// 「先名字后值」两步输入），也因为其中两个是共用的：FolderSuggestModal 同时服务「最后
+// 位置」页和「最近文件」页的排除文件夹列表，属性那两个是一段流程拆成的两步。选择器是从
+// 哪一页打开的，在这里看不出来——它拿到的是「要避开哪些」和「选完回哪个回调」，所以
+// 同一个模态框两边都能用。
 export class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	constructor(
 		app: App,
@@ -51,11 +49,9 @@ export class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
 	}
 }
 
-// Fuzzy picker over every JSON file already in the vault. Lets a device that
-// joins an existing sync setup point straight at the database another device
-// created, instead of typing its path by hand. The only caller is the database
-// path modal — it lives here rather than with that modal because it is the same
-// picker shape as its neighbours, not because anything else shares it.
+// 在仓库已有的 JSON 文件里做模糊选择。让一台后来加入既有同步方案的设备，直接指到另一
+// 台设备建的数据文件上，不用手打路径。唯一的调用方是数据库路径模态框——它住在这里而不是
+// 跟那个模态框走，是因为形状与近邻一致，不是因为还有别人用它。
 export class DbFileSuggestModal extends FuzzySuggestModal<TFile> {
 	constructor(
 		app: App,
@@ -82,10 +78,8 @@ export class DbFileSuggestModal extends FuzzySuggestModal<TFile> {
 	}
 }
 
-// Fuzzy suggest modal for picking one frontmatter property name, matching the
-// folder suggest flow. Lists every property already present in the vault
-// (metadataCache). Excluded properties are still shown: the same name can be
-// excluded for several different values.
+// 挑一个 frontmatter 属性名的模糊选择框，与选文件夹那套流程一致。罗列仓库里已有的全部
+// 属性（metadataCache）。已被排除的属性照样显示：同一个名字可以因为好几个不同的值被排除。
 export class PropertySuggestModal extends FuzzySuggestModal<string> {
 	constructor(
 		app: App,
@@ -98,7 +92,10 @@ export class PropertySuggestModal extends FuzzySuggestModal<string> {
 	}
 
 	getItems(): string[] {
-		return Object.keys(this.app.metadataCache.getAllPropertyInfos())
+		// 取存下来的 `name`，绝不取 key：app 的索引以小写名字为键，写成 `myprop`
+		// 的规则会静默地永远匹配不上写着 `MyProp` 的笔记——属性名保留大小写。
+		return Object.values(this.app.metadataCache.getAllPropertyInfos())
+			.map((info) => info.name)
 			.sort((a, b) => a.localeCompare(b));
 	}
 
@@ -111,9 +108,8 @@ export class PropertySuggestModal extends FuzzySuggestModal<string> {
 	}
 }
 
-// Second step of the property flow: ask for the value to match. Leave the
-// input empty to exclude by property presence alone (`name`); otherwise the
-// entry becomes `name: value`.
+// 属性流程的第二步：问要匹配的值。输入留空表示只按「有没有这个属性」来排除（记作
+// `name`）；否则条目就是 `name: value`。
 export class PropertyValueModal extends Modal {
 	constructor(
 		app: App,

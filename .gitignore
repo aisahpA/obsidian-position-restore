@@ -6,6 +6,9 @@
 # npm
 node_modules
 
+# python（scripts/check-comment-only.py 被 import 做回归时会产生）
+__pycache__/
+
 # build
 main.js
 dist/

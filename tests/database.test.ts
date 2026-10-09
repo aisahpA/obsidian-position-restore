@@ -1,17 +1,15 @@
-// Unit tests for CursorPositionDatabase (src/database.ts): the compact
-// on-disk codec (write → read round trip), unreadable-data hardening (an
-// unparseable file is copied aside and reported, never silently cleared),
-// empty record / tombstone dropping, setState recency bookkeeping, capacity
-// trimming with hysteresis, folder exclusions, rename/delete bookkeeping,
-// the external-sync merge rule (disk wins unless the key was touched after
-// our last flush), and switchDbFile move/adopt semantics.
+// CursorPositionDatabase（src/database.ts）的单元测试：紧凑的落盘编解码（写入 →
+// 读回一轮）、坏数据加固（解析不了的文件被复制到旁边并上报，绝不悄悄清掉）、空记录 /
+// 墓碑的淘汰、setState 的新旧记账、带滞回的容量裁剪、文件夹排除、改名/删除记账、
+// 外部同步的合并规则（盘上那份赢，除非该键在我们上次落盘之后被动过），以及
+// switchDbFile 的移动/采纳语义。
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 import { Notice, TFile } from 'obsidian';
 
-// i18n resolves the locale from window.moment at module load; provide a
-// stand-in before src/database (and its i18n import) is evaluated.
+// i18n 在模块加载时从 window.moment 解析出 locale；所以要在 src/database（以及它的
+// i18n import）被求值之前先放一个替身。
 vi.hoisted(() => {
 	(window as unknown as { moment: unknown }).moment = { locale: () => 'en' };
 });
@@ -23,12 +21,12 @@ import { DEFAULT_SETTINGS, type PluginSettings } from '@/types';
 const DB_PATH = '.obsidian/plugins/position-restore/positions.json';
 const PLUGIN_DIR = '.obsidian/plugins/position-restore';
 
-// Side copies of unreadable db content (the timestamp in the name varies).
+// 读不出来的库内容旁边的那些副本（名字里的时间戳是变的）。
 const copies = (files: Record<string, string>): string[] =>
 	Object.keys(files).filter((p) => p.startsWith(`${PLUGIN_DIR}/positions.corrupt-`)).sort();
 
-// The test stub's Notice records what the user was told and for how long; the
-// obsidian typings only declare the real constructor.
+// 测试桩的 Notice 记下用户被告知了什么、以及展示了多久；obsidian 的类型声明里只有
+// 真实的构造函数。
 type StubNotice = { message: string; duration: number | undefined };
 const notices = (): StubNotice[] =>
 	(Notice as unknown as { instances: StubNotice[] }).instances;
@@ -39,7 +37,7 @@ const POINT = (line: number, ch: number) => ({ from: { line, ch }, to: { line, c
 
 function makeHarness(files: Record<string, string> = {}, settings: Partial<PluginSettings> = {}) {
 	let mtime = 1000;
-	// Simulates another device replacing a file behind our back.
+	// 模拟另一台设备在我们背后换掉一个文件。
 	const externalWrite = (p: string, data: string) => {
 		files[p] = data;
 		mtime += 1;
@@ -67,14 +65,13 @@ function makeHarness(files: Record<string, string> = {}, settings: Partial<Plugi
 		mkdir: vi.fn(async () => undefined),
 		stat: vi.fn(async (p: string) => (p in files ? { mtime } : null)),
 	};
-	// frontmatters maps vault file paths to the frontmatter the metadata
-	// cache reports for them; a path missing from the map means "file does not
-	// exist / not parsed yet". Tests mutate the map to simulate frontmatter
-	// edits and lazy parsing.
+	// frontmatters 把 vault 里的文件路径映射到元数据缓存为它们报告的 frontmatter；映射里
+	// 缺席的路径意味着「文件不存在 / 还没解析」。测试改动这张映射，来模拟 frontmatter
+	// 被编辑和惰性解析。
 	const frontmatters: Record<string, unknown> = {};
-	// The frontmatter block's span per path, as metadataCache reports it in
-	// frontmatterPosition — set without a `frontmatter` entry, so the cursor's
-	// open-default line can be tested on its own.
+	// 每个路径的 frontmatter 块的跨度，就是 metadataCache 在 frontmatterPosition 里报告的
+	// 那个 —— 设置时**不带** `frontmatter` 条目，好让光标那个「打开时的默认行」能单独被
+	// 测到。
 	const fmPositions: Record<string, unknown> = {};
 	const known = (p: string) => p in frontmatters || p in fmPositions;
 	const app = {
@@ -107,8 +104,8 @@ afterEach(() => {
 	resetNotices();
 });
 
-describe('record codec (write → read round trip)', () => {
-	it('persists a scroll-only record as {"s":n}', async () => {
+describe('记录编解码（写入 → 读回）', () => {
+	it('只有顶行的记录写成 {"s":n}', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { scroll: 120 });
 		await db.writeDb();
@@ -119,11 +116,11 @@ describe('record codec (write → read round trip)', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 120, time: expect.any(Number) });
 	});
 
-	it('persists a point cursor as {"c":[l,ch,l,ch]} and restores from === to', async () => {
+	it('点光标写成 {"c":[l,ch,l,ch]}，读回后仍是 from === to', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { cursor: POINT(3, 7) });
 		await db.writeDb();
-		// no scroll saved → scroll slot is 0; decode treats 0 as "no scroll"
+		// 没存 scroll → scroll 槽是 0；解码把 0 当成「没有 scroll」
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[3,7,3,7],"t":' + db.db['a.md'].time + '}}}');
 
 		db.db = {};
@@ -131,31 +128,31 @@ describe('record codec (write → read round trip)', () => {
 		expect(db.db['a.md']).toEqual({ cursor: POINT(3, 7), time: expect.any(Number) });
 	});
 
-	it('a collapsed cursor at (0,0) is the editor default, so it is written as a tombstone', async () => {
+	it('(0,0) 的塌陷光标是编辑器的默认值，所以按墓碑写', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { cursor: POINT(0, 0) });
 		await db.writeDb();
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 
-		// One already on disk (written before the rule, or by another device)
-		// reads back as the tombstone it really is, not as a position.
+		// 盘上已经有的那一个（在这条规则之前写的、或另一台设备写的），读回来时是它真正的样子
+		// —— 一条墓碑，而不是一个位置。
 		files[DB_PATH] = '{"schema":2,"positions":{"b.md":{"c":[0,0,0,0]}}}';
 		db.db = {};
 		await db.readDb();
 		expect(db.db['b.md']).toEqual({});
 	});
 
-	it('writes an untouched-open record as {} — its cursor is the frontmatter default', async () => {
+	it('打开后没动过的记录写成 {} —— 它的光标停在 frontmatter 的默认位置上', async () => {
 		const { db, files, fmPositions } = makeHarness();
-		// frontmatter occupies lines 0..4, so Obsidian opens with the cursor on
-		// line 5 — what "nothing happened" looks like in a vault with YAML.
+		// frontmatter 占着第 0..4 行，所以 Obsidian 打开时光标在第 5 行 —— 这就是一个带 YAML
+		// 的 vault 里「什么都没发生」的样子。
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(5, 0) });
 		await db.writeDb();
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"t":' + db.db['a.md'].time + '}}}');
 	});
 
-	it('keeps a cursor the reader actually placed below the frontmatter', async () => {
+	it('读者真的把光标放到 frontmatter 之下的，要留住', async () => {
 		const { db, files, fmPositions } = makeHarness();
 		fmPositions['a.md'] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
 		db.setState('a.md', { cursor: POINT(13, 0) });
@@ -163,7 +160,7 @@ describe('record codec (write → read round trip)', () => {
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"c":[13,0,13,0],"t":' + db.db['a.md'].time + '}}}');
 	});
 
-	it('persists a selection as {"s":n,"c":[fl,fc,tl,tc]}', async () => {
+	it('有选区的写成 {"s":n,"c":[fl,fc,tl,tc]}', async () => {
 		const { db, files } = makeHarness();
 		db.setState('a.md', { scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } } });
 		await db.writeDb();
@@ -174,7 +171,7 @@ describe('record codec (write → read round trip)', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 42, cursor: { from: { line: 1, ch: 2 }, to: { line: 3, ch: 4 } }, time: expect.any(Number) });
 	});
 
-	it('writes empty records as tombstones and stops rewriting when clean', async () => {
+	it('空记录写成墓碑，干净之后就不再重写', async () => {
 		const { db, adapter, files } = makeHarness();
 		db.setState('empty.md', {});
 		db.setState('zero.md', { scroll: 0 });
@@ -186,33 +183,40 @@ describe('record codec (write → read round trip)', () => {
 		expect(adapter.write).toHaveBeenCalledTimes(1);
 	});
 
-	it('stamps a record as it is filed, and leaves the stamp it already has', () => {
+	it('归档时就盖上采集戳，已有的戳不动', () => {
 		const { db } = makeHarness();
 		db.setState('a.md', { scroll: 5 });
 		expect(db.db['a.md'].time).toEqual(expect.any(Number));
 
-		// Moving a record to another path is not the reader moving.
+		// 把一条记录挪到另一个路径，不是读者在动。
 		db.setState('b.md', { ...db.db['a.md'] });
 		expect(db.db['b.md'].time).toBe(db.db['a.md'].time);
 	});
 });
 
-describe('corrupted data hardening (readDb / parseDb)', () => {
-	it('a missing file yields an empty db without attempting a read', async () => {
-		const { db, adapter } = makeHarness();
+describe('坏数据加固（readDb / parseDb）', () => {
+	it('文件不存在时给出空库，既不去读也不抱怨', async () => {
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+		consoleError.mockClear();
+		const { db, adapter, files } = makeHarness();
 		await db.readDb();
+
 		expect(db.db).toEqual({});
+		expect(copies(files)).toEqual([]);
+		// 开头那次 stat 顺带兼作存在性检查，所以第一次运行只花一轮往返、而且一声不吭 ——
+		// 没有任何东西要报告。
 		expect(adapter.read).not.toHaveBeenCalled();
+		expect(consoleError).not.toHaveBeenCalled();
 	});
 
-	it('a readable db is read and leaves no copy behind', async () => {
+	it('能读的库照常读，不留副本', async () => {
 		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
 		await db.readDb();
 		expect(db.db).toEqual({ 'a.md': { scroll: 5 } });
 		expect(copies(files)).toEqual([]);
 	});
 
-	it('malformed JSON: empty db, a copy of the bytes, and the user told', async () => {
+	it('JSON 坏了：库变空、字节留一份副本、并且告诉用户', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const { db, files } = makeHarness({ [DB_PATH]: '{oops' });
 		await db.readDb();
@@ -220,15 +224,15 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(db.db).toEqual({});
 		expect(copies(files)).toHaveLength(1);
 		expect(files[copies(files)[0]]).toBe('{oops');
-		// the unreadable file itself stays put — the next flush replaces it
+		// 读不出来的那个文件本身留在原地 —— 下一次落盘会把它替换掉
 		expect(files[DB_PATH]).toBe('{oops');
 		expect(messages()).toEqual([expect.stringContaining(copies(files)[0])]);
-		// duration 0 = Obsidian keeps it on screen until the user dismisses it:
-		// the loss is not something to be missed while looking elsewhere
+		// duration 为 0 = Obsidian 会把它留在屏幕上直到用户关掉：这份损失不该在读者看向别处时
+		// 被错过
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
-	it('non-object JSON is unreadable too (a bare array is not a db)', async () => {
+	it('非对象的 JSON 同样读不了（一个裸数组不是库）', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const stringy = makeHarness({ [DB_PATH]: '"just a string"' });
 		await stringy.db.readDb();
@@ -241,7 +245,7 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(copies(array.files)).toHaveLength(1);
 	});
 
-	it('the flush that follows replaces the file and leaves the copy untouched', async () => {
+	it('随后的那次落盘会替换掉这个文件，副本不动', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const { db, files } = makeHarness({ [DB_PATH]: '{oops' });
 		await db.readDb();
@@ -253,26 +257,25 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(files[copies(files)[0]]).toBe('{oops');
 	});
 
-	it('keeps one copy per distinct unreadable content, not one per retry', async () => {
+	it('每种读不出来的内容只留一份副本，不按重试次数留', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const h = makeHarness({ [DB_PATH]: '{oops' });
 		await h.db.readDb();
 		expect(copies(h.files)).toHaveLength(1);
 
-		// the retry loop reading the same unreadable content again must not
-		// spawn a second copy — or repeat the notice
+		// 重试循环再次读到同一份读不出来的内容时，不许再生成第二份副本 —— 也不许重复那条提示
 		await h.db.mergeExternalChanges();
 		expect(copies(h.files)).toHaveLength(1);
 		expect(messages()).toHaveLength(1);
 
-		// different bytes are a different loss
+		// 不同的字节是另一次损失
 		h.externalWrite(DB_PATH, '<<<<<<< LOCAL\n{}');
 		await h.db.mergeExternalChanges();
 		expect(copies(h.files)).toHaveLength(2);
 		expect(messages()).toHaveLength(1);
 	});
 
-	it('records already in memory survive an unparseable external file', async () => {
+	it('外部文件解析不了时，已经在内存里的记录要留住', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const h = makeHarness({ [DB_PATH]: '{"a.md":[120]}' });
 		await h.db.readDb();
@@ -284,7 +287,7 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(h.files[copies(h.files)[0]]).toBe('{torn');
 	});
 
-	it('an unreadable (not unparseable) file is logged without a copy', async () => {
+	it('读不出来（但不是解析不了）的文件只记日志，不留副本', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const h = makeHarness({ [DB_PATH]: '{"a.md":[1]}' });
 		h.adapter.read.mockImplementation(async () => {
@@ -296,7 +299,7 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(messages()).toEqual([]);
 	});
 
-	it('says so when not even a copy could be kept', async () => {
+	it('连副本都没留下时要说一声', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const h = makeHarness({ [DB_PATH]: '{oops' });
 		h.adapter.write.mockImplementation(async () => {
@@ -308,27 +311,26 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
-	it('pre-schema arrays still read', async () => {
+	it('schema 之前的数组格式仍然读得出来', async () => {
 		const { db } = makeHarness({ [DB_PATH]: '{"a.md":[5],"b.md":[0,3,7]}' });
 		await db.readDb();
 		expect(db.db).toEqual({ 'a.md': { scroll: 5 }, 'b.md': { cursor: POINT(3, 7) } });
 	});
 
-	it('unknown fields in a record are ignored', async () => {
+	it('记录里不认识的字段被忽略', async () => {
 		const { db } = makeHarness({ [DB_PATH]: '{"schema":2,"positions":{"a.md":{"s":5,"nope":1}}}' });
 		await db.readDb();
 		expect(db.db).toEqual({ 'a.md': { scroll: 5 } });
 	});
 
-	it('non-numeric members yield an empty record instead of leaking garbage', async () => {
-		// A schema 1 file holds arrays by contract; anything else is unreadable
-		// data and yields an empty record too.
+	it('成员不是数字时给出空记录，而不是漏出脏数据', async () => {
+		// schema 1 的文件按理是一堆数组；别的东西都是读不出来的数据，也产出一条空记录。
 		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[1,"x",2],"b.md":{"s":5}}' });
 		await db.readDb();
 		expect(db.db).toEqual({ 'a.md': {}, 'b.md': {} });
 	});
 
-	it('a [0] tombstone decodes to an empty record, and is written back as one', async () => {
+	it('[0] 墓碑解成空记录，写回去时也仍是空记录', async () => {
 		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[0]}' });
 		await db.readDb();
 		expect(Object.keys(db.db)).toEqual(['a.md']);
@@ -340,8 +342,8 @@ describe('corrupted data hardening (readDb / parseDb)', () => {
 	});
 });
 
-describe('setState recency bookkeeping', () => {
-	it('re-setting an older key moves it to the end of insertion order', () => {
+describe('setState 的新旧记账', () => {
+	it('重设一个较旧的键，会把它挪到插入顺序的末尾', () => {
 		const { db } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 		db.setState('b.md', { scroll: 2 });
@@ -353,7 +355,7 @@ describe('setState recency bookkeeping', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 11, time: expect.any(Number) });
 	});
 
-	it('re-setting the most recent key overwrites in place', () => {
+	it('重设最新的那个键是原地覆盖', () => {
 		const { db } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 		db.setState('b.md', { scroll: 2 });
@@ -363,7 +365,7 @@ describe('setState recency bookkeeping', () => {
 		expect(db.db['c.md']).toEqual({ scroll: 33, time: expect.any(Number) });
 	});
 
-	it('marks the db dirty', () => {
+	it('把库标脏', () => {
 		const { db } = makeHarness();
 		expect(db.dbDirty).toBe(false);
 		db.setState('a.md', { scroll: 1 });
@@ -371,20 +373,20 @@ describe('setState recency bookkeeping', () => {
 	});
 });
 
-describe('capacity trimming', () => {
-	it('keeps the newest TRIM_TARGET entries once the cap is exceeded', () => {
+describe('容量裁剪', () => {
+	it('超过上限后只留最新的 TRIM_TARGET 条', () => {
 		const { db } = makeHarness();
 		for (let i = 1; i <= 751; i++)
 			db.setState(`f${i}`, { scroll: i });
 
-		expect(db.pruneDb()).toBe(189); // 751 - floor(750 * 3/4)
+		expect(db.pruneDb()).toBe(189); // 751 - floor(750 * 3/4) 条被丢掉
 		expect(Object.keys(db.db)).toHaveLength(562);
-		expect(db.db['f1']).toBeUndefined(); // oldest dropped
-		expect(db.db['f190']).toBeDefined(); // first survivor
-		expect(db.db['f751']).toBeDefined(); // newest kept
+		expect(db.db['f1']).toBeUndefined(); // 最旧的被丢掉
+		expect(db.db['f190']).toBeDefined(); // 第一个活下来的
+		expect(db.db['f751']).toBeDefined(); // 最新的留住
 	});
 
-	it('is a no-op at or under the cap', () => {
+	it('没到上限时什么都不做', () => {
 		const { db } = makeHarness();
 		for (let i = 1; i <= 750; i++)
 			db.setState(`f${i}`, { scroll: i });
@@ -394,10 +396,10 @@ describe('capacity trimming', () => {
 	});
 });
 
-describe('folder exclusions', () => {
-	it('removes records for excluded folders (exact match or subfolder), not mere prefix matches', () => {
+describe('按文件夹排除', () => {
+	it('按文件夹排除是全等或子孙文件夹命中才删，光有前缀不算', () => {
 		const { db } = makeHarness({}, { excludedFolders: ['notes'] });
-		db.setState('notes', { scroll: 1 }); // a root file named exactly "notes"
+		db.setState('notes', { scroll: 1 }); // 一个名字恰好就是 "notes" 的根文件
 		db.setState('notes/a.md', { scroll: 1 });
 		db.setState('notes/sub/b.md', { scroll: 1 });
 		db.setState('notes2/c.md', { scroll: 1 });
@@ -409,8 +411,8 @@ describe('folder exclusions', () => {
 	});
 });
 
-describe('frontmatter exclusions', () => {
-	it('removes records for the escape-hatch `position-restore: false`', () => {
+describe('按 frontmatter 排除', () => {
+	it('逃生舱写了 `position-restore: false` 的记录要删', () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 1 });
 		h.frontmatters['a.md'] = { 'position-restore': false };
@@ -419,7 +421,7 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual([]);
 	});
 
-	it('removes records for files containing the configured exclusion property, whatever its value', () => {
+	it('带着所配排除属性的文件不论取值是什么，记录都删', () => {
 		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
 		h.db.setState('a.md', { scroll: 1 });
 		h.db.setState('b.md', { scroll: 1 });
@@ -430,7 +432,7 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual([]);
 	});
 
-	it('removes records only when the exclusion property matches its configured value', () => {
+	it('排除属性的值也要跟配置对上才删', () => {
 		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish: true'] });
 		h.db.setState('a.md', { scroll: 1 });
 		h.db.setState('b.md', { scroll: 1 });
@@ -441,7 +443,7 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual(['b.md']);
 	});
 
-	it('removes records matching ANY of several configured properties', () => {
+	it('命中若干配置属性中的任意一个就删', () => {
 		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish', 'status: draft'] });
 		h.db.setState('a.md', { scroll: 1 });
 		h.db.setState('b.md', { scroll: 1 });
@@ -454,7 +456,7 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual(['c.md']);
 	});
 
-	it('keeps records the escape hatch explicitly forces (`position-restore: true`)', () => {
+	it('逃生舱明确指定要留的，留住（`position-restore: true`）', () => {
 		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
 		h.db.setState('a.md', { scroll: 1 });
 		h.frontmatters['a.md'] = { 'position-restore': true, publish: true };
@@ -463,7 +465,7 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual(['a.md']);
 	});
 
-	it('ignores escape-hatch values that are not boolean or "true"/"false" strings', () => {
+	it('逃生舱取值不是布尔、也不是 "true"/"false" 字符串时，忽略它', () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 1 });
 		h.frontmatters['a.md'] = { 'position-restore': 1 };
@@ -472,7 +474,7 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual(['a.md']);
 	});
 
-	it('prunes records for the string marker `position-restore: "false"`', () => {
+	it('字符串形式的标记 `position-restore: "false"` 照样删', () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 1 });
 		// Obsidian's properties UI stores text-typed values quoted ("false").
@@ -482,11 +484,11 @@ describe('frontmatter exclusions', () => {
 		expect(Object.keys(h.db.db)).toEqual([]);
 	});
 
-	it('keeps records for files the metadata cache has not parsed yet (lazy parsing)', () => {
+	it('metadata 缓存还没解析的文件（懒解析），记录留住', () => {
 		const h = makeHarness({}, { frontmatterExcludeProperties: ['publish'] });
 		h.db.setState('a.md', { scroll: 1 });
-		// frontmatters stays empty → "not parsed" → the record survives here;
-		// the recording gate drops it on the file's next open/poll instead.
+		// frontmatters 保持为空 → 「还没解析」→ 这条记录在这儿留住了；改由记录闸门在这个文件
+		// 下次打开/轮询时把它丢掉。
 
 		expect(h.db.pruneDb()).toBe(0);
 		expect(Object.keys(h.db.db)).toEqual(['a.md']);
@@ -494,7 +496,7 @@ describe('frontmatter exclusions', () => {
 });
 
 describe('renameFile / deleteFile', () => {
-	it('moves the record to the new path, capture stamp included', () => {
+	it('记录连同采集戳一起挪到新路径', () => {
 		const { db } = makeHarness();
 		db.setState('old.md', { scroll: 1, time: 1000 });
 
@@ -505,13 +507,13 @@ describe('renameFile / deleteFile', () => {
 		expect(db.dbDirty).toBe(true);
 	});
 
-	it('renaming an untracked file is a no-op', () => {
+	it('重命名没记过的文件是空操作', () => {
 		const { db } = makeHarness();
 		db.renameFile('new.md', 'old.md');
 		expect(db.dbDirty).toBe(false);
 	});
 
-	it('deletes the record', () => {
+	it('删掉这条记录', () => {
 		const { db } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 
@@ -521,15 +523,15 @@ describe('renameFile / deleteFile', () => {
 		expect(db.dbDirty).toBe(true);
 	});
 
-	it('deleting an untracked file is a no-op', () => {
+	it('删除没记过的文件是空操作', () => {
 		const { db } = makeHarness();
 		db.deleteFile('a.md');
 		expect(db.dbDirty).toBe(false);
 	});
 });
 
-describe('mergeExternalChanges (multi-device sync)', () => {
-	it('is a no-op when the mtime is unchanged', async () => {
+describe('mergeExternalChanges（跨设备同步）', () => {
+	it('mtime 没变时什么都不做', async () => {
 		const { db, adapter } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
@@ -538,7 +540,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
 
-	it('the later capture wins a shared key; disk-only keys are adopted; memory-only keys are kept', async () => {
+	it('同一个键采得更晚的赢；只有盘上有的键被采纳；只有内存有的键留住', async () => {
 		const { db, externalWrite } = makeHarness();
 		db.setState('a.md', { scroll: 1, time: 1000 });
 		db.setState('b.md', { scroll: 2 });
@@ -553,15 +555,15 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 9, cursor: POINT(1, 1), time: 2000 });
 		expect(db.db['b.md']).toEqual({ scroll: 2, time: expect.any(Number) });
 		expect(db.db['c.md']).toEqual({ scroll: 7, time: 2000 });
-		expect(db.dbDirty).toBe(false); // merges never mark dirty
+		expect(db.dbDirty).toBe(false); // 合并从不标脏
 	});
 
-	it('an EARLIER external capture yields to ours — the sync that used to send us back to the top', async () => {
+	it('外面的采集比我们更早时让位给我们 —— 过去就是这种同步把人打回页顶', async () => {
 		const { db, externalWrite } = makeHarness();
 		db.setState('a.md', { scroll: 300, time: 5000 });
 		await db.writeDb();
 
-		// the other device stopped reading this note long before we did
+		// 另一台设备停止读这篇笔记的时间比我们早得多
 		externalWrite(DB_PATH, JSON.stringify({
 			schema: 2, positions: { 'a.md': { s: 0, t: 1000 } },
 		}));
@@ -570,13 +572,13 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 300, time: 5000 });
 	});
 
-	it('equal stamps keep ours, and a record written before `t` existed counts as oldest', async () => {
+	it('戳相等时留我们自己的；`t` 出现之前写的记录算最旧', async () => {
 		const { db, externalWrite } = makeHarness();
 		db.setState('a.md', { scroll: 300, time: 1000 });
 		db.setState('b.md', { scroll: 300, time: 1000 });
 		await db.writeDb();
 
-		// a.md: the same stamp; b.md: none at all (a writer from before `t`)
+		// a.md：同一个戳；b.md：压根没有戳（一个来自 `t` 出现之前的写者）
 		externalWrite(DB_PATH, JSON.stringify({
 			schema: 2, positions: { 'a.md': { s: 9, t: 1000 }, 'b.md': { s: 9 } },
 		}));
@@ -586,14 +588,14 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(db.db['b.md']).toEqual({ scroll: 300, time: 1000 });
 	});
 
-	it('a key touched after the last flush wins over the disk copy', async () => {
+	it('上次落盘之后又动过的键，赢过盘上那份', async () => {
 		vi.useFakeTimers();
 		try {
 			const { db, externalWrite } = makeHarness();
 			db.setState('a.md', { scroll: 1 });
-			await db.writeDb(); // flush at T
+			await db.writeDb(); // 在 T 时刻落盘
 			vi.advanceTimersByTime(10);
-			db.setState('a.md', { scroll: 100 }); // touched at T+10
+			db.setState('a.md', { scroll: 100 }); // 在 T+10 被碰过
 
 			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
 			await db.mergeExternalChanges();
@@ -603,7 +605,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		}
 	});
 
-	it('a torn external file leaves the db untouched', async () => {
+	it('外部文件写坏了（截断）时库不动', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const { db, externalWrite } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
@@ -614,7 +616,7 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 1, time: expect.any(Number) });
 	});
 
-	it('a missing external file keeps what we have', async () => {
+	it('外部文件不见了时保留我们手上的', async () => {
 		const { db, adapter, files } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
@@ -625,17 +627,16 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
 
-	it('a flush does not clobber a foreign file while a sync merge is in flight', async () => {
+	it('同步合并还在进行时，落盘不许盖掉别人写来的文件', async () => {
 		const { db, adapter, externalWrite, files } = makeHarness();
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
 
-		// Another device lands a new record while we run.
+		// 我们跑着的时候，另一台设备落了一条新记录。
 		externalWrite(DB_PATH, JSON.stringify({ 'a.md': [1], 'c.md': [7] }));
 
-		// Stall the first read so the sync merge and the flush's pre-write
-		// merge overlap. The flush must wait for the merge, not bail and
-		// write over the newer file.
+		// 把第一次读取拖住，好让同步合并与落盘前的那次合并重叠。落盘必须等这次合并，而不是
+		// 掉头走开、把更新的那份文件盖掉。
 		const origRead = adapter.read.getMockImplementation()!;
 		let reads = 0;
 		adapter.read.mockImplementation(async (p: string) => {
@@ -645,29 +646,27 @@ describe('mergeExternalChanges (multi-device sync)', () => {
 			return data;
 		});
 
-		db.setState('b.md', { scroll: 2 }); // a local change makes the flush dirty
-		const inFlight = db.mergeExternalChanges(); // do not await yet
+		db.setState('b.md', { scroll: 2 }); // 一次本地改动让落盘变脏
+		const inFlight = db.mergeExternalChanges(); // 先不 await
 		await db.writeDb();
 		await inFlight;
 
 		const written = JSON.parse(files[DB_PATH]).positions;
-		expect(written['c.md']).toEqual({ s: 7 }); // foreign record survived
+		expect(written['c.md']).toEqual({ s: 7 }); // 外来的记录活了下来
 		expect(written['b.md']).toEqual({ s: 2, t: expect.any(Number) });
 	});
 });
 
-describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
-	it('a setState during an in-flight write stays dirty and is persisted by the next flush', async () => {
+describe('writeDb 的落盘竞态（落盘中途到达的 setState 不许丢）', () => {
+	it('写入进行中到来的 setState 要保持脏标记，由下一次落盘把它写下去', async () => {
 		const { db, adapter, files } = makeHarness();
 		db.setState('a.md', { scroll: 2 });
-		// Kept aside: the concurrent setState below replaces the record, and
-		// with it the stamp — this is the one the first flush carried.
+		// 先留一份：下面那个并发的 setState 会替换掉这条记录，连带替换掉它的戳 —— 而首次落盘
+		// 带下去的正是这一个。
 		const flushedStamp = db.db['a.md'].time;
 
-		// Land a concurrent setState synchronously at the start of the actual
-		// adapter write — i.e. after writeDb has already serialized its
-		// snapshot. This is exactly where the 100ms poll interleaves in real
-		// usage.
+		// 在真正写 adapter 的那一刻同步落下一个并发 setState —— 也就是 writeDb 已经序列化完
+		// 它那份快照之后。真实使用中 100ms 的轮询恰好就是插在这儿。
 		const origWrite = adapter.write.getMockImplementation()!;
 		let injected = false;
 		adapter.write.mockImplementation(async (p: string, data: string) => {
@@ -680,18 +679,18 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 
 		await db.writeDb();
 
-		// The flush captured scroll 2 (its snapshot predates the setState),
-		// but the concurrent change must NOT be cleared by it.
+		// 这次落盘采到的是 scroll 2（它的快照早于那个 setState），但那次并发的改动绝不能被它
+		// 清掉。
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":2,"t":' + flushedStamp + '}}}');
 		expect(db.dbDirty).toBe(true);
 
-		// The next flush persists the newer value.
+		// 下一次落盘会把更新的那个值写下去。
 		await db.writeDb();
 		expect(files[DB_PATH]).toBe('{"schema":2,"positions":{"a.md":{"s":3,"t":' + db.db['a.md'].time + '}}}');
 		expect(db.dbDirty).toBe(false);
 	});
 
-	it('a key touched during a flush still beats the disk copy in the next external merge', async () => {
+	it('落盘期间被碰过的键，在下一次外部合并里仍然赢过盘上那份', async () => {
 		vi.useFakeTimers();
 		try {
 			const { db, adapter, externalWrite } = makeHarness();
@@ -702,9 +701,8 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 			adapter.write.mockImplementation(async (p: string, data: string) => {
 				if (!injected) {
 					injected = true;
-					// Real disk I/O takes longer than a millisecond; model that
-					// so the concurrent touch's stamp is strictly after the
-					// flush's snapshot moment (lastFlushTime).
+					// 真实的磁盘 I/O 不止一毫秒；照这个建模，好让那次并发触碰的戳严格晚于落盘采快照的
+					// 那一刻（lastFlushTime）。
 					vi.advanceTimersByTime(10);
 					db.setState('a.md', { scroll: 3 });
 				}
@@ -712,11 +710,10 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 			});
 
 			await db.writeDb();
-			expect(db.dbDirty).toBe(true); // the concurrent change survived the flush
+			expect(db.dbDirty).toBe(true); // 那次并发的改动挺过了这次落盘
 
-			// A foreign file lands on disk. lastFlushTime reads as the flush's
-			// snapshot moment — BEFORE the concurrent touch — so the in-memory
-			// scroll 3 is treated as locally newer than the flushed disk copy.
+			// 一个外来的文件落到盘上。lastFlushTime 读出来是落盘采快照的那一刻 —— **早于**那次
+			// 并发触碰 —— 所以内存里的 scroll 3 会被当成比落盘出去的那份盘上副本更新。
 			externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9, 1, 1] }));
 			await db.mergeExternalChanges();
 			expect(db.db['a.md']).toEqual({ scroll: 3, time: expect.any(Number) });
@@ -727,7 +724,7 @@ describe('writeDb flush race (setState landing mid-flush is not lost)', () => {
 });
 
 describe('switchDbFile', () => {
-	it('rejects invalid paths without touching anything', async () => {
+	it('路径不合法就拒绝，一处都不动', async () => {
 		const { db, adapter } = makeHarness();
 		for (const bad of ['/abs.json', 'a\\b.json', 'x/../y.json', 'notjson.txt'])
 			expect(await db.switchDbFile(bad)).toBe(false);
@@ -736,12 +733,12 @@ describe('switchDbFile', () => {
 		expect(adapter.remove).not.toHaveBeenCalled();
 	});
 
-	it('accepts the empty path when already on the default file', async () => {
+	it('本来就在默认文件上时，空路径也接受', async () => {
 		const { db } = makeHarness();
 		expect(await db.switchDbFile('')).toBe(true);
 	});
 
-	it('moves the db file to the new vault-root path', async () => {
+	it('把库文件挪到新的 vault 根路径下', async () => {
 		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
 
 		expect(await db.switchDbFile('new.json')).toBe(true);
@@ -750,14 +747,14 @@ describe('switchDbFile', () => {
 		expect(adapter.rename).toHaveBeenCalledWith(DB_PATH, 'new.json');
 	});
 
-	it('creates a missing parent folder instead of refusing', async () => {
+	it('父文件夹不存在就创建，而不是拒绝', async () => {
 		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
 		expect(await db.switchDbFile('missing/new.json')).toBe(true);
 		expect(adapter.mkdir).toHaveBeenCalledWith('missing');
 		expect(files['missing/new.json']).toBe('{"a.md":[5]}');
 	});
 
-	it('adopts an existing target file, removes the old one, and keeps locally touched records', async () => {
+	it('目标文件已存在就采纳、删掉旧的，本地动过的记录留住', async () => {
 		const { db, files } = makeHarness({
 			[DB_PATH]: '{"c.md":[5]}',
 			'new.json': '{"t.md":[9,1,1]}',
@@ -766,32 +763,31 @@ describe('switchDbFile', () => {
 		db.setState('local.md', { scroll: 3 });
 
 		expect(await db.switchDbFile('new.json')).toBe(true);
-		expect(DB_PATH in files).toBe(false); // old file removed (move semantics)
-		expect(db.db['t.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) }); // adopted
-		expect(db.db['c.md']).toEqual({ scroll: 5 }); // kept
-		expect(db.db['local.md']).toEqual({ scroll: 3, time: expect.any(Number) }); // touched locally → wins
-		expect(db.dbDirty).toBe(true); // adopted records flush on the next write
+		expect(DB_PATH in files).toBe(false); // 旧文件被删掉（移动语义）
+		expect(db.db['t.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) }); // 被采纳
+		expect(db.db['c.md']).toEqual({ scroll: 5 }); // 留住
+		expect(db.db['local.md']).toEqual({ scroll: 3, time: expect.any(Number) }); // 本地碰过 → 赢
+		expect(db.dbDirty).toBe(true); // 采纳进来的记录在下一次写入时落盘
 	});
 
-	it('refuses an existing non-database JSON file without changing anything', async () => {
+	it('目标已存在但不是位置库时拒绝，一处不改', async () => {
 		const { db, files, adapter } = makeHarness({
 			[DB_PATH]: '{"a.md":[5]}',
 			'package.json': '{"name":"x","deps":["a"]}',
-			// Numeric arrays pass the value check; only the outer note-path
-			// key check rejects this one.
+			// 数字数组能通过值的检查；只有外层「笔记路径」这一道键检查会把它拒掉。
 			'chart.json': '{"series":[1,2,3],"axis":[0]}',
 		});
 		await db.readDb();
 
 		expect(await db.switchDbFile('package.json')).toBe(false);
 		expect(await db.switchDbFile('chart.json')).toBe(false);
-		expect(DB_PATH in files).toBe(true); // real db kept
+		expect(DB_PATH in files).toBe(true); // 真正的库留住
 		expect(files['package.json']).toBe('{"name":"x","deps":["a"]}');
-		expect(db.db['a.md']).toEqual({ scroll: 5 }); // memory kept
+		expect(db.db['a.md']).toEqual({ scroll: 5 }); // 内存里的留住
 		expect(adapter.remove).not.toHaveBeenCalled();
 	});
 
-	it('adopts an empty but valid database file', async () => {
+	it('空但合法的库文件也采纳', async () => {
 		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[5]}', 'new.json': '{}' });
 		await db.readDb();
 
@@ -801,8 +797,8 @@ describe('switchDbFile', () => {
 	});
 });
 
-describe('schema version and legacy files', () => {
-	it('writes schema 2 and reads its own file back in silence', async () => {
+describe('schema 版本与旧文件', () => {
+	it('写成 schema 2，读回自己的文件时不出声', async () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 5 });
 		await h.db.writeDb();
@@ -814,7 +810,7 @@ describe('schema version and legacy files', () => {
 		expect(messages()).toEqual([]);
 	});
 
-	it('reads a pre-schema file, migrates it, and says so once', async () => {
+	it('读到 schema 之前的旧文件会迁移，并且只提示一次', async () => {
 		const h = makeHarness({ [DB_PATH]: '{"a.md":[5],"b.md":[0,3,7]}' });
 		await h.db.readDb();
 		expect(h.db.db['a.md']).toEqual({ scroll: 5 });
@@ -822,43 +818,43 @@ describe('schema version and legacy files', () => {
 		expect(messages()).toEqual([t('dataStorage.legacyDb.notice')]);
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 
-		// the same old file seen again is not news
+		// 同一个旧文件再看一遍不是新闻
 		h.db.db = {};
 		await h.db.readDb();
 		expect(messages()).toHaveLength(1);
 	});
 
-	it('reports an older writer only when it replaces a current file of ours', async () => {
+	it('只有当旧版本写者盖掉了我们的当前文件时才报告', async () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 5 });
 		await h.db.writeDb();
 		expect(messages()).toEqual([]);
 
-		// another device still running the old plugin overwrites it
+		// 另一台还在跑旧版插件的设备把它覆盖了
 		h.externalWrite(DB_PATH, JSON.stringify({ 'a.md': [9] }));
 		await h.db.mergeExternalChanges();
-		// A pre-`t` record is the oldest there is, so ours stands. The file
-		// still changed hands, which is what the notice is about.
+		// 一条没有 `t` 的记录是最旧的，所以我们那份站得住。但这个文件仍然易了主，而那条提示讲的
+		// 正是这件事。
 		expect(h.db.db['a.md']).toEqual({ scroll: 5, time: expect.any(Number) });
 		expect(messages()).toEqual([t('dataStorage.legacyDb.noticeOverwritten')]);
 
-		// still old afterwards: already said, do not repeat
+		// 之后仍然是旧的：已经说过了，不要再重复
 		h.externalWrite(DB_PATH, JSON.stringify({ 'a.md': [10] }));
 		await h.db.mergeExternalChanges();
 		expect(messages()).toHaveLength(1);
 	});
 
-	it('a file from a newer plugin version is read, not rejected', async () => {
+	it('更新版插件写的文件照样读，不拒绝', async () => {
 		const h = makeHarness({
 			[DB_PATH]: '{"schema":3,"positions":{"a.md":{"s":5,"c":[1,0,1,0],"t":1695}},"extra":{}}',
 		});
 		await h.db.readDb();
-		// the fields we share are read; the one we do not know is ignored
+		// 我们共有的字段读出来；我们不认识的那个被忽略
 		expect(h.db.db['a.md']).toEqual({ scroll: 5, cursor: POINT(1, 0), time: 1695 });
 		expect(messages()).toEqual([]);
 	});
 
-	it('a LATER tombstone from another device clears the local position', async () => {
+	it('别的设备传来更晚的墓碑，会清掉本地的位置', async () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 50, time: 1000 });
 		await h.db.writeDb();
@@ -869,10 +865,10 @@ describe('schema version and legacy files', () => {
 	});
 });
 
-describe('tombstone eviction', () => {
-	it('evicts tombstones before real positions once the cap is exceeded', () => {
+describe('墓碑淘汰', () => {
+	it('超过上限时先淘汰墓碑，才轮到真位置', () => {
 		const { db } = makeHarness();
-		// 800 records, half of them tombstones
+		// 800 条记录，其中一半是墓碑
 		for (let i = 1; i <= 800; i++)
 			db.setState(`f${i}`, i % 2 === 0 ? {} : { scroll: i });
 
@@ -880,18 +876,17 @@ describe('tombstone eviction', () => {
 		const keys = Object.keys(db.db);
 		expect(keys).toHaveLength(562);
 
-		// every real position survived; the 238 dropped all came from the
-		// tombstones (400 - 238 = 162 of them remain)
+		// 每一个真实位置都活了下来；被丢掉的 238 个全部来自墓碑（400 - 238 = 162 个留下）
 		const live = keys.filter((k) => db.db[k].scroll !== undefined);
 		const tombs = keys.filter((k) => db.db[k].scroll === undefined);
 		expect(live).toHaveLength(400);
 		expect(tombs).toHaveLength(162);
 	});
 
-	it('evicts untouched-open records before real positions', () => {
+	it('打开后没动过的记录也排在真位置前面淘汰', () => {
 		const { db, fmPositions } = makeHarness();
-		// 800 records, half of them merely opened: the cursor sits on the line
-		// after the frontmatter, so they carry no position at all.
+		// 800 条记录，其中一半只是被打开过：光标停在 frontmatter 之后那一行，所以它们根本不带
+		// 任何位置。
 		for (let i = 1; i <= 800; i++) {
 			const path = `f${i}.md`;
 			fmPositions[path] = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
@@ -901,26 +896,43 @@ describe('tombstone eviction', () => {
 		db.pruneDb();
 		const keys = Object.keys(db.db);
 		expect(keys).toHaveLength(562);
-		// every real position survived; the 238 dropped all came from the
-		// untouched opens (400 - 238 = 162 of them remain)
+		// 每一个真实位置都活了下来；被丢掉的 238 个全部来自那些没动过的打开（400 - 238 = 162
+		// 个留下）
 		expect(keys.filter((k) => db.db[k].scroll !== undefined)).toHaveLength(400);
 		expect(keys.filter((k) => db.db[k].scroll === undefined)).toHaveLength(162);
 	});
 
-	it('keeps a just-topped note ahead of an older real position', () => {
+	it('刚滚到顶的笔记要留得比更旧的真位置更优先', () => {
 		const { db } = makeHarness();
-		// 800 records: the oldest 250 hold real positions, everything newer is
-		// a tombstone — the newest of all is the note just scrolled to the top.
+		// 800 条记录：最旧的 250 个握着真实位置，更新的全都是墓碑 —— 其中最新的那个是刚滚到
+		// 顶部的笔记。
 		for (let i = 1; i <= 800; i++)
 			db.setState(`f${i}`, i <= 250 ? { scroll: i } : {});
 
 		db.pruneDb();
 		expect(Object.keys(db.db)).toHaveLength(562);
-		// Cheapness reaches only outside the recency window, so the 238 dropped
-		// all come from the oldest tombstones: no real position is lost, and
-		// the note topped last is still there.
+		// 「廉价」只够得到新鲜窗口之外，所以被丢掉的 238 个全部来自最旧的那些墓碑：没有一个
+		// 真实位置丢失，而最后被置顶的那篇笔记还在。
 		expect(db.db['f1']).toEqual({ scroll: 1, time: expect.any(Number) });
 		expect(db.db['f250']).toEqual({ scroll: 250, time: expect.any(Number) });
 		expect(db.db['f800']).toEqual({ time: expect.any(Number) });
+	});
+});
+
+describe('countDefaultPosition', () => {
+	it('只数那些没有任何位置的记录，一条不多数', () => {
+		const { db, fmPositions } = makeHarness();
+		// 两者用同一个「打开时的默认行」：frontmatter 在第 4 行结束，所以 app 把光标停在
+		// 第 5 行。
+		const fm = { start: { line: 0, col: 0, offset: 0 }, end: { line: 4, col: 0, offset: 0 } };
+		for (const p of ['a.md', 'c.md'] as const)
+			fmPositions[p] = fm;
+
+		db.setState('a.md', { cursor: POINT(5, 0) }); // 停在默认位置上
+		db.setState('b.md', {});                      // 墓碑
+		db.setState('c.md', { cursor: POINT(9, 0) }); // 一个真实的行
+		db.setState('d.md', { scroll: 40 });          // 一个真实的滚动位置
+
+		expect(db.countDefaultPosition()).toBe(2);
 	});
 });

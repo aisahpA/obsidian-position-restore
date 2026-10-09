@@ -1,97 +1,94 @@
-// The recent-files browser's RESIDENT shell (browser/view.ts): what makes it a
-// sidebar panel rather than a dialog — the pane's own lifetime around the body,
-// the pane's own width deciding the presentation, and the place list being heard
-// while it is up (see NavPlaces.subscribe). The body itself — the tree, the
-// landing panel, the keyboard, the travel — is covered in
-// recent-files-browser-dom.test.ts, where it is driven through the modal.
+// 最近文件浏览器的**常驻**外壳（browser/view.ts）：它是靠什么成为侧边栏面板
+// 而不是对话框的 —— 窗格自己围着 body 的寿命、窗格自己的宽度决定呈现方式，以及
+// 立着期间一直听着地点列表（见 NavPlaces.subscribe）。body 本身 —— 那棵树、大纲
+// 行、键盘、前往 —— 在 recent-files-browser-dom.test.ts 里覆盖，那里它是经由
+// 模态框驱动的。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keymap, Platform, TFile, WorkspaceLeaf } from 'obsidian';
-// …and the app's menu, reached by its own path rather than through 'obsidian' for the
-// same reason the browser's suite does (see recent-files-browser-dom.test.ts): what a
-// test reads off it — the items a view added — is the stub's registry, not the app's
-// typings.
+// ……以及 app 的菜单，走它自己的路径而不经由 'obsidian'，理由和浏览器那个套件
+// 一样（见 recent-files-browser-dom.test.ts）：测试从它读到的 —— 视图加的那些
+// 条目 —— 是桩的登记簿，不是 app 的类型声明。
 import { Menu } from './support/obsidian-stub';
 
 import { RECENT_FILES_VIEW_TYPE, RecentFilesView, activateRecentFilesView } from '@/recent-files/browser/view';
-import type { RecentFilesBrowserArrows, RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
-import type { LandingsMode } from '@/recent-files/browser/listing';
+import type { RecentFilesBrowserPrefs } from '@/recent-files/browser/body';
+import type { RecentFilesBrowserArrows } from '@/recent-files/browser/arrows';
 import type { PathDisplayMode } from '@/types';
 import { navGroupKey, type NavEntry } from '@/nav/entry';
 import type { PaneTarget } from '@/nav/pane';
 import { t } from '@/i18n';
+import type { HeadingRef } from '@/shared/headings';
 import { PANEL_EXIT_GRACE_MS, TIME_REFRESH_MS } from '@/recent-files/browser/constants';
 
-// jsdom implements no layout, so this is missing rather than broken.
+// jsdom 不实现布局，所以这里是缺失而不是坏掉。
 Element.prototype.scrollIntoView = () => {};
 
-// 'obsidian' resolves to tests/support/obsidian-stub.ts for the RUN TIME of this suite
-// (see vitest.config.mts), but tsc reads its types from the real, typings-only
-// package — which declares the two questions the plugin asks (isModEvent /
-// isModifier) and nothing else. The stub's answers are INPUTS a test sets, so
-// they are reached through one honest cast rather than pretended onto the app's
-// class.
+// 在这个套件的**运行期**，'obsidian' 解析到 tests/support/obsidian-stub.ts
+// （见 vitest.config.mts），但 tsc 从真实的、只含类型声明的包读它的类型 ——
+// 那个包只声明插件问的那两个问题（isModEvent / isModifier），别的什么都没有。
+// 桩的那些应答是测试设置的**输入**，所以它们经由一次诚实的 cast 抵达，而不是
+// 硬安到 app 的类上。
 const KeymapKnobs = Keymap as unknown as {
 	reset(): void;
 	modEvent: unknown;
 	modifier: boolean;
 };
 
-// The browser's preferences as the plugin hands them over (see RecentFilesBrowserPrefs):
-// READERS over values the settings tab owns — a fresh set per mount, so no test
-// decides another's. What the panel does with a value that CHANGED underneath it is
-// the one thing the shell adds, so the fixture can be written to as well: that is
-// what the settings tab does (see SettingTab.setControlValue), and the panel is then
-// asked to draw again (see RecentFilesView.refresh).
-type TestPrefs = RecentFilesBrowserPrefs & { setLandings: (how: LandingsMode) => void };
+// 插件交出的浏览器偏好（见 RecentFilesBrowserPrefs）：设置标签页所拥有那些值的
+// **读取器** —— 每次挂载一套新的，所以没有哪个测试会决定另一个的。面板对一个在
+// 它底下**变了的**值做什么，是外壳加的唯一一件事，所以这个 fixture 也可以被写：
+// 那正是设置标签页做的事（见 SettingTab.setControlValue），随后面板被要求重画
+// （见 RecentFilesView.refresh）。
+type TestPrefs = RecentFilesBrowserPrefs & { setOutline: (on: boolean) => void };
 
 function browserPrefs(
-	landings: LandingsMode = 'last',
+	// 搜索框是否把各篇笔记的小节标题也算进搜索面（见 RecentFilesBrowserPrefs）：这个
+	// 套件里唯一一个会**改变列表形状**的偏好，所以「面板对一个变了的值做什么」那件事
+	// 拿它来试。
+	outline = true,
 	path: PathDisplayMode = 'smart',
 	time = false,
 ): TestPrefs {
-	const held = { landings, path, time };
+	const held = { outline, path, time };
 	return {
-		landings: () => held.landings,
-		// How far back the list reaches (see PluginSettings.recentFilesCap): a number
-		// the panel only reads.
+		outlineSearch: () => held.outline,
+		// 列表往回够多远（见 PluginSettings.recentFilesCap）：一个面板只读的数字。
 		placesCap: () => 200,
-		// How much of a row's path is printed, and on which side of the name (see
-		// PathDisplayMode).
+		// 一行的路径印出多少、印在名字的哪一侧（见 PathDisplayMode）。
 		pathDisplay: () => held.path,
-		// Whether each row is dated (see RecentFilesBrowserPrefs.rowTime): a switch, off unless
-		// a test asks — what the LABEL says is the body's business and is covered where
-		// the body is (see recent-files-browser-dom.test.ts); what the shell adds is the
-		// lifetime of the timer that keeps it fresh (see the test below).
+		// 每一行是否带日期（见 RecentFilesBrowserPrefs.rowTime）：一个开关，除非测试
+		// 要求否则是关的 —— 标签说什么 是 body 的事，在 body 所在处覆盖（见
+		// recent-files-browser-dom.test.ts）；外壳加的是那个让它保持新鲜的定时器的
+		// 寿命（见下面的测试）。
 		rowTime: () => held.time,
-		// What a row calls the note: none of these tests names one, so the file's
-		// own name is what prints (see the browser suite).
+		// 一行怎么称呼这篇笔记：这些测试没有一个命名它，所以印出的是文件自己的
+		// 名字（见浏览器套件）。
 		titleProperty: () => '',
-		// Where a hover opens the note: none of these tests hovers one, and it is a
-		// question asked per hover rather than per panel (see PreviewFocusMode).
+		// 悬停在哪里打开笔记：这些测试没有一个做悬停，而且这是一个按悬停、不是按
+		// 面板问的问题（见 PreviewFocusMode）。
 		previewFocus: () => 'head',
-		setLandings: (how) => {
-			held.landings = how;
+		setOutline: (on) => {
+			held.outline = on;
 		},
 	};
 }
 
-// THE FOUR ARROWS, as the plugin hands them to a shell (see
-// RecentFilesBrowserArrows) — and every shell draws them, so there is no switch here to
-// say otherwise. What a test wants to know about them is WHICH ONE was pressed, and WHEN
-// the four were asked again: an act may be ASYNC (a step opens a note and waits for it),
-// and the asking has to wait for it too.
+// **那四个箭头**，按插件把它们交给外壳的方式（见 RecentFilesBrowserArrows）—— 而
+// 每个外壳都会画出它们，所以这里没有一个开关说别的。测试想知道的关于它们的事
+// 是：**哪一个**被按了，以及这四个是**何时**被重新问的：一个动作可能是异步的
+// （一个步打开一篇笔记并等它），而那次询问也得等它。
 function browserArrows(): RecentFilesBrowserArrows & {
 	pressed: string[];
-	// A test says "hold this act open" and settles it itself, so that "asked again once
-	// it landed" can be told apart from "asked on the spot".
+	// 测试说「把这个动作敞着」并自己结算它，好让「落地之后再问的」和「当场问
+	// 的」区分开。
 	hold(): void;
 	release(): void;
 	set(on: Partial<{ back: boolean; forward: boolean }>): void;
 } {
 	const pressed: string[] = [];
-	// What the four are ASKED (see refreshArrows): a test turns one off to see the
-	// button it greys, the way the history does when there is no step left to take.
+	// 这四个被**问**的东西（见 refreshArrows）：测试关掉其中一个，好看到它置灰的
+	// 那个按钮 —— 就像没有步可走时历史的做法。
 	const state = { back: true, forward: true };
 	let holding = false;
 	let settle: (() => void) | undefined;
@@ -110,8 +107,8 @@ function browserArrows(): RecentFilesBrowserArrows & {
 		canForward: () => state.forward,
 		canEdge: () => true,
 		pressed,
-		// …and the flip, so that "asked again" is visible: the answer changed under the
-		// press, and only the asking that waits for the act can show it.
+		// ……以及这次翻转，好让「重新问过」看得见：应答在按下期间变了，而只有等
+		// 动作的那个询问才展示得出。
 		set(on: Partial<{ back: boolean; forward: boolean }>) {
 			Object.assign(state, on);
 		},
@@ -132,35 +129,29 @@ const NOW = Date.now();
 const visit = (path: string, stamp: number): NavEntry =>
 	({ kind: 'visit', path, leafId: 'leaf-1', t: stamp });
 
-// A PLACE of a note: a jump the reader made. A note's own record (`visit`) is the
-// note's ROW and carries no position at all (see places.ts), so a fixture that
-// means "a spot in this note" builds the jump — a positioned visit is a shape the
-// list never holds.
-const place = (path: string, stamp: number, line: number): NavEntry =>
-	({ kind: 'jump', path, leafId: 'leaf-1', key: `outline:L${line}@${stamp}`, t: stamp, st: { scroll: line } });
-
-// The place list as the view sees it: entries, the pointer, travel and subscribe
-// (see places.ts's PlaceList). The real store is exercised against the same
-// surface in recent-files-places.test.ts; here the point is the SHELL, so the list is a
-// fixture that can be moved by hand.
+// 视图所看到的地点列表：entries、指针、travel 与 subscribe（见 places.ts 的
+// PlaceList）。真实 store 在 recent-files-places.test.ts 里对着同一个面被演练；
+// 这里的重点是**外壳**，所以列表是一个可以手工挪动的 fixture。
 class FakeNav {
 	entries: NavEntry[] = [];
 	index = -1;
-	// The rows the reader pinned, as the store hands them over (see
-	// NavPlaces.pinned): a test writes the array itself, which is what the
-	// right-click menu does to the store's.
+	// 读者钉住的那些行，按 store 交出它们的样子（见 NavPlaces.pinned）：测试直接
+	// 写这个数组，这正是右键菜单对 store 那个数组做的事。
 	pinned: string[] = [];
 	readonly jumped: number[] = [];
 	private listeners = new Set<() => void>();
 
-	// Where each travel was told to open (see PaneTarget): recorded beside the place,
-	// because the panel's own answer to "where" is what a modifier test is about.
+	// 每次前往被要求开在哪里（见 PaneTarget）：记在地点旁边，因为面板自己对
+	// 「哪里」的应答正是修饰键测试的要点。
 	readonly targets: (PaneTarget | undefined)[] = [];
 
-	// The real travel, in miniature: the place visited is re-stamped and becomes the
-	// current one — so the list is rewritten under the panel, which is the whole
-	// reason the panel has to collapse first (see NavPlaces.travel /
-	// RecentFilesList.collapse).
+	// ……以及去往一个**搜到的小节**的那一种前往（见 list.ts 的 HeadingHit）：它不
+	// 走一条记录，所以单独记。
+	readonly headed: { path: string; heading: string; line: number; target?: PaneTarget }[] = [];
+
+	// 真实的前往，缩微版：被前往的那个地点重新盖章并成为当前那个 —— 于是列表在
+	// 面板底下被重写，这正是面板必须先折叠的全部理由（见 NavPlaces.travel /
+	// RecentFilesList.collapse）。
 	travel = async (i: number, target?: PaneTarget): Promise<void> => {
 		this.jumped.push(i);
 		this.targets.push(target);
@@ -171,6 +162,12 @@ class FakeNav {
 			fn();
 	};
 
+	travelToHeading = async (
+		path: string, heading: string, line: number, _leafId: string, target?: PaneTarget,
+	): Promise<void> => {
+		this.headed.push({ path, heading, line, target });
+	};
+
 	subscribe(fn: () => void): () => void {
 		this.listeners.add(fn);
 		return () => {
@@ -178,18 +175,17 @@ class FakeNav {
 		};
 	}
 
-	// The reader took a row off the list (the × on the row itself — see
-	// RecentFilesBrowser.onForget): the real store drops every record the row was drawn
-	// from, by the row's own key (see NavPlaces.forget), and tells its listeners, exactly
-	// as it does for a change made anywhere else.
+	// 读者把一行从列表上拿掉（行本身的 × —— 见 RecentFilesBrowser.onForget）：
+	// 真实 store 按行自己的 key 丢掉这行所据以绘制的每一条记录（见
+	// NavPlaces.forget），并通知它的监听者，和它对别处做的改动一模一样。
 	forget(key: string): void {
 		this.entries = this.entries.filter(e => navGroupKey(e) !== key);
 		for (const fn of this.listeners)
 			fn();
 	}
 
-	// The pin, in miniature: `pinned` IS the block, and a change tells the listeners
-	// exactly as a removal does (see NavPlaces.afterPinChange).
+	// 钉住，缩微版：`pinned` 就是那一块，而一次改动通知监听者的方式和一次移除
+	// 一模一样（见 NavPlaces.afterPinChange）。
 	pin(key: string): void {
 		if (!this.pinned.includes(key))
 			this.pinned.push(key);
@@ -197,13 +193,21 @@ class FakeNav {
 			fn();
 	}
 
-	unpin(key: string): void {
+	unpin(key: string): { dropped: boolean } {
 		const at = this.pinned.indexOf(key);
 		if (at >= 0)
 			this.pinned.splice(at, 1);
 		for (const fn of this.listeners)
 			fn();
+		// 外壳套件不演排除规则：取钉从不带走行（见 NavPlaces.unpin）。
+		return { dropped: false };
 	}
+
+	wouldUnpinDrop(): undefined {
+		return undefined;
+	}
+
+	restorePinned(): void {}
 
 	movePinned(key: string, delta: number): void {
 		const at = this.pinned.indexOf(key);
@@ -222,17 +226,15 @@ class FakeNav {
 		return this.pinned.includes(key);
 	}
 
-	// The whole list, taken off at once (see NavPlaces.clear): what the real store
-	// spares is the pinned block, and the listeners hear it exactly as they hear a
-	// removal.
+	// 整个列表，一次性拿掉（见 NavPlaces.clear）：真实 store 留下的是钉住的那一
+	// 块，而监听者听到它的方式和听到一次移除一模一样。
 	clear(): void {
 		this.entries = this.entries.filter(e => this.pinned.includes(navGroupKey(e)));
 		for (const fn of this.listeners)
 			fn();
 	}
 
-	// A step the reader made elsewhere: every browser on screen is told (see
-	// NavPlaces.changed).
+	// 读者在别处做的一个步：屏幕上每个浏览器都被通知（见 NavPlaces.changed）。
 	moved(index: number): void {
 		this.index = index;
 		for (const fn of this.listeners)
@@ -244,33 +246,45 @@ class FakeNav {
 	}
 }
 
-function makeApp(paths: string[] = []) {
+function makeApp(
+	paths: string[] = [],
+	// 这些笔记**各自的小节**，按 app 的元数据缓存交出它们的样子（见 reads.ts 的
+	// readMeta）。一个测试要搜到某个小节，就得让它存在于 vault 里。
+	headings: Record<string, { heading: string; level: number; line: number }[]> = {},
+) {
 	const files: Record<string, TFile> = {};
 	for (const path of paths)
-		// A stat, as every TFile has one: a section chain read out of the file's own
-		// text is remembered against its mtime (see reads.ts).
+		// 一个 stat，正如每个 TFile 都有的那样：从文件自己的文本读出的章节链会连
+		// 同它的 mtime 一起被记住（见 reads.ts）。
 		files[path] = Object.assign(new TFile(), { path, stat: { ctime: 0, mtime: 0, size: 0 } });
-	// The app's own file-menu event: a row asks the APP what it can do with the file
-	// (see RecentFilesBrowser.contextRow), and what this panel hands the app is the
-	// menu OBJECT — so it is RECORDED rather than merely swallowed. A test that wants
-	// to know who took a menu off the screen has to be able to find it again.
+	// app 自己的文件菜单事件：一行会问 **app** 它能拿这个文件做什么（见
+	// RecentFilesBrowser.contextRow），而这个面板交给 app 的是菜单**对象** ——
+	// 所以它被**记下**而不是被简单地吞掉。想知道是谁把菜单从屏幕上拿走的测试，
+	// 得能再次找到它。
 	const trigger = vi.fn();
 	const app = {
 		vault: {
 			getAbstractFileByPath: (path: string) => files[path] ?? null,
 			cachedRead: async () => '',
-			// The file events the panel listens for while it stands (see body.ts's
-			// watchExistence). None is ever fired here — this suite is about the
-			// shell — so what is stubbed is only that listening costs nothing.
+			// 面板立着期间监听的那些文件事件（见 body.ts 的 watchExistence）。
+			// 这里一个都不会触发 —— 这个套件讲的是外壳 —— 所以被桩掉的只是
+			// 「监听不花代价」这一点。
 			on: () => () => {},
 			offref: () => undefined,
 		},
-		metadataCache: { getFileCache: () => null },
+		metadataCache: {
+			getFileCache: (file: TFile) => {
+				const hs = headings[file.path];
+				return hs
+					? { headings: hs.map(h => ({ ...h, position: { start: { line: h.line } } })) }
+					: null;
+			},
+		},
 		workspace: {
 			rootSplit: { containerEl: document.createElement('div') },
 			iterateAllLeaves: () => undefined,
-			// No markdown leaf is open in this file's harness: a note's lines are read
-			// off the disk here, if they are read at all (see now-line.ts).
+			// 这个文件的 harness 里没有打开任何 markdown leaf，所以一行「会落在哪里」
+			// 由位置数据库答、而不是由屏幕上的编辑器答（见 reads.ts）。
 			getLeavesOfType: () => [],
 			trigger,
 		},
@@ -278,9 +292,9 @@ function makeApp(paths: string[] = []) {
 	return { app: app as never, trigger };
 }
 
-// A mounted panel owns two timers — the five-minute tick, and the redraw a late
-// reading owes — and closing it is what stops them. Left open, one fires after
-// the environment it was drawn in is gone.
+// 一个挂载了的面板拥有两个定时器 —— 五分钟的滴答，以及一次迟到的读取所欠的重
+// 画 —— 而关掉它就是停住它们的东西。若一直开着，其中一个会在它被绘制的环境消失
+// 之后触发。
 const mounted: RecentFilesView[] = [];
 
 afterEach(async () => {
@@ -292,84 +306,82 @@ async function mount(
 	entries: NavEntry[],
 	index: number,
 	prefs: RecentFilesBrowserPrefs = browserPrefs(),
-	// Paths the VAULT holds that no entry names yet: a test that appends a step to the
-	// history while the panel is up needs the file behind it to exist, or the list
-	// filters the new place out (see RecentFilesList.render).
+	// 仓库持有、还没有任何条目点名的路径：一个在面板立着时往历史里追加步的测试，
+	// 需要它背后的文件存在，否则列表会把新地点过滤掉（见 RecentFilesList.render）。
 	extraPaths: string[] = [],
 	arrows: ReturnType<typeof browserArrows> = browserArrows(),
+	headings: Record<string, { heading: string; level: number; line: number }[]> = {},
 ) {
 	const nav = new FakeNav();
 	nav.entries = entries;
 	nav.index = index;
-	const { app, trigger } = makeApp([...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths]);
+	const { app, trigger } = makeApp(
+		[...entries.flatMap(e => (e.kind === 'view' ? [] : [e.path])), ...extraPaths],
+		headings,
+	);
 	const leaf = Object.assign(new WorkspaceLeaf(), { app });
-	// jsdom lays nothing out, so the pane reports width 0 — which is the INLINE
-	// presentation, the one that needs no second column (see RecentFilesView.measure).
+	// jsdom 不做任何布局，所以窗格报告宽度 0 —— 那是**内联**呈现，即不需要第二
+	// 列的那一种（见 RecentFilesView.measure）。
 	const view = new RecentFilesView(leaf, nav as never, () => undefined, prefs, arrows);
 	await view.onOpen();
 	mounted.push(view);
-	// The view's OWN container and content elements: what the pane hands the
-	// panel, and what Obsidian asks the view to build in.
+	// 视图**自己的**容器与内容元素：窗格交给面板的东西，以及 Obsidian 要求视图
+	// 在其中构建的东西。
 	const el = view.containerEl;
 	const rows = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'));
 	const names = () => rows().map(r => r.querySelector('.nav-row-name')?.textContent);
-	// The listbox itself: what the pointer events that decide whether the list is
-	// being READ arrive on (see RecentFilesBrowser.freezeOrder).
+	// listbox 本身：那些决定列表是否**正被阅读**的指针事件抵达之处（见
+	// RecentFilesBrowser.freezeOrder）。
 	const list = () => el.querySelector<HTMLElement>('.position-restore-nav-list')!;
 	return { view, el, nav, rows, names, list, trigger, arrows };
 }
 
-describe('RecentFilesView — the resident panel', () => {
+describe('RecentFilesView —— 常驻面板', () => {
 	beforeEach(() => {
-		// The app's own answers (see Keymap): an input a test sets, and one left over
-		// from the case before it would decide this one.
+		// app 自己的那些应答（见 Keymap）：一个测试设置的输入，若从前一个用例留
+		// 下来就会决定这一个。
 		KeymapKnobs.reset();
 		document.body.empty();
 	});
 
-	it('mounts the browser body into the pane, with no dialog around it', async () => {
+	it('把列表内容直接装进 pane，外面不套对话框', async () => {
 		const { view, el, names } = await mount([visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1);
 
-		// The body, whole: the toolbar — the search box, and nothing beside it — and
-		// the list of notes, the current one pinned first and marked. No setting of its
-		// own: the four choices are rows of the plugin's settings tab now (see
-		// RecentFilesBrowserPrefs).
+		// body，完整的：工具栏 —— 搜索框，旁边什么都没有 —— 以及笔记列表，当前
+		// 那篇钉在最前并标记。没有自己的设置：那四个选择现在是插件设置标签页里的
+		// 几行（见 RecentFilesBrowserPrefs）。
 		expect(el.querySelector('.position-restore-nav-filter')).not.toBeNull();
 		expect(el.querySelector('.position-restore-nav-settings')).toBeNull();
 		expect(names()).toEqual(['b', 'a']);
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent)
 			.toBe('b');
 
-		// The classes the shared presentation rules are written against (see
-		// styles.css): without them a sidebar panel would fall back to the stock
-		// text tiers.
+		// 共享呈现规则所针对的那些 class（见 styles.css）：没有它们，侧边栏面板
+		// 会退回到原生的文字层级。
 		expect(view.contentEl.classList.contains('position-restore-nav-panel')).toBe(true);
 		expect(view.contentEl.classList.contains('position-restore-nav-view')).toBe(true);
 	});
 
-	it('leaves the caret in the editor: a restored panel focuses nothing', async () => {
+	it('光标留在编辑器里：面板恢复时不抢焦点', async () => {
 		const { el } = await mount([visit('a.md', NOW)], 0);
 		const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
 
-		// The modal focuses this box on open, and is right to: it was opened on
-		// purpose, and typing is the fastest way through the list. A panel that is
-		// restored with the workspace must not take the caret out of the note.
+		// 模态框在打开时聚焦这个框，而且做得对：它是有意被打开的，打字是穿过列表
+		// 最快的方式。一个随工作区被恢复的面板，不许把光标从笔记里拿走。
 		expect(document.activeElement).not.toBe(input);
-		// …and it is still one click away, and it is where the arrow keys walk the list
-		// from. Nothing beside it says so: the hint that used to name the gesture is gone
-		// (a row in a list answers a click everywhere else in the app), and the list is
-		// click-only — a pointer passing over it changes nothing (see RecentFilesList).
+		// ……而它仍是一次点击之外，也是方向键走列表的起点。旁边没有任何东西这么
+		// 说：以前点明这个手势的那个提示没了（app 里别处一个列表中的行都应答点
+		// 击），而这个列表只认点击 —— 指针经过它什么都不改（见 RecentFilesList）。
 		expect(el.querySelector('.position-restore-nav-hint')).toBeNull();
 	});
 
-	it('follows the history while it is up', async () => {
+	it('面板开着的时候跟随浏览历史', async () => {
 		const { el, nav, names } = await mount(
 			[visit('a.md', NOW), visit('b.md', NOW - MINUTE)], 1, browserPrefs(), ['c.md']);
 		expect(names()).toEqual(['b', 'a']);
 
-		// The reader walks to another note elsewhere in the app: the stack grows
-		// under the panel and the panel redraws for it. Nothing was reopened; the
-		// whole point is that this one is still standing.
+		// 读者在 app 里别处走到另一篇笔记：栈在面板底下生长，面板为它重画。什么都没
+		// 被重新打开；整个重点是这一个仍然立着。
 		nav.entries = [...nav.entries, visit('c.md', NOW + MINUTE)];
 		nav.moved(2);
 
@@ -378,69 +390,64 @@ describe('RecentFilesView — the resident panel', () => {
 			.toBe('c');
 	});
 
-	// The list is HELD STILL while the pointer is on it (see
-	// RecentFilesBrowser.freezeOrder / RecentFilesListOptions.order). What a reader is
-	// looking at is the one thing a redraw must not re-arrange: a row that opens a
-	// note and then moves under the hand that opened it is a list that answers a
-	// click with a shuffle.
-	it('holds the order it is being read at, and catches up when the pointer leaves', async () => {
+	// 指针在列表上时，列表被**按住不动**（见 RecentFilesBrowser.freezeOrder /
+	// RecentFilesListOptions.order）。读者正在看的东西，恰恰是重画绝不能重新摆
+	// 放的那一件：一行打开了笔记然后在打开它的那只手底下移动，就是一个用洗牌应
+	// 答点击的列表。
+	it('正被读的顺序先按住不动，指针离开后再补上', async () => {
 		const { el, nav, names, list } = await mount([
-			place('a.md', NOW - 3 * MINUTE, 10),
-			place('b.md', NOW - 2 * MINUTE, 20),
-			place('c.md', NOW - MINUTE, 30),
+			visit('a.md', NOW - 3 * MINUTE),
+			visit('b.md', NOW - 2 * MINUTE),
+			visit('c.md', NOW - MINUTE),
 		], 2);
 		const current = () =>
 			el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent;
-		// Newest first: c, b, a.
+		// 最新在前：c、b、a。
 		expect(names()).toEqual(['c', 'b', 'a']);
 
 		list().dispatchEvent(new Event('pointerover', { bubbles: true }));
 
-		// The reader goes back to a.md — elsewhere in the app, with this panel still
-		// standing. A place that is sat in again is re-stamped and moves to the END of
-		// the list (see places.remember), so the order the store holds is no longer the
-		// order the reader is looking at: a.md is now the newest of the three.
+		// 读者回到 a.md —— 在 app 里别处，这个面板仍然立着。一个被再次坐进去的地
+		// 点会重新盖章并移到列表**末尾**（见 places.remember），所以 store 持有的
+		// 顺序不再是读者正看着的顺序：a.md 现在是三者里最新的。
 		nav.entries = [
 			...nav.entries.filter(e => e.kind === 'view' || e.path !== 'a.md'),
-			place('a.md', NOW, 10),
+			visit('a.md', NOW),
 		];
 		nav.moved(2);
 
-		// Nothing moved. The list is still the one they were reading, and the only
-		// thing that changed is WHERE they are: the mark is on the last row now, which
-		// is the row a.md kept (see RecentFilesList.fileRow).
+		// 什么都没动。列表仍是他们正在读的那个，唯一变的是他们**在哪儿**：标记现在
+		// 在最末那一行上，也就是 a.md 保留下来的那一行（见 RecentFilesList.fileRow）。
 		expect(names()).toEqual(['c', 'b', 'a']);
 		expect(current()).toBe('a');
 
-		// The pointer leaves, and with nobody reading it the list is free to catch up
-		// on the spot — rather than waiting for the next change to the history, which
-		// may be minutes away. Catching up means the store's order, which is now a.md
-		// first on its own merits (nothing lifts the current note to the top).
+		// 指针离开，既然没人在读它，列表就自由地就地追赶 —— 而不是等历史的下一次
+		// 改动，那可能是几分钟之后。追赶意味着 store 的顺序，现在 a.md 凭自己的
+		// 资格排在最前（没有任何东西把当前笔记抬到顶上）。
 		list().dispatchEvent(new Event('pointerleave', { bubbles: true }));
 
 		expect(names()).toEqual(['a', 'c', 'b']);
 		expect(current()).toBe('a');
 	});
 
-	// The ages on the rows are read off a clock, so a panel that just stands there
-	// would otherwise keep saying "5m" while the note it names got an hour old. The
-	// interval that fixes that belongs to the BODY (both shells are destroyed through
-	// it) — and a timer that outlives the panel it redraws is the leak this pins.
-	it('refreshes the ages while it stands, and stops when the panel closes', async () => {
+	// 行上的年纪是从时钟读的，所以一个只是立在那里的面板，本来会在它点名的笔记变
+	// 成一小时旧时还一直说着「5m」。修这个的定时器属于 **body**（两种外壳都经由它
+	// 被销毁）—— 而一个比它所重画的面板活得久的定时器，正是这里钉住的泄漏。
+	it('站着的时候刷新时间差，面板一关就停', async () => {
 		vi.useFakeTimers();
 		try {
-			const { view, el } = await mount([visit('a.md', NOW)], 0, browserPrefs('last', 'smart', true));
+			const { view, el } = await mount([visit('a.md', NOW)], 0, browserPrefs(true, 'smart', true));
 			const before = el.querySelector<HTMLElement>('.position-restore-nav-row.is-file')!;
 			expect(before).not.toBeNull();
 
-			// One tick: the list is rebuilt, so the element in hand is not the one on
-			// screen any more. (jsdom lays nothing out and the label's own text may not
-			// have changed at all — what a tick owes is a redraw, not a new word.)
+			// 一次滴答：列表被重建，所以手里那个元素不再是屏幕上的那个了。
+			// （jsdom 不做布局，标签自己的文字可能根本没变 —— 一次滴答欠的是重画，
+			// 不是换一个词。）
 			vi.advanceTimersByTime(TIME_REFRESH_MS);
 			expect(el.contains(before)).toBe(false);
 
-			// …and the interval is gone with the panel: a closed view must not go on
-			// redrawing a body that has been torn down.
+			// ……而这个定时器随面板一起没了：一个已关闭的视图不许继续重画一个已
+			// 被拆掉的 body。
 			await view.onClose();
 			const after = el.querySelector<HTMLElement>('.position-restore-nav-row.is-file')!;
 			vi.advanceTimersByTime(TIME_REFRESH_MS * 3);
@@ -450,46 +457,51 @@ describe('RecentFilesView — the resident panel', () => {
 		}
 	});
 
-	it('stops hearing about the history once it is closed', async () => {
+	it('关闭之后就不再听历史的消息', async () => {
 		const { view, nav } = await mount([visit('a.md', NOW)], 0);
 		expect(nav.listenerCount).toBe(1);
 
 		await view.onClose();
 		expect(nav.listenerCount).toBe(0);
-		// A step arriving after the close must not reach a destroyed body (the
-		// preview it renders holds components that are already unloaded).
+		// 关闭之后到达的一个步不许触到一个已销毁的 body（它渲染的预览持有的组件
+		// 已经卸载了）。
 		expect(() => nav.moved(0)).not.toThrow();
 	});
 
-	// The panel reads its preferences live, so a value changed while it stands needs
-	// no re-wiring — only a redraw. That is the whole of what the settings tab's row
-	// and the panel have to agree on (see PositionManager.refreshNavPanels): the
-	// value is written where settings are written, and every standing panel is asked
-	// to draw itself again.
-	it('redraws a standing list when a preference it draws by is changed', async () => {
-		const prefs = browserPrefs('last');
-		const entries: NavEntry[] = [
-			place('a.md', NOW - 2 * MINUTE, 10),
-			place('a.md', NOW - MINUTE, 40),
-			visit('b.md', NOW),
-		];
-		const { view, el } = await mount(entries, 2, prefs);
-		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(0);
+	// 面板实时读它的偏好，所以立着期间改的值不需要重新接线 —— 只要一次重画。这
+	// 就是设置标签页那一行和面板必须达成一致的全部（见
+	// PositionManager.refreshNavPanels）：值写在写设置的地方，而每一个立着的面板
+	// 都被要求把自己再画一遍。
+	it('改了它据以绘制的偏好时，正在显示的列表就地重画', async () => {
+		const prefs = browserPrefs(false);
+		const { view, el } = await mount(
+			[visit('a.md', NOW)], 0, prefs, [], browserArrows(),
+			{ 'a.md': [{ heading: '定价', level: 2, line: 10 }] },
+		);
+		const type = (text: string): void => {
+			const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+			input.value = text;
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+		};
 
-		// The reader picks "every landing" in the settings tab: the value is written
-		// there, and this panel is asked to draw again.
-		prefs.setLandings('all');
+		// 开关关着：搜索只认名字、路径与其它名字，而这篇笔记没有一样叫「定价」——
+		// 于是一行都不剩下。
+		type('定价');
+		expect(el.querySelectorAll('.position-restore-nav-row')).toHaveLength(0);
+
+		// 读者在设置标签页里打开大纲搜索：值写在那里，而这个面板被要求重画。
+		prefs.setOutline(true);
 		view.refresh();
 
-		// The list under the panel is the new one, in the same breath — nothing was
-		// reopened, and the reader did not have to wait for the history to move.
-		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
+		// 面板底下的列表在同一口气里就是新的 —— 什么都没被重新打开，读者也不必等
+		// 历史走动。那一节现在有它自己的一行。
+		expect(el.querySelectorAll('.position-restore-nav-row.is-heading')).toHaveLength(1);
 	});
 
-	// The drawer is a SHAPE, not a class: `this.leaf.parent` is whatever the app put
-	// there, and the typings' WorkspaceMobileDrawer is not necessarily something the
-	// app's runtime module exports — an `instanceof` against a missing name throws,
-	// and (before the travel) that made the panel answer no click at all on a phone.
+	// 抽屉是一个**形状**，不是一个 class：`this.leaf.parent` 是 app 放在那里的任何
+	// 东西，而类型声明里的 WorkspaceMobileDrawer 不一定是 app 运行时模块导出的东
+	// 西 —— 对一个缺失的名字做 `instanceof` 会抛，而（在这次前往之前）这让面板在
+	// 手机上对任何点击都不应答。
 	const drawer = () => {
 		const d = {
 			collapsed: false,
@@ -498,21 +510,20 @@ describe('RecentFilesView — the resident panel', () => {
 		return d;
 	};
 
-	it('collapses the phone\'s drawer on a travel, so the note it opened can be seen', async () => {
-		// On a phone the resident panel IS a drawer over the whole screen: a row that
-		// opens a note behind it looks like a row that did nothing. The panel itself
-		// stays in the layout — collapsing is not closing, and where to put it is the
-		// reader's business.
+	it('手机上做前进后退时把抽屉收起来，好让被打开的那篇看得见', async () => {
+		// 手机上常驻面板**就是**盖住整屏的一个抽屉：一行在它背后打开一篇笔记，看
+		// 起来就像一行什么都没做。面板自己仍留在布局里 —— 折叠不是关闭，而把它放
+		// 在哪儿是读者的事。
 		const { el, nav, view } = await mount(
-			[place('a.md', NOW - MINUTE, 10), visit('b.md', NOW)], 1, browserPrefs('all'));
+			[visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
 		const pane = drawer();
 		(view.leaf as unknown as { parent?: unknown }).parent = pane;
 		const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		const note = () => Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === 'a')!;
 
-		// A desktop leaf's parent is a tab group, not a drawer: nothing moves, because
-		// the panel stands beside the note already.
+		// 桌面端 leaf 的父节点是一个标签页组，不是抽屉：什么都不动，因为面板已经
+		// 立在笔记旁边了。
 		click(note());
 		expect(pane.collapsed).toBe(false);
 		expect(nav.jumped).toHaveLength(1);
@@ -528,15 +539,14 @@ describe('RecentFilesView — the resident panel', () => {
 		expect(nav.jumped).toHaveLength(2);
 	});
 
-	it('takes the menu it raised off the screen before it folds the drawer away', async () => {
-		// The menu stands on the DOCUMENT and not in this panel's element, and it is the
-		// app's: what the app takes one off the screen for is a click outside it, an
-		// item chosen on it, or Escape. Folding a drawer is none of those, so a panel
-		// that steps out of the reader's way has to take its own menu with it (see
-		// RecentFilesBrowser.closeMenu).
+	it('先把弹起的菜单撤下屏幕，再收抽屉', async () => {
+		// 菜单立在**文档**上，不在这个面板的元素里，而且它是 app 的：app 把菜单从
+		// 屏幕上拿走的条件是在它外面点一下、在上面选中一项、或者 Escape。折叠抽屉
+		// 哪个都不是，所以一个给读者让路面板得把自己的菜单一起带走（见
+		// RecentFilesBrowser.closeMenu）。
 		const wasMobile = Platform.isMobile;
-		// …and the row's menu control is a PHONE's (see RecentFilesList.menuControl),
-		// which is decided while the panel is being mounted.
+		// ……而行的菜单控件是**手机**的（见 RecentFilesList.menuControl），它在面板
+		// 挂载期间被决定。
 		Platform.isMobile = true;
 		try {
 			const { el, trigger, view } = await mount(
@@ -553,7 +563,7 @@ describe('RecentFilesView — the resident panel', () => {
 			const menu = trigger.mock.calls[0][1] as { closed: boolean };
 			expect(menu.closed).toBe(false);
 
-			// …and then the reader travels, and the drawer folds.
+			// ……然后读者前往，抽屉就折叠了。
 			click(row);
 
 			expect(pane.collapsed).toBe(true);
@@ -563,13 +573,12 @@ describe('RecentFilesView — the resident panel', () => {
 		}
 	});
 
-	it('travels even when the shell\'s reaction throws', async () => {
-		// The reader asked to go somewhere; the shell's own reaction (a dialog closing,
-		// a drawer folding) is the shell's business. One that throws must cost them the
-		// reaction, not the journey — the failure mode this test exists for was a
-		// mobile panel where every click did nothing at all.
+	it('外壳的响应抛了错，前进后退照样走', async () => {
+		// 读者要求去某处；外壳自己的反应（一个对话框关闭、一个抽屉折叠）是外壳的
+		// 事。一个抛了的反应让他们付出的必须是这个反应，不是这趟行程 —— 这个测试
+		// 所针对的故障模式，是一个每次点击都什么都不做的移动端面板。
 		const { el, nav, view } = await mount(
-			[place('a.md', NOW - MINUTE, 10), visit('b.md', NOW)], 1, browserPrefs('all'));
+			[visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
 		(view.leaf as unknown as { parent?: unknown }).parent = {
 			collapsed: false,
 			collapse(): void { throw new Error('no drawer'); },
@@ -591,13 +600,11 @@ describe('RecentFilesView — the resident panel', () => {
 		expect(nav.jumped).toHaveLength(1);
 	});
 
-	// A travel re-orders the list at the same moment it starts the drawer this panel
-	// stands in sliding off the screen: the place just sat in becomes the newest, so the
-	// row the reader aimed at climbs to the top of a list that is on its way out, and the
-	// "you are here" mark rides along with it. The panel is leaving anyway — what it owes
-	// the reader is a list that is true the next time the drawer is pulled open, and
-	// nothing in between (see RecentFilesView.standAside).
-	it('holds the list still while the panel leaves the screen, and catches up once it has gone', async () => {
+	// 一次前往在它让本面板所在的抽屉开始滑出屏幕的同一刻重排列表：刚坐进去的地
+	// 点成了最新的，于是读者瞄准的那一行爬到一个正在退场的列表顶端，
+	// 「你在这里」的标记跟着一起。反正面板正在离开 —— 它欠读者的是一份下次拉开
+	// 抽屉时为真的列表，中间什么都不欠（见 RecentFilesView.standAside）。
+	it('面板离场期间按住列表不重画，等它走了再补', async () => {
 		vi.useFakeTimers();
 		try {
 			const { el, nav, view, names } = await mount(
@@ -609,7 +616,7 @@ describe('RecentFilesView — the resident panel', () => {
 			const note = () => Array
 				.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 				.find(r => r.querySelector('.nav-row-name')?.textContent === 'b')!;
-			// Newest first, and c is the note the reader is standing in.
+			// 最新在前，而 c 是读者正站着的笔记。
 			expect(names()).toEqual(['c', 'b', 'a']);
 
 			const wasMobile = Platform.isMobile;
@@ -620,14 +627,13 @@ describe('RecentFilesView — the resident panel', () => {
 				Platform.isMobile = wasMobile;
 			}
 
-			// The drawer is on its way out and the travel has landed — the list the reader
-			// is still looking at has not moved. Drawn, b would be at the top already.
+			// 抽屉正在退场，而前往已经落地 —— 读者仍看着的列表没有动。若重画过，
+			// b 早就在顶端了。
 			expect(pane.collapsed).toBe(true);
 			expect(nav.jumped).toEqual([1]);
 			expect(names()).toEqual(['c', 'b', 'a']);
 
-			// …and once the panel is out of sight it catches up in ONE redraw: b is the
-			// newest place now.
+			// ……而面板一离开视野，它就**一次**重画追上：b 现在是那处最新的地点。
 			vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
 			expect(names()).toEqual(['b', 'a']);
 		} finally {
@@ -635,11 +641,10 @@ describe('RecentFilesView — the resident panel', () => {
 		}
 	});
 
-	// A panel can be closed while it is holding a redraw back — the reader swipes the
-	// drawer away, or closes the pane, inside the same few hundred milliseconds. Nothing
-	// is owed then either: the catch-up dies with the panel it was held for, rather than
-	// drawing into a body that has been torn down.
-	it('drops the redraw it is holding back when the panel is closed on the way out', async () => {
+	// 一个面板可以在它压着一次重画时被关掉 —— 读者在同一几百毫秒里把抽屉划走，
+	// 或者关上窗格。那时也什么都不欠：追赶随它所为之而压的那个面板一起死掉，而不
+	// 是画进一个已被拆掉的 body。
+	it('半路上就把面板关掉时，压着的那次重画直接丢掉', async () => {
 		vi.useFakeTimers();
 		try {
 			const { el, view } = await mount([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
@@ -662,19 +667,18 @@ describe('RecentFilesView — the resident panel', () => {
 
 			vi.advanceTimersByTime(PANEL_EXIT_GRACE_MS);
 
-			// The timer went with the panel: had it fired, the list would have been rebuilt
-			// and this element would no longer be the one standing in the pane.
+			// 定时器随面板一起走了：若它触发过，列表就会被重建，而这个元素就不再
+			// 是立在窗格里的那个了。
 			expect(el.contains(row)).toBe(true);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	// On a desktop none of it applies, and that is what this pins: the panel stays put,
-	// so the re-ordering is the ANSWER rather than a distraction — the note the reader
-	// went to takes the top row and the mark with it. A panel standing in full view must
-	// not be a step behind the history it is showing.
-	it('redraws on the spot where the panel stays put', async () => {
+	// 桌面端这些都不适用，而这就是这里钉住的：面板留在原地，所以重排是**应答**
+	// 而不是干扰 —— 读者去的那篇笔记拿走顶行和标记。一个立在众人眼前的面板，不许
+	// 比它所展示的历史晚一步。
+	it('面板原地不动时就地重画', async () => {
 		const { el, names } = await mount(
 			[visit('a.md', NOW - 2 * MINUTE), visit('b.md', NOW - MINUTE), visit('c.md', NOW)], 2);
 		const click = (row: HTMLElement) =>
@@ -686,16 +690,15 @@ describe('RecentFilesView — the resident panel', () => {
 
 		click(note());
 
-		// Drawn in the same breath as the travel: no timer, nothing held back.
+		// 与这次前往在同一口气里画出：没有定时器，什么都没被压住。
 		expect(names()).toEqual(['b', 'a']);
 	});
 
-	// THE FOUR ARROWS, and the one thing about them only a panel that STAYS can show: a
-	// step is ASYNC — it opens a note and waits for it — so the four are asked again once
-	// it has LANDED, and not under it. Asked on the spot, a traversal in flight answers
-	// "no step either way" and both arrows sit greyed for as long as it takes, which is
-	// how two live buttons come to look like two broken ones.
-	it('asks the four again once an arrow\'s act has landed, and not under it', async () => {
+	// **那四个箭头**，以及只有**常驻**的面板才展示得出的那一点：一个步是异步的
+	// —— 它打开一篇笔记并等它 —— 所以这四个是在它**落地**之后再问，而不是在它
+	// 底下问。当场问的话，一次在途的遍历会答「两边都没有步」，两个箭头就会一直
+	// 灰着，就这样两个活按钮看起来像两个坏的。
+	it('箭头动作落地之后才重问那四个按钮，不是在执行途中', async () => {
 		const { el, arrows } = await mount([visit('a.md', NOW - MINUTE), visit('b.md', NOW)], 1);
 		const [back, forward] = Array.from(
 			el.querySelectorAll<HTMLButtonElement>('.position-restore-nav-arrow'));
@@ -703,8 +706,8 @@ describe('RecentFilesView — the resident panel', () => {
 
 		arrows.hold();
 		back.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		// The step is still open: the answer changed under it, and nothing has been asked
-		// again — so nothing has been drawn from it either.
+		// 这个步还敞着：应答在它底下变了，而什么都没被重新问 —— 所以也什么都没从
+		// 它画出来。
 		arrows.set({ back: false });
 		await Promise.resolve();
 		expect(back.disabled).toBe(false);
@@ -716,44 +719,56 @@ describe('RecentFilesView — the resident panel', () => {
 	});
 });
 
-describe('RecentFilesView — the pointer is driven by clicks only', () => {
-	// A note with several spots, so there is a landing row to click once the list is
-	// asked to print them (see groupByFile / LandingsMode). The list runs OLDEST FIRST,
-	// which is the order a real history is built in (see NavStack.push): the newest
-	// thing the reader did in a.md is the second step, not the first.
+describe('RecentFilesView —— 指针只由点击驱动', () => {
+	// 三篇笔记、**三行**：一份列表不为同一篇笔记画两行（见 groupByFile）。列表按
+	// **最新在前**排，所以读者此刻所在的 c.md 在最前。
 	const stack = () => [
-		place('a.md', NOW - 2 * MINUTE, 10),
-		place('a.md', NOW - MINUTE, 40),
-		place('b.md', NOW, 0),
+		visit('a.md', NOW - 2 * MINUTE),
+		visit('b.md', NOW - MINUTE),
+		visit('c.md', NOW),
 	] as NavEntry[];
 
+	// 读者**搜**到的那些小节（见 list.ts 的 HeadingHit）：a.md 里有一个叫「定价」的。
+	const heads = { 'a.md': [{ heading: '定价', level: 2, line: 10 }] };
+
 	const click = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	// The RIGHT button, and a finger's lingering press (the same event with the left
-	// button's number): neither opens anything (see RecentFilesList.onContextMenu).
+	// **右键**，以及手指的持久按压（同一个事件、带左键的编号）：两者都不打开任何
+	// 东西（见 RecentFilesList.onContextMenu）。
 	const rightClick = (el: HTMLElement) => el.dispatchEvent(
 		new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }),
 	);
 	const noteRow = (el: HTMLElement, name: string) =>
 		Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-file'))
 			.find(r => r.querySelector('.nav-row-name')?.textContent === name)!;
+	// 往搜索框里打字：框里的文本**就是**列表的查询，所以每敲一次键列表就被重画。
+	const type = (el: HTMLElement, text: string): void => {
+		const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		input.value = text;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+	};
 
-	it('chooses nothing on hover: only a click is a gesture', async () => {
+	// 修饰键是 app 的应答，而上一个用例设过的那个会决定这一个（见 Keymap）。
+	beforeEach(() => {
+		KeymapKnobs.reset();
+	});
+
+	it('悬停不选中任何东西：只有点击才算手势', async () => {
 		const { el } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 
-		// Nothing is chosen as the panel opens (see RecentFilesList.choose: a position is
-		// a key or a click, and a click travels).
+		// 面板打开时什么都没被选中（见 RecentFilesList.choose：一个位置是一个 key
+		// 或一次点击，而一次点击会行进）。
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 
-		// A mouse merely crossing the rows is not a choice. This is the rule the list is
-		// built on (see RecentFilesList): a list that lurches under a passing mouse
-		// selects a row nobody chose.
+		// 鼠标仅仅经过这些行不算一个选择。这是列表所据以建立的规则（见
+		// RecentFilesList）：一个在路过的鼠标底下突然一动一动的列表，会选中一行
+		// 没人选过的行。
 		note().dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
 		note().dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 40 }));
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 
-		// …and neither is the keyboard's own position taken away by one: ↓ walks, and the
-		// pointer crossing what it walked to leaves it where it is.
+		// ……键盘自己的位置也不会被它夺走：↓ 走，而指针经过它走到的地方时会把它
+		// 留在原地。
 		el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!
 			.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).not.toBeNull();
@@ -761,153 +776,151 @@ describe('RecentFilesView — the pointer is driven by clicks only', () => {
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).not.toBeNull();
 	});
 
-	it('prints a note\'s places when the list is asked for them', async () => {
-		const { el } = await mount(stack(), 2, browserPrefs('all'));
+	it('搜到的那些小节各自成为一行，没搜到就一行都不画', async () => {
+		const { el } = await mount(stack(), 2, browserPrefs(), [], browserArrows(), heads);
 
-		// Both of a.md's places, and nothing under b.md, which holds one (see
-		// RecentFilesList.printsLandings): one place is not a list.
-		expect(el.querySelectorAll('.position-restore-nav-row.is-place')).toHaveLength(2);
-		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(2);
+		// 没有查询就没有「搜到的东西」：这三行只是笔记。
+		expect(el.querySelectorAll('.position-restore-nav-row.is-heading')).toHaveLength(0);
+
+		type(el, '定价');
+
+		// 只有 a.md 留了下来，而它搜到的那一节挂在它下面 —— 一节一行，且只有那一篇
+		// 有（见 listing.ts 的 matchedHeadings）。
+		expect(el.querySelectorAll('.position-restore-nav-row.is-file')).toHaveLength(1);
+		expect(el.querySelector('.position-restore-nav-row.is-heading .nav-row-heading')?.textContent)
+			.toBe('定价');
 	});
 
-	it('opens in a new tab where the app says so, and stays standing', async () => {
-		// The modifier is the APP's answer (see Keymap.isModEvent), and the panel's own
-		// contract does not change with it: a resident panel answers a click by going
-		// somewhere, and it is still there afterwards — the note opened beside it, the
-		// reader's place in the list cleared rather than carried over (see
-		// RecentFilesList.collapse).
+	it('app 要求开新标签页时就开新标签页，面板保持不倒', async () => {
+		// 修饰键是 **app** 的应答（见 Keymap.isModEvent），而面板自己的契约不随它
+		// 变：一个常驻面板应答点击的方式是去某处，而它之后仍在那里 —— 笔记在它旁
+		// 边打开，读者在列表里的位置被清掉而不是带过去（见
+		// RecentFilesList.collapse）。
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 		KeymapKnobs.modEvent = 'tab';
 
 		click(note());
 
-		expect(nav.jumped).toEqual([1]);
+		expect(nav.jumped).toEqual([0]);
 		expect(nav.targets).toEqual(['tab']);
 		expect(el.querySelector('.position-restore-nav-list')).not.toBeNull();
 		expect(nav.listenerCount).toBe(1);
 	});
 
-	it('opens the file from the row itself, in one click', async () => {
+	it('点一下行本身就打开这个文件', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = () => noteRow(el, 'a');
 
-		// The row IS the navigation — that is what a navigator is for, and the name is the
-		// target. The reader who already knows where they are going spends ONE click.
+		// 行**就是**导航 —— 导航器就是干这个的，而名字就是目标。已经知道要去哪儿
+		// 的读者只花**一次**点击。
 		click(note());
 
-		// It opens the landing the note's row stands for: the NEWEST one, where the
-		// reader left that note — step 1, L40 — and not the top of the note (step 0,
-		// L10), which is what the row meant while its landings ran in line order (see
-		// RecentFilesList.activeRep). And no row is left selected: a click travels.
-		expect(nav.jumped).toEqual([1]);
+		// 它打开那一行所代表的那篇笔记 —— 与在文件浏览器里点它完全一样，落在哪儿
+		// 由位置数据库答（见 RecentFilesList.activeRep）。而且没有留下一行被选中：
+		// 一次点击会行进。
+		expect(nav.jumped).toEqual([0]);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 
-	it('opens a landing row at ITS place', async () => {
-		const { el, nav } = await mount(stack(), 2, browserPrefs('all'));
-		const place = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
-			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L11')!;
+	it('大纲行按它自己那一节前往，而不是那篇笔记的开头', async () => {
+		const { el, nav } = await mount(stack(), 2, browserPrefs(), [], browserArrows(), heads);
+		type(el, '定价');
+		const row = el.querySelector<HTMLElement>('.position-restore-nav-row.is-heading')!;
 
-		// a.md's OLDER landing — the step recorded at scroll 10, printed "L11" (the label
-		// is 1-based, see describeNavEntry) and the one the note's own row does NOT stand
-		// for. A landing row is a destination of its own.
-		click(place);
+		click(row);
 
-		expect(nav.jumped).toEqual([0]);
-		// A resident panel stays standing: the travel rewrites the list under it.
+		// 那一节自己带着去哪儿：它**此刻**在第 11 行（0-based 10，现查）。它不走
+		// 一条记录 —— 那一节不是列表上的一个地点 —— 所以 `jumped` 一个都没有，而
+		// 常驻面板仍立着。
+		expect(nav.headed).toEqual(
+			[{ path: 'a.md', heading: '定价', line: 10, target: undefined }],
+		);
+		expect(nav.jumped).toEqual([]);
 		expect(el.querySelector('.position-restore-nav-list')).not.toBeNull();
 		expect(nav.listenerCount).toBe(1);
 	});
 
-	it('opens nothing on a right-click', async () => {
+	it('右键什么也不打开', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = noteRow(el, 'a');
 
 		rightClick(note);
 
-		// The right button no longer travels: a row is opened by clicking it, and a
-		// second button that opens the same thing is a gesture to learn for nothing
-		// (see RecentFilesList.onContextMenu).
+		// 右键不再行进：一行靠点击它打开，而第二个打开同一件东西的按钮是一个学了
+		// 也白学的手势（见 RecentFilesList.onContextMenu）。
 		expect(nav.jumped).toEqual([]);
 	});
 
-	it('leaves a press that was only held down where it was', async () => {
+	it('只是按住没有点实，就当它没发生', async () => {
 		const { el, nav } = await mount(stack(), 2);
 		const note = noteRow(el, 'a');
 
-		// The same event a WebView raises for a long touch, with the LEFT button on it:
-		// nothing opens (see RecentFilesList.onContextMenu). It is the one that made a slow
-		// tap on a tablet's file name look like a jump.
+		// WebView 为一次长按触发的是同一个事件，上面带的是**左**键：什么都不打开
+		// （见 RecentFilesList.onContextMenu）。正是它让平板上一次慢速点按文件名
+		// 看起来像一次 jump。
 		const held = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0 });
 		note.dispatchEvent(held);
 
 		expect(nav.jumped).toEqual([]);
-		// Still refused, all the same: a row offers no menu, no callout and no selection
-		// — a held press simply does nothing here.
+		// 仍然照样被拒：一行不提供菜单、不提供气泡、不提供选中 —— 一次持久按压在
+		// 这里就是什么都不做。
 		expect(held.defaultPrevented).toBe(true);
 	});
 
-	// The jump REWRITES the stack: the note it landed on is re-pushed on top, so every
-	// stack index below it shifts and the groups are rebuilt. A position
-	// kept across that rewrite stands on whatever slid into its slot. This is that list,
-	// and the regression it guards.
-	it('starts the next list from a cleared position, not from the row that used to be in that slot', async () => {
+	// 这次前往**重写**了历史：被坐进去的那篇笔记成了最新的一条，于是各行被重建。
+	// 一个跨过这次重写保留下来的位置，会站在滑进它那个槽位的任何东西上 —— 那正是
+	// 它必须被折叠掉的原因。这就是那份列表，以及它守着的回归。
+	it('下一次列表从新历史起算，而没有一个位置被留给占着那个槽位的行', async () => {
 		const entries = [
-			place('a.md', NOW - 5 * MINUTE, 10),
-			place('b.md', NOW - 4 * MINUTE, 5),
-			place('b.md', NOW - 3 * MINUTE, 50),
-			place('c.md', NOW - 2 * MINUTE, 7),
-			place('c.md', NOW - MINUTE, 30),
-			place('d.md', NOW, 1),
+			visit('a.md', NOW - 3 * MINUTE),
+			visit('b.md', NOW - 2 * MINUTE),
+			visit('c.md', NOW - MINUTE),
+			visit('d.md', NOW),
 		] as NavEntry[];
-		// The list as it stands: d (current) first, then c, b, a. c is the note below the
-		// top one, and its older landing is the index the jump is about to give to b.
-		const { el, nav } = await mount(entries, 5, browserPrefs('all'));
-		const places = () => el.querySelectorAll('.position-restore-nav-row.is-place').length;
+		// 列表现在的样子：d（当前）在最前，然后 c、b、a。
+		const { el, nav, names } = await mount(entries, 3);
+		expect(names()).toEqual(['d', 'c', 'b', 'a']);
 
-		// b prints its two spots and c its two: a and d hold one each, which is not a list
-		// of its own (see RecentFilesList.printsLandings).
-		expect(places()).toBe(4);
-		// c's older landing — the step recorded at scroll 7, printed "L8": the top of that
-		// note by line order, which is not the one its own row stands for (the newest,
-		// scroll 30) but the one this reader picked.
-		const row = Array.from(el.querySelectorAll<HTMLElement>('.position-restore-nav-row.is-place'))
-			.find(r => r.querySelector('.nav-row-line')?.textContent === 'L8')!;
-		click(row);
+		// 键盘先停在 c 那一行上（↓ 两次）：位置属于**那一行**，而列表就要在它下面
+		// 被重写。
+		const input = el.querySelector<HTMLInputElement>('.position-restore-nav-filter')!;
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		expect(el.querySelector('.position-restore-nav-row.is-selected .nav-row-name')?.textContent)
+			.toBe('c');
 
-		expect(nav.jumped).toEqual([3]);
-		// The note travelled to is now the current one — and, being the place just sat
-		// in, the newest one, so its row is the list's first…
+		click(noteRow(el, 'c'));
+
+		expect(nav.jumped).toEqual([2]);
+		// 前往到的那篇笔记现在是当前那一篇 —— 而既然它是刚被坐进去的地方，它就是
+		// 最新的，所以它的行是列表的第一行……
 		expect(el.querySelector('.position-restore-nav-row.is-current .nav-row-name')?.textContent).toBe('c');
-		// …and the stack was rewritten under the panel: the jump left c holding ONE spot,
-		// while b — which took the slot c's old landing index pointed into — prints its own
-		// two. The list is drawn from the new stack either way; what the collapse buys is
-		// that nothing is left POINTED at (see RecentFilesList.collapse).
-		expect(places()).toBe(2);
+		// ……而历史在面板底下被重写了：无论怎样，列表都是从它现在的样子画出的；
+		// 折叠换来的是没有任何东西被**指着**（见 RecentFilesList.collapse）。
+		expect(names()).toEqual(['c', 'b', 'a']);
 		expect(el.querySelector('.position-restore-nav-row.is-selected')).toBeNull();
 	});
 });
 
-// The TAB's own menu: the app raises it for a right-click on the tab and hands it to
-// the view to fill in (see RecentFilesView.onPaneMenu), so what the panel owes is an
-// ITEM rather than a surface of its own — and the one item it adds is about the LIST,
-// where everything the app puts there is about the PANE.
+// **标签页**自己的菜单：app 为标签页上的右键抬起它并交给视图去填（见
+// RecentFilesView.onPaneMenu），所以面板欠的是一个**条目**而不是它自己的一面 ——
+// 而它加的那一个条目是关于**列表**的，而 app 放在那里的每一样都是关于**窗格**
+// 的。
 //
-// The menu the app hands over is the app's own class; the one a test can read items
-// off is the stub's, and the two meet in one cast, as they do everywhere else in this
-// file (see `nav as never` in mount).
+// app 交出的菜单是 app 自己的类；测试能从上面读条目的是桩的，两者在一次 cast 里
+// 相遇，就像本文件别处那样（见 mount 里的 `nav as never`）。
 const menuFor = (view: RecentFilesView) => {
 	const menu = new Menu();
 	view.onPaneMenu(menu as never);
 	return menu;
 };
 
-describe('RecentFilesView — the tab’s own menu', () => {
-	it('offers the whole list to be cleared, and leaves the pinned block standing', async () => {
-		// The list as the store holds it — OLDEST FIRST, the order a real history is
-		// built in (see NavPlaces.remember) — and as the panel draws it, newest first
-		// under the pinned block.
+describe('RecentFilesView —— 标签页自己的菜单', () => {
+	it('提供清空整个列表的菜单项，置顶区不受影响', async () => {
+		// 列表按 store 持有它的样子 —— **最旧在前**，真实历史被建起来的顺序（见
+		// NavPlaces.remember）—— 以及按面板绘制它的样子：钉住的那一块之下，最新
+		// 在前。
 		const { view, el, nav, names } = await mount([
 			visit('c.md', NOW - 2 * MINUTE),
 			visit('b.md', NOW - MINUTE),
@@ -920,32 +933,31 @@ describe('RecentFilesView — the tab’s own menu', () => {
 
 		expect(menu.items).toHaveLength(1);
 		expect(menu.items[0].title).toBe(t('recentFiles.clearList'));
-		// 'action' is where the app sorts a view's own items ahead of its own (see
-		// body.ts's contextRow).
+		// 'action' 是 app 把视图自己的条目排在自己的之前的地方（见 body.ts 的
+		// contextRow）。
 		expect(menu.items[0].section).toBe('action');
 
-		// Chosen: everything the list remembered BY ITSELF goes — b and c — and the pin
-		// stands. The panel heard it through its subscription rather than being asked:
-		// a resident panel is drawn from the list as it stands (see hearPlaces).
+		// 选中之后：列表**靠自己**记住的每一样都去掉 —— b 和 c —— 而钉住的那个留
+		// 着。面板是通过它的订阅听到的，而不是被要求：常驻面板按列表现在的样子画
+		// （见 hearPlaces）。
 		menu.items[0].click?.();
 
 		expect(names()).toEqual(['a']);
 		expect(el.querySelectorAll('.position-restore-nav-row')).toHaveLength(1);
 	});
 
-	it('offers nothing to clear where a clear would take nothing off', async () => {
-		// An item that would empty nothing is worse than an item that is not there
-		// (see body.ts's pinItems), and a list of pins alone is already what a clear
-		// leaves behind.
+	it('清了也一个不少时，不提供清空项', async () => {
+		// 一个清空不了任何东西的条目，比一个不在那里的条目更糟（见 body.ts 的
+		// pinItems），而一份只有钉住项的列表，本来就已经是清空会留下的东西了。
 		const { view, nav } = await mount([visit('a.md', NOW)], 0);
 		nav.pin('a.md');
 
 		expect(menuFor(view).items).toEqual([]);
 	});
 
-	it('offers nothing to clear on a list that holds nothing at all', async () => {
-		// A panel opened before the reader has been anywhere: the menu is the app's,
-		// and this panel puts nothing on it.
+	it('列表一条都没有时不提供清空项', async () => {
+		// 一个在读者还没去过任何地方之前就打开的面板：菜单是 app 的，而这个面板不
+		// 往上面放任何东西。
 		const { view } = await mount([], -1);
 
 		expect(menuFor(view).items).toEqual([]);
@@ -953,7 +965,7 @@ describe('RecentFilesView — the tab’s own menu', () => {
 });
 
 describe('activateRecentFilesView', () => {
-	it('brings the panel that is already open back rather than opening a second', async () => {
+	it('面板已经开着就把它唤回来，而不是再开一个', async () => {
 		const leaf = new WorkspaceLeaf();
 		const revealLeaf = vi.fn(async () => {});
 		const getRightLeaf = vi.fn();
@@ -968,14 +980,14 @@ describe('activateRecentFilesView', () => {
 		await activateRecentFilesView(app as never, new FakeNav() as never, undefined, browserPrefs());
 
 		expect(revealLeaf).toHaveBeenCalledWith(leaf);
-		// Two panels of one history, each with its own filter and its own open
-		// notes, is a way to be shown two different answers to one question.
+		// 同一份历史的两个面板，各有自己的过滤器和自己打开的笔记，是一种被展示同
+		// 一个问题两个不同答案的方式。
 		expect(getRightLeaf).not.toHaveBeenCalled();
 	});
 
-	it('opens the panel in the right sidebar when there is none', async () => {
-		// The stub's leaf carries the `state` the last setViewState was handed;
-		// the app's own typings do not declare it (see obsidian-stub.ts).
+	it('还没有面板时在右侧栏打开', async () => {
+		// 桩的 leaf 带着最后一次 setViewState 所收到的 `state`；app 自己的类型声明
+		// 没有声明它（见 obsidian-stub.ts）。
 		const leaf = new WorkspaceLeaf() as WorkspaceLeaf & { state: unknown };
 		const revealLeaf = vi.fn(async () => {});
 		const app = {

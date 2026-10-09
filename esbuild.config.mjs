@@ -1,19 +1,17 @@
-// The whole build, and there is no bundler around it: esbuild reads the
-// TypeScript, resolves `@/…` from tsconfig's own `paths`, bundles, minifies and
-// writes the sourcemap — five rollup plugins' worth of work in one call, and
-// roughly a hundredth of the time (37 ms against 3.7 s).
+// 整个构建就这一个文件，外面没有打包器：esbuild 读 TypeScript、按 tsconfig 自己的
+// `paths` 解析 `@/…`、打包、压缩、写 sourcemap —— 五个 rollup 插件干的活一次调用
+// 做完，耗时大约只有它们的一百分之一。
 //
-// What it does NOT do is TYPE CHECK: esbuild erases types without ever looking
-// at them, so `npm run build` runs `tsc --noEmit` first (see package.json) — a
-// build that never checks a type would wave a broken file through in silence.
+// 它**不**做的一件事是类型检查：esbuild 抹掉类型时压根不看它们一眼，所以
+// `npm run build` 先跑 `tsc --noEmit`（见 package.json）—— 一个从不检查类型的构建
+// 会把坏文件悄无声息地放过去。
 import esbuild from 'esbuild';
 import { copyFileSync, mkdirSync, readFileSync, watch } from 'node:fs';
 
 const isProd = process.argv.includes('--prod');
 const isWatch = process.argv.includes('--watch');
 
-// `dist/` IS the plugin: main.js, manifest.json, styles.css. The project root
-// holds sources only.
+// `dist/` **就是**插件本身：main.js、manifest.json、styles.css。项目根只放源码。
 const OUT_DIR = 'dist';
 const CSS_SOURCE = 'styles.css';
 const MANIFEST = 'manifest.json';
@@ -34,37 +32,31 @@ const js = {
 	bundle: true,
 	format: 'cjs',
 	platform: 'browser',
-	// tsconfig's own target, and the one Obsidian's own sample plugin ships.
-	// Measured against es2019: 4.2 kB smaller (1.2 kB gzipped) — `??`, `?.` and
-	// class fields stop being rewritten into their ES2019 equivalents, and
-	// nothing this plugin supports (minAppVersion 1.13) runs anything older.
+	// 用 tsconfig 自己的 target，也是 Obsidian 官方示例插件用的那个。
+	// 比 es2019 更小 —— `??`、`?.` 和类字段不再被改写成 ES2019 的等价物，而这个
+	// 插件支持的任何环境（minAppVersion 1.13）都不会跑更旧的东西。
 	target: 'es2021',
-	// What Obsidian hands the plugin at runtime, so it must not be bundled: a
-	// second copy of CodeMirror or Lezer would be a DIFFERENT instance than the
-	// app's, and the two would not share state.
+	// Obsidian 在运行时就交给插件的东西，所以不能打进包里：CodeMirror 或 Lezer 的
+	// 第二份副本会是跟 app 那个**不同**的实例，两者不共享状态。
 	//
-	// `electron` and node's built-ins are deliberately NOT on this list, though
-	// the sample plugin lists them: this plugin ships to phones as well (see
-	// manifest's `isDesktopOnly: false`), where neither of them exists — so a
-	// stray `import { clipboard } from 'electron'` should fail the BUILD,
-	// loudly, instead of quietly becoming a `require` that only breaks on a
-	// device.
+	// `electron` 和 node 的内建模块**故意**不在这个表里，虽然官方示例插件列了它们：
+	// 这个插件也发到手机上（见 manifest 的 `isDesktopOnly: false`），而在手机上这两者
+	// 都不存在 —— 于是一句走错的 `import { clipboard } from 'electron'` 应该让**构建**
+	// 大声失败，而不是悄悄变成一句 `require`、只在真机上才炸。
 	external: ['obsidian', '@codemirror/*', '@lezer/*'],
 	minify: isProd,
 	sourcemap: isProd ? false : 'inline',
 	banner: { js: banner },
-	// Obsidian is handed the plugin class ITSELF: that is what rollup's
-	// `exports: 'default'` used to leave in `module.exports`, and esbuild's CJS
-	// output would hand it an object with a single `default` key instead. This
-	// one line is what keeps the two builds interchangeable.
+	// 交给 Obsidian 的是插件类**本身**：这正是当年 rollup 的 `exports: 'default'`
+	// 留在 `module.exports` 里的东西，而 esbuild 的 CJS 输出会改交一个只带 `default`
+	// 键的对象。就是这一行让两种构建可以互换。
 	footer: { js: 'module.exports = module.exports.default || module.exports;' },
 	logLevel: 'info',
 };
 
-// The stylesheet: minified in a prod build, and COPIED in a dev one. esbuild
-// drops CSS comments either way (measured: all 73 of them), and those comments
-// say why a rule exists — which is exactly what a reader wants to find in
-// devtools while working on one.
+// 样式表：生产构建压缩它，开发构建直接**拷贝**它。两条路 esbuild 都会丢掉 CSS
+// 注释（实测全丢），而那些注释写的是「这条规则为什么存在」—— 正是改一条规则
+// 的人想在 devtools 里找到的东西。
 async function writeStyles() {
 	const before = readFileSync(CSS_SOURCE, 'utf8');
 	if (isProd) {
@@ -95,8 +87,8 @@ if (isWatch) {
 	await ctx.watch();
 	await writeStyles();
 	writeManifest();
-	// `ctx.watch()` follows the JS import graph, and neither the stylesheet nor
-	// the manifest is part of it — so those two get a watcher of their own.
+	// `ctx.watch()` 跟的是 JS 的 import 图，而样式表和 manifest 都不在其中 ——
+	// 所以这两个各配一个自己的 watcher。
 	watch(CSS_SOURCE, () => void writeStyles());
 	watch(MANIFEST, () => writeManifest());
 	console.log(`watching src/, ${CSS_SOURCE} and ${MANIFEST} …`);

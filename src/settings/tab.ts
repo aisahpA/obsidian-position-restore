@@ -6,29 +6,26 @@ import { recentFilesSettingsPage } from '@/recent-files/settings-page';
 import { SettingsPageContext } from './page';
 import { t } from '@/i18n';
 
-// THE SETTINGS SURFACE — the tab the framework knows, plus the row builders and pickers the three
-// pages share (page.ts, pickers.ts). The pages live beside the features they configure.
+// 设置界面——框架认得的是这个 tab，加上三个页面共用的行构造器与选择器（page.ts、pickers.ts）。
+// 各个页面住在它们所配置的功能旁边。
 //
-// This file is an ASSEMBLER: getSettingDefinitions, getControlValue and setControlValue are
-// overrides of PluginSettingTab (@since 1.13.0), so the app calls them on an instance of this class
-// and they can never move elsewhere. What remains names all three pages and knows nothing inside
-// them.
+// 本文件是个「装配工」：getSettingDefinitions、getControlValue 和 setControlValue 是
+// PluginSettingTab 的重写（@since 1.13.0），app 会在这个类的实例上调用它们，因此它们永远
+// 搬不到别处。剩下的只是把三个页面点出来，对其内部一无所知。
 
-// The preferences a standing panel DRAWS BY (see RecentFilesBrowserPrefs). A change to one of them
-// owes no derived state — panels read these live — but a panel open beside this page was drawn with
-// the old one and has to be asked to draw again. That is why the list stands here rather than inside
-// the manager's diff table: that table re-applies state the stores hold, while this asks a view to
-// draw.
+// 常驻面板「作画依据」的偏好项（见 RecentFilesBrowserPrefs）。改动其中一项不欠任何派生状态
+// ——面板是实时读它们的——但此刻开着的面板是用旧值画的，得请它重画一次。这份名单站在这里、
+// 而不进 manager 的差分表，原因就在这：那张表做的是重新施加 store 持有的状态，而这里是请
+// 一个视图去画。
 const BROWSER_PREF_KEYS = new Set([
-	'recentFilesLandings', 'recentFilesPathDisplay', 'recentFilesRowTime', 'recentFilesTitleProperty',
+	'recentFilesOutlineSearch', 'recentFilesPathDisplay', 'recentFilesRowTime',
+	'recentFilesTitleProperty',
 ]);
 
-// The keys that change the SHAPE OF A PAGE rather than a value on it — whose consequence is a row
-// appearing or not, or a sentence read differently. The framework writes a control's value and
-// calls nothing back, so these are the writes that have to ask for the redraw themselves (see
-// setControlValue); every other key changes a number or an answer, and the row that holds it is
-// already drawn with the new one.
-const PAGE_SHAPE_KEYS = new Set(['recentFilesLandings']);
+// 改的是「页面的形状」而不是页面上某个值的键——后果是某一行出现或不出现，或某句话读起来变了。
+// 框架只写控件的值、不回调任何东西，所以这几个键的写入得自己去要重画（见 setControlValue）；
+// 其余每个键改的只是一个数字或一个答案，持有它的那一行本来就带着新值。
+const PAGE_SHAPE_KEYS = new Set<string>();
 
 export class SettingTab extends PluginSettingTab {
 	plugin: PositionRestorePlugin;
@@ -42,15 +39,13 @@ export class SettingTab extends PluginSettingTab {
 		return (this.plugin.settings as unknown as Record<string, unknown>)[key];
 	}
 
-	// THE ONE WRITE PATH, and the only place that knows what a written key owes in consequence —
-	// which is a diff, not a lookup: the writes that name no key (data.json edited by hand, a sync
-	// landing) have to be answered by the same table, and only a diff can answer both. So the tab
-	// snapshots, writes, and hands the snapshot over; the manager's table decides.
+	// 「唯一」的写入路径，也是唯一知道「写某个键会欠下什么后果」的地方——那是一次差分，不是
+	// 一次查表：不点名的写入（手工改过的 data.json、同步落下来的）也得由同一张表来应对，而只有
+	// 差分能同时应对两者。所以 tab 先拍快照、写入、把快照交出去；由 manager 那张表定夺。
 	//
-	// The snapshot is shallow on purpose. Nothing here mutates an array in place — a folder list is
-	// always replaced whole — so the pre-write arrays keep their identity and the manager's
-	// element-wise comparison stays a comparison of VALUES, which is what it has to be for the
-	// arrays a fresh JSON.parse builds on an external write (see PositionManager.sameList).
+	// 快照刻意是浅的。这里没有任何就地修改数组的动作——文件夹列表永远整份替换——所以写入前的
+	// 数组保持自身身份，manager 的逐元素比较也就仍是「比值」；对外部写入产生的、由 JSON.parse
+	// 现建出来的数组来说，这一点是必须的（见 PositionManager.sameList）。
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		const before = { ...this.plugin.settings };
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
@@ -58,9 +53,8 @@ export class SettingTab extends PluginSettingTab {
 		if (BROWSER_PREF_KEYS.has(key))
 			this.plugin.manager.refreshNavPanels();
 		await this.plugin.saveSettings();
-		// Asked AFTER the save: a redraw rebuilds every page from the settings, so it has to see
-		// the value that was just written — and it has to be asked here, because the framework's
-		// own write path ends in this method and nowhere calls back into the tab.
+		// 在保存「之后」才要：重画会拿设置把每个页面重新建一遍，所以它必须看到刚写进去的那个
+		// 值——而且必须在这里要，因为框架自己的写入路径在本方法就结束了，别处不会再回调进 tab。
 		if (PAGE_SHAPE_KEYS.has(key))
 			this.update();
 	}
@@ -86,16 +80,14 @@ export class SettingTab extends PluginSettingTab {
 		] as SettingDefinitionItem[];
 	}
 
-	// What a page is handed. Rebuilt per call rather than held as a field: it is a set of readers
-	// plus two methods that already exist on this class, so there is no state in it to keep — and a
-	// field would have to be created in the constructor, before PluginSettingTab is done with its
-	// own.
+	// 交给页面的东西。每次调用现重建、不存成字段：它是一组读取器加上本类已有的两个方法，
+	// 里面没有状态可留——而字段得在构造函数里创建，那时 PluginSettingTab 还没处理完自己的事。
 	private pageContext(): SettingsPageContext {
 		return {
 			app: this.app,
 			plugin: this.plugin,
-			// setControlValue already applies the key's consequence; all a page adds is the
-			// redraw, because the list it just edited is on the page it is looking at.
+			// setControlValue 已经施加了该键的后果；页面只是在上面加一次重画，因为它刚改过的
+			// 列表就在它正看着的这一页上。
 			setValue: async (key, value) => {
 				await this.setControlValue(key, value);
 				this.update();

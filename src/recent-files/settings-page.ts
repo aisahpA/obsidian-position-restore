@@ -3,30 +3,33 @@ import { SettingsPageContext, intro, hotkeys } from '@/settings/page';
 import { FolderSuggestModal, PropertySuggestModal, PropertyValueModal } from '@/settings/pickers';
 import { t } from '@/i18n';
 
-// THE "RECENT FILES" PAGE — the place list's own face in the settings. Three of
-// its rows are the list's own rules (which folders it refuses, which
-// frontmatter, how far back it reaches), three more are how it LOOKS (see
-// RecentFilesBrowserPrefs). It stands beside the place list and its browser
-// rather than in the settings folder, so that "how do I change what a row
-// prints" lands on the same shelf as the code that prints it.
+// 「最近文件」页 —— 地点列表在设置里的那张脸。它的行分成两组，回答两个问题：这份列表
+// **收**谁、往回记多远（它拒绝哪些文件夹、哪些 frontmatter、记住多少篇），与进来之后
+// 一行**长什么样**（见 RecentFilesBrowserPrefs）。它站在地点列表和它的浏览器旁边，
+// 而不是放进 settings 文件夹，好让「我怎么改一行显示的东西」落在与「显示它的代码」
+// 同一个架子上。
 //
-// One group with no heading, for the reason the back/forward page has none: the
-// page is already named "Recent files".
+// 导言与快捷键独占一个**无标题**的分组：两者讲的是整页，挂到任一标题下就成了那一组的
+// 一句话——同「最后位置」页的导言。两个标题写的是上面那两问本身，不是把页名再写一遍。
 export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefinitionItem[] {
 	return [
 		{
 			type: 'group',
 			items: [
 				intro(t('recentFiles.intro')),
-				// The two commands that OPEN this list, on the page that is about
-				// it (see the hotkeys row builder). The back/forward pair is on
-				// its own page.
+				// **打开**这份列表的两条命令，放在关于它的这一页上（见 hotkeys 行构建器）。
+				// 前进/后退那一对在它自己的页上。
 				hotkeys(ctx.plugin, t('recentFiles.hotkeys.desc'), [
 					{ id: 'browse-recent-files', name: t('recentFiles.commands.open') },
-					// The resident panel is a command like the other one, so it is
-					// bound (or not) in the same place — see view.ts.
+					// 常驻面板与另一条一样是一条命令，所以它在同一个地方被绑定（或不绑）—— 见 view.ts。
 					{ id: 'open-recent-files-sidebar', name: t('recentFiles.commands.openSidebar') },
 				]),
+			],
+		},
+		{
+			type: 'group',
+			heading: t('recentFiles.rules.heading'),
+			items: [
 				{
 					type: 'page',
 					name: t('recentFiles.folders.name'),
@@ -70,20 +73,14 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
-				// WHICH FRONTMATTER THE LIST REFUSES — the same question the
-				// folder rule above asks, answered one note at a time by the
-				// note itself rather than by where it sits: a board another
-				// plugin owns, a page marked published, a template. It is the
-				// list's OWN list and not the position page's, for the same
-				// reason the folders are (see
-				// PluginSettings.recentFilesExcludeProperties): a note whose
-				// cursor position is not worth keeping is still a note the
-				// reader navigates to.
+				// 这份列表**拒绝哪些 frontmatter** —— 与上面那条文件夹规则同一个问题，但由笔记自己
+				// 一次一篇地作答、而不是由它所在的位置：另一个插件拥有的看板、一个被标记为已发布的页面、
+				// 一个模板。它是这份列表**自己的**列表、不是位置页的，理由与那些文件夹一样
+				// （见 PluginSettings.recentFilesExcludeProperties）：一篇光标位置不值得留的笔记，
+				// 仍是读者会导航去的一篇笔记。
 				//
-				// The two pickers it opens are shared with the position page
-				// (see settings/pickers.ts) — a property name is a property
-				// name whichever page asks for one — so the entry form a reader
-				// learns there is the form that works here.
+				// 它打开的那两个选择器与位置页共用（见 settings/pickers.ts）—— 属性名无论哪一页来要
+				// 都是同一个属性名 —— 所以读者在那里学会的输入形式，就是在这里管用的形式。
 				{
 					type: 'page',
 					name: t('recentFiles.frontmatterExclude.name'),
@@ -141,64 +138,56 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						},
 					],
 				},
-				// HOW MUCH OF ONE NOTE THE LIST KEEPS, AND HOW MUCH OF WHAT IT
-				// KEPT IT DRAWS — one row, three stops along a single axis
-				// (see LandingsMode). The two halves are ONE question because
-				// a landing that was never recorded cannot be drawn: a reader
-				// choosing how much to see has already answered how much to
-				// keep, and asking them twice produced a fourth answer that
-				// meant nothing. The stops are monotonic — each keeps and
-				// draws a superset of the one above — which is what lets them
-				// sit in one dropdown instead of two controls.
-				//
-				// 'all' is the default: the list ships showing every spot
-				// the reader left, which is the only stop from which the
-				// two below it can be chosen with anything to choose
-				// between — a reader who started at 'none' and only later
-				// came upon this row would find nothing recorded under it.
-				// And no stop is a one-way door: coming down stops the list
-				// RECORDING new landings, but what it already recorded stays
-				// until the note it stands in is crowded out.
+				// 图片算不算一个值得列出的地方。它与上面两条不是同一种规则：那两条问的是
+				// 一篇笔记**在哪儿 / 写了什么**，这一条问的是**它是什么** —— 而一张图片在这份
+				// 列表里除了文件名没有什么可印（没有位置、没有标题、没有小节可搜），所以它是
+				// 读者自己的取舍，而不是一条替他做好的结论：出厂关，且只管**之后**的到访，
+				// 已经在列表上的图片行留给上限去挤、或留给下一次规则变更去扫。
 				{
-					name: t('recentFiles.landings.name'),
-					desc: t('recentFiles.landings.desc'),
+					name: t('recentFiles.excludeImages.name'),
+					desc: t('recentFiles.excludeImages.desc'),
 					control: {
-						type: 'dropdown',
-						key: 'recentFilesLandings',
-						options: {
-							none: t('recentFiles.landings.options.none'),
-							last: t('recentFiles.landings.options.last'),
-							all: t('recentFiles.landings.options.all'),
-						},
+						type: 'toggle',
+						key: 'recentFilesExcludeImages',
 					},
 				},
-				// HOW MANY NOTES THE LIST REMEMBERS — one number with one
-				// meaning, whichever stop of the row above the reader is
-				// on: it counts the notes and the views, never the landings
-				// inside them, so moving between the stops does not move
-				// the goal posts of a number they already set.
+				// 这份列表**记住多少篇笔记**。一个只有一个含义的数字：它数的是行，而一行就是
+				// 一篇笔记（或一个视图），所以没有第二个名额池要跟着它一起被解释。
 				//
-				// It stands BELOW that row and not above it, because that
-				// row is the only thing this one needs read first: a reader
-				// who has not yet answered "how finely do I want my
-				// navigation kept" cannot say what a number of notes is a
-				// number of — the row above is what makes the row below
-				// answerable. (And its sentence is written twice, but only
-				// because the top stop owes one extra clause: landings are
-				// drawn as rows there, so the list on screen runs longer
-				// than this number even though the number still counts
-				// notes.)
+				// 它跟上面两条规则同属一组，而不是跟下面那批样子项：它答的是「往回够多远」，
+				// 与它们一样是一道闸门。
 				{
 					name: t('recentFiles.cap.name'),
-					desc: ctx.plugin.settings.recentFilesLandings === 'all'
-						? t('recentFiles.cap.desc.all')
-						: t('recentFiles.cap.desc.plain'),
+					desc: t('recentFiles.cap.desc'),
 					control: {
 						type: 'number',
 						key: 'recentFilesCap',
 						min: 20,
 						max: 500,
 						step: 10,
+					},
+				},
+			],
+		},
+		{
+			type: 'group',
+			heading: t('recentFiles.display.heading'),
+			items: [
+				// 搜索框是否把**各篇笔记的小节标题**也算进搜索面：开着时，输一个标题词会把
+				// 命中的那一节作为一行画在那篇笔记下面，点它去那一节。
+				//
+				// 它是这个面板**唯一**一个关于「记多细」的开关，因为另一半已经不在了：这份
+				// 列表只记笔记，一次跳转记下来的是「读者在这篇笔记里」（见 places.ts），所以
+				// 没有什么「记不记落点」可选 —— 能选的只剩搜索能找到什么。
+				//
+				// 默认开：搜索框是读者带着一个**词**来的地方，而一篇笔记里的小节是「我只记得
+				// 它在某一节里说过」这种记忆唯一能被兑出来的地方。
+				{
+					name: t('recentFiles.outlineSearch.name'),
+					desc: t('recentFiles.outlineSearch.desc'),
+					control: {
+						type: 'toggle',
+						key: 'recentFilesOutlineSearch',
 					},
 				},
 				{
@@ -222,15 +211,11 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						key: 'recentFilesRowTime',
 					},
 				},
-				// WHAT A ROW CALLS THE NOTE. One property and not a list of
-				// them: which one counts is the answer a reader can hold in
-				// their head, and a note without it is not nameless — it falls
-				// back to its file name, which is why there is no second
-				// setting saying which to prefer.
+				// 一行把笔记**叫作**什么。一个属性、而不是一串：哪一个算数是读者能记在脑子里的答案，
+				// 而没有它的笔记并非无名 —— 它会退回它的文件名，所以没有第二项设置来说该优先哪个。
 				//
-				// Empty is OFF, and off is the default: a vault that names its
-				// notes in their file names owes this row nothing, and a vault
-				// that does not is the only one that has to say so.
+				// 空就是**关**，而关是默认：一个用文件名命名笔记的 vault 不欠这一行任何东西，
+				// 而一个不这样的 vault 才是唯一必须说出来的那个。
 				{
 					name: t('recentFiles.titleProperty.name'),
 					desc: t('recentFiles.titleProperty.desc'),
@@ -240,12 +225,10 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 						placeholder: t('recentFiles.titleProperty.placeholder'),
 					},
 				},
-				// WHERE A HOVERED ROW OPENS THE NOTE IN THE APP'S OWN PREVIEW. The
-				// note's head ships, because the other stop costs a wait: naming a
-				// line has the whole note drawn first and the card moved to it
-				// afterwards, buying for that wait the arrival the row's own CLICK
-				// already gives. A row standing for a PLACE in the note is outside
-				// the choice either way — it opens at that place.
+				// 被悬停的一行**在 app 自己的预览里**把笔记打开在哪里。默认是笔记头部，因为另一档要付
+				// 一次等待：点名一行会让整篇笔记先被画出来、然后卡片再移过去，为那次等待换来的是这一行
+				// **自己点击**时已经给出的那个到达。一个代表笔记里某个**地点**的行，两种情况都在这个
+				// 选择之外 —— 它就在那个地点打开。
 				{
 					name: t('previewFocus.recentFiles.name'),
 					desc: t('previewFocus.recentFiles.desc'),

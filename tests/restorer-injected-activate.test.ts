@@ -1,13 +1,12 @@
-// Unit tests for Restorer.completeInjectedRestore — the 'active-leaf-change'
-// completion for injected opens that never fired 'file-open' (background
-// opens, restart-restored tabs whose activation changes no file). The logic
-// this pins down:
-//  - no unconsumed injected marker on the active leaf -> never run a restore
-//    (a real open's own file-open already consumed its marker, so this must
-//    not double-restore / race the file switch);
-//  - pre-layoutReady nothing runs (startup restore owns its own file-open
-//    flow; background leaves aren't built yet);
-//  - a non-markdown active view never completes.
+// Restorer.completeInjectedRestore 的单元测试 —— 它是给那些从未触发
+// 'file-open' 的注入打开（后台打开、重启恢复的标签页在激活时不改文件）
+// 做 'active-leaf-change' 收尾的。这里钉住的逻辑：
+//  - 活动 leaf 上没有未消费的注入标记 -> 绝不跑恢复（一次真正的打开，
+//    它自己的 file-open 已经消费掉标记，所以这里绝不能重复恢复、
+//    更不能跟这次换文件抢跑）；
+//  - layoutReady 之前什么都不跑（启动恢复有自己的 file-open 流程；
+//    后台 leaf 还没建出来）；
+//  - 非 markdown 的活动视图永不收尾。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { FileView, MarkdownView, type WorkspaceLeaf } from 'obsidian';
@@ -18,8 +17,8 @@ import { PositionStore } from '@/position/storage/position-store';
 import { PositionState } from '@/position/state';
 import { DEFAULT_SETTINGS } from '@/types';
 
-// OpenCover styles leaf DOM via Obsidian's HTMLElement.setCssStyles
-// extension, which jsdom lacks.
+// OpenCover 通过 Obsidian 给 HTMLElement 加的 setCssStyles 扩展
+// 来给 leaf 的 DOM 上样式，jsdom 没有这个扩展。
 beforeEach(() => {
 	Object.defineProperty(HTMLElement.prototype, 'setCssStyles', {
 		value(this: HTMLElement, styles: Record<string, string>) {
@@ -42,9 +41,9 @@ const RECORD = {
 	cursor: { from: { line: 10, ch: 0 }, to: { line: 10, ch: 0 } },
 };
 
-// Source-mode markdown view: the injected marker is only ever set for a
-// source open, so the restore must dispatch to restoreInjectedSource, which
-// needs no async reading render. No editor.cm means the pixel settle no-ops.
+// 源码模式的 markdown 视图：注入标记只会为源码打开而设，所以恢复必须
+// 派发到 restoreInjectedSource，它不需要异步的阅读渲染。没有 editor.cm
+// 意味着像素落定空转。
 function makeSourceView(leaf: WorkspaceLeaf, filePath = 'a.md'): MarkdownView {
 	const view = new MarkdownView(undefined as never) as MarkdownView & Record<string, unknown>;
 	Object.assign(view, {
@@ -58,15 +57,15 @@ function makeSourceView(leaf: WorkspaceLeaf, filePath = 'a.md'): MarkdownView {
 		editor: { getCursor: () => undefined },
 		setEphemeralState: () => undefined,
 	});
-	// The active-leaf-change event carries the leaf, and completeInjectedRestore
-	// reads leaf.view.file.path to slide lastActiveFilePath — wire it so the
-	// slide is exercised, not silently undefined.
+	// active-leaf-change 事件带着 leaf，而 completeInjectedRestore 会读
+	// leaf.view.file.path 去滑动 lastActiveFilePath —— 接上它，好让这次
+	// 滑动真的被测到，而不是静默变成 undefined。
 	leaf.view = view;
 	return view;
 }
 
-// Reading-mode markdown view with a "ready" renderer (sizer + preview
-// scroller) so the masked restore can apply and confirm the saved scroll.
+// 带「就绪」渲染器（sizer + 预览滚动容器）的阅读模式 markdown 视图，
+// 好让遮罩下的恢复能应用并确认已存的滚动。
 function makePreviewView(leaf: WorkspaceLeaf, filePath = 'a.md'): MarkdownView {
 	const contentEl = document.createElement('div');
 	const containerEl = document.createElement('div');
@@ -108,29 +107,28 @@ type Harness = {
 let coveredLeaves: WorkspaceLeaf[] = [];
 let harnessCovers: PositionState | undefined;
 
-function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMarkdown?: boolean; filePath?: string; glideSource?: boolean } = {}): Harness {
-	const { layoutReady = true, marker = true, activeIsMarkdown = true, filePath = 'a.md', glideSource = false } = opts;
+function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMarkdown?: boolean; filePath?: string } = {}): Harness {
+	const { layoutReady = true, marker = true, activeIsMarkdown = true, filePath = 'a.md' } = opts;
 	const state = new PositionState(DEFAULT_SETTINGS);
 	const leaf = makeLeaf('leaf-1');
 	const view = activeIsMarkdown ? makeSourceView(leaf, filePath) : undefined;
 	const app = {
 		workspace: {
 			layoutReady,
-			// A MarkdownView satisfies both FileView and MarkdownView queries
-			// (the stub mirrors `MarkdownView extends FileView`).
+			// 一个 MarkdownView 能同时满足 FileView 与 MarkdownView 两种查询
+			// （桩替身照着 `MarkdownView extends FileView` 来）。
 			getActiveViewOfType: (Type: unknown) =>
 				activeIsMarkdown && (Type === MarkdownView || Type === FileView) ? view : undefined,
 			iterateAllLeaves: () => undefined,
 		},
 	};
 	const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
-	const restorer = new Restorer(
-		app as never,
-		glideSource ? { ...DEFAULT_SETTINGS, sourceRestoreMethod: 'glide' } : DEFAULT_SETTINGS,
-		store,
-		state,
-	);
+	const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
 	if (marker) {
+		// 标记与落点是补丁在 setViewState 里留下的，那道 leaf 遮罩也是
+		// （patcher.maybeCoverOpen —— 源码注入 open 会预遮，出口在 restoreInjectedSource）。
+		// 这里照样手动装上它，好钉住两件事：这条路上遮罩确实会被揭开，以及
+		// 「后台清扫留下的遮罩切到前台」也走同一个出口。
 		state.injectedOpenLeafIds.add('leaf-1');
 		state.handledLeafIdMap.set('leaf-1', filePath);
 		state.cover.cover(leaf);
@@ -141,21 +139,20 @@ function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMa
 }
 
 afterEach(() => {
-	// Stop the first-paint cover's rAF reapply loop for covered leaves.
+	// 停掉头一帧遮罩对那些被盖 leaf 的 rAF 重贴循环。
 	coveredLeaves.forEach((leaf) => harnessCovers?.cover.uncover(leaf));
 	coveredLeaves = [];
 	harnessCovers = undefined;
-	// Drop prototype spies (RestoreModes) — a surviving one would silently
-	// stub out the restore every later test in this file expects to run.
+	// 撤掉原型上的 spy（RestoreModes）—— 留一个下来会静默地把本文件里
+	// 之后每个测试都指望跑的恢复顶成桩。
 	vi.restoreAllMocks();
 });
 
 describe('Restorer.completeInjectedRestore', () => {
-	it('does nothing when the active leaf has no injected marker', async () => {
+	it('活动 leaf 没有注入标记时什么都不做', async () => {
 		const { state, leaf, restorer } = makeHarness({ marker: false });
-		// The active file changed from the previous leaf — the signature of a
-		// genuine open whose own file-open already consumed the marker and
-		// restored; this completion must not double-restore or race it.
+		// 活动文件跟前一个 leaf 不同 —— 这是一次真打开的特征，它自己的
+		// file-open 已经消费了标记并恢复过；这次收尾绝不能重复恢复，也不能跟它抢跑。
 		state.lastActiveFilePath = 'b.md';
 
 		await restorer.completeInjectedRestore(leaf);
@@ -163,12 +160,12 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.restoreRun).toBe(0);
 		expect(state.lastLoadedFilePath).toBeUndefined();
 		expect(state.injectedOpenLeafIds.size).toBe(0);
-		// The track still slid (pre-await) to the newly active file for the
-		// NEXT activation.
+		// 那条轨迹仍然（在 await 之前）滑到了新激活的文件上，
+		// 为下一次激活做准备。
 		expect(state.lastActiveFilePath).toBe('a.md');
 	});
 
-	it('completes an unconsumed injected open: settle, reveal, and anchor', async () => {
+	it('完成一次还没被消费的注入打开：落点收口、揭开那道遮罩、锚定', async () => {
 		const { state, leaf, restorer } = makeHarness();
 
 		await restorer.completeInjectedRestore(leaf);
@@ -179,26 +176,11 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.cover.isCovered(leaf)).toBe(false);
 	});
 
-	it('glide setting does not turn a covered injected open into a glide (the cover must lift)', async () => {
-		// A history traversal (back/forward) injects and covers REGARDLESS of
-		// the glide setting ("must land instantly"). Dispatching it to
-		// glideRestore left the first-paint cover stuck — glideRestore never
-		// uncovers — blanking the leaf until the 2s cover safety timer: the
-		// long blank reported on navigate-back with edit-glide selected.
-		const { state, leaf, restorer } = makeHarness({ glideSource: true });
-
-		await restorer.completeInjectedRestore(leaf);
-
-		expect(state.injectedOpenLeafIds.size).toBe(0);
-		expect(state.cover.isCovered(leaf)).toBe(false);
-	});
-
-	it('an injected open settles to the landing the patch handed it, not the store record', async () => {
-		// A cross-file history jump: the patch injects the TARGET ENTRY's own
-		// position (what the browser row shows) and hands it over here. The
-		// store record deliberately differs — it holds the spot the user had
-		// drifted to when they left the file — so settling to it would yank
-		// the view off the line core was told to land on.
+	it('注入打开落定到补丁交给它的那个落点，而不是存储里的记录', async () => {
+		// 一次跨文件的历史跳转：补丁注入**目标记录自己**的位置（也就是浏览器
+		// 行上显示的那个），并把它交到这里。存储记录故意不同 —— 它存的是
+		// 用户离开文件时漂到的那一处 —— 所以落定到它会把视图从 core 被告知
+		// 要落到的那一行上拽走。
 		const { state, leaf, restorer } = makeHarness();
 		state.injectedLeafStates.set('leaf-1', { scroll: 77 });
 		const settle = vi.spyOn(RestoreModes.prototype, 'restoreInjectedSource')
@@ -208,11 +190,11 @@ describe('Restorer.completeInjectedRestore', () => {
 
 		expect(settle).toHaveBeenCalledTimes(1);
 		expect(settle.mock.calls[0][1]).toMatchObject({ scroll: 77 });
-		// consumed with the marker: a later open must not reuse it
+		// 随标记一同消费掉：之后的一次打开绝不能复用它
 		expect(state.injectedLeafStates.size).toBe(0);
 	});
 
-	it('an injected open with no handed landing falls back to the store record', async () => {
+	it('没有交下落点时就退回存储记录', async () => {
 		const { state, leaf, restorer } = makeHarness();
 		const settle = vi.spyOn(RestoreModes.prototype, 'restoreInjectedSource')
 			.mockResolvedValue(undefined);
@@ -223,60 +205,58 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedLeafStates.size).toBe(0);
 	});
 
-	it('skips the landing cue while a navigation traversal suppresses it', async () => {
-		// NavStack arms cueSuppressUntil on back/forward: the restore still
-		// lands (and anchors) but must not show the position-restored chip.
+	it('一次导航跳转正在压着提示时不显示落点提示', async () => {
+		// NavStack 在前进/后退时武装 cueSuppressUntil：恢复仍然会落定
+		// （并锚定），但绝不能显示「位置已恢复」的徽标。
 		const { state, leaf, restorer } = makeHarness();
 		const show = vi.spyOn(state.cue, 'show');
 		state.cueSuppressUntil = Date.now() + 1000;
 
 		await restorer.completeInjectedRestore(leaf);
 
-		expect(state.lastLoadedFilePath).toBe('a.md'); // restore ran and anchored
+		expect(state.lastLoadedFilePath).toBe('a.md'); // 恢复跑了并锚定
 		expect(show).not.toHaveBeenCalled();
 
-		// Expired deadline: the next ordinary restore shows the chip again.
+		// 期限已过：下一次普通恢复又会显示徽标。
 		state.injectedOpenLeafIds.add('leaf-1');
 		state.cueSuppressUntil = Date.now() - 1;
 		await restorer.completeInjectedRestore(leaf);
 		expect(show).toHaveBeenCalled();
 	});
 
-	it('skips a duplicate re-assert while the same leaf+file restore is in flight', async () => {
-		// The two entry points ('file-open' and the 'active-leaf-change'
-		// completion) can both fire for one open. The first consumes the
-		// injected marker and starts the settle; the second, landing while it
-		// is still in flight, must be skipped — not supersede, not reveal the
-		// first-paint cover mid-settle, not bump the restore run.
+	it('同一 leaf+file 的恢复正在飞时，跳过重复的那次再次声明', async () => {
+		// 两个入口（'file-open' 与 'active-leaf-change' 收尾）可能为同一次打开
+		// 都触发。第一个消费注入标记并启动落定；第二个在它还飞着的时候到达，
+		// 必须被跳过 —— 不取代、不在落定途中揭开头一帧遮罩、不推高恢复轮次。
 		const { state, restorer } = makeHarness();
 		const first = restorer.restoreEphemeralState();
 		const second = restorer.restoreEphemeralState();
 		await Promise.all([first, second]);
 
-		expect(state.restoreRun).toBe(1); // no supersession from the duplicate
-		expect(state.injectedOpenLeafIds.size).toBe(0); // marker consumed once
+		expect(state.restoreRun).toBe(1); // 重复那次没有取代
+		expect(state.injectedOpenLeafIds.size).toBe(0); // 标记只消费一次
 		expect(state.lastLoadedFilePath).toBe('a.md');
-		expect(state.inFlightRestoreLeafRuns.size).toBe(0); // cleaned up
+		expect(state.inFlightRestoreLeafRuns.size).toBe(0); // 清理干净
 	});
 
-	it('a different file on the same leaf is not blocked by the in-flight pair', async () => {
-		// Rapid file switch: an in-flight restore of a.md must not make the
-		// guard swallow a b.md open on the same leaf. Seed the a.md pair as
-		// in-flight; the b.md open on the same leaf must still restore.
+	it('同一个 leaf 上换了文件，不被正在飞的那一对挡住', async () => {
+		// 快速换文件：一次正在飞的 a.md 恢复绝不能让守卫吞掉同一个 leaf 上的
+		// b.md 打开。把 a.md 那一对种成「飞行中」；同一个 leaf 上的 b.md 打开
+		// 仍然必须恢复。
 		const { state, restorer } = makeHarness({ filePath: 'b.md' });
-		state.injectedOpenLeafIds.delete('leaf-1'); // a.md's marker consumed
-		state.handledLeafIdMap.delete('leaf-1'); // fresh b.md open, no dedup
+		state.injectedOpenLeafIds.delete('leaf-1'); // a.md 的标记已消费
+		state.handledLeafIdMap.delete('leaf-1'); // 全新的 b.md 打开，不去重
 		state.inFlightRestoreLeafRuns.set('leaf-1', { filePath: 'a.md', run: 1 });
 
 		await restorer.restoreEphemeralState();
 
 		expect(state.lastLoadedFilePath).toBe('b.md');
-		expect(state.restoreRun).toBe(1); // the b.md open actually restored
-		// The b.md restore superseded the seeded a.md entry and cleaned up.
+		expect(state.restoreRun).toBe(1); // b.md 那次打开真的恢复了
+		// b.md 的恢复取代了种下的 a.md 那条，并做了清理。
 		expect(state.inFlightRestoreLeafRuns.size).toBe(0);
 	});
 
-	it('does nothing before layout-ready and keeps the marker for the real activation', async () => {
+	it('layout-ready 之前什么都不做，把标记留给真正的那次激活', async () => {
 		const { state, leaf, restorer } = makeHarness({ layoutReady: false });
 
 		await restorer.completeInjectedRestore(leaf);
@@ -285,7 +265,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 	});
 
-	it('does nothing when the active view is not a markdown view', async () => {
+	it('活动视图不是 markdown 视图时什么都不做', async () => {
 		const { state, leaf, restorer } = makeHarness({ activeIsMarkdown: false });
 
 		await restorer.completeInjectedRestore(leaf);
@@ -294,12 +274,11 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
 	});
 
-	it('restores an unhandled reading leaf on a same-file activation (no marker, no file-open)', async () => {
-		// A deferred reading tab's activation builds its view but changes no
-		// active FILE, so no 'file-open' fires and the injected marker never
-		// exists. The event carries only the new leaf, so the previously
-		// active file is tracked by the plugin itself (lastActiveFilePath);
-		// a matching previous file is the signature of exactly this case.
+	it('同文件激活时恢复一个未处理的阅读 leaf（既没有标记，也没有 file-open）', async () => {
+		// 一个被推迟的阅读标签页在激活时会建出自己的视图，但不改活动**文件**，
+		// 所以 'file-open' 不触发、注入标记也从不存在。事件只带新 leaf，所以
+		// 之前活动的文件由插件自己跟踪（lastActiveFilePath）；前一个文件
+		// 恰好相同，正是这种情况的特征。
 		const state = new PositionState(DEFAULT_SETTINGS);
 		state.lastActiveFilePath = 'a.md';
 		const leaf = makeLeaf('leaf-1');
@@ -327,9 +306,9 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.lastLoadedFilePath).toBe('a.md');
 	});
 
-	it('never restores when the active file changed (a genuine open owns its file-open)', async () => {
-		// The previously active file differs: this is a real file switch,
-		// whose own 'file-open' will restore — the completion must not race it.
+	it('活动文件变了就绝不恢复（一次真正的打开自己有 file-open）', async () => {
+		// 之前活动的文件不同：这是一次真正的换文件，它自己的 'file-open'
+		// 会做恢复 —— 收尾绝不能跟它抢跑。
 		const state = new PositionState(DEFAULT_SETTINGS);
 		state.lastActiveFilePath = 'b.md';
 		const leaf = makeLeaf('leaf-1');
@@ -356,7 +335,71 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.handledLeafIdMap.has('leaf-1')).toBe(false);
 	});
 
-	it('skips a same-file activation of an already-handled leaf', async () => {
+	it('注入过的阅读落点不遮 —— 首绘遮罩立刻揭掉，也不给恢复另加一层', async () => {
+		// 阅读视图的首绘是异步的，跨文件打开一篇大笔记能到 2~3 秒；把这段渲染期遮住
+		// 就是一片 2~3 秒的空白（同一个文件因为渲染器早已就绪，完全察觉不到）。而注入
+		// 过的落点由 core 自己的渲染流水线落定（applyScrollDelayed），没有「未恢复的
+		// 顶部」要藏 —— 所以这条路上一次遮罩都不该出现。
+		const state = new PositionState(DEFAULT_SETTINGS);
+		state.lastActiveFilePath = 'a.md';
+		const leaf = makeLeaf('leaf-1');
+		const view = makePreviewView(leaf, 'a.md');
+		const app = {
+			workspace: {
+				layoutReady: true,
+				getActiveViewOfType: (Type: unknown) =>
+					(Type === MarkdownView || Type === FileView) ? view : undefined,
+				iterateAllLeaves: () => undefined,
+			},
+		};
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
+		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
+		// 补丁在 setViewState 里留下了这次 open 的注入标记与落点。那层 leaf 遮罩
+		// 不是它的 —— 阅读的注入落点从不预遮（见 modes 的 landPreview），这里模拟
+		// 「别处还盖着」的情形，好钉住这条不遮的路也会把它揭掉。
+		state.injectedOpenLeafIds.add('leaf-1');
+		state.injectedLeafStates.set('leaf-1', { scroll: 30 });
+		state.handledLeafIdMap.set('leaf-1', 'a.md');
+		state.cover.cover(leaf);
+		coveredLeaves.push(leaf);
+		harnessCovers = state;
+		const extraCover = vi.spyOn(state.cover, 'restoreCover');
+
+		await restorer.restoreEphemeralState();
+
+		// 两层遮罩都不该留下：leaf 级的（来自 open）与内容级的（maskedRestore 自己那层）。
+		expect(state.cover.isCovered(leaf)).toBe(false);
+		expect(view.contentEl.style.opacity).toBe('');
+		expect(extraCover).not.toHaveBeenCalled();
+		expect(state.restoreRun).toBe(1);
+		expect(state.lastLoadedFilePath).toBe('a.md');
+	});
+
+	it('没有注入过的阅读恢复照旧遮 —— 没有人替它落定，首绘的顶部得藏住', async () => {
+		const state = new PositionState(DEFAULT_SETTINGS);
+		state.lastActiveFilePath = 'a.md';
+		const leaf = makeLeaf('leaf-1');
+		const view = makePreviewView(leaf, 'a.md');
+		const app = {
+			workspace: {
+				layoutReady: true,
+				getActiveViewOfType: (Type: unknown) =>
+					(Type === MarkdownView || Type === FileView) ? view : undefined,
+				iterateAllLeaves: () => undefined,
+			},
+		};
+		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
+		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
+		const restoreCover = vi.spyOn(state.cover, 'restoreCover');
+
+		await restorer.restoreEphemeralState();
+
+		expect(restoreCover).toHaveBeenCalledTimes(1);
+		expect(view.contentEl.style.opacity).toBe(''); // 落定后照样揭开
+		expect(state.restoreRun).toBe(1);
+	});
+
+	it('已经处理过的 leaf，其同文件激活跳过', async () => {
 		const state = new PositionState(DEFAULT_SETTINGS);
 		state.lastActiveFilePath = 'a.md';
 		const leaf = makeLeaf('leaf-1');

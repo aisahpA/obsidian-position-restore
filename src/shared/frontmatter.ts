@@ -1,20 +1,15 @@
 import { App, TFile } from 'obsidian';
 
-// THE `prop[: value]` FRONTMATTER RULE — one form, spoken by every feature
-// that lets the reader keep a whole class of notes out at once: the position
-// recording rules (position/policy/frontmatter.ts) and the recent-files list
-// (recent-files/places.ts). It stands outside both because what an ENTRY
-// MEANS is not either feature's business: `status` matches any file carrying
-// the property whatever its value, `status: archived` only those whose value
-// equals it, and an entry typed on one settings page must mean the same thing
-// on the other. Empty list = no rule at all.
+// 「prop[: value]」这条 frontmatter 规则 —— 一种写法，被两个能让读者一次性排除一整类笔记的
+// 功能共用：位置记录规则（position/policy/frontmatter.ts）与最近文件列表（recent-files/places.ts）。
+// 它独立于两者之外，是因为「一条规则到底什么意思」不属于任何一个功能：`status` 命中所有带这个
+// 属性的笔记（不管值是什么），`status: archived` 只命中值恰好相等的；而且在一个设置页填下的
+// 规则，到另一个设置页必须是同一个意思。空列表 = 没有规则。
 //
-// Both readers take the frontmatter from the in-memory metadata cache — never
-// from the file's text — so asking a rule costs one Map lookup, which is what
-// lets the position poll and every navigation afford to ask.
+// 两个读取方都从内存里的 metadata cache 取 frontmatter —— 绝不去读文件文本 —— 所以问一条规则
+// 只花一次 Map 查找。正因为这么便宜，位置轮询和每一次导航才敢随便问。
 
-// Booleans accept yes/no/on/off aliases; numbers and strings compare
-// case-insensitively; arrays match when any element does.
+// 布尔值接受 yes/no/on/off 这些别名；数字与字符串不区分大小写地比；数组任一元素命中即可。
 function valueMatches(cached: unknown, expected: string): boolean {
 	const exp = expected.trim().toLowerCase();
 	if (Array.isArray(cached))
@@ -30,7 +25,7 @@ function valueMatches(cached: unknown, expected: string): boolean {
 	return cached.toString().toLowerCase() === exp;
 }
 
-// Short list (usually 0–3 entries); a plain loop beats allocating a Set.
+// 通常只有 0~3 条；直接循环比建一个 Set 划算。
 export function frontmatterRuleMatches(frontmatter: unknown, entries: readonly string[]): boolean {
 	if (!frontmatter || typeof frontmatter !== 'object')
 		return false;
@@ -41,7 +36,9 @@ export function frontmatterRuleMatches(frontmatter: unknown, entries: readonly s
 		const sep = entry.indexOf(':');
 		const name = (sep === -1 ? entry : entry.slice(0, sep)).trim();
 		const expected = sep === -1 ? '' : entry.slice(sep + 1).trim();
-		if (!name || !(name in obj))
+		// 只认自有属性：`in` 会顺着原型链往上走，而「只写名字」的形式根本不看值 ——
+		// 一旦 `toString` / `constructor` 混进这条规则，就会命中每一篇带 frontmatter 的笔记。
+		if (!name || !Object.prototype.hasOwnProperty.call(obj, name))
 			continue;
 		if (expected === '' || valueMatches(obj[name], expected))
 			return true;
@@ -49,10 +46,9 @@ export function frontmatterRuleMatches(frontmatter: unknown, entries: readonly s
 	return false;
 }
 
-// Undefined when there is no file at that path, or while it has not been
-// parsed yet — the cache fills lazily. Callers take that as "no answer yet"
-// and carry on, rather than as a decision to keep: an answer guessed from an
-// unparsed file is one a later visit contradicts.
+// 路径上没有文件、或还没解析完时返回 undefined —— 缓存是懒填充的。调用方应当把它看成
+// 「现在还没有答案」继续走，而不是看成「该排除」的决定：从一个没解析完的文件里猜出来的答案，
+// 下一次访问很可能就把它推翻了。
 export function frontmatterOfPath(app: App, path: string): Record<string, unknown> | undefined {
 	const file = app.vault.getAbstractFileByPath(path);
 	if (!(file instanceof TFile))

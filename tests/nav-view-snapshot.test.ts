@@ -1,12 +1,10 @@
-// Tests for what a VIEW tells the plugin about ITSELF: the name, the icon and the
-// state read off a view while the reader is in it (shared/leaf.ts), the shape a
-// stored one is trusted to have (nav/entry.ts's pruneViewSnapshot), and the two
-// lists' loading of them.
+// 一个**视图**对插件说的关于**它自己**的话的测试：读者还在里面时从视图上读到的名字、
+// 图标与 state（shared/leaf.ts），一个存下来的快照被信任成什么样（nav/entry.ts 的
+// pruneViewSnapshot），以及两张列表对它们的加载。
 //
-// They live together because the three fields are the only part of a nav entry that
-// comes from a FOREIGN method and the only part read back out into a replay
-// (`setViewState`) or into the DOM. Every gate below answers the same question:
-// what may be believed about a view that is not talking to us any more.
+// 它们住在一起，是因为这三个字段是一条导航记录里唯一来自**外来**方法的部分，也是唯一
+// 会被读回去、进到一次回放（`setViewState`）或 DOM 里的部分。下面每一道闸门回答的都是
+// 同一个问题：一个已经不再跟我们说话的视图，关于它能信什么。
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { View } from 'obsidian';
@@ -21,9 +19,8 @@ beforeEach(() => {
 	window.localStorage.clear();
 });
 
-// A view stub: the three methods this plugin asks a view about itself, each a thunk
-// so a test can make one of them throw — the failure mode every guard in
-// shared/leaf.ts exists for.
+// 一个视图桩：本插件就视图自身问它的那三个方法，各自是个 thunk，好让测试能叫其中一个
+// 抛 —— 这正是 shared/leaf.ts 里每一道守卫为之存在的失败模式。
 function viewOf(parts: {
 	label?: unknown; icon?: unknown; state?: unknown;
 	throwAt?: 'label' | 'icon' | 'state';
@@ -40,11 +37,10 @@ function viewOf(parts: {
 	} as unknown as View;
 }
 
-describe('what a view says about itself', () => {
-	it('keeps a plain object state, as a COPY', () => {
-		// A copy and not the view's own object: a view goes on mutating its state, and
-		// a recording holding the reference would drift along with it — replaying the
-		// place would then take the reader to wherever the view is NOW.
+describe('一个视图怎么介绍自己', () => {
+	it('保留普通对象形式的 state，而且是副本', () => {
+		// 是副本，不是视图自己那个对象：视图会继续改动它的 state，而一条持有引用的记录会跟着
+		// 一起漂 —— 那样回放这个地点时，会把读者带到视图**此刻**所在的地方。
 		const live = { filter: 'today' };
 
 		const kept = viewState(viewOf({ state: live }))!;
@@ -53,39 +49,36 @@ describe('what a view says about itself', () => {
 		expect(kept).not.toBe(live);
 	});
 
-	it('answers nothing for every way the read can fail', () => {
-		// Each has a working fallback downstream: no state replays the view at its
-		// defaults, no icon makes the row say "view", no name makes it print the view
-		// type.
+	it('读取失败的每一种情形都回答「没有」', () => {
+		// 每一种都在下游有一条能用的退路：没有 state 就按默认值回放该视图，没有图标就让那一行
+		// 说「视图」，没有名字就让它印出视图类型。
 		expect(viewState(undefined)).toBeUndefined();
 		expect(viewState(viewOf({ throwAt: 'state' }))).toBeUndefined();
 		expect(viewState(viewOf({ state: undefined }))).toBeUndefined();
 		expect(viewState(viewOf({ state: [] }))).toBeUndefined();
 		expect(viewState(viewOf({ state: 'nope' }))).toBeUndefined();
-		// Nothing left after serialization is nothing to replay: the global graph
-		// answers with an empty object, and `{}` is what it would be rebuilt with
-		// anyway (see stack.ts's `state ?? {}`).
+		// 序列化之后什么都不剩，就是没什么可回放的：全局图谱答的是一个空对象，而 `{}` 本来也是
+		// 它重建时会用的东西（见 stack.ts 的 `state ?? {}`）。
 		expect(viewState(viewOf({ state: {} }))).toBeUndefined();
 		expect(viewState(viewOf({ state: { gone: undefined } }))).toBeUndefined();
 	});
 
-	it('refuses a state over the ceiling', () => {
-		// The blob shares localStorage with a whole list of places, so one plugin that
-		// decides to keep its cache in its own view state must not be able to take the
-		// list's budget with it.
+	it('超过上限的 state 拒收', () => {
+		// 这一坨与一整张地点列表共用同一个 localStorage，所以某个决定把自己的缓存塞进自己 view
+		// state 的插件，绝不能顺手把列表的预算也带走。
 		expect(viewState(viewOf({ state: { blob: 'x'.repeat(2048) } }))).toBeUndefined();
 		expect(viewState(viewOf({ state: { blob: 'x'.repeat(1200) } })))
 			.toEqual({ blob: 'x'.repeat(1200) });
 	});
 
-	it('refuses a state it cannot serialize at all', () => {
+	it('根本序列化不了的 state 拒收', () => {
 		const cyclic: Record<string, unknown> = {};
 		cyclic.self = cyclic;
 
 		expect(viewState(viewOf({ state: cyclic }))).toBeUndefined();
 	});
 
-	it('keeps a name and an icon only where the view really named one', () => {
+	it('只有视图真的给了名字或图标时才保留', () => {
 		expect(viewLabel(viewOf({ label: 'Thino' }))).toBe('Thino');
 		expect(viewLabel(viewOf({ label: '' }))).toBeUndefined();
 		expect(viewLabel(viewOf({ throwAt: 'label' }))).toBeUndefined();
@@ -96,14 +89,13 @@ describe('what a view says about itself', () => {
 	});
 });
 
-describe('pruning a stored view entry', () => {
+describe('裁剪一条存下来的视图记录', () => {
 	const viewEntry = (over: Record<string, unknown> = {}): NavEntry =>
 		({ kind: 'view', leafId: 'leaf-1', viewType: 'thino_view', t: 1, ...over }) as NavEntry;
 
-	it('drops the fields that are not what they claim, and keeps the entry', () => {
-		// The blob is device-local storage that anything could have written. Dropping
-		// the whole entry over one field would lose the PLACE, and all three fields
-		// have a working fallback (see pruneViewSnapshot).
+	it('丢掉那些名不副实的字段，记录本身留下', () => {
+		// 这一坨是本机存储，什么都有可能写过它。为一个字段就把整条记录丢掉会丢掉那个**地点**，
+		// 而这三个字段每一个都有能用的退路（见 pruneViewSnapshot）。
 		const entry = viewEntry({ state: 'nope', icon: 42, label: '' });
 
 		pruneViewSnapshot(entry);
@@ -111,7 +103,7 @@ describe('pruning a stored view entry', () => {
 		expect(entry).toEqual({ kind: 'view', leafId: 'leaf-1', viewType: 'thino_view', t: 1 });
 	});
 
-	it('leaves a sound entry alone, and never touches another kind', () => {
+	it('健康的记录不去动它，也绝不动别的 kind', () => {
 		const sound = viewEntry({ state: { filter: 'today' }, icon: 'git-fork', label: 'Thino' });
 		pruneViewSnapshot(sound);
 		expect(sound).toMatchObject({ state: { filter: 'today' }, icon: 'git-fork', label: 'Thino' });
@@ -122,8 +114,8 @@ describe('pruning a stored view entry', () => {
 	});
 });
 
-describe('loading a stored view snapshot', () => {
-	it('prunes the state on the way in, and keeps the place', () => {
+describe('读回一份存下来的视图快照', () => {
+	it('进来时就裁掉 state，地点留下', () => {
 		const app = makeApp();
 		window.localStorage.setItem(navPlacesStorageKey(app), JSON.stringify({
 			v: RECENT_PLACES_VERSION,
@@ -138,7 +130,7 @@ describe('loading a stored view snapshot', () => {
 		expect((blob.entries[0] as { state?: unknown }).state).toBeUndefined();
 	});
 
-	it('reads a sound snapshot straight back, in either list', () => {
+	it('健康的快照在两张列表里都原样读回', () => {
 		const app = makeApp();
 		window.localStorage.setItem(navHistoryStorageKey(app), JSON.stringify({
 			v: NAV_HISTORY_VERSION,
