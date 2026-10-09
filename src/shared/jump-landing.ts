@@ -129,9 +129,8 @@ function previewLineHeightPx(scroller: HTMLElement): number {
 	return fontSize > 0 ? fontSize * 1.6 : 0;
 }
 
-// 源码视图的视口里此刻有几行。编辑器答得出就由它答（问视口上下沿各自落在哪一行，和
-// cue 的 hasVisibleHeading 同一套问法）；答不出就按视口高除以行高估一个。都量不到时
-// 返回 0 —— 调用方会退回「不让」。
+// 源码视图的视口里此刻有几行。编辑器答得出就由它答（问视口上下沿各自落在哪一行）；
+// 答不出就按视口高除以行高估一个。都量不到时返回 0 —— 调用方会退回「不让」。
 function visibleLineCount(view: MarkdownView, scroller: HTMLElement): number {
 	const rect = scroller.getBoundingClientRect();
 	if (rect.height <= 0)

@@ -13,6 +13,10 @@ export interface CmLike {
 	// 客户端矩形几何；未渲染的行返回的是高度图**估算值**，在文件交换期间（高度图过期）
 	// 就是垃圾。
 	viewport: { from: number; to: number };
+	// CM6 公开 API：屏幕坐标处的文档位置。探「视口底边」这种落在**可见区之内**的点时一定
+	// 答得出一个位置；只有落点所在的区块不在已渲染的视口里时才返回 null（短盖的第二个读数
+	// 拿它取视口里最后一条可见行，见 settleShortCover）。
+	posAtCoords(coords: { x: number; y: number }): number | null;
 	coordsAtPos(pos: number): { top: number } | null;
 	// CM6 公开 API：把一次几何测量排到下一帧。交换后过期的高度图，只有在 CM6 跑一趟测量
 	// 之后才变真 —— 而它不会仅仅因为我们在轮询就去排这一趟。由我们自己请求，正是缩短那段
@@ -37,9 +41,9 @@ const RELAND_MAX_STEP_MS = 700;
 // 一次性检查仍能抓住离谱的落点。
 export const SETTLE_MAX_MS = 800;
 
-// 落定的第一次纠正被信任之前的最短时间（settleSourcePixels；被遮住的注入路径用
-// settleAndHold，它的稳定时钟取代了这段死等）。core 自己的 scroll 重应用在 open 后约 145ms
-// 内落地；200ms 带余量地跨过那个窗口。
+// 落定的第一次纠正被信任之前的最短时间（settleSourcePixels；两条被遮住的路 —— 后台标签页的
+// settleAndHold 与前台注入 open 的 settleShortCover —— 用各自的读数时钟取代了这段死等）。
+// core 自己的 scroll 重应用在 open 后约 145ms 内落地；200ms 带余量地跨过那个窗口。
 const SETTLE_MIN_MS = 200;
 
 // 一次落定纠正之后，等这么久再校验它**守住了**：流水线可能在几百 ms 后重应用自己的 scroll。
@@ -55,8 +59,65 @@ const SETTLE_VERIFY_MS = 200;
 const SETTLE_HOLD_QUIET_MS = 100;
 export const SETTLE_HOLD_MAX_MS = 1250;
 
-// 源码模式的像素落位：遮罩下的收敛 + 纠正（settleSourcePixels / settleAndHold）、揭开后的
-// 一次性离谱检查（relandSourcePixels），以及移动端的自适应回读循环（relandDriftedScroll）。
+// 前台（可见）注入 open 的「短盖」预算。**两个数的起点不同，这不是笔误**：
+//  · FLOOR —— 最早可以揭幕的时刻，**从第一次量到真几何**那一刻起算（settleShortCover 内部
+//    取的时刻）。core 自己那次重落（约 85~145ms）是跟着**内容交换**走的，而第一次量到真几何
+//    也正是在交换之后，所以这条下限永远跑在重落之后的真实地面上。
+//  · MAX —— 遮罩最多盖这么久，**从它真正盖上那一刻**起算（ui/cover.ts 的 appliedAt）：
+//    新内容到位之前这道遮罩什么也没遮住（屏幕上还是上一篇笔记），所以那段时间不该算进
+//    「别把读者按住太久」这条上界里 —— 2026-10-09 之前从**武装**那一刻起算，大文件（读盘
+//    几百 ms）于是白吃掉一小半预算。量不到真几何（目标行还没渲染出来）就一直盖到这里，
+//    然后照常揭幕，落点交给揭开后的一次性检查。外面还有 cover.ts 的 COVER_SAFETY_MS（2000）
+//    兜底，它同样从真正盖上那一刻起算。
+export const SOURCE_COVER_FLOOR_MS = 150;
+export const SOURCE_COVER_MAX_MS = 1000;
+
+// 短盖下判定「它不再动」的静默窗口：约两帧。比 SETTLE_HOLD_QUIET_MS（100ms，读者看不见的后台
+// 那条路）小得多 —— 前台每多盖一帧就是读者多盯着空白一帧。窗口里比的是**两个读数有没有离开
+// 窗口起点**（见 settleShortCover），所以它不需要靠长度来攒出可信度：任何一点位移都把窗口
+// 打回起点重来。
+//
+// ⚠️ 它是**下限**，不是定值：慢设备上一帧本身就长（下一次 nextPaint 可能要几十上百 ms），
+// 而编辑器的测量是**按帧**推进的 —— 同样 32ms，在 60fps 的桌面上是两次观察机会，在手机上
+// 可能只有半次。所以 settleShortCover 实际用的是 max(它, 2 × 最近一次观察到的帧间隔)，让
+// 这个窗口跟着设备的真实节奏走（桌面上恒等于它，行为一字不变）。
+const SOURCE_COVER_STABLE_MS = 32;
+
+// 短盖下等编辑器实例出现的上限。视图已经握住了这篇笔记的内容、编辑器却还没挂上（视图刚构造完
+// / 刚刚重建）是**真实存在**的一小段：此刻正是最该盖住的时候，绝不能当成「没有什么可量的」
+// 就把遮罩撤了 —— 那正是「新内容出现后自己动」。有界，等不到才交回（外层还有短盖的 deadline）。
+//
+// ⚠️ 「有界」是它存在的理由之一，**别**把它放大成 deadline（2026-10-09 试过、回退了）：真机上
+// 内容与编辑器几乎同时到位（视图构造是同步的），量不到编辑器只意味着这一帧的兜底还没走完；
+// 而等满 deadline 会让「压根挂不上」的场合一律白盖到上界 —— 恢复那条路于是整整晚 600ms 才
+// 收口（实测 tests/restorer-injected-activate 的时长从约 500ms 涨到 1120ms）。
+const SOURCE_COVER_WAIT_CM_MS = 400;
+
+// 等编辑器真换上**这篇**笔记的内容的上限（modes.waitContentArrived —— 判据是「文档对象换
+// 掉了没有」，见 noteArrived）。跨文件打开时，'file-open' 与文档交换之间有一段空档：同 leaf
+// 切换的编辑器会在几百 ms 里仍握着上一个文件的内容。这段空档里的限制与编辑器无关的事一件都
+// 不能做 —— 派发到旧文档上的编辑器原语全部作废（甚至更糟：它的 scroll effect 可能在交换之后
+// 才被应用），而在旧文档上量像素会得出「已经量完了」的假结论（短盖会当场揭幕）。上限只管挡住
+// 「永远等不到」这一种，到点照常放行 —— 调用方那侧还有自己的检查。
+// 同一个数也是「等盖布真的盖上」那条等待的预算（modes.waitCoverApplied）—— 两者等的是同一件
+// 事（新内容到位），而那段等待不产生空白（屏幕上还是上一篇笔记，见 ui/cover.ts 的 cover()），
+// 所以不必各给一份。
+export const DOC_READY_MAX_MS = 1200;
+
+// 屏幕上**那一刻那一篇笔记**的身份 —— 三样都只用来「与后来比一比」，谁都不解引用编辑器。
+// patcher 在武装那道闸门时取一份，之后每次求值都拿它比（见 noteArrived）。
+export interface ScreenNote {
+	view: MarkdownView;
+	// 编辑器里的文档对象；武装那一刻摸不到编辑器时 undefined。
+	doc?: object;
+	// 视图自己那份内容。编辑器摸不到时，它是**唯一**还能用的证据。
+	data: unknown;
+}
+
+// 源码模式的像素落位：遮罩下的等待与纠正（短盖的 settleShortCover、masked 与后台标签页的
+// settleSourcePixels / settleAndHold）、揭开后的一次性离谱检查（relandSourcePixels）、
+// 移动端的自适应回读循环（relandDriftedScroll），以及「编辑器里的文档换掉了没有」那一个
+// 读数（docIdentity / noteArrived —— 遮罩什么时候动手与恢复流水线什么时候才碰编辑器，都问它）。
 export class SourcePixelCorrector {
 	private state: PositionState;
 
@@ -136,11 +197,10 @@ export class SourcePixelCorrector {
 		return cm?.state?.doc && cm.scrollDOM ? cm : null;
 	}
 
-	// 编辑器的文档此刻是否**已经**是目标文件的内容。同 leaf 切换时，文档会在几百 ms 里保留
-	// 上一个文件的内容（Obsidian 异步加载新文件）—— 拿它去测量，得到的是与**旧**文件几何
-	// 自洽的垃圾。view.data 是 Obsidian 为这个视图加载的内容 —— 在文档交换之前就设好了 ——
-	// 所以 doc==data 恰好等于「交换已经发生」。先做廉价的长短比较；只有长度相等时才做完整
-	// 比对。
+	// 编辑器的文档与视图的 data 相符 —— **这不是**「换文档了没有」的判据（理由见 noteArrived），
+	// 只是一道廉价的「编辑器此刻不在一次交换的途中吗」的闸门：那一次交换里 data 先写、doc 后
+	// 换，两者之间没有 await，所以它其实只在那一瞬为假。留着它是因为每个测量器都要一个最低
+	// 保证：读到的数字不是刚被换掉的那一版。先做廉价的长短比较，长度相等才做完整比对。
 	private docMatchesView(view: MarkdownView, cm: CmLike): boolean {
 		const data = view.data;
 		if (typeof data !== 'string' || data.length === 0)
@@ -149,6 +209,45 @@ export class SourcePixelCorrector {
 		if (doc.length !== data.length)
 			return false;
 		return doc.toString() === data;
+	}
+
+	// 编辑器里那个**文档对象**的身份（只比引用，不解引用）。摸不到编辑器时 undefined。
+	docIdentity(view: MarkdownView): object | undefined {
+		return this.cmOf(view)?.state.doc;
+	}
+
+	// 编辑器里现在是不是**这篇**笔记的内容了 —— **恢复流水线**什么时候才许碰编辑器
+	// （modes.restoreInjectedSource）的答案。⚠️ 遮罩**动手的时机**不再由它定：遮罩在 open
+	// 一开始就盖上（见 patcher.maybeCoverOpen 与 ui/cover.ts 的 cover()），它只挡恢复流水线
+	// （居中、短盖量的都是像素，落在旧文档的几何上作废）。
+	//
+	// ⚠️ **别退回「文档与 `view.data` 相符」**：core 的 loadFile 是「先把 view.file 换成新文件
+	// → `await` 读盘 → 最后 setData」，而 setData 又是先写 data 再 setViewData —— 于是读盘
+	// 那几百 ms 里 view.file 已经是新的，而 data 与文档**都还是上一篇**的，两者一起换。
+	// 「相符」在换之前与换之后都成立，拿它判断等于不判：2026-10-09 实测，甲（新内容到了才遮）
+	// 因此整条失效 —— 遮罩照旧在读盘那一刻就盖上；手机上读盘更慢，整条恢复流水线（居中、
+	// 短盖）都跑在**旧文档**的几何上，而旧文档的几何是稳的，短盖于是当场判定「量完了」而揭幕。
+	// **这里比的是「武装那一刻记下的旧内容」与「现在的内容」** —— 一次真正的变化检测，
+	// 与那个恒真的判据不是一回事。
+	//
+	// ⚠️ **也别在读不到编辑器时答「到了」**（2026-10-09 晚，手机上「还是一样的」就是它）：
+	// 「屏幕上本来就没有上一篇」（全新 leaf / 非 markdown / 同一篇的重放）与「有上一篇、
+	// 但这一刻读不到它的文档」是**相反**的两种情况，早先却共用同一个 `undefined` 出口。
+	// 后者答「到了」等于把闸门直接打开：遮罩立刻盖上（读盘那几百 ms 变成空白），而整条
+	// 恢复流水线（居中、短盖量的都是像素）跑在上一篇的几何上 —— 表现就是手机上那套
+	// 「内容出现后由源码自己动」。读不到编辑器时改用 `view.data`（视图自己那份内容，
+	// `setData` 写它与换文档是同一件事）：**还没装上内容（空串）一律算没到**。
+	noteArrived(view: unknown, from: ScreenNote): boolean {
+		if (!(view instanceof MarkdownView))
+			return true; // 这块地方已经不放 markdown 视图了：没有旧画面要留
+		if (view === from.view && from.doc !== undefined) {
+			const doc = this.docIdentity(view);
+			// setData → setViewData → Editor.setValue 是一次**整篇替换**的 dispatch
+			// （`{from:0,to:doc.length,insert}`，解包 obsidian.asar 实测）⇒ 必然产出新的文档对象。
+			if (doc !== undefined)
+				return doc !== from.doc;
+		}
+		return typeof view.data === 'string' && view.data.length > 0 && view.data !== from.data;
 	}
 
 	// 受守卫的测量：保存那一行相对滚动容器顶部的像素偏移，落定与揭开前的静默保持共用。三道
@@ -182,7 +281,160 @@ export class SourcePixelCorrector {
 		};
 	}
 
-	// 被遮住的 open 用的「精确落位 + 揭开」合并门控。一个循环**同时**决定落点要不要修、
+	// 短盖的第二个读数：**视口里最后一条可见行**相对滚动容器顶的像素偏移。读者唯一能看见的
+	// 就是眼前这条带子，它的下沿不动，画面就没动。
+	//
+	// 取法是拿滚动容器的底边去问 CM「那一点是文档里的哪个位置」——CM 会把落点夹到最近的边缘，
+	// 所以探针落在可见区之内时一定答得出一个行号；只有那一点所在的区块不在**已渲染**的视口里
+	// 才返回 null（此刻没有任何可信的读数，调用方不许揭）。拿不到位置时就退回文档最后一行：
+	// 短到不用滚动的笔记走的是这一支，而它的读数一样是「眼前那条带子」。
+	//
+	// ⚠️ 别退回**整篇文档的测量高度**（`scrollHeight`）：视口下方的区块换成真值也算在里面，
+	// 那会把遮罩按到上界而不关读者的事（见 settleShortCover）。
+	private bottomVisibleMeasurer(cm: CmLike): () => number | null {
+		const scroller = cm.scrollDOM;
+		return () => {
+			const rect = scroller.getBoundingClientRect();
+			// x 取横向中点：避开行号槽，也避开左右边缘的折行 / bidi 边角。
+			const at = cm.posAtCoords({
+				x: rect.left + rect.width / 2,
+				y: rect.bottom - 2,
+			}) ?? cm.state.doc.line(cm.state.doc.lines).from;
+			const coords = cm.coordsAtPos(at);
+			return coords ? coords.top - rect.top : null;
+		};
+	}
+
+	// 前台（可见）注入 open 的「短盖」：遮罩只盖到编辑器**量完了**为止，即同时满足
+	//  · 下两个读数在同一个窗口里都**没离开过窗口起点**（约两帧），且
+	//  · 距第一次量到真几何已经过了 SOURCE_COVER_FLOOR_MS（跨过 core 自己那次重落）。
+	//
+	// 盖的是刚交换进来的新内容还带着估算高度的那几帧：在编辑器量完之前画出来的帧，必定被
+	// 随后的一次测量修正推动（core 的两段式落地），那一下就是读者看见的「内容自己动」（见
+	// patcher.maybeCoverOpen）。**它不纠正任何东西** —— 落点的精确纠正只有揭开后的一次性检查
+	// （relandSourcePixels）。在遮罩下纠正会把遮罩按住更久，而那段空白是读者能感觉到的代价，
+	// 于是这条路上宁可让落点由 core 自己落、由揭开后那一步兜。
+	//
+	// 「不再动」要**同时**看两个读数，只看一个会漏掉读者真正看见的那种位移（2026-10-09 实测）：
+	//  1. 保存那一行相对滚动容器顶的像素偏移 —— 它管的是「落点对不对」；
+	//  2. **视口里最后一条可见行**相对滚动容器顶的像素偏移 —— 它管的是「眼前那条带子会不会挪」。
+	// 光看第 1 个是量错了地方：core 的重落把**同一行**落在同一个偏移上，那一行的读数全程约等于
+	// 0；真正动的是它**下面**那些刚从估算换成真值的区块，而读者看见的正是整条带子往下挪。
+	//
+	// 第 2 个读数**不是整篇文档的测量高度**（`scrollHeight`，2026-10-09 之前是它）：视口**下方**
+	// 的区块换成真值、嵌入的图片与嵌入的笔记加载完，都会把总高度改掉却改不动眼前那条带子 ——
+	// 读者一点都看不见，却一直把遮罩按到上界。文件越大、视口外没量过的区块越多，白等得越久，
+	// 正是用户报的「稍微大一点的文件，空白明显更长」。
+	//
+	// 而两个读数都是**与稳定窗口的起点**比，不是与上一帧比（2026-10-09 第三轮实测：手机上的大
+	// 文件仍会动）。逐帧比有一个洞：测量是一小步一小步推进的，每帧只挪几个像素（都不到半行）
+	// ⇒ 逐帧比较一路判「没动」，窗口照走，32ms 后揭开 —— 可内容还在继续挪。与起点比则要求
+	// 「这两个读数在一个窗口之内都没离开过起点」，任何累积位移都把窗口打回起点重来。代价是
+	// 真在动的那些 open 会盖得更久（读者不看见位移就是这条路的全部目的），到 deadline 照揭。
+	//
+	// 由 deadline 兜界；量不到（文档交换中 / 目标行未渲染）就一直推测量趟，到点照常揭。
+	// 比这次 open 自己那一下更晚的触摸会中止它 —— 读者接管了视口，遮罩照揭。
+	//
+	// ⚠️ **起手先让编辑器把新文档画出来**（2026-10-09 晚，手机上「内容出现后自己动」查到的最后
+	// 一个洞）：`noteArrived` 在 `setData` 那一刻就答「到了」，而 CM6 换文档只在 `state.doc` 上**同步**
+	// 换掉，视口重算与 DOM 重画排在它自己的测量趟里（requestAnimationFrame）。于是从「文档换掉」
+	// 到「屏幕上真的画的是新文档」之间隔着一帧 —— 这段里 `coordsAtPos` 读到的还是**旧文档的
+	// 像素**，而旧文档是稳的 ⇒ 两个读数一动不动 ⇒ 窗口走完（32ms）就揭幕，接着 CM6 才把新文档
+	// 画出来并测量，读者看见的正是那一下。桌面上一帧只有 16ms、测量趟通常赶在这一帧里，所以
+	// 看不出来；手机上一帧长得多，这段空窗就露在明面上。起手先推一趟测量、跨两帧，把这段
+	// **必然发生**的空窗吃掉（代价是每次 open 多约两帧，约 33ms）。
+	async settleShortCover(
+		view: MarkdownView,
+		targetLine1Based: number,
+		isCurrent: () => boolean,
+		touchBaseline: number,
+		deadline: number,
+	) {
+		let cm = this.cmOf(view);
+		if (!cm) {
+			// 内容已经进来了（调用方等过 waitContentArrived），编辑器却还没挂上：有界地等它。
+			const waitUntil = Math.min(deadline, Date.now() + SOURCE_COVER_WAIT_CM_MS);
+			while (isCurrent() && Date.now() < waitUntil) {
+				await nextPaint();
+				cm = this.cmOf(view);
+				if (cm)
+					break;
+			}
+			if (!cm)
+				return;
+		}
+		// 起手那一趟：把「旧文档的像素」这一页翻过去（见上面那段）。requestMeasure 是我们的
+		// 请求，CM6 自己换文档时排的那一趟可能已经排在同帧 —— 再推一次是幂等的。
+		cm.requestMeasure();
+		await nextPaint();
+		await nextPaint();
+		if (!isCurrent())
+			return;
+		const measure = this.targetTopMeasurer(view, cm, targetLine1Based);
+		const measureBottom = this.bottomVisibleMeasurer(cm);
+		const lineHeight = cm.defaultLineHeight || 20;
+		// 两个读数共用同一把尺：半行以内算「没离开起点」。它比的是窗口起点与当前值（不是两个
+		// 相邻样本之间），所以容差只吃掉舍入噪声 —— 累积位移一律算「还在动」。
+		const stillLimit = lineHeight / 2;
+		let anchorTop: number | null = null;
+		let anchorBottom = 0;
+		let stillSince = -1;
+		// 第一次拿到真几何的时刻 —— 揭幕下限从它起算（见常量注释）。
+		let realSince = -1;
+		// 上一次观察的时刻：用它算出设备当前的帧间隔，把静默窗口按真实节奏缩放（见常量注释）。
+		let sampledAt = Date.now();
+		while (isCurrent() && Date.now() < deadline) {
+			if (this.state.lastTouchAt > touchBaseline)
+				return;
+			const delta = measure();
+			if (delta === null) {
+				cm.requestMeasure(); // 推一把：过期的高度图只有跑一趟测量才变真
+				anchorTop = null;
+				stillSince = -1;
+				await nextPaint();
+				continue;
+			}
+			const now = Date.now();
+			const frameGap = Math.max(1, now - sampledAt);
+			sampledAt = now;
+			if (realSince < 0)
+				realSince = now;
+			const bottom = measureBottom();
+			if (bottom === null) {
+				// 眼前那条带子量不到（视口里一条行都还没渲染出来）：没有可信的读数就不揭，
+				// 推一把测量再等一帧。
+				cm.requestMeasure();
+				anchorTop = null;
+				stillSince = -1;
+				await nextPaint();
+				continue;
+			}
+			if (anchorTop === null
+				|| Math.abs(delta - anchorTop) > stillLimit
+				|| Math.abs(bottom - anchorBottom) > stillLimit) {
+				// 离开起点 ⇒ 它还在动：窗口从这一帧重新起算（起点也换成当前读数）。
+				anchorTop = delta;
+				anchorBottom = bottom;
+				stillSince = -1;
+				await nextPaint();
+				continue;
+			}
+			if (stillSince < 0) {
+				stillSince = now;
+				// **现在**就推一把测量趟：静默窗口与揭幕决策于是跑在刷新的真几何上，
+				// 揭开时也就不必再多等一次测量。
+				cm.requestMeasure();
+			}
+			if (now - stillSince >= Math.max(SOURCE_COVER_STABLE_MS, frameGap * 2)
+				&& now >= realSince + SOURCE_COVER_FLOOR_MS)
+				return;
+			await nextPaint();
+		}
+	}
+
+	// 被遮住的后台注入标签页用的「精确落位 + 揭开」合并门控（modes.ts 的
+	// settleInjectedReveal —— 前台那条可见的路走 settleShortCover，不在这里做纠正）。
+	// 一个循环**同时**决定落点要不要修、
 	// 以及遮罩什么时候能揭 —— 于是一次立刻收敛的落点约 200ms 就揭开遮罩，而不是一律等到
 	// 某个死截止时间：
 	//  - 每帧量一次保存那一行的像素差值；任何移动都重置稳定时钟（core 的两段式落地 ——
@@ -288,8 +540,8 @@ export class SourcePixelCorrector {
 		}
 	}
 
-	// 源码像素落定 —— maskedRestore 自己的 contentEl 遮罩下的精确落位。被遮住的注入路径用
-	// settleAndHold，它把这次「收敛 + 纠正」与揭开决策合并在一起。
+	// 源码像素落定 —— maskedRestore 自己的 contentEl 遮罩下的精确落位。后台注入标签页
+	// 那条被遮住的路用 settleAndHold，它把这次「收敛 + 纠正」与揭开决策合并在一起。
 	//
 	// 时机就是整个设计。刚打开的编辑器还在测量：CM6 会落基于估算的滚动、重新测量真实行高
 	// 并挪动内容；分阶段的 open 流水线会在几百 ms 里重应用自己的 scroll。三条规则让可见的

@@ -2230,6 +2230,7 @@ describe('OpenPatcher —— 导航接入', () => {	it('每一次改动文件的
 		expect(result).toMatchObject({ scroll: 10, cursor: RECORD.cursor });
 		expect(state.pendingHistoryNav).toBe(false);
 		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(true);
+		// 遍历的注入同样预遮 leaf —— 空白账见 modes.ts 的 restoreInjectedSource。
 		expect(state.cover.isCovered(leaf)).toBe(true);
 		// ……而落点被交给恢复器，好让它注入的落定核验的是交给 core 的同一行。
 		expect(state.injectedLeafStates.get('leaf-1')).toMatchObject({ scroll: 10 });

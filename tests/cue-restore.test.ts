@@ -1,17 +1,14 @@
 // position/ui/cue.ts 的两次「出声」——恢复后的面包屑与落点标记——以及它们各自的开关。
-// 三层：
 //   · breadcrumbPath：面包屑念哪几个名字（纯，从笔记文本读）；
-//   · show() 的两道门：开关关着不碰视图、屏上已经有标题就不复述；
+//   · show() 的两道门：开关关着不碰视图；**这一屏上有标题就不复述**（`hasVisibleHeading` ——
+//     念的前提是屏幕上没有标题，2026-10-09 用户拍板）；
 //   · 从一次真实恢复走到底：落点标记只在编辑模式取光标那一行（阅读模式恢复不标），
 //     标的方式是给元素加 core 自己的 .is-flashing、不动视口，
 //     以及前进后退带来的恢复不标（那一路自己标过一次）；
 //   · 编辑模式下一次「点名一行」的跳转怎么落：视口只动一次（居中那一次），种子不落，
 //     居中做不到时才退回种子，而回读到的落点要等编辑器真正应用了那次滚动。
-//
-// 屏幕上的几何（视口内有没有标题）在 jsdom 里一律是零矩形，所以那一条自己把矩形摆出来；
-// CM6 那一侧（源码模式问编辑器视口上下沿落在哪一行）没有 jsdom 替身，不在本文件里。
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MarkdownView } from 'obsidian';
 
 import { RestoreCue, breadcrumbPath } from '@/position/ui/cue';
@@ -86,7 +83,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe('面包屑的开关与静音', () => {
+describe('面包屑的开关', () => {
 	it('关掉之后，恢复什么都不做', () => {
 		const cue = new RestoreCue(settings({ restoreBreadcrumb: false }));
 		// 一碰就炸的视图：开关关着时 show() 不该碰它任何东西。
@@ -97,31 +94,6 @@ describe('面包屑的开关与静音', () => {
 			},
 		});
 		expect(() => cue.show(view)).not.toThrow();
-	});
-
-	it('这一屏里已经能看到标题时，不复述', () => {
-		const cue = new RestoreCue(settings());
-		const containerEl = document.createElement('div');
-		const scroller = document.createElement('div');
-		scroller.className = 'markdown-preview-view';
-		const heading = document.createElement('h2');
-		heading.textContent = 'A';
-		scroller.appendChild(heading);
-		containerEl.appendChild(scroller);
-		scroller.getBoundingClientRect = () => rect(0, 400);
-		heading.getBoundingClientRect = () => rect(40, 70);
-
-		const view = fakeView({
-			getMode: () => 'preview',
-			containerEl,
-			contentEl: document.createElement('div'),
-			currentMode: { getScroll: () => 3 },
-			data: '# Title\ntext\n## A\ntext',
-		});
-
-		cue.show(view);
-
-		expect(view.contentEl.querySelector('.position-restore-cue')).toBeNull();
 	});
 });
 
@@ -331,5 +303,183 @@ describe('编辑模式跳转的落点：交给编辑器居中，视口只动一�
 		await modes.historyJumpApply(view, { scroll: 25, cursor: cursorAt(60) }, () => true, 0);
 
 		expect(applied[0]).toEqual({ scroll: 25, cursor: cursorAt(60) });
+	});
+});
+
+// 面包屑的锚是哪一行 —— 2026-10-09 用户报的「误报……上面顶部的章节」。
+describe('面包屑的锚：本次落点，不是视口顶', () => {
+	const cursorAt = (line: number) => ({ from: { line, ch: 0 }, to: { line, ch: 0 } });
+
+	it('点名一行的跳转：念的是落点那一节，不是半屏之上那一节', async () => {
+		const s = settings();
+		const state = new PositionState(s);
+		const modes = new RestoreModes(state);
+		// 视口顶落在第 30 行 —— 而落点（点名的第 60 行）被摆到了视口正中，于是
+		// 「上面顶部那一行」在**上一个**小节里，照它命名就会念错名字。
+		const { view } = makeSourceView(30);
+		state.pendingLineFlash = { path: 'a.md', line: 60, at: Date.now() };
+		const show = vi.spyOn(state.cue, 'show').mockImplementation(() => undefined);
+
+		await modes.historyJumpApply(view, { scroll: 25, cursor: cursorAt(60) }, () => true, 0);
+
+		expect(show).toHaveBeenCalledWith(view, 60);
+	});
+
+	it('普通的位置恢复：调用方给不出落点行，退回视口顶那一行', async () => {
+		const s = settings();
+		const state = new PositionState(s);
+		const modes = new RestoreModes(state);
+		const { view } = makeSourceView(30);
+		const show = vi.spyOn(state.cue, 'show').mockImplementation(() => undefined);
+
+		await modes.historyJumpApply(view, { scroll: 25, cursor: cursorAt(7) }, () => true, 0);
+
+		// 一次保存位置的恢复里，落点**就是**视口顶 —— 没有「点名了一行」这回事。
+		expect(show).toHaveBeenCalledWith(view, undefined);
+	});
+});
+
+// 面包屑**念的前提是屏幕上没有标题**（2026-10-09 用户拍板）—— 这一屏上只要有标题可看，
+// 读者自己就知道在哪一节，复述是噪音。判据是「标题自己的 DOM 矩形」与滚动容器的可见矩形
+// 求交：屏上看得见标题 ⇒ 不念；标题都在屏外 ⇒ 念。
+//
+// ⚠️ 这不是「把旧门加回来」那么简单：旧的三版判据都**不看标题的矩形** —— 第十、十一、十二轮
+// 分别在 `.cm-scroller` 取样点、`contentDOM` 五点取样、CM6 的 `viewport` 上摔过（前两个的取样
+// 点会落空 / 大半落在屏外；`viewport` 是**已渲染**范围、比可视区大一圈）。两条反向验证各钉住
+// 一端：①「屏上有标题却照念」（无门那版）；②「标题滚出屏还静默」（`viewport` 那版）。
+describe('面包屑：这一屏上有标题就不复述', () => {
+	// showChip / hide 都会调 Web Animations API，jsdom 没有。
+	beforeEach(() => {
+		(Element.prototype as unknown as { animate: unknown }).animate = () => ({});
+		vi.useFakeTimers();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	// 一篇**很长**的笔记：第 0 行一个一级标题（breadcrumbPath 会把它拿掉），此后每 10 行一个
+	// 二级标题，其余是正文。标题行：0, 10, 20, …（0-based）。落点取第 25 行 —— 它那一节的名字
+	// 是 H20，于是面包屑有话可说（不会在 breadcrumbPath 那一步就空掉）。
+	const LINES = 200;
+	const text = Array.from(
+		{ length: LINES },
+		(_, i) => (i % 10 === 0 ? `${i === 0 ? '#' : '##'} H${i}` : `l${i}`),
+	).join('\n');
+	const LANDING = 25;
+
+	const hasChip = (view: MarkdownView): boolean => view.contentEl.querySelector('.position-restore-cue') !== null;
+
+	// 一个**阅读**视图：屏上摆几个标题（各自的矩形由调用方给）由调用方定。容器留给
+	// getScroller（它找 `.markdown-preview-view`）与 hasVisibleHeading（它扫 h1~h6）。
+	const previewView = (headingRects: DOMRect[]): MarkdownView => {
+		const scroller = document.createElement('div');
+		scroller.className = 'markdown-preview-view';
+		scroller.getBoundingClientRect = () => rect(0, 400);
+		for (const hr of headingRects) {
+			const h = document.createElement('h2');
+			h.getBoundingClientRect = () => hr;
+			scroller.appendChild(h);
+		}
+		const containerEl = document.createElement('div');
+		containerEl.appendChild(scroller);
+		return fakeView({
+			getMode: () => 'preview',
+			containerEl,
+			contentEl: document.createElement('div'),
+			currentMode: { getScroll: () => LANDING },
+			data: text,
+		});
+	};
+
+	// 一个**源码**视图：编辑器报的已渲染范围（`viewport`）与每一行「在不在屏上」由调用方摆。
+	// 行的元素按 **1-based 行号**登记；可见的行给容器内的矩形，其余给容器外的。
+	const sourceView = (opts: {
+		rendered: { from: number; to: number };
+		visibleLines: number[];
+		editor?: unknown;
+	}): MarkdownView => {
+		const scroller = document.createElement('div');
+		scroller.className = 'cm-scroller';
+		scroller.getBoundingClientRect = () => rect(0, 400);
+		const contentEl = document.createElement('div');
+		contentEl.appendChild(scroller);
+		const visible = new Set(opts.visibleLines);
+		const els = new Map<number, HTMLElement>();
+		const lineEl = (n: number): HTMLElement => {
+			let el = els.get(n);
+			if (!el) {
+				el = document.createElement('div');
+				el.className = 'cm-line';
+				// jsdom 的 Node 没有 Obsidian 打的 instanceOf 补丁（见 cue.ts 的 sourceLineElement）。
+				(el as unknown as { instanceOf: (C: Function) => boolean }).instanceOf =
+					function (this: HTMLElement, C: Function) { return this instanceof C; };
+				el.getBoundingClientRect = visible.has(n) ? () => rect(120, 150) : () => rect(1000, 1030);
+				els.set(n, el);
+			}
+			return el;
+		};
+		const doc = {
+			lines: LINES,
+			length: LINES,
+			line: (n: number) => ({ from: n }),               // from 取 1-based 行号
+			lineAt: (pos: number) => ({ number: Math.min(Math.max(pos, 1), LINES) }),
+		};
+		const editor = opts.editor ?? {
+			cm: {
+				state: { doc },
+				viewport: opts.rendered,
+				domAtPos: (pos: number) => ({ node: lineEl(pos), offset: 0 }),
+			},
+		};
+		return fakeView({
+			getMode: () => 'source',
+			contentEl,
+			containerEl: document.createElement('div'),
+			currentMode: { getScroll: () => 0 },
+			data: text,
+			editor,
+		});
+	};
+
+	it('阅读模式：这一屏上已经能看到标题，就不复述', () => {
+		// 一个 <h2> 落在容器 0~400 里（屏上）。落点在 H20 那一节、而 H20 已经在眼前。
+		const view = previewView([rect(40, 70)]);
+		new RestoreCue(settings()).show(view, LANDING);
+		expect(hasChip(view)).toBe(false);
+	});
+
+	it('阅读模式：标题都滚出屏了，就念', () => {
+		// 唯一的 <h2> 在容器上方之外。
+		const view = previewView([rect(-200, -170)]);
+		new RestoreCue(settings()).show(view, LANDING);
+		expect(hasChip(view)).toBe(true);
+	});
+
+	it('源码模式：标题行在屏上，就不复述', () => {
+		// 已渲染 1~200 行；标题行（1-based）是 1/11/21/…。让 H20 那一行（21）的矩形落在容器里。
+		const view = sourceView({ rendered: { from: 1, to: LINES }, visibleLines: [21] });
+		new RestoreCue(settings()).show(view, LANDING);
+		expect(hasChip(view)).toBe(false);
+	});
+
+	it('源码模式：标题都在已渲染范围里、却都滚出屏了，就念', () => {
+		// ⚠️ 这条钉的正是 `viewport` 那版判据的错：标题行都落在**已渲染**范围里，但没有任何一个
+		// 标题的**矩形**还在屏上 —— 老判据会以为「看得见」而静默，新判据照念。
+		const view = sourceView({ rendered: { from: 1, to: LINES }, visibleLines: [] });
+		new RestoreCue(settings()).show(view, LANDING);
+		expect(hasChip(view)).toBe(true);
+	});
+
+	it('源码模式：编辑器还没建出来也念 —— 那正是长标题链最需要面包屑的时候', () => {
+		const view = sourceView({ rendered: { from: 1, to: LINES }, visibleLines: [], editor: {} });
+		new RestoreCue(settings()).show(view, LANDING);
+		expect(hasChip(view)).toBe(true);
+	});
+
+	it('落点还没走进任何小节里时不念 —— 那是 breadcrumbPath 的事，与屏幕无关', () => {
+		const view = sourceView({ rendered: { from: 1, to: LINES }, visibleLines: [] });
+		// 落点在第 5 行：唯一的那个一级标题已被 breadcrumbPath 拿掉，还没走到 H10 那一节。
+		new RestoreCue(settings()).show(view, 5);
+		expect(hasChip(view)).toBe(false);
 	});
 });

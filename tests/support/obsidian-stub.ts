@@ -58,7 +58,16 @@ export class Notice {
 	}
 }
 
-export const Platform = { isDesktopApp: true, isMobileApp: false, isMobile: false };
+// isPhone：手机端与桌面/平板在「**读者看得见**遮罩」的时刻上分道（见 ui/cover.ts 的 markVisible）
+// —— 遮罩两端都在 open 一开始就涂上，但手机端涂上那一刻全屏的文件列表还盖着正文，起点要等新
+// 内容进视图。测试按需翻转 isPhone —— 与 recent-files-modal-harness 翻转 isMobile 是同一手法。
+export const Platform = {
+	isDesktopApp: true,
+	isMobileApp: false,
+	isMobile: false,
+	isPhone: false,
+	isTablet: false,
+};
 
 // 最近文件浏览器用 Obsidian 的图标助手画搜索框那个 ×（见 RecentFilesBrowser.toolbar）。
 // jsdom 没有图标，所以这里替一个：这个图标建出测试找得到的元素，并记下**要的是哪个**图标

@@ -125,6 +125,10 @@ function makeHarness(opts: { layoutReady?: boolean; marker?: boolean; activeIsMa
 	const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 	const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
 	if (marker) {
+		// 标记与落点是补丁在 setViewState 里留下的，那道 leaf 遮罩也是
+		// （patcher.maybeCoverOpen —— 源码注入 open 会预遮，出口在 restoreInjectedSource）。
+		// 这里照样手动装上它，好钉住两件事：这条路上遮罩确实会被揭开，以及
+		// 「后台清扫留下的遮罩切到前台」也走同一个出口。
 		state.injectedOpenLeafIds.add('leaf-1');
 		state.handledLeafIdMap.set('leaf-1', filePath);
 		state.cover.cover(leaf);
@@ -161,7 +165,7 @@ describe('Restorer.completeInjectedRestore', () => {
 		expect(state.lastActiveFilePath).toBe('a.md');
 	});
 
-	it('完成一次还没被消费的注入打开：落定、揭幕、锚定', async () => {
+	it('完成一次还没被消费的注入打开：落点收口、揭开那道遮罩、锚定', async () => {
 		const { state, leaf, restorer } = makeHarness();
 
 		await restorer.completeInjectedRestore(leaf);
@@ -350,7 +354,9 @@ describe('Restorer.completeInjectedRestore', () => {
 		};
 		const store = new PositionStore(app as never, { db: { 'a.md': RECORD } } as never);
 		const restorer = new Restorer(app as never, DEFAULT_SETTINGS, store, state);
-		// 补丁在 setViewState 里为这次 open 盖上了首绘遮罩，并留下注入标记与落点。
+		// 补丁在 setViewState 里留下了这次 open 的注入标记与落点。那层 leaf 遮罩
+		// 不是它的 —— 阅读的注入落点从不预遮（见 modes 的 landPreview），这里模拟
+		// 「别处还盖着」的情形，好钉住这条不遮的路也会把它揭掉。
 		state.injectedOpenLeafIds.add('leaf-1');
 		state.injectedLeafStates.set('leaf-1', { scroll: 30 });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');

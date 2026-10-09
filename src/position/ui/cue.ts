@@ -14,9 +14,9 @@ const FLASH_MS = 750;
 // 编辑器包着的 CodeMirror 6 EditorView 的最小形状 ——
 // `editor.cm` 是内部的，Obsidian 的类型定义里没有。
 interface Cm6EditorView {
-	state: { doc: { lines: number; line(n: number): { from: number }; lineAt(pos: number): { number: number } } };
+	state: { doc: { lines: number; length: number; line(n: number): { from: number }; lineAt(pos: number): { number: number } } };
+	viewport: { from: number; to: number };
 	domAtPos(pos: number): { node: Node; offset: number };
-	posAtCoords(coords: { x: number; y: number }): number | null;
 }
 
 // 阅读渲染器的一节：`renderer.sections` 里的一项。它带着这一节在文档里占的行区间以及
@@ -29,8 +29,8 @@ interface PreviewSection {
 }
 
 // 面包屑印哪几个名字：从一行的标题链里挑出值得念的那几个。三条规则都是为了让名字
-// 只说眼睛看不出来的事 —— 与「这一屏里已经能看到标题」（见 hasVisibleHeading）无关，
-// 那条看的是屏，这条看的是笔记：
+// 只说眼睛看不出来的事 —— 它们看的是**笔记**（有哪些小节），与屏幕无关（屏幕那侧另有一道
+// `hasVisibleHeading`，见 `show()`）：
 //   · 整篇只有一个标题：那是笔记名或它唯一的小节，标签页上已经有了，不说；
 //   · 整篇只有一个一级标题：把它从链里拿掉 —— 一级标题多半就是文章标题，正印在
 //     标签页上（多个一级标题的笔记不拿：那是一章的名字，链里留着它才有用）；
@@ -64,21 +64,29 @@ export class RestoreCue {
 	// 给一个刚恢复完的视图显示面包屑。它读视图**已落定**的位置而不是请求的状态，
 	// 所以既覆盖保存位置的恢复、也覆盖默认跳转（到末尾 / 到脚注之前）。
 	// 从不抛异常：所有查询都有防护。
-	show(view: MarkdownView) {
+	//
+	// **锚行由调用方给**（`landingLine`，见 modes.anchorToSettledState）：一次「点名了一行」的
+	// 跳转已经把那一行摆到了视口正中，视口顶于是落在落点**上方**半屏处 —— 拿它命名会念出
+	// 上一个小节的名字（2026-10-09 用户报的「误报……上面顶部的章节」正是它：落点在第二节里，
+	// 而半屏之上还印着第一节）。调用方给不出落点行时才退回视口顶那一行：一次保存位置的恢复，
+	// 落点**就是**视口顶，那一行也正是读者眼睛在的地方。编辑模式的光标不参与命名 ——
+	// 它只用来标出光标那一行（见 modes.markRestoredLine），那件事由另一个开关管。
+	//
+	// **念的前提是屏幕上没有标题**（2026-10-09 用户拍板）：落点落在某个小节里、而**这一屏上
+	// 看不到任何标题**时才念 —— 标题就在读者眼前的话，他自己看得出在哪一节，复述是噪音。
+	// 那道门是下面的 `hasVisibleHeading`（它的判据换过三回，读它上面那段）。
+	show(view: MarkdownView, landingLine?: number) {
 		this.clearHideTimer();
 		if (!this.settings.restoreBreadcrumb)
 			return;
 
-		// 锚永远是视口顶部那一行：读者眼睛在的地方。编辑模式的光标不参与命名 ——
-		// 它只用来标出光标那一行（见 modes.markRestoredLine），那件事由另一个开关管。
-		const line = Math.round(view.currentMode?.getScroll() ?? 0);
+		const line = landingLine ?? Math.round(view.currentMode?.getScroll() ?? 0);
 		const headings = headingsFromLines((view.data ?? '').split('\n'));
 		// 先算名字（纯文本、便宜），再去看屏上有没有标题（要问布局）。
 		const path = breadcrumbPath(headings, line);
 		if (path.length === 0)
 			return;
-		// 标题已经在屏幕上了：落点在哪一节一眼就能看出，复述一遍是噪音。这也是「什么都
-		// 没恢复」那种打开会走到的分支 —— 文件顶上本来就没有标题可看。
+		// 屏幕上已经有标题可看：落点在哪一节一眼就能看出，复述是噪音。
 		if (this.hasVisibleHeading(view, headings))
 			return;
 
@@ -138,10 +146,19 @@ export class RestoreCue {
 		window.setTimeout(() => chip.remove(), 220);
 	}
 
-	// 视口里此刻有没有标题。两种模式两套看法：编辑模式问编辑器自己 —— 视口上下沿各自
-	// 落在哪一行，标题行落在这个区间里就算看得见；阅读模式没有行号，只能扫那一块里
-	// 已渲染的标题元素。答不上来（编辑器还没画、坐标落在文档之外）按「没有」处理：
-	// 那正是长标题链最需要面包屑的时候。
+	// 视口里此刻有没有标题。两种模式两套画法，同一把尺：把**标题自己的 DOM 矩形**与滚动
+	// 容器的可见矩形求交 —— 有任何一个标题落在屏上，就算看得见（此时复述它只是噪音）。
+	//
+	// 源码模式为什么去量元素、而不去问编辑器「视口上下沿各落在哪一行」：那条路
+	// （`posAtCoords` 取样点）在滚动容器的 padding 里会答 null，而取样点恰恰贴着上下沿 ——
+	// 屏上明明有标题也答「看不见」。**别把取样点那版加回来**：第十一轮（换 `contentDOM`
+	// 五点取样）、第十二轮（换 CM6 的 `viewport`）都在「取哪一段」上摔过 —— `viewport` 是
+	// **已渲染**范围、比可视区**大一圈**（标题刚滚出屏、还在渲染缓冲里也算「看得见」），
+	// `contentDOM` 的矩形又等于**整篇文档**（取样点大半落在屏外）。量标题自己的矩形没有
+	// 这两个坑：它在屏幕坐标系里的位置就是它的位置。
+	//
+	// 答不上来（编辑器还没建、视图还没铺好）按「没有」处理 —— 那正是长标题链最需要
+	// 面包屑的时候。
 	private hasVisibleHeading(view: MarkdownView, headings: HeadingRef[]): boolean {
 		if (headings.length === 0)
 			return false;
@@ -160,28 +177,29 @@ export class RestoreCue {
 		}
 
 		const cm = (view.editor as unknown as { cm?: Cm6EditorView }).cm;
-		const scroller = view.contentEl.querySelector<HTMLElement>('.cm-scroller');
+		const scroller = getScroller(view);
 		if (!cm || !scroller)
 			return false;
 		const rect = scroller.getBoundingClientRect();
 		if (rect.height <= 0)
 			return false;
-		const x = rect.left + rect.width / 2;
-		const top = this.lineAtPoint(cm, x, rect.top + 2);
-		const bottom = this.lineAtPoint(cm, x, rect.bottom - 2);
-		if (top === null || bottom === null)
-			return false;
-		return headings.some(h => h.line >= top && h.line <= bottom);
-	}
-
-	// 一个屏幕坐标落在哪一行（0-based）。坐标落到文档之外时编辑器答 null。
-	private lineAtPoint(cm: Cm6EditorView, x: number, y: number): number | null {
-		try {
-			const pos = cm.posAtCoords({ x, y });
-			return pos === null ? null : cm.state.doc.lineAt(pos).number - 1;
-		} catch {
-			return null;
+		// 只有**已渲染**的行才在 DOM 里、才可能看得见 —— 先用编辑器报的已渲染范围收窄。
+		// 这是必要条件、不是判据本身：可见与否由下面每个标题自己的矩形说了算。
+		const doc = cm.state.doc;
+		const firstRendered = doc.lineAt(cm.viewport.from).number;
+		const lastRendered = doc.lineAt(cm.viewport.to).number;
+		for (const h of headings) {
+			const lineNo = h.line + 1;
+			if (lineNo < firstRendered || lineNo > lastRendered)
+				continue;
+			const el = this.sourceLineElement(cm, h.line);
+			if (!el)
+				continue;
+			const hr = el.getBoundingClientRect();
+			if (hr.top < rect.bottom && hr.bottom > rect.top)
+				return true;
 		}
+		return false;
 	}
 
 	// 阅读视图里一行所在的那一块。core 自己的小节高亮就是给这一块加 .is-flashing

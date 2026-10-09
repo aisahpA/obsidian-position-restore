@@ -191,11 +191,13 @@ export class Restorer {
 		if (injected)
 			this.state.injectedLeafStates.delete(leafId);
 
-		// 揭开任何过期的恢复遮罩；分发体按需重新遮上。一个 leaf 首绘遮罩还盖着
-		// 的注入 open，绝不能在这里被揭开：view.contentEl 与 leaf 遮罩的
-		// .view-content 是**同一个**元素，所以清掉 contentEl 会在落定跑完之前
-		// 就把首绘遮罩揭开 —— 落定前的像素就成了可见的闪烁。
-		// restoreInjectedSource 里那个被遮住的分支管这次揭开。
+		// 揭开任何**过期的**恢复遮罩（maskedRestore 那层被顶替时留下的残留）；
+		// 分发体按需重新遮上。此刻还盖着的叶子遮罩有两处来源，都绝不能在这里被揭开：
+		// 注入 open 自己的那道短盖（patcher.maybeCoverOpen，还没等到真几何），以及后台
+		// 注入标签页的清扫（background-settle）。理由同一个：view.contentEl 与 leaf 遮罩的
+		// .view-content 是**同一个**元素，所以清掉 contentEl 会把那个遮罩
+		// 一起揭掉 —— 短盖的出口在 restoreInjectedSource 里，后台那条那次落定的
+		// 揭开归 settleInjectedReveal 自己管。
 		if (isMarkdown && !(injected && this.state.cover.isCovered(view.leaf)))
 			this.state.cover.revealRestoreCover(view);
 
@@ -218,9 +220,9 @@ export class Restorer {
 		// 去重：Obsidian 会反复触发 'file-open'（切换窗格、恢复工作区、单纯的
 		// 标签页激活）。每一个 leaf+file 组合只恢复一次，否则光标会一直跳回保存的
 		// 位置。注入的 open 绕过去重：它们的 file-open 必须跑 restoreInjectedSource
-		// （落定 + 揭开遮罩），哪怕这一对已经被处理过 —— 补丁在注入时就记下了
+		// （落点收口 + 锚定），哪怕这一对已经被处理过 —— 补丁在注入时就记下了
 		// 已处理的配对，否则一次重放的 open 会被去重进 skipRestoreAndAnchor，
-		// 而后者会在落定之前把遮罩揭开。
+		// 而后者会跳过这次收口。
 		if (!injected && this.hasOpenedLeafPath(view.leaf, filePath)) {
 			// 单纯的重激活（切换窗格、重复的 'file-open' 事件 —— 在 Android 上很
 			// 频繁）。一个已经在显示的 cue 别去动它：它自己的自动隐藏定时器会让它

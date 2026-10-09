@@ -6,7 +6,7 @@ import {
 	RESTORE_PAINT_DEADLINE, waitForContentReady, waitForRestorePainted,
 } from '@/shared/wait';
 import { PositionState } from '@/position/state';
-import { SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SourcePixelCorrector } from './pixels';
+import { DOC_READY_MAX_MS, SETTLE_HOLD_MAX_MS, SETTLE_MAX_MS, SOURCE_COVER_MAX_MS, SourcePixelCorrector } from './pixels';
 
 // 一个被走过的行的标记，最多等它的落点多长时间：远超过任何一次 open 加上落定，
 // 又短到读者不会把它误当成对刚才那个动作的回应。
@@ -18,10 +18,20 @@ const LINE_FLASH_ASK_MS = 5000;
 // 任何一段遮罩预算之内（SETTLE_MAX_MS 是 800，遮罩保险是 2000）。
 const CENTER_READ_MAX_FRAMES = 8;
 
+// 一次点名一行的跳转里，等「编辑器能接这个原语」的帧数。这一步点名的那一行**确定存在**
+// （标记在、文件对得上、没过期），只是视图还在建 / 刚换完文档 —— 此刻放弃居中就等于把落点
+// 交回给按行数估的种子（「位置完全不确定，有时不在屏内」就是那个形状）。等不到才放弃，
+// 放弃的理由与原来一样：宁可不居中，也不拿旧文档赌一次。
+//
+// 按**帧**计而不是按毫秒：这个洞只在「内容已经进来了、编辑器还差一步挂上」时出现，而
+// 那一步是视图构造里同步发生的，几帧就能跨过去；按毫秒计会让慢设备上的每次跳转都白等，
+// 也会把「编辑器本来就不认这个原语」的场合一起拖住（测试里就是这种桩编辑器）。
+const CENTER_READY_MAX_FRAMES = 3;
+
 // 各种恢复策略：分发流水线判定需要一次恢复之后，保存的位置如何被应用到
 // 一个 markdown 视图上 —— masked（在 contentEl 遮罩下）、restoreInjectedSource
-// （在 leaf 首绘遮罩下）、landPreview（阅读：不遮，交给渲染器落），以及每一种
-// 策略最后都会走到的共享锚点。
+// （源码：短盖下等真几何）、landPreview（阅读：不遮，交给渲染器落），
+// 以及每一种策略最后都会走到的共享锚点。
 export class RestoreModes {
 	private state: PositionState;
 	private pixels: SourcePixelCorrector;
@@ -31,44 +41,126 @@ export class RestoreModes {
 		this.pixels = new SourcePixelCorrector(state);
 	}
 
-	// 那些「保存的位置已被注入进 core 的 setViewState」的 open，走源码模式的
-	// 恢复：core 已经同步应用过了，这里我们在这个 leaf 的首绘遮罩下落定落点、
-	// 揭开遮罩、重新锚定。安全定时器先一步把遮罩揭掉时（约 2s 后才被激活的
-	// 后台 open），遮罩可能已经不在了：落点照样漂了 —— 刚建出来的编辑器会
-	// 偏最多半屏 —— 所以这次落定照跑，不遮不盖但有界，而且只跑这第一次
-	// file-open（注入标记会给后来的激活去重）。阅读视图从不注入，所以这个
-	// per-leaf 的遮罩检查绝不能把它的 masked 恢复跳过去。
+	// 那些「保存的位置已被注入进 core 的 setViewState」的源码 open 的恢复：core
+	// 已经同步应用过了，这里只把落点收成最终值（一次点名了一行的跳转先请编辑器
+	// 自己居中）、在**短盖**下等编辑器给出真几何，再走共享收口 —— 记账、提示，
+	// 以及揭开之后那一次像素检查
+	// （anchorToSettledState → relandDriftedScroll → relandSourcePixels）。
+	//
+	// 为什么要遮（2026-10-08 两轮真机实测定的）：内容一出现就动几下的那种不稳定
+	// 躲不掉 —— 要让第一帧就落在正确的位置上，只能等编辑器量完行高；在它量完
+	// 之前画出来的帧必定被随后的一次测量推动（core 的两段式落地，实测约 85~145ms）。
+	// 想不让读者看见，只剩遮住这一条路，而遮住的代价是空白。于是取舍落在「盖多久」
+	// 上：盖到**编辑器量完为止** —— 目标行的偏移**与**视口里最后一条可见行的偏移在
+	// 同一个窗口里都没离开过窗口起点（settleShortCover），下限从**第一次量到真几何**
+	// 那一刻起算（+ SOURCE_COVER_FLOOR_MS），上界从**真正盖上**那一刻起算
+	// （SOURCE_COVER_MAX_MS）。这一段里**不做**任何落点纠正（纠正留给揭开后的一次性
+	// 检查）：在遮罩下纠正就是把遮罩按住更久，那正是更早那一版每次打开都给出一段空白
+	// （下限约 250ms）的原因。
+	//
+	// **遮罩在 open 一开始就涂上，两端一致**（2026-10-09 第十二轮之后改判）。旧写法「甲」
+	// 特意把那一次读盘留给旧画面（「别把 I/O 等待伪装成加载」），可真机上它读起来是
+	// **上一篇闪一下**：文件不在内容缓存里时这次读盘要走磁盘，那几帧屏幕上就是上一篇，接着
+	// 才白、才换新 —— 与点击快慢无关（结构性），见 ui/cover.ts 的 cover()。
+	// 但「**读者看得见**这道遮罩」的时刻两处不同：桌面上就是涂上那一刻；手机端那一刻全屏的
+	// 文件列表还盖着正文，要等新内容进视图（见 markVisible）。上界从读者看得见那一刻起算，
+	// 读盘那一段才不会把短盖的预算白吃掉。
+	//
+	// **这段等待同时是「什么时候才能碰编辑器」的闸门**（同一条判据，见 waitContentArrived）：
+	// 居中与短盖量的都是像素，而读盘那几百 ms 里编辑器握着的还是上一篇 ——
+	// 'file-open' 是防抖发的，完全可能落在读盘中间。在旧文档上居中会被夹进行号范围，在旧
+	// 文档上量像素则得出「已经量完了」的假结论（旧文档的几何是稳的 ⇒ 短盖当场揭幕 ⇒
+	// 读者看到新内容出现时自己动）。手机上读盘慢，这两件事都常年发生。
+	//
+	// 没有盖布可揭时（后台清扫已经揭掉、或安全定时器到点）不等：没有要藏的东西，
+	// 等下去只是推迟锚定。从未触发 'file-open' 的后台注入标签页仍走
+	// settleInjectedReveal —— 那里读者看不见，可以盖到静默为止。
 	async restoreInjectedSource(view: MarkdownView, st: EphemeralState | undefined, isCurrent: () => boolean) {
-		const entryAt = Date.now();
-		// 落定与保持共用一条触摸基准：比这次 open 自己那一下更晚的触摸，说明
-		// 用户接管了 —— 绝不能拿遮罩压着他们的滚动。
 		const touchBaseline = this.state.lastTouchAt;
+		// 这一次 open 的两条等待共用一条预算，因为它们等的是**同一件事** —— 新内容到位：一条等
+		// 编辑器换上这篇笔记的内容（waitContentArrived），一条等**读者看得见**那道遮罩
+		// （waitCoverApplied）。只有「一直等不到」才需要一条上界（见 DOC_READY_MAX_MS）。
+		const contentDeadline = Date.now() + DOC_READY_MAX_MS;
 		let landed = st;
 		try {
-			// 一次点名了一行的跳转：先让编辑器自己把那一行摆到正中（与点大纲面板同一个
+			// **先等新内容真的进到编辑器里**（见上面那段注释）：后面的每一步都以它为地面。
+			// 等不到（core 一直没换文档）就**不碰编辑器** —— 一次落在旧文档上的居中比不居中
+			// 更糟：行号会被夹进旧文档的范围，而它的滚动 effect 还可能在交换之后才被应用，
+			// 把视口甩到任意位置。落点退回按行数估的种子，那至少是确定的。
+			const arrived = await this.waitContentArrived(view, isCurrent, contentDeadline);
+			// 一次点名了一行的跳转：请编辑器自己把那一行摆到正中（与点大纲面板同一个
 			// 原语），再把回读到的视口顶当成落点 —— 落法于是和原生一模一样，也不再依赖
-			// 「这一屏几行」那个估算。遮罩还盖着，所以「先落估算值、再居中」看不见。
-			const centered = isCurrent() && st?.scroll
+			// 「这一屏几行」那个估算。
+			const centered = arrived && isCurrent() && st?.scroll
 				? await this.centerNamedLine(view, isCurrent)
 				: undefined;
 			if (centered !== undefined && st)
 				landed = { ...st, scroll: centered };
-			// 一个合并的循环管着整个被遮住的阶段：它用**真实的像素几何**来
-			// 校验（getScroll() 回读只是在复述请求），落点一静下来**且**对齐
-			// 就揭开。从恢复入口起算有界，好让遮罩的安全定时器始终是外层
-			// 界限。
-			if (isCurrent() && landed?.scroll)
-				await this.pixels.settleAndHold(view, landed.scroll, isCurrent, touchBaseline, entryAt + SETTLE_HOLD_MAX_MS);
+			// 短盖：等这道遮罩**读者看得见**（见 waitCoverApplied —— 桌面上涂上就看见；手机
+			// 端那一刻全屏列表还盖着正文，要等新内容进视图），再盖到编辑器量完为止（见上面
+			// 那段注释与 settleShortCover）。上界从**读者看得见**那一刻起算 —— 那段空白只有
+			// 「读者看得见的那一刻到揭开」。
+			const target = landed?.scroll;
+			const appliedAt = await this.waitCoverApplied(view, isCurrent, contentDeadline);
+			if (appliedAt !== undefined && isCurrent() && target)
+				await this.pixels.settleShortCover(
+					view,
+					target,
+					isCurrent,
+					touchBaseline,
+					appliedAt + SOURCE_COVER_MAX_MS,
+				);
 		} finally {
+			// 后台清扫那条路（见 background-settle）此刻可能还盖着这个 leaf：切到前台
+			// 必须把它揭掉，否则读者只能干等那道保险定时器（约 2s 的空白）。本路径自己
+			// 盖的那道遮罩也从这里出去 —— 它就是「短盖」的出口。
 			if (isCurrent())
 				this.state.cover.uncover(view.leaf);
 		}
 		await this.anchorToSettledState(view, landed, isCurrent);
 	}
 
+	// 等编辑器真的换上**这篇**笔记的内容（有界）。判据借的是遮罩那道「新内容到了吗」的闭包
+	// （patcher 在武装时装好，见 contentSwapGate）—— 两者问的是同一个问题，而那段闭包是唯一
+	// 知道「武装时屏幕上是谁」的地方，所以不另写一份。没有盖布时它恒真：没有别的笔记要等它
+	// 让位，也就没什么可等的。
+	private async waitContentArrived(
+		view: MarkdownView,
+		isCurrent: () => boolean,
+		deadline: number,
+	): Promise<boolean> {
+		while (isCurrent() && Date.now() < deadline) {
+			if (this.state.cover.contentArrived(view.leaf))
+				return true;
+			await nextPaint();
+		}
+		return this.state.cover.contentArrived(view.leaf);
+	}
+
+	// 等**读者看得见**这道盖布（有界），返回那一刻 —— 短盖的上界从它起算。盖布在 open 一开始
+	// 就涂上、两端一致，可「读者看得见」的时刻两处不同：桌面上就是涂上那一刻（于是这里第一次
+	// 循环就返回）；手机端那一刻全屏的文件列表还盖着正文，要等新内容进视图（见 ui/cover.ts 的
+	// markVisible）。这次 open 根本没有盖布（后台那条路已经揭掉了、或只带光标的记录从不预遮）
+	// 时返回 undefined —— 调用方于是不等待，也不盖。
+	private async waitCoverApplied(
+		view: MarkdownView,
+		isCurrent: () => boolean,
+		deadline: number,
+	): Promise<number | undefined> {
+		while (isCurrent() && Date.now() < deadline) {
+			const at = this.state.cover.appliedAt(view.leaf);
+			if (at !== undefined || !this.state.cover.isCovered(view.leaf))
+				return at;
+			await nextPaint();
+		}
+		return this.state.cover.appliedAt(view.leaf);
+	}
+
 	// 后台标签页的变体，针对一次从未触发 'file-open' 的注入 open（一个重启
 	// 恢复出来、视图**已经建好**的分屏）：落点漂得和活动标签页一模一样，但在
-	// 第一次激活之前没有任何东西去落定它。跑同样的 settle+reveal，但**不走**
+	// 第一次激活之前没有任何东西去落定它。它跑遮罩下的 settle+reveal（与前台那条
+	// 短盖的差别只在两个时刻：读者看不见这里，所以**立刻**盖上，且可以盖到落点真的
+	// 静下来，也可以在遮罩下纠正 —— 见 restoreInjectedSource），但**不走**
 	// anchorToSettledState —— 那个会写单槽的记录基准和 cue，而它们只属于活动
 	// leaf。
 	async settleInjectedReveal(view: MarkdownView, st: EphemeralState | undefined, isCurrent: () => boolean) {
@@ -271,13 +363,23 @@ export class RestoreModes {
 	// 返回 undefined，调用方退回种子：
 	//   · 不是源码模式（阅读模式没有编辑器原语，落法由 jumpTopBiasLines 那边管）；
 	//   · 不是点名的这篇笔记（标记是全局的）；
-	//   · 标记过期（一次从未落地的打开要求的行，不许在后来某次恢复里居中）；
-	//   · 编辑器不认这个原语（视图还没建好）。
-	private namedLineAsk(view: MarkdownView): { line: number } | undefined {
+	//   · 标记过期（一次从未落地的打开要求的行，不许在后来某次恢复里居中）。
+	//
+	// 它**不看编辑器**：「这一步点名了哪一行」与「编辑器现在认不认那个原语」是两件事，
+	// 后者要等（见 centerNamedLine）。
+	private namedLineTarget(view: MarkdownView): { line: number } | undefined {
 		const ask = this.state.pendingLineFlash;
 		if (!ask || view.getMode() !== 'source' || view.file?.path !== ask.path)
 			return undefined;
 		if (Date.now() - ask.at >= LINE_FLASH_ASK_MS)
+			return undefined;
+		return ask;
+	}
+
+	// 加上「编辑器此刻就能做这件事」的条件 —— 这就是可以派发的意思。
+	private namedLineAsk(view: MarkdownView): { line: number } | undefined {
+		const ask = this.namedLineTarget(view);
+		if (!ask)
 			return undefined;
 		if (typeof view.editor?.scrollIntoView !== 'function')
 			return undefined;
@@ -294,11 +396,31 @@ export class RestoreModes {
 	// （settleSourcePixels 等），所以这里的居中要靠它回读出来的视口顶来「说服」那些纠正器
 	// —— 它们随后量到的偏差就是零。
 	//
-	// 返回 undefined 只有两种情形：**没有要求编辑器滚动**（见 namedLineAsk），或那个原语
-	// 直接抛了。调用点都在遮罩下（跨文件）或紧接施加之后（同文件）。
+	// **派发之前，文档必须已经在位**（2026-10-09 用户拍板，丙）。跨文件打开时 'file-open'
+	// 与文档交换之间有一段空档（core 在异步读盘），此刻派发的 `scrollIntoView` 落在**上一篇**
+	// 文档上 —— 行号被夹进旧文档的范围，回读到的也是旧文档的滚动 —— 这一次居中于是完全作废，
+	// 落点交给按行数估出来的种子决定。用户看到的正是这个形状：「位置完全不确定，甚至有时候
+	// 不在屏幕里面」。那道等待归调用方管（跨文件在 restoreInjectedSource 的 waitContentArrived，
+	// 同文件那条路文档本就在位），这里只管派发 —— **闸门只有一处**，就不会有人忘了过它。
+	//
+	// 返回 undefined 有三种情形：**没有要求编辑器滚动**（见 namedLineAsk）、这次 open 已经
+	// 不是当前的了，或那个原语直接抛了。
 	private async centerNamedLine(view: MarkdownView, isCurrent: () => boolean): Promise<number | undefined> {
+		// 这一步确实点名了一行，只是编辑器还没接上（视图还在建 / 刚换完文档）：有界地等它。
+		// 等它和「这一行到底存不存在」必须分开判 —— 合在一起会把「还没就位」误读成
+		// 「没有要点名的行」，于是这次居中被静默跳过，落点退回按行数估的种子（手机上最常见的
+		// 那个不稳就是这么来的）。
+		if (!this.namedLineAsk(view) && this.namedLineTarget(view)) {
+			for (let i = 0; i < CENTER_READY_MAX_FRAMES; i++) {
+				if (!isCurrent() || this.namedLineAsk(view) || !this.namedLineTarget(view))
+					break;
+				await nextPaint();
+			}
+		}
 		const ask = this.namedLineAsk(view);
 		if (!ask)
+			return undefined;
+		if (!isCurrent())
 			return undefined;
 		const before = this.readScroll(view);
 		try {
@@ -357,14 +479,17 @@ export class RestoreModes {
 		if (isCurrent()) {
 			this.state.lastEphemeralState = readEphemeralState(view) ?? st;
 			this.state.lastAnchorAt = Date.now();
-			this.markLandingLine(view);
+			// 先取标出来的那一行 —— 这个名字同时是面包屑的锚（见下面的 cue.show）：一次点名了
+			// 一行的跳转把落点摆在视口正中，只有标它的那一行还知道落点在哪。必须在
+			// markLandingLine 之前取，它会把标记消费掉。
+			const landingLine = this.markLandingLine(view);
 			// 每一条真正的恢复路径都终结在这里，所以两个方向提示只在一次真实的恢复
 			// 落定之后才响。NavStack 的遍历会装好 cueSuppressUntil —— 目的地是用户
 			// 自己选的，不给提示；那一路的落点由 armLandingMark 单独标出（见
 			// markLandingLine），所以这里也不会和它闪成两下。
 			if (Date.now() >= this.state.cueSuppressUntil) {
 				this.markRestoredLine(view);
-				this.state.cue.show(view);
+				this.state.cue.show(view, landingLine);
 			}
 		}
 	}
@@ -374,20 +499,25 @@ export class RestoreModes {
 	// 是因为每一条真正的恢复都终结于此 —— 标记于是落在**落定后**的落点上，而不是当初
 	// 请求的那一行。visit/teleport 的标记只在编辑模式兑现（sourceOnly）：阅读模式没有光标，
 	// 视口顶就是落点；jump 两种模式都标。
-	private markLandingLine(view: MarkdownView) {
+	//
+	// 返回值就是被打标记的那一行（没打则 undefined）—— 它同时是面包屑该念哪一节的那个锚
+	// （见 anchorToSettledState 的 cue.show）：这一次落点被摆在视口**正中**，视口顶在它
+	// 上方半屏处，所以只有这一行还知道读者落在哪一节里。
+	private markLandingLine(view: MarkdownView): number | undefined {
 		const ask = this.state.pendingLineFlash;
 		if (!ask)
-			return;
+			return undefined;
 		if (Date.now() - ask.at >= LINE_FLASH_ASK_MS) {
 			this.state.pendingLineFlash = undefined;
-			return;
+			return undefined;
 		}
 		if (view.file?.path !== ask.path)
-			return;
+			return undefined;
 		this.state.pendingLineFlash = undefined;
 		if (ask.sourceOnly && view.getMode() !== 'source')
-			return;
+			return undefined;
 		this.state.cue.flashLine(view, ask.line);
+		return ask.line;
 	}
 
 	// 恢复后标出落点，且只在编辑模式：标光标那一行，读者要接着打字的地方（视口顶部那

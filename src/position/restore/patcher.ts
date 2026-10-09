@@ -1,4 +1,4 @@
-import { App, MarkdownView, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
+import { App, MarkdownView, TFile, Vault, Workspace, WorkspaceLeaf } from 'obsidian';
 import { EphemeralState, PluginSettings } from '@/types';
 import { PositionStore } from '@/position/storage/position-store';
 import { PositionState, OpenKind, LANDING_ABSORB_MS } from '@/position/state';
@@ -7,6 +7,7 @@ import type { NavFunnel } from '@/nav/funnel';
 import { stripLinkAlias } from '@/nav/entry';
 import { isMainAreaLeaf, isPopoverLeaf } from '@/shared/leaf';
 import type { Sampler } from '@/position/capture/sampler';
+import { SourcePixelCorrector, type ScreenNote } from './pixels';
 
 // open 时流经 setViewState 的视图 / ephemeral state 载荷是内部结构、没有类型；
 // 这里声明本插件要读的那几个最小字段。
@@ -43,6 +44,8 @@ export class OpenPatcher {
 	private store: PositionStore;
 	private funnel: NavFunnel;
 	private sampler: Sampler;
+	// 只有一道闸在这里用得上：「编辑器换上**这篇**笔记的内容了没有」（见 contentSwapGate）。
+	private pixels: SourcePixelCorrector;
 
 	constructor(app: App, settings: PluginSettings, store: PositionStore, state: PositionState, funnel: NavFunnel, sampler: Sampler) {
 		this.app = app;
@@ -51,6 +54,7 @@ export class OpenPatcher {
 		this.funnel = funnel;
 		this.sampler = sampler;
 		this.state = state;
+		this.pixels = new SourcePixelCorrector(state);
 	}
 
 	// 插件卸载时 registerCleanup 必须把两个补丁都撤掉。
@@ -126,7 +130,9 @@ export class OpenPatcher {
 	// 把保存的位置注入进这次 open 的 ephemeral state 参数，好让 core 在它给
 	// 自己做恢复时用的那个流水线槽位里应用它：与内容交换同步，早于任何绘制。
 	// 这是源码模式的恢复唯一能不带闪烁的地方 —— 'file-open' 是经由一个防抖
-	// 回调发出的，也就是在笔记已经按默认位置画出来之后。
+	// 回调发出的，也就是在笔记已经按默认位置画出来之后。注入的同时把 leaf
+	// 遮上（见 maybeCoverOpen）：那段遮罩只盖到编辑器给出真几何，代价与理由
+	// 都在 modes.ts 的 restoreInjectedSource。
 	private injectEphemeralStateOnOpen(leaf: WorkspaceLeaf, viewState: OpenViewState, eState: OpenEphemeralState | undefined): OpenEphemeralState | undefined {
 		if (!viewState || typeof viewState.type !== 'string')
 			return eState;
@@ -201,12 +207,12 @@ export class OpenPatcher {
 				if (st && ((st.scroll ?? 0) > 0 || st.cursor)) {
 					const isSource = this.isSourceModeOpen(leaf, viewState);
 					const merged = this.buildMergedState(st);
-					// **只遮源码模式**。阅读视图的首绘要异步渲染，大笔记跨文件打开能到
-					// 2~3 秒；这段渲染期被遮住就是一整片空白。而阅读模式的落点本来就有
-					// core 自己的渲染流水线接着（注入的 `{scroll}` 走 applyScrollDelayed，
-					// 渲染器一就绪就落定），没有「未恢复的顶部」需要藏（见 modes.ts 的
-					// maskedRestoreSt）。
-					this.maybeCoverOpen(leaf, isSource && (merged.scroll ?? 0) > 0);
+					// **只遮源码模式**，且只遮带 scroll 的注入。阅读视图的首绘要异步渲染，
+					// 大笔记跨文件打开能到 2~3 秒；把这段渲染期遮住就是一整片空白。而阅读
+					// 模式的落点本来就有 core 自己的渲染流水线接着（注入的 `{scroll}` 走
+					// applyScrollDelayed，渲染器一就绪就落定），没有「未恢复的顶部」需要
+					// 藏（见 modes.ts 的 landPreview）。
+					this.maybeCoverOpen(leaf, filePath, isSource && (merged.scroll ?? 0) > 0);
 					this.state.injectedOpenLeafIds.add(leafId);
 					this.state.injectedLeafStates.set(leafId, st);
 					this.state.handledLeafIdMap.set(leafId, filePath);
@@ -267,7 +273,7 @@ export class OpenPatcher {
 		) && !replayIsEmptyRebuild)
 			return eState;
 
-		this.maybeCoverOpen(leaf, (merged.scroll ?? 0) > 0);
+		this.maybeCoverOpen(leaf, filePath, (merged.scroll ?? 0) > 0);
 
 		// 让 file-open 处理器知道恢复已经在这里应用过了，于是它只重锚账本、
 		// 不再重新应用（账本的归属仍在 restoreEphemeralState 里）。按 leaf id
@@ -341,20 +347,126 @@ export class OpenPatcher {
 		return merged;
 	}
 
-	// 遮住那些头几帧否则会画出未恢复的顶部、或落定时的纠正的 open。**每一个**
+	// 遮住那些头几帧还带着估算高度、因而会被随后的测量推一下的源码 open。**每一个**
 	// 带 scroll 注入的源码 open 都要遮，全新 leaf 与同 leaf 切换一视同仁：
 	//  - 全新 leaf 的编辑器稍后才建出来，先量自己的文档，注入的 scroll 才落地
 	//    —— 第一帧显示的是默认顶部；
-	//  - 同 leaf 切换走 core 分阶段的流水线，它在交换后重新测量，可能在原子
-	//    apply 之后把像素推走；修正这一切的那次落定必须在看不见时跑，否则
-	//    每次纠正读起来都像一次跳。
+	//  - 同 leaf 切换走 core 分阶段的流水线，它在交换后重新测量，会把像素推走。
 	// 只有光标的注入从不移动视口，所以第一帧就已经是最终状态，遮上只会多出
-	// 一段空白期；阅读类 open 也从不遮。restoreEphemeralState 的注入分支先
-	// 落定再揭开遮罩；后台 open 由安全定时器兜住上界。
-	private maybeCoverOpen(leaf: WorkspaceLeaf, hasScroll: boolean) {
+	// 一段空白期；阅读类 open 也从不遮。
+	//
+	// **什么时候真的盖上**：**open 一开始就盖上**（两端一致）。⚠️ 旧写法（甲）等编辑器换上
+	// 这篇笔记的内容才盖，特意把读盘那段留给旧画面（「别把 I/O 等待伪装成加载」）—— 可真机上
+	// 它读起来是**上一篇闪一下**：文件不在内容缓存里时 core 的 `cachedRead` 要走一次磁盘，那几
+	// 帧屏幕上就是上一篇，接着才白、才换新，与点击快慢无关（结构性）。机理见 ui/cover.ts 的
+	// cover()（2026-10-09 第十二轮之后改判）。
+	//
+	// 而下面那道 contentSwapGate 仍然武装，只是它现在**只**管「恢复流水线什么时候能碰编辑
+	// 器」，不再管遮盖时机 —— 判据是「编辑器里装的是不是**这一篇**」（见 contentSwapGate）。
+	//
+	// 盖多久不在这里定：那道遮罩由 modes.ts 的 restoreInjectedSource 收口
+	// （pixels.settleShortCover），只盖到编辑器量完为止 —— 目标行的偏移与视口里最后一条
+	// 可见行的偏移在同一个窗口里都没离开过窗口起点，下限从第一次量到真几何那一刻起算、
+	// 上界从**真正盖上**那一刻起算。这道遮罩 2026-10-08 被整条删掉过一次（改由揭开后的
+	// 一次性检查兜落点）：实测空白消失，但读者看见了那几帧的变动 —— 空白与变动只能选一个
+	// 侧重，于是它以「短盖」的形态回来。后台注入标签页另有一道（background-settle 的
+	// settleBackground），读者看不见它。
+	private maybeCoverOpen(leaf: WorkspaceLeaf, filePath: string, hasScroll: boolean) {
 		if (!hasScroll)
 			return;
-		this.state.cover.cover(leaf);
+		// **open 一开始就盖上**（两端一致）。⚠️ 旧写法（甲）在桌面上特意把读盘那一段留给
+		// 旧画面（「别把 I/O 等待伪装成加载」），可真机上它读起来是**上一篇闪一下**：文件不在
+		// 内容缓存里时 core 的 `cachedRead` 要走一次磁盘，那几帧屏幕上就是上一篇，接着才白、
+		// 才换新 —— 与点击快慢无关（结构性），正是用户报的「打开 C 时看见上一篇的内容闪一下」。
+		// 而那次读盘通常远小于短盖自己的下限（SOURCE_COVER_FLOOR_MS 150），拿它换「屏幕上绝不会
+		// 出现别的笔记」是划算的（2026-10-09 第十二轮之后改判，见 ui/cover.ts 的 cover()）。
+		// 手机端本来就如此（第十轮：选择文件的过程全屏盖住正文，旧画面没有读者）。
+		// ⚠️ 判据本身照旧武装（`contentArrived` 仍靠它）—— 遮盖的**时机**提前，但恢复流水线
+		// 依然要等新内容真进编辑器。
+		this.state.cover.cover(leaf, this.contentSwapGate(leaf, filePath));
+	}
+
+	// 这一次 open 的「新内容到了吗」判据 —— **恢复流水线靠它决定什么时候才能碰编辑器**（居中、
+	// 短盖量的都是像素，落在上一篇的几何上不只作废：旧文档的几何是稳的，短盖会当场判定
+	// 「量完了」而揭幕）。⚠️ 遮罩**动手的时机**不再由它定（open 一开始就盖上，见 maybeCoverOpen
+	// 与 ui/cover.ts 的 cover()）—— 它只挡恢复流水线。
+	//
+	// 分两层，从粗到细：
+	//  1. `noteArrived` —— 编辑器里的**文档对象**换掉了没有（见 pixels.noteArrived）。它挡住
+	//     「core 还在异步读盘」那几百 ms：core 的 loadFile 先换 view.file、再 await 读盘、
+	//     最后才 setData，读盘期间文档还是上一篇的。
+	//  2. `expectedContent` —— 现在**装的是不是这一次要打开的那篇**。⚠️ 这一层不是为了更严，
+	//     是因为第一层有个真洞：`noteArrived` 只会答一次「换了」，而**任何一个别的笔记都满足
+	//     它**。core 的 `FileView.loadFile` 只在自己入口比一次 `this.file === file`，
+	//     `await onLoadFile(file)` 之后**没有任何复核**（2026-10-09 解包 obsidian.asar 实测），
+	//     所以快速连点 A→B→C 时 A 与 B 的读盘都可能晚于 C 回来、把中间那篇画上去 —— 而短盖
+	//     在第一个「换了」上就揭幕了，随后晚到的那一篇一闪（用户报的「打开 C 时看见 A 的内容
+	//     闪一下」）。内容比对是唯一能认出**这一篇**的读数。
+	//
+	// 武装那一刻屏幕上那篇笔记**不是另一篇**时（全新 leaf、非 markdown 视图、同一篇的重放）
+	// 根本没有「上一篇」要比：交回 **undefined**（= 没有闸门，恒真）。⚠️ 别写成
+	// `() => true` —— 一个恒真函数与「压根没有闸门」在**读者看得见遮罩了吗**那件事上不是
+	// 一回事：手机端的遮罩起点要等「这篇内容进视图」（见 ui/cover.ts 的 markVisible /
+	// contentShown），而全新 leaf 那一刻视图还没建出来、只能交回恒真 —— 照它算，起点就落在
+	// 「涂上容器背景」那一刻，读盘与列表收起动画于是白吃掉短盖的预算。
+	private contentSwapGate(leaf: WorkspaceLeaf, filePath: string): (() => boolean) | undefined {
+		const from = this.screenNote(leaf, filePath);
+		if (from === undefined)
+			return undefined;
+		const isTarget = this.expectedContent(leaf, filePath);
+		return () => this.pixels.noteArrived(leaf.view, from) && (isTarget === undefined || isTarget());
+	}
+
+	// 「编辑器里装的是不是**这一次要打开的那篇**」—— 拿那个文件的内容来比。
+	//
+	// 取不到文件、或这个 vault 不认 cachedRead（测试桩（patcher-inject 的假 app 只有
+	// workspace）就是这样）时返回 undefined：那一层判据**缺席**，退回与从前一样的
+	// 「文档对象换掉了没有」—— 至少还能挡住读盘那一段。
+	//
+	// ⚠️ 比拼是 O(内容长度)，而判据每帧都被求值：按**文档身份**记忆。同一次交换只换一次文档
+	// 对象，所以整段等待里最多比几次。
+	private expectedContent(leaf: WorkspaceLeaf, filePath: string): (() => boolean) | undefined {
+		const vault = this.app.vault as Vault | undefined;
+		const file = vault?.getAbstractFileByPath?.(filePath);
+		if (!file || typeof vault?.cachedRead !== 'function')
+			return undefined;
+		let text: string | undefined;
+		void vault.cachedRead(file as TFile).then(
+			(content) => { text = content; },
+			() => undefined,
+		);
+		let seen: object | undefined;
+		let seenOk = false;
+		return () => {
+			const want = text;
+			if (want === undefined)
+				return false; // 还没读到（一次 microtask）：先当没到
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView))
+				return false;
+			const doc = this.pixels.docIdentity(view);
+			if (doc !== undefined && doc === seen)
+				return seenOk;
+			seen = doc;
+			seenOk = typeof view.data === 'string' && view.data === want;
+			return seenOk;
+		};
+	}
+
+	// 屏幕上这一刻那篇笔记的身份。这里读的是**旧**视图：本补丁跑在 core 换 view.file
+	// 之前（见 installPatches 的包装器）。判据恒真的情形只有三种 —— 全新 leaf、非 markdown
+	// 视图、同一篇的重放 —— 它们的共同点是**屏幕上根本没有「上一篇」要留**，于是返回
+	// undefined，遮罩照旧立刻盖上正是我们要的。
+	//
+	// ⚠️ 注意**不能**把「读不到编辑器」也并进那三种里（早先就是这么写的，`MarkdownView.editor`
+	// 是 getter，视图刚建/刚重建时确实是 undefined）：那是 2026-10-09 晚上手机上「还是一样的」
+	// 的入口 —— 闸门被直接打开，遮罩立刻盖上、整条流水线跑在上一篇上。读不到编辑器时照样
+	// 返回一份身份，只是 `doc` 缺席 —— 判据会退到 `view.data`（见 pixels.noteArrived）。
+	private screenNote(leaf: WorkspaceLeaf, filePath: string): ScreenNote | undefined {
+		const view = leaf.view;
+		if (!(view instanceof MarkdownView) || view.file?.path === filePath)
+			return undefined;
+		return { view, doc: this.pixels.docIdentity(view), data: view.data };
 	}
 
 	// 显式的 mode 通常不在这次 open 的视图状态里 —— 它只在切换视图模式时
