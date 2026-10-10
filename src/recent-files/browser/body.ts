@@ -661,11 +661,14 @@ export class RecentFilesBrowser {
 
 	// 把一个立着的菜单从屏幕上拿掉。由升起它的控件、由让开读者道路的 shell、以及由 destroy
 	// 要求 —— 菜单做的**别的**一切都是 app 的事，而这些都是关于这个面板而不是关于文件的部分。
+	//
+	// 用 `hide` 而不是 `close`：后者只是为了早先满足 `ClosableComponent` 留的别名，
+	// 已被 app 标为废弃（`Menu` 不再实现那个接口），两者做的是同一件事。
 	closeMenu(): void {
 		this.hearPresses(false);
 		const menu = this.menu;
 		this.menu = undefined;
-		menu?.close();
+		menu?.hide();
 	}
 
 	// app 自己关闭了它：它不再归我们关闭。

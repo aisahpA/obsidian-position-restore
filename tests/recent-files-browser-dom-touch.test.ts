@@ -229,7 +229,6 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 			items: { title: string; icon: string; click?: () => void }[];
 			shownAt?: { x: number; y: number };
 			hidden: boolean;
-			closed: boolean;
 			hide(): void;
 		};
 	};
@@ -517,7 +516,7 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 
 		h.modal.close();
 
-		expect(menu.closed).toBe(true);
+		expect(menu.hidden).toBe(true);
 	});
 
 	it('再点一次那个弹菜单的控件，就把菜单收回去', () => {
@@ -535,14 +534,14 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		h.clickRow(row);
 		h.clickRow(more());
 		const menu = menuOf(h.trigger);
-		expect(menu.closed).toBe(false);
+		expect(menu.hidden).toBe(false);
 
 		// ……而**同一个**控件再来一次 —— 手指先**落**在它上面，问题就是在那里问的，不是
 		// 在它送出的那次点击上。
 		down(more());
 		h.clickRow(more());
 
-		expect(menu.closed).toBe(true);
+		expect(menu.hidden).toBe(true);
 		// ……而 app 没有被要求第二个：一次把菜单收回的点击，不是一次要求再要一个的点击。
 		expect((h.trigger as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(1);
 		// ……而**武装仍在那一行上**：菜单是个问题，而那个 × 可能才是读者正在伸手去够的
@@ -565,13 +564,13 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		h.clickRow(row);
 		h.clickRow(more());
 		const menu = menuOf(h.trigger);
-		expect(menu.closed).toBe(false);
+		expect(menu.hidden).toBe(false);
 
 		// ……而菜单正立在那控件原本的位置上，所以手指落在它上面。
 		const surface = document.body.createDiv({ cls: 'menu' });
 		down(surface);
 
-		expect(menu.closed).toBe(true);
+		expect(menu.hidden).toBe(true);
 		surface.remove();
 	});
 
@@ -591,7 +590,7 @@ describe('RecentFilesModal —— 手指停在某一行上', () => {
 		const item = document.body.createDiv({ cls: 'menu-item' });
 		down(item);
 
-		expect(menu.closed).toBe(false);
+		expect(menu.hidden).toBe(false);
 		item.remove();
 	});
 

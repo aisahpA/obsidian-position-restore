@@ -19,7 +19,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WorkspaceLeaf } from 'obsidian';
-import { MarkdownView, Platform } from 'obsidian';
+import { MarkdownView, Platform, TFile } from 'obsidian';
 
 import { OpenPatcher } from '@/position/restore/patcher';
 import { PositionStore } from '@/position/storage/position-store';
@@ -295,7 +295,11 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 		containerEl.appendChild(document.createElement('div')).className = 'view-content';
 		const leaf = makeLeaf('leaf-1', containerEl);
 		const vault = {
-			getAbstractFileByPath: (p: string) => (contents[p] !== undefined ? { path: p } : null),
+			// 得是个真的 `TFile`：`expectedContent` 靠 `instanceof` 认「这是一个文件、
+			// 不是一个文件夹」，光带 `path` 的裸对象在它眼里不存在。
+			getAbstractFileByPath: (p: string) => (contents[p] !== undefined
+				? Object.assign(new TFile(), { path: p })
+				: null),
 			cachedRead: async (f: { path: string }) => contents[f.path],
 		};
 		const db = Object.fromEntries(Object.keys(contents).map((p) => [p, RECORD]));

@@ -1081,9 +1081,12 @@ describe('NavStack.navigate', () => {
 		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
 	});
 
-	it('visit 步落定后标出光标那一行', async () => {
-		// visit 记的是一个阅读位置：回到它时，标出条目自己记下的光标行，即使它与视口顶
-		// （scroll 5）不是同一行；光标行原样一路带过去。
+	it('visit 步落定后标出它记下的那一屏顶行，不是光标那一行', async () => {
+		// visit 记的是一个**阅读位置**（一屏），不是一个要去的标题：光标只是顺手记下的编辑点。
+		// 两者会分离 —— 点一下把光标放好，再滚去读别处 —— 而标（并居中）光标那一行，就是把
+		// 读者送回他早已离开的那一行：2026-10-10 手机实测「后退回到上一篇的光标处」正是它，
+		// 光标落在文件顶部时读起来就是「回到顶部」（居中第 0 行只能夹在文档开头）。
+		// 光标行仍然原样一路带过去 —— 它只是不再决定落点在哪。
 		const h = fileLeafHarness(42.3, 3);
 		(h.app.workspace as unknown as { getActiveViewOfType: () => unknown })
 			.getActiveViewOfType = () => h.view;
@@ -1091,14 +1094,15 @@ describe('NavStack.navigate', () => {
 		const nav = makeNav(h.app);
 		nav.funnel.recordOpen('a.md', 'leaf-1');
 		nav.funnel.recordOpen('b.md', 'leaf-1');
-		(nav.stack.entries[0] as NavVisit).st = { scroll: 5, cursor: { from: { line: 60, ch: 0 }, to: { line: 60, ch: 0 } } };
+		(nav.stack.entries[0] as NavVisit).st = { scroll: 200, cursor: { from: { line: 3, ch: 0 }, to: { line: 3, ch: 0 } } };
 		const state = (nav.stack as unknown as { state: PositionState }).state;
 		const flashLine = vi.spyOn(state.cue, 'flashLine').mockImplementation(() => undefined);
 
 		await nav.stack.navigate(-1);
 
-		expect(h.applied[0]).toMatchObject({ scroll: 5, cursor: { from: { line: 60, ch: 0 } } });
-		expect(flashLine).toHaveBeenCalledWith(h.view, 60);
+		// 落点是记下的那一屏（200），不是光标那一行（3）。
+		expect(h.applied[0]).toMatchObject({ scroll: 200, cursor: { from: { line: 3, ch: 0 } } });
+		expect(flashLine).toHaveBeenCalledWith(h.view, 200);
 	});
 
 	it('teleport 步落定后标出目标行', async () => {

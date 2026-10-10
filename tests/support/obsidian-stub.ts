@@ -310,12 +310,11 @@ export class Menu {
 	setNoIcon(): this {
 		return this;
 	}
-	// 它到底从屏幕上下来了没有，以及把它弄下来的是不是**这个面板**
-	// （见 RecentFilesBrowser.closeMenu）。两者分得这么清，是因为只有一件是插件的承诺：
-	// app 会为它自己的手势把菜单从屏幕上拿走 —— 选中一项、点开别处、Escape —— 而这些都
-	// 不是抽屉合上。
+	// 它到底从屏幕上下来了没有。插件的承诺只有一件：面板立着的那个菜单，在面板让开、
+	// 合上、或读者再按一次那个控件时会被带走（见 RecentFilesBrowser.closeMenu）。app
+	// 也会为它自己的手势拿走菜单 —— 选中一项、点开别处、Escape —— 但那走的是同一个
+	// `hide`，所以本桩只记「下来了没有」，不记「是谁」。
 	hidden = false;
-	closed = false;
 	// app 自己把它从屏幕上拿走时该通知谁：app 关掉的菜单，不再是面板还持有的那一个
 	// （见 RecentFilesBrowser）。
 	private hideCbs: (() => void)[] = [];
@@ -326,10 +325,6 @@ export class Menu {
 		this.hidden = true;
 		for (const cb of [...this.hideCbs])
 			cb();
-	}
-	close(): void {
-		this.closed = true;
-		this.hide();
 	}
 }
 

@@ -112,7 +112,16 @@ export class PositionState {
 	// 这里点名的那篇笔记可能循别的路径走到这一行，那就没有谁的标题该被标上。
 	// `sourceOnly`：visit/teleport 在阅读模式不闪（没有光标，视口顶就是落点）；
 	// jump 缺省，两种模式都闪。
-	pendingLineFlash: { path: string; line: number; at: number; sourceOnly?: boolean } | undefined;
+	// `center`（缺省 = true）：要不要请编辑器把那一行摆到**正中**。visit 记的是一屏、
+	// 不是一行，它要的是回到记下的视口顶，所以只有它带 `center: false`（见
+	// NavStack.armLandingMark —— 那里写着为什么拿光标行当 visit 的落点是错的）。
+	pendingLineFlash: {
+		path: string;
+		line: number;
+		at: number;
+		sourceOnly?: boolean;
+		center?: boolean;
+	} | undefined;
 
 	// leafId -> 该 leaf 上最近一次注入式 open 被给予的落点。恢复器对注入来源的落定必须核对
 	// core 拿到的是同一行 —— 跨文件历史跳转之后，两者是有意不同的。

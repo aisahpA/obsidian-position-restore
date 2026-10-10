@@ -17,9 +17,9 @@
 ## 入口在哪
 
 - [`Restorer`](/src/position/restore/restorer.ts#L13)：[`restoreEphemeralState`](/src/position/restore/restorer.ts#L33)、[`restoreOpen`](/src/position/restore/restorer.ts#L167)。
-- [`RestoreModes`](/src/position/restore/modes.ts#L35)：[`maskedRestore`](/src/position/restore/modes.ts#L189)、
-  [`landPreview`](/src/position/restore/modes.ts#L298)、[`restoreInjectedSource`](/src/position/restore/modes.ts#L78)、
-  [`historyJumpApply`](/src/position/restore/modes.ts#L321)。
+- [`RestoreModes`](/src/position/restore/modes.ts#L35)：[`maskedRestore`](/src/position/restore/modes.ts#L201)、
+  [`landPreview`](/src/position/restore/modes.ts#L310)、[`restoreInjectedSource`](/src/position/restore/modes.ts#L78)、
+  [`historyJumpApply`](/src/position/restore/modes.ts#L333)。
 - [`OpenPatcher`](/src/position/restore/patcher.ts#L40)：[`installPatches`](/src/position/restore/patcher.ts#L61)。
 - 触发点：`main.ts` 的 `file-open` / `active-leaf-change`，以及补丁本身。
 
@@ -54,8 +54,18 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 
 **注入分支必须排在 masked 前面**（[`restorer.ts:124`](/src/position/restore/restorer.ts#L124)）：注入的落点已经在 core
 换内容那一刻应用过了 —— 源码走收口（[`restoreInjectedSource`](/src/position/restore/modes.ts#L78)），阅读交给渲染器
-（[`landPreview`](/src/position/restore/modes.ts#L298)）。掉到 masked 就等于「在遮罩下把同一个位置再施加一遍」：
+（[`landPreview`](/src/position/restore/modes.ts#L310)）。掉到 masked 就等于「在遮罩下把同一个位置再施加一遍」：
 多一段空白和一次看不见的纠正，而这两者都没有必要。
+
+**「注入的落点已经在 core 那一刻应用过」是假定，所以要补一次**
+（[`landingNotInSight`](/src/position/restore/pixels.ts#L321)，2026-10-10 用户在手机上报的「前进后退
+有时候回到顶部」）：注入那条流水线**自己一次都不施加位置**，而那个假定在手机上会落空 —— core 的那次
+施加赶在文档交换之前（读盘那几百 ms），换文档时 `scrollTop` 被抹掉 ⇒ 读者停在笔记顶部，而后面三步
+没有一个会把他送过去：居中只服务于**点名了一行**的跳转、短盖**只等不纠**、揭幕后那道兜底又因为
+「目标行没渲染出来」当场放弃。于是这里按**像素**问一句「目标行此刻在不在眼前」：量不出来、或离视口顶
+超过半屏 ⇒ 趁短盖还盖着补一次施加，读者看不见它。
+⚠️ 判据**只能**是像素：源码模式的 `getScroll()` 会**回显**请求的值，问它等于问自己想落到哪（见文件头
+那条红线）。读不到编辑器、或目标行超出 EOF ⇒ 答「不补」—— 宁可漏一次纠正，也不在没读数的地方瞎猜。
 
 **`scroll <= 0` 的记录不加盖布**（[`modes.ts:261`](/src/position/restore/modes.ts#L261)）：给「什么都没恢复」也加遮罩只会多一段空白，
 安卓上尤其明显。
@@ -64,7 +74,7 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 2026-10-08/09 用户拍板，多轮真机实测定的）：这条路上「空白 ↔ 内容自己动」只能选一个侧重 —— 编辑器
 量完行高之前画出来的帧必定被随后的一次测量推动（core 的两段式落地，实测约 85~145ms），不遮就看得见
 那几下。所以盖布（[`maybeCoverOpen`](/src/position/restore/patcher.ts#L374)）是**必须的**，可调的只有
-时长（[`settleShortCover`](/src/position/restore/pixels.ts#L346)）：判据是**两个读数**在同一个窗口里都
+时长（[`settleShortCover`](/src/position/restore/pixels.ts#L385)）：判据是**两个读数**在同一个窗口里都
 **没离开过窗口起点** —— ① 保存那一行相对滚动容器顶的偏移（管「落点对不对」），② **视口里最后一条
 可见行**的同一偏移（管「眼前那条带子会不会挪」，[`bottomVisibleMeasurer`](/src/position/restore/pixels.ts#L294)）。
 **只看 ① 是量错了地方**：core 的重落把**同一行**落在同一个偏移上，那一行全程约等于 0，动的是它下面
@@ -111,7 +121,7 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 量的都是像素）跑在**上一篇**的几何上。读不到编辑器时照样返回一份身份、退到 `view.data` 比对（**空串
 一律算没到**）。
 这一段里**不做**任何落点纠正，精确纠正只有揭开后的**一次性**检查
-（[`relandSourcePixels`](/src/position/restore/pixels.ts#L633)：只修半个视口以上的离谱误差，半屏内的偏差不追 ——
+（[`relandSourcePixels`](/src/position/restore/pixels.ts#L672)：只修半个视口以上的离谱误差，半屏内的偏差不追 ——
 追它就是过去那场看得见的拉锯）。历史：先整条删掉遮罩 ⇒ 空白消失但那几帧的变动露出来 ⇒ 改回这个
 短盖形态；再实测 ⇒ 大文件仍动（判据只盯目标行 + 下限早于真几何到手）⇒ 扩成两个读数、下限改锚到
 真几何；手机再实测 ⇒ 大文件仍动（逐帧比漏掉小步推进）⇒ 改成与窗口起点比；再实测 ⇒ 空白仍偏长
@@ -120,7 +130,7 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 两端都在 open 一开始就涂上**。后台标签页那条路另有一套
 （[`background-settle.ts`](/src/position/restore/background-settle.ts#L131)）—— 它不可见，空白不花读者的时间。
 
-**注入过的阅读落点也不加盖布**（[`restorer.ts:141`](/src/position/restore/restorer.ts#L141) → [`landPreview`](/src/position/restore/modes.ts#L298)）：阅读视图的首绘是异步的，
+**注入过的阅读落点也不加盖布**（[`restorer.ts:141`](/src/position/restore/restorer.ts#L141) → [`landPreview`](/src/position/restore/modes.ts#L310)）：阅读视图的首绘是异步的，
 跨文件打开一篇大笔记能到 2~3 秒，把这段渲染期遮住就是一片空白（同一个文件因为渲染器早已
 就绪则察觉不到）。而**注入过的落点已经交到 core 自己的渲染流水线上**（patcher 注入的
 `{scroll}` → `applyScrollDelayed` 在渲染器就绪时落它），没有「未恢复的顶部」要藏 —— 于是
@@ -141,12 +151,12 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 历史上那个可见抖动。
 
 **一次「点名一行」的跳转是个例外**：源码模式下它的落点由**编辑器自己**给
-（[`centerNamedLine()`](/src/position/restore/modes.ts#L408) 走 core 同一个 `scrollIntoView(..., true)`），
-而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L439)）——
+（[`centerNamedLine()`](/src/position/restore/modes.ts#L427) 走 core 同一个 `scrollIntoView(..., true)`），
+而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L460)）——
 读早了，上面那套纠正器会把刚落好的视口又拽回去。所以那一路只动一次、动在像素上；
 来由见 00 §5。
 
-**⚠️ 但派发之前必须等文档就位**（[`waitContentArrived`](/src/position/restore/modes.ts#L127)，2026-10-09 用户拍板）：
+**⚠️ 但派发之前必须等文档就位**（[`waitContentArrived`](/src/position/restore/modes.ts#L139)，2026-10-09 用户拍板）：
 `file-open` 经由一个防抖回调发出，而同一个 leaf 上的文档交换是异步的 —— 两者之间那几百 ms 里编辑器
 握着的还是**上一个文件**。此刻派发的 `scrollIntoView` 行号会被夹进旧文档的范围、回读到的也是旧文档
 的滚动 ⇒ 这次居中完全作废，落点交给按行数估出来的种子（用户报的「点搜索小节位置完全不固定、有时
@@ -171,7 +181,7 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 就把请求值回显出来。渲染器没量完时 `getScroll()` 报的是 `null`，那**不是**「已经落定」
 （读成 0 就等于「文件顶部」），必须接着等。
 
-**阅读的遮罩要盖到「真落定」，整段只用一条预算**（[`maskedRestore()`](/src/position/restore/modes.ts#L189) 里的 `maskDeadline`）：
+**阅读的遮罩要盖到「真落定」，整段只用一条预算**（[`maskedRestore()`](/src/position/restore/modes.ts#L201) 里的 `maskDeadline`）：
 预览渲染器**分趟**跑，而它的 `applyScroll` 要求目标行**之前**的每个 section 都已 `computed`
 （否则直接拒绝）⇒ **什么时候能落由渲染器决定，与谁先请求无关**。所以拿源码那 600ms
 （[`RESTORE_PAINT_DEADLINE`](/src/shared/wait.ts#L23)）去盖阅读，稍微大一点的笔记就会提前揭幕：
@@ -208,7 +218,7 @@ drift 纠正循环收尾。
 
 **cue 的宽限**（[`cue.ts:7`](/src/position/ui/cue.ts#L7)，`CUE_DISMISS_GRACE_MS = 2000`）：移动端恢复后的抖动会被轮询
 误判成读者移动，没有宽限就是「一闪而过」。**面包屑的锚是「本次落点行」，不是视口顶那一行**
-（[`show()`](/src/position/ui/cue.ts#L78) 的 `landingLine`，由 [`markLandingLine()`](/src/position/restore/modes.ts#L506)
+（[`show()`](/src/position/ui/cue.ts#L78) 的 `landingLine`，由 [`markLandingLine()`](/src/position/restore/modes.ts#L527)
 的返回值给出）：一次点名了一行的跳转把落点摆到了视口**正中**，视口顶于是落在落点**上方**半屏处 ——
 照它命名会念出上一个小节的名字（2026-10-09 用户报的「误报……上面顶部的章节」）。只有普通的保存位置
 恢复给不出落点行（那一次落点**就是**视口顶，`getScroll()` 回显的也正是它）。
@@ -222,10 +232,18 @@ drift 纠正循环收尾。
 取样点大半落在屏外；③ CM6 的 `viewport` 是**已渲染**范围、比可视区**大一圈**，静默太多（用户报
 「点了多篇笔记只有一篇显示面包屑，就像完全消失了一样」）。**别再用取样点 / 已渲染范围去答「看没看见」**。
 另一道门槛是 [`breadcrumbPath()`](/src/position/ui/cue.ts#L38)：整篇只有一个标题不念、落点还没走进任何
-小节不念。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L110)）：
-前进/后退走到的每一步，编辑模式都把落点居中、落定后闪光标行（[`armLandingMark()`](/src/nav-history/stack.ts#L788)，
-[`markLandingLine()`](/src/position/restore/modes.ts#L506)），jump 两种模式都闪，visit/teleport 只在编辑模式；
-普通恢复（不是前进后退）走 [`markRestoredLine()`](/src/position/restore/modes.ts#L528)，也只在编辑模式标光标行。
+小节不念。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L110)）。前进/后退的每一步都由
+[`armLandingMark()`](/src/nav-history/stack.ts#L794) 点名一行、由 [`markLandingLine()`](/src/position/restore/modes.ts#L527)
+在落定后闪它 —— 但**点名一行 ≠ 要求把它摆到正中**：
+· jump（锚点标题行）与 teleport（跳跃目标行）点名的是一**行**，编辑模式下由
+  [`centerNamedLine()`](/src/position/restore/modes.ts#L427) 把它摆到正中，和 app 自己的大纲同一个样子；
+· **visit 点名的是一屏**（`center: false`，居中那一步由 [`namedLineAsk()`](/src/position/restore/modes.ts#L392)
+  挡掉）：它记下的是读者离开时的视口顶行，回去就该回到那一行的顶。⚠️ 光标行**不能**当 visit 的落点 ——
+  光标与滚动会分离（点一下放好光标，再滚去读别处），拿光标当落点就是把读者送回他早已离开的那一行：
+  2026-10-10 手机实测「后退回到上一篇的光标处」正是它，光标落在文件顶部时读起来就是「回到顶部」
+  （居中第 0 行只能夹在文档开头）。
+jump 两种模式都闪，visit/teleport 只在编辑模式；普通恢复（不是前进后退）走
+[`markRestoredLine()`](/src/position/restore/modes.ts#L549)，也只在编辑模式标光标行。
 都**只画一下、绝不移动视图**，方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、
 阅读模式加在渲染器章节元素 [`previewLineElement()`](/src/position/ui/cue.ts#L211) 上）。
 ⚠️ **阅读模式别改用 `setEphemeralState({line})`**：那条路把这一行拉回视口顶，手机上新让开的

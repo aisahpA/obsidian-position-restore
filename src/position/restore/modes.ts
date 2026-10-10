@@ -88,6 +88,18 @@ export class RestoreModes {
 			// 更糟：行号会被夹进旧文档的范围，而它的滚动 effect 还可能在交换之后才被应用，
 			// 把视口甩到任意位置。落点退回按行数估的种子，那至少是确定的。
 			const arrived = await this.waitContentArrived(view, isCurrent, contentDeadline);
+			// **补一次施加** —— 这条路自己从不落位置，它假定 core 已经在 open 那一刻同步应用过
+			// （见上面的注释）。那个假定手机上会落空：core 的那一次赶在文档交换之前，换文档时
+			// scrollTop 被抹掉 ⇒ 读者停在笔记顶部，而后面没有任何一步会把他送过去 —— 居中只服务
+			// 于点名了一行的跳转，短盖只等不纠，揭幕后的兜底又因为「目标行没渲染」当场放弃。
+			// 这里是那条流水线上唯一的一次施加，而且**趁短盖还盖着**做，读者看不见它。
+			// 判据只能按像素来（源码的 getScroll 会回显请求值），见 pixels.landingNotInSight。
+			const seed = st?.scroll ?? 0;
+			if (arrived && isCurrent() && seed > 0 && st
+				&& await this.pixels.landingNotInSight(view, seed, isCurrent)) {
+				applyEphemeralState(view, st);
+				await nextPaint();
+			}
 			// 一次点名了一行的跳转：请编辑器自己把那一行摆到正中（与点大纲面板同一个
 			// 原语），再把回读到的视口顶当成落点 —— 落法于是和原生一模一样，也不再依赖
 			// 「这一屏几行」那个估算。
@@ -367,7 +379,7 @@ export class RestoreModes {
 	//
 	// 它**不看编辑器**：「这一步点名了哪一行」与「编辑器现在认不认那个原语」是两件事，
 	// 后者要等（见 centerNamedLine）。
-	private namedLineTarget(view: MarkdownView): { line: number } | undefined {
+	private namedLineTarget(view: MarkdownView): { line: number; center?: boolean } | undefined {
 		const ask = this.state.pendingLineFlash;
 		if (!ask || view.getMode() !== 'source' || view.file?.path !== ask.path)
 			return undefined;
@@ -380,6 +392,13 @@ export class RestoreModes {
 	private namedLineAsk(view: MarkdownView): { line: number } | undefined {
 		const ask = this.namedLineTarget(view);
 		if (!ask)
+			return undefined;
+		// 点名了一行 ≠ 要求把它摆到正中。visit 那一步点名的是一**屏**（见
+		// stack.armLandingMark）：记下的是读者离开时看着的那一行，回去就要回到那一行的顶，
+		// 居中只会把他抬到屏幕中间；而居中光标那一行，在光标与滚动分离时干脆把他送回早已
+		// 离开的地方。它的落点由施加位置给出（restoreInjectedSource 的补施加 / core 那一次），
+		// 这里对它没有事可做 —— 闪那一行是 markLandingLine 的事，与居中无关。
+		if (ask.center === false)
 			return undefined;
 		if (typeof view.editor?.scrollIntoView !== 'function')
 			return undefined;
@@ -410,7 +429,9 @@ export class RestoreModes {
 		// 等它和「这一行到底存不存在」必须分开判 —— 合在一起会把「还没就位」误读成
 		// 「没有要点名的行」，于是这次居中被静默跳过，落点退回按行数估的种子（手机上最常见的
 		// 那个不稳就是这么来的）。
-		if (!this.namedLineAsk(view) && this.namedLineTarget(view)) {
+		// 不要求居中的步一帧都不等：这里根本没有它要办的事（见 namedLineAsk）。
+		const wanted = this.namedLineTarget(view);
+		if (wanted && wanted.center !== false && !this.namedLineAsk(view)) {
 			for (let i = 0; i < CENTER_READY_MAX_FRAMES; i++) {
 				if (!isCurrent() || this.namedLineAsk(view) || !this.namedLineTarget(view))
 					break;
