@@ -1,4 +1,4 @@
-import { SettingDefinitionItem } from 'obsidian';
+import { SettingDefinitionItem, TextComponent } from 'obsidian';
 import { SettingsPageContext, intro, hotkeys } from '@/settings/page';
 import { FolderSuggestModal, PropertySuggestModal, PropertyValueModal } from '@/settings/pickers';
 import { t } from '@/i18n';
@@ -217,14 +217,44 @@ export function recentFilesSettingsPage(ctx: SettingsPageContext): SettingDefini
 				// 空就是**关**，而关是默认：一个用文件名命名笔记的 vault 不欠这一行任何东西，
 				// 而一个不这样的 vault 才是唯一必须说出来的那个。
 				{
-					name: t('recentFiles.titleProperty.name'),
-					desc: t('recentFiles.titleProperty.desc'),
-					control: {
-						type: 'text',
-						key: 'recentFilesTitleProperty',
-						placeholder: t('recentFiles.titleProperty.placeholder'),
-					},
+				name: t('recentFiles.titleProperty.name'),
+				desc: t('recentFiles.titleProperty.desc'),
+				// 下拉框列两个最常见的「名字」属性（title / aliases）再加一个「自定义」，自定义时
+				// 就地显出文本输入框——这是「少量预设 + 一个自由填写」的形状，比打开属性选择器更贴：
+				// 选择器列不出写死的预设、也不能收列表外的输入。值经 ctx.setValue 写入并重画面板
+				// （recentFilesTitleProperty 在 BROWSER_PREF_KEYS）。
+				render: (setting) => {
+					const current = ctx.plugin.settings.recentFilesTitleProperty;
+					const isPreset = current === 'title' || current === 'aliases';
+					let text!: TextComponent;
+					setting.addDropdown((dd) => {
+						dd.addOption('', t('recentFiles.titleProperty.off'));
+						dd.addOption('title', t('recentFiles.titleProperty.optTitle'));
+						dd.addOption('aliases', t('recentFiles.titleProperty.optAliases'));
+						dd.addOption('__custom__', t('recentFiles.titleProperty.custom'));
+						dd.setValue(isPreset ? current : current === '' ? '' : '__custom__');
+						dd.onChange((val) => {
+						if (val === '__custom__') {
+							text.inputEl.setCssProps({ display: '' });
+						} else {
+							text.inputEl.setCssProps({ display: 'none' });
+							void ctx.setValue('recentFilesTitleProperty', val);
+						}
+						});
+					});
+					setting.addText((t2) => {
+						text = t2;
+						t2.setPlaceholder(t('recentFiles.titleProperty.placeholder'));
+						t2.setValue(isPreset ? '' : current);
+						// 逐键写会经 ctx.setValue → update() 把整页重建，输入框 DOM 被销毁、焦点丢失，
+						// 表现为「打一个字母就跳走」。改为失焦时落盘：失焦后重建不再抢焦点，面板在失焦后刷新。
+						t2.inputEl.addEventListener('blur', () => {
+							void ctx.setValue('recentFilesTitleProperty', t2.getValue().trim());
+						});
+					});
+					text.inputEl.setCssProps({ display: isPreset || current === '' ? 'none' : '' });
 				},
+			},
 				// 被悬停的一行**在 app 自己的预览里**把笔记打开在哪里。默认是笔记头部，因为另一档要付
 				// 一次等待：点名一行会让整篇笔记先被画出来、然后卡片再移过去，为那次等待换来的是这一行
 				// **自己点击**时已经给出的那个到达。一个代表笔记里某个**地点**的行，两种情况都在这个

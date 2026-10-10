@@ -223,9 +223,13 @@ export const zh: En = {
 	// 没有的回落文件名——这就是优先级本身。留空＝关闭，且默认关闭：文件名才是
 	// app 里其它各处列表的印法。
 	'recentFiles.titleProperty.name': '行名取自属性',
-	'recentFiles.titleProperty.desc': '填一个 frontmatter 属性名，列表里就用它当笔记名。值是列表时取第一项；值不是文字时，仍显示文件名。留空表示不使用。',
-	// 这是例子，不是关于规则的提示：读者来这里就是要打 `title`。
+	'recentFiles.titleProperty.desc': '列表里用哪个 frontmatter 属性当笔记名。可选「标题 / 别名」，或自定义一个属性名；留空（不使用）时显示文件名。属性值是列表时取第一项。',
+	// 这是例子，不是关于规则的提示：读者自定义时多半要打 `title`。
 	'recentFiles.titleProperty.placeholder': '例如 title',
+	'recentFiles.titleProperty.off': '不使用',
+	'recentFiles.titleProperty.optTitle': '标题 (title)',
+	'recentFiles.titleProperty.optAliases': '别名 (aliases)',
+	'recentFiles.titleProperty.custom': '自定义属性…',
 	'recentFiles.age.now': '刚刚',
 	'recentFiles.age.m': '分钟',
 	'recentFiles.age.h': '小时',
