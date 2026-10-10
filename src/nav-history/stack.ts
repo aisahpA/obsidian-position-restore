@@ -778,21 +778,28 @@ export class NavStack implements NavFunnelSink {
 		await this.modes.historyJumpApply(view, st, isCurrent, this.resolveAnchorShift(target));
 	}
 
-	// 让笔记「标出」这次落点讲的那一行：前进/后退走到的每一步都点名一行，编辑模式下落点
-	// 居中、落定后闪那一行，和 app 自己的大纲动作落出同一个样子。三种步各从哪儿取行：
+	// 让笔记「标出」这次落点讲的那一行。三种步各从哪儿取行、以及要不要把那一行摆到正中：
 	//   · jump：锚点标题行（keyLine），跟落点一起重锚（见 resolveAnchorShift），所以之后
-	//     挪过位置的标题标的是它现在站的地方；阅读模式也标（小节整块）；
-	//   · teleport：跳跃的目标行，即使条目没记下 st 也答得出来；只在编辑模式标；
-	//   · visit：条目记下的光标行，没有光标再退回视口顶行；只在编辑模式标。
+	//     挪过位置的标题标的是它现在站的地方；阅读模式也标（小节整块）；**居中**。
+	//   · teleport：跳跃的目标行，即使条目没记下 st 也答得出来；只在编辑模式标；**居中**。
+	//     这两种步点名的都是一**行** —— 一个标题、一次跳跃的目的地，居中正是对「去那一行」
+	//     的应答（app 自己的大纲就是这么落的）。
+	//   · visit：条目记下的**视口顶行**（没有滚动才退回光标行）；只在编辑模式标；**不居中**。
+	//     visit 点名的是一**屏**：它记下的是读者离开时看着的那一行，回去就该回到那一行的顶
+	//     —— 居中只会把他抬到屏幕中间。⚠️ 光标行**不能**当这一步的点名：光标与滚动会分离
+	//     （点一下放好光标，再滚走去读别处），拿光标当落点就把读者送回他早已离开的那一行 ——
+	//     2026-10-10 手机实测「后退回到上一篇的光标处」正是它，光标在文件顶部时它读起来
+	//     就是「回到顶部」。
 	// 会过期：一次从未落地的打开所要求的行，不许在后来某次恢复里亮起来。
 	private armLandingMark(target: NavEntry) {
 		if (target.kind === 'view')
 			return;
-		const line = target.kind === 'jump'
-			? landedLine(target)
+		const named = target.kind === 'jump'
+			? { line: landedLine(target), center: true }
 			: target.kind === 'teleport'
-				? target.line
-				: target.st?.cursor?.from.line ?? target.st?.scroll;
+				? { line: target.line, center: true }
+				: { line: target.st?.scroll ?? target.st?.cursor?.from.line, center: false };
+		const line = named.line;
 		if (line === undefined)
 			return;
 		const shift = this.resolveAnchorShift(target);
@@ -801,6 +808,7 @@ export class NavStack implements NavFunnelSink {
 			line: Math.max(0, line + (shift ?? 0)),
 			at: Date.now(),
 			sourceOnly: target.kind !== 'jump' || undefined,
+			center: named.center,
 		};
 	}
 

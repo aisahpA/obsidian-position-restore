@@ -379,7 +379,7 @@ export class RestoreModes {
 	//
 	// 它**不看编辑器**：「这一步点名了哪一行」与「编辑器现在认不认那个原语」是两件事，
 	// 后者要等（见 centerNamedLine）。
-	private namedLineTarget(view: MarkdownView): { line: number } | undefined {
+	private namedLineTarget(view: MarkdownView): { line: number; center?: boolean } | undefined {
 		const ask = this.state.pendingLineFlash;
 		if (!ask || view.getMode() !== 'source' || view.file?.path !== ask.path)
 			return undefined;
@@ -392,6 +392,13 @@ export class RestoreModes {
 	private namedLineAsk(view: MarkdownView): { line: number } | undefined {
 		const ask = this.namedLineTarget(view);
 		if (!ask)
+			return undefined;
+		// 点名了一行 ≠ 要求把它摆到正中。visit 那一步点名的是一**屏**（见
+		// stack.armLandingMark）：记下的是读者离开时看着的那一行，回去就要回到那一行的顶，
+		// 居中只会把他抬到屏幕中间；而居中光标那一行，在光标与滚动分离时干脆把他送回早已
+		// 离开的地方。它的落点由施加位置给出（restoreInjectedSource 的补施加 / core 那一次），
+		// 这里对它没有事可做 —— 闪那一行是 markLandingLine 的事，与居中无关。
+		if (ask.center === false)
 			return undefined;
 		if (typeof view.editor?.scrollIntoView !== 'function')
 			return undefined;
@@ -422,7 +429,9 @@ export class RestoreModes {
 		// 等它和「这一行到底存不存在」必须分开判 —— 合在一起会把「还没就位」误读成
 		// 「没有要点名的行」，于是这次居中被静默跳过，落点退回按行数估的种子（手机上最常见的
 		// 那个不稳就是这么来的）。
-		if (!this.namedLineAsk(view) && this.namedLineTarget(view)) {
+		// 不要求居中的步一帧都不等：这里根本没有它要办的事（见 namedLineAsk）。
+		const wanted = this.namedLineTarget(view);
+		if (wanted && wanted.center !== false && !this.namedLineAsk(view)) {
 			for (let i = 0; i < CENTER_READY_MAX_FRAMES; i++) {
 				if (!isCurrent() || this.namedLineAsk(view) || !this.namedLineTarget(view))
 					break;

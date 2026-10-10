@@ -151,8 +151,8 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 历史上那个可见抖动。
 
 **一次「点名一行」的跳转是个例外**：源码模式下它的落点由**编辑器自己**给
-（[`centerNamedLine()`](/src/position/restore/modes.ts#L420) 走 core 同一个 `scrollIntoView(..., true)`），
-而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L451)）——
+（[`centerNamedLine()`](/src/position/restore/modes.ts#L427) 走 core 同一个 `scrollIntoView(..., true)`），
+而回读要等那次滚动真的应用下去（[`settledScroll()`](/src/position/restore/modes.ts#L460)）——
 读早了，上面那套纠正器会把刚落好的视口又拽回去。所以那一路只动一次、动在像素上；
 来由见 00 §5。
 
@@ -218,7 +218,7 @@ drift 纠正循环收尾。
 
 **cue 的宽限**（[`cue.ts:7`](/src/position/ui/cue.ts#L7)，`CUE_DISMISS_GRACE_MS = 2000`）：移动端恢复后的抖动会被轮询
 误判成读者移动，没有宽限就是「一闪而过」。**面包屑的锚是「本次落点行」，不是视口顶那一行**
-（[`show()`](/src/position/ui/cue.ts#L78) 的 `landingLine`，由 [`markLandingLine()`](/src/position/restore/modes.ts#L518)
+（[`show()`](/src/position/ui/cue.ts#L78) 的 `landingLine`，由 [`markLandingLine()`](/src/position/restore/modes.ts#L527)
 的返回值给出）：一次点名了一行的跳转把落点摆到了视口**正中**，视口顶于是落在落点**上方**半屏处 ——
 照它命名会念出上一个小节的名字（2026-10-09 用户报的「误报……上面顶部的章节」）。只有普通的保存位置
 恢复给不出落点行（那一次落点**就是**视口顶，`getScroll()` 回显的也正是它）。
@@ -232,10 +232,18 @@ drift 纠正循环收尾。
 取样点大半落在屏外；③ CM6 的 `viewport` 是**已渲染**范围、比可视区**大一圈**，静默太多（用户报
 「点了多篇笔记只有一篇显示面包屑，就像完全消失了一样」）。**别再用取样点 / 已渲染范围去答「看没看见」**。
 另一道门槛是 [`breadcrumbPath()`](/src/position/ui/cue.ts#L38)：整篇只有一个标题不念、落点还没走进任何
-小节不念。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L110)）：
-前进/后退走到的每一步，编辑模式都把落点居中、落定后闪光标行（[`armLandingMark()`](/src/nav-history/stack.ts#L788)，
-[`markLandingLine()`](/src/position/restore/modes.ts#L518)），jump 两种模式都闪，visit/teleport 只在编辑模式；
-普通恢复（不是前进后退）走 [`markRestoredLine()`](/src/position/restore/modes.ts#L540)，也只在编辑模式标光标行。
+小节不念。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L110)）。前进/后退的每一步都由
+[`armLandingMark()`](/src/nav-history/stack.ts#L794) 点名一行、由 [`markLandingLine()`](/src/position/restore/modes.ts#L527)
+在落定后闪它 —— 但**点名一行 ≠ 要求把它摆到正中**：
+· jump（锚点标题行）与 teleport（跳跃目标行）点名的是一**行**，编辑模式下由
+  [`centerNamedLine()`](/src/position/restore/modes.ts#L427) 把它摆到正中，和 app 自己的大纲同一个样子；
+· **visit 点名的是一屏**（`center: false`，居中那一步由 [`namedLineAsk()`](/src/position/restore/modes.ts#L392)
+  挡掉）：它记下的是读者离开时的视口顶行，回去就该回到那一行的顶。⚠️ 光标行**不能**当 visit 的落点 ——
+  光标与滚动会分离（点一下放好光标，再滚去读别处），拿光标当落点就是把读者送回他早已离开的那一行：
+  2026-10-10 手机实测「后退回到上一篇的光标处」正是它，光标落在文件顶部时读起来就是「回到顶部」
+  （居中第 0 行只能夹在文档开头）。
+jump 两种模式都闪，visit/teleport 只在编辑模式；普通恢复（不是前进后退）走
+[`markRestoredLine()`](/src/position/restore/modes.ts#L549)，也只在编辑模式标光标行。
 都**只画一下、绝不移动视图**，方式借 core 自己的 `.is-flashing`（编辑模式加在那一行的元素上、
 阅读模式加在渲染器章节元素 [`previewLineElement()`](/src/position/ui/cue.ts#L211) 上）。
 ⚠️ **阅读模式别改用 `setEphemeralState({line})`**：那条路把这一行拉回视口顶，手机上新让开的

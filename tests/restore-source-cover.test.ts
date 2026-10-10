@@ -150,6 +150,24 @@ describe('源码注入 open 的短盖', () => {
 		expect(settle.mock.calls[0][1]).toBe(42);
 	});
 
+	it('不要求居中的步（visit）：一次都不派发居中 —— 落点就是记录里那一屏的顶', async () => {
+		// visit 记的是一**屏**，不是一**行**：回到它记下的视口顶就完了。居中会把那一行抬到
+		// 屏幕中间；而居中光标那一行（2026-10-10 之前 visit 取的就是它）在光标与滚动分离时
+		// 干脆把读者送回他早已离开的地方 —— 手机上「后退回到上一篇的光标处」正是它，光标在
+		// 文件顶部时读起来就是「回到顶部」。
+		const { state, modes, view } = makeHarness({ scroll: 41.6 });
+		const settle = vi.spyOn(pixelsOf(modes), 'settleShortCover').mockResolvedValue(undefined);
+		const intoView = (view.editor as unknown as { scrollIntoView: ReturnType<typeof vi.fn> })
+			.scrollIntoView;
+		state.pendingLineFlash = { path: 'a.md', line: 60, at: Date.now(), center: false };
+
+		await modes.restoreInjectedSource(view, RECORD, () => true);
+
+		expect(intoView).not.toHaveBeenCalled();
+		// 落点仍是记录里那一屏的顶（10），不是被点名的那一行（60）。
+		expect(settle.mock.calls[0][1]).toBe(RECORD.scroll);
+	});
+
 	it('没有盖布时不等待（没有要藏的东西），但照样揭开并收口', async () => {
 		const { state, modes, view } = makeHarness({ cover: false });
 		const settle = vi.spyOn(pixelsOf(modes), 'settleShortCover').mockResolvedValue(undefined);
