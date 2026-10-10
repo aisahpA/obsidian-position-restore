@@ -41,7 +41,7 @@ import { MarkdownView, Platform, type WorkspaceLeaf } from 'obsidian';
 import { RestoreModes } from '@/position/restore/modes';
 import { SourcePixelCorrector, DOC_READY_MAX_MS, SOURCE_COVER_FLOOR_MS, SOURCE_COVER_MAX_MS } from '@/position/restore/pixels';
 import { PositionState } from '@/position/state';
-import { DEFAULT_SETTINGS } from '@/types';
+import { DEFAULT_SETTINGS, type EphemeralState } from '@/types';
 
 const RECORD = {
 	scroll: 10,
@@ -270,17 +270,25 @@ describe('手机端遮罩的起点：等这篇内容进视图', () => {
 //
 // `height`（整篇文档的测量高度）**只喂给旧读数**：新算法根本不该读它，把它喂成一路在变的
 // 样子，任何退回 scrollHeight 的改动都会被「视口下方在变 ⇒ 照揭」那条用例抓住。
+// `viewportHeight` 是滚动容器的可见高度（jsdom 里恒为 0）：「半屏」那一档判据从它算出来，
+// 只有需要它的用例才喂一个真值。
 function makeCm(feed: {
 	top: () => number;
 	height: () => number;
 	bottom?: () => number;
 	rendered: () => boolean;
+	viewportHeight?: number;
 }) {
 	const scrollDOM = document.createElement('div');
 	Object.defineProperty(scrollDOM, 'scrollHeight', {
 		get: () => feed.height(),
 		configurable: true,
 	});
+	if (feed.viewportHeight !== undefined)
+		Object.defineProperty(scrollDOM, 'clientHeight', {
+			get: () => feed.viewportHeight,
+			configurable: true,
+		});
 	const bottom = feed.bottom ?? (() => 1000);
 	return {
 		state: {
@@ -600,5 +608,92 @@ describe('点名一行的居中：编辑器晚一步挂上（丙）', () => {
 		// 等满那几帧仍没人接：落点退回种子（记录里的 scroll），照常走完。
 		expect(settle.mock.calls[0][1]).toBe(RECORD.scroll);
 		expect(state.lastAnchorAt).toBeGreaterThan(0);
+	});
+});
+
+// 注入的 open 把位置**交给 core 施加**（它只在 setViewState 那一刻合并进 eState），自己一次都
+// 不落 —— 这是它不必遮也不需要涂wać的本钱，也是它的漏洞：core 那一次若赶在文档交换之前
+// （手机上读盘那几百 ms），换文档时 scrollTop 就被抹掉，读者于是停在笔记顶部，而后面三步
+// —— 居中只服务于点名了一行的跳转、短盖只等不纠、揭幕后的兜底又因为「目标行没渲染」当场放弃
+// —— 没有一步会把他送过去（2026-10-10 用户在手机上报的「前进后退有时候回到顶部」）。
+// 这里钉的就是那条流水线上唯一的一次补施加：**趁短盖还盖着**做，所以读者看不见它。
+//
+// 判据一律按像素（源码的 getScroll 会**回显**请求值，问它等于问自己想落到哪，见 pixels.ts 文件头），
+// 所以「目标行此刻在不在眼前」只能由 coordsAtPos 那张客户端矩形来答：没渲染出来 = 不在屏幕上；
+// 离视口顶超过半屏 = 那绝不是「落在了第 N 行」。
+describe('注入的落点没真的过去时补一次施加', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	// 起手：一个盖着布、闸门当场就开的视图（内容已到位），外加一个记录**每一次施加**的假
+	// setEphemeralState —— 这条流水线自己从不施加，所以它的每一次调用都是这次修复带来的。
+	function startInjected(feed: {
+		top: () => number;
+		rendered: () => boolean;
+		viewportHeight?: number;
+	}) {
+		const { state, modes, view } = makeHarness({
+			cm: makeCm({ ...feed, height: () => 5000, viewportHeight: feed.viewportHeight ?? 600 }),
+		});
+		const apply = vi.fn();
+		(view as unknown as { setEphemeralState: unknown }).setEphemeralState = apply;
+		const settle = vi.spyOn(pixelsOf(modes), 'settleShortCover').mockResolvedValue(undefined);
+		const run = (st: EphemeralState) => {
+			const done = modes.restoreInjectedSource(view, st, () => true);
+			return vi.advanceTimersByTimeAsync(2000).then(async () => {
+				await done;
+				return apply;
+			});
+		};
+		return { state, modes, view, apply, settle, run };
+	}
+
+	it('core 的那次施加被换文档抹掉时补一次 —— 目标行根本没渲染出来', async () => {
+		const { run } = startInjected({ top: () => 900, rendered: () => false });
+
+		const apply = await run(RECORD);
+
+		// 补的正是记录里那一处，而且**只有一次**：它不是一条纠正循环。
+		expect(apply).toHaveBeenCalledTimes(1);
+		expect(apply).toHaveBeenCalledWith(expect.objectContaining({ scroll: RECORD.scroll }));
+	});
+
+	it('目标行离视口顶超过半屏时补一次 —— 那不是「落在了第 N 行」', async () => {
+		const { run } = startInjected({ top: () => 900, rendered: () => true });
+
+		const apply = await run(RECORD);
+
+		expect(apply).toHaveBeenCalledTimes(1);
+	});
+
+	it('目标行已经坐在视口顶时不补 —— 补施加是例外，不是每次 open 的一道例行工序', async () => {
+		const { run } = startInjected({ top: () => 0, rendered: () => true });
+
+		const apply = await run(RECORD);
+
+		expect(apply).not.toHaveBeenCalled();
+	});
+
+	it('只有光标的记录从不补 —— 它从不移动视口，没有「落点过去没有」这个问题', async () => {
+		const { run } = startInjected({ top: () => 900, rendered: () => false });
+
+		const apply = await run({ cursor: RECORD.cursor });
+
+		expect(apply).not.toHaveBeenCalled();
+	});
+
+	it('补的这一次发生在短盖之前 —— 落定等的是一个已经到位的视口', async () => {
+		const { settle, run } = startInjected({ top: () => 900, rendered: () => false });
+
+		await run(RECORD);
+
+		// 短盖等的目标仍是那一行：补施加不改变落点，它只是让落点真的发生。
+		expect(settle).toHaveBeenCalledTimes(1);
+		expect(settle.mock.calls[0][1]).toBe(RECORD.scroll);
 	});
 });

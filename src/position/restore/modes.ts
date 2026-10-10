@@ -88,6 +88,18 @@ export class RestoreModes {
 			// 更糟：行号会被夹进旧文档的范围，而它的滚动 effect 还可能在交换之后才被应用，
 			// 把视口甩到任意位置。落点退回按行数估的种子，那至少是确定的。
 			const arrived = await this.waitContentArrived(view, isCurrent, contentDeadline);
+			// **补一次施加** —— 这条路自己从不落位置，它假定 core 已经在 open 那一刻同步应用过
+			// （见上面的注释）。那个假定手机上会落空：core 的那一次赶在文档交换之前，换文档时
+			// scrollTop 被抹掉 ⇒ 读者停在笔记顶部，而后面没有任何一步会把他送过去 —— 居中只服务
+			// 于点名了一行的跳转，短盖只等不纠，揭幕后的兜底又因为「目标行没渲染」当场放弃。
+			// 这里是那条流水线上唯一的一次施加，而且**趁短盖还盖着**做，读者看不见它。
+			// 判据只能按像素来（源码的 getScroll 会回显请求值），见 pixels.landingNotInSight。
+			const seed = st?.scroll ?? 0;
+			if (arrived && isCurrent() && seed > 0 && st
+				&& await this.pixels.landingNotInSight(view, seed, isCurrent)) {
+				applyEphemeralState(view, st);
+				await nextPaint();
+			}
 			// 一次点名了一行的跳转：请编辑器自己把那一行摆到正中（与点大纲面板同一个
 			// 原语），再把回读到的视口顶当成落点 —— 落法于是和原生一模一样，也不再依赖
 			// 「这一屏几行」那个估算。

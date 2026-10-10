@@ -305,6 +305,45 @@ export class SourcePixelCorrector {
 		};
 	}
 
+	// 一次注入的 open，它的落点**到底过去没有** —— 「core 在 open 那一刻同步施加了它」是那条
+	// 流水线的前提，而那条流水线自己**一次都不施加**（见 modes.restoreInjectedSource 的文件头）。
+	// 前提会在手机上落空：core 的那次施加赶在文档交换之前（手机上读盘那几百 ms），换文档时
+	// scrollTop 被抹掉 ⇒ 读者停在笔记顶部；之后既没有第二次施加，连那道唯一的兜底
+	// （relandSourcePixels）也因为「目标行没渲染出来」当场放弃 —— 2026-10-10 用户在手机上
+	// 报的「前进后退有时候回到顶部」就是这个形状。
+	//
+	// ⚠️ 只能按**像素**问：源码模式的 getScroll() 会**回显**请求的值（见本文件头那条），
+	// 问它等于问自己想落到哪。屏幕上此刻坐着的是什么，只有 coordsAtPos 的客户端矩形知道。
+	//
+	// 答 true = 「目标行不在眼前」（该补一次施加）；答 false = 它就在那儿，或**根本无从判断**
+	// （读不到编辑器、目标行超出 EOF）—— 后者宁可漏一次纠正，也不在没读数的地方猜。
+	// 起手与 settleShortCover 同款：先推一趟测量、跨两帧，免得读到「旧文档那一页」。
+	async landingNotInSight(
+		view: MarkdownView,
+		targetLine1Based: number,
+		isCurrent: () => boolean,
+	): Promise<boolean> {
+		if (targetLine1Based <= 0)
+			return false;
+		const cm = this.cmOf(view);
+		if (!cm)
+			return false;
+		// 保存的那一行超出 EOF（文件在磁盘 / 同步中变了）：没有任何一行可问。
+		if (targetLine1Based + 1 > cm.state.doc.lines)
+			return false;
+		cm.requestMeasure();
+		await nextPaint();
+		await nextPaint();
+		if (!isCurrent())
+			return false;
+		const delta = this.targetTopMeasurer(view, cm, targetLine1Based)();
+		// 量不到 ⇒ 那一行没渲染出来，也就没在屏幕上：正常落定时它就坐在视口顶，必然已渲染。
+		if (delta === null)
+			return true;
+		// 离视口顶超过半屏 ⇒ 这绝不是「落在了第 N 行」，而是压根没过去（或在别处）。
+		return Math.abs(delta) > cm.scrollDOM.clientHeight / 2;
+	}
+
 	// 前台（可见）注入 open 的「短盖」：遮罩只盖到编辑器**量完了**为止，即同时满足
 	//  · 下两个读数在同一个窗口里都**没离开过窗口起点**（约两帧），且
 	//  · 距第一次量到真几何已经过了 SOURCE_COVER_FLOOR_MS（跨过 core 自己那次重落）。
