@@ -2,6 +2,7 @@
 *.iml
 .idea
 .workbuddy
+.vscode
 
 # npm
 node_modules
