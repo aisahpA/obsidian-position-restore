@@ -571,7 +571,7 @@ body.is-mobile .position-restore-cue {
    规则）。一行现在就是**一个**目标：行进箭头曾经所在的那条槽，已经随着它打开的详情
    面板一起没了，所以文字干脆就得到一块板子的内边。 */
 .position-restore-nav-row {
-	column-gap: 8px;
+	gap: 8px;
 	align-items: baseline;
 	white-space: nowrap;
 	overflow: hidden;
@@ -705,7 +705,7 @@ body.is-mobile .position-restore-cue {
 	/* 用在**同一行**上两个东西之间，永远不用在换行之后的那个东西之前：列间隙能分开
 	   两边而不会产生缩进，所以第二行与第一行齐平开始。（外边距会把换行掉下来的那一半
 	   往右推，两行读起来就毫不相干了。） */
-	column-gap: 0.5em;
+	gap: 0 0.5em;
 }
 
 /* **名字和它的标记，作为一整块**（见 RecentFilesList.fileRow）：这个盒子**不**换行
@@ -720,7 +720,7 @@ body.is-mobile .position-restore-cue {
 	flex-wrap: nowrap;
 	min-width: 0;
 	/* 名字与标记之间，用的就是上面那个格在它两半之间用的同一个间隙。 */
-	column-gap: 0.5em;
+	gap: 0.5em;
 }
 
 /* 类型，在类型有说出来的价值时才说（见 model.ts 的 badgeOf）：app **自己的**标签类，

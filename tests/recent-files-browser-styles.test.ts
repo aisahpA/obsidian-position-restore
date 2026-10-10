@@ -131,7 +131,7 @@ describe('最近文件面板的两档弱墨', () => {
 		// 这个格子会换行，并用**列间距**把同一行上的东西分开：用外边会把换行的那一行缩进，
 		// 两行读起来就不相干了。
 		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*flex-wrap: wrap/);
-		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*column-gap: 0\.5em/);
+		expect(browser).toMatch(/\.nav-row-file\s*\{[^}]*gap: 0 0\.5em/);
 		// 文件夹是最淡那一档，连单独一行都不够时，省略的是它。
 		expect(browser).toMatch(/\.nav-row-path\s*\{[^}]*flex: 0 1 auto[^}]*text-overflow: ellipsis/);
 		expect(browser).toMatch(/\.nav-row-path\s*\{[^}]*color: var\(--nav-faint\)/);
