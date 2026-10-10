@@ -58,6 +58,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # CSS 兼容性是另一套检查（stylelint + doiuse/caniuse），ESLint 管不到：官方社区
+      # 目录在发布后会用同一个引擎扫仓库源文件（不看 minAppVersion），这里让它先发版失败。
+      - name: Lint styles
+        run: npm run lint:css
+
       - name: Test
         run: npm test
 

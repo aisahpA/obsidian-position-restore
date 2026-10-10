@@ -96,6 +96,7 @@ type 只用：`feat` `fix` `refactor` `perf` `docs` `test` `chore` `style`。
 ```bash
 npx tsc --noEmit && npx tsc -p tests/tsconfig.json --noEmit   # 两份 tsconfig 都要
 npx eslint .
+npm run lint:css      # CSS 浏览器兼容性（doiuse/caniuse），对齐官方社区目录的发布审核
 npx vitest run
 npm run build
 ```
@@ -104,8 +105,8 @@ npm run build
 
 | 你动了什么 | 至少跑什么 |
 |---|---|
-| `src/**` 代码 | 全套（两份 tsc + eslint + vitest + build）；要在 Obsidian 实测跑 `npm run reload`（已含 build + 重载插件），不用再单独 build |
-| `styles.css` | vitest + build；`tests/recent-files-browser-styles.test.ts` 必须同步改 |
+| `src/**` 代码 | 全套（两份 tsc + eslint + stylelint + vitest + build）；要在 Obsidian 实测跑 `npm run reload`（已含 build + 重载插件），不用再单独 build |
+| `styles.css` | `npm run lint:css` + vitest + build；`tests/recent-files-browser-styles.test.ts` 必须同步改 |
 | 只动注释 / `docs/**` | 不必跑 build；改了注释用守卫脚本自证零代码改动；动了带源码链接的文档跑 `npm run check:docs` |
 | 别的工具改的代码、久未回归 | 全套 |
 
