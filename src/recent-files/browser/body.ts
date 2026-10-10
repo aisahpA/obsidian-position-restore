@@ -452,7 +452,7 @@ export class RecentFilesBrowser {
 			this.render();
 		};
 		input.addEventListener('input', (ev) => {
-			if ((ev as InputEvent).isComposing)
+			if (ev.isComposing)
 				return;
 			apply();
 		});
