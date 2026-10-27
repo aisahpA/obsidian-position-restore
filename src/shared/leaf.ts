@@ -1,4 +1,4 @@
-import { App, MarkdownView, View, WorkspaceLeaf } from 'obsidian';
+import { App, Editor, MarkdownView, View, WorkspaceLeaf } from 'obsidian';
 
 // 位置核心与导航功能共用的一小把 leaf 工具。放这儿而不是 nav/entry，是为了让位置核心
 // 不必依赖导航。
@@ -30,30 +30,91 @@ export function markdownViewFor(app: App, path: string): MarkdownView | undefine
 	return undefined;
 }
 
-// 站在笔记之外的控件该作用在哪个 markdown 视图上。`getActiveViewOfType` 只看当前激活的 leaf，
-// 而读者一碰，激活的就变成侧边栏面板（或手机上的抽屉）本身 ⇒ 这个控件会对着空气操作。
-// 它真正要的是读者所在的那个文件标签页，也就是 app 自己认为「最近使用」的那个：`activeTime` 最大。
-export function markdownViewInUse(app: App): MarkdownView | undefined {
-	const active = app.workspace.getActiveViewOfType(MarkdownView);
-	if (active?.file)
+// 读者正站在的那个视图 —— 站在视图之外的控件（命令、面板脚下的箭头）该作用的对象。
+//
+// 活动 leaf 在主区里，就是它；否则（读者刚点了侧边栏面板，或活动的是本插件自己的列表）
+// 退回**最近用过的那个主区 leaf**。不退回任何一个后台标签页：一个「跳到两端」的动作不该动
+// 读者看不见的东西。`getActiveViewOfType` 只看活动 leaf，而读者一碰面板，激活的就变成面板
+// 本身 ⇒ 那道退回正是箭头能被按下去的全部原因。
+//
+// 故意不限定 markdown：第三方视图也可以站在主区里，而两端命令要作用的正是它。
+export function viewInUse(app: App): View | undefined {
+	const active = app.workspace.getActiveViewOfType(View);
+	if (active && !isSidebarView(app, active) && !isDeferredLeaf(active.leaf) && !isPopoverLeaf(active.leaf))
 		return active;
-	let best: MarkdownView | undefined;
+	let best: View | undefined;
 	let latest = -1;
-	for (const leaf of app.workspace.getLeavesOfType('markdown')) {
-		// 预览是一张卡片，不是读者打开的窗格；延迟标签页是个占位符，照着存下来的 state 回答
-		// markdown 视图的问题。
-		if (isPopoverLeaf(leaf) || isDeferredLeaf(leaf))
-			continue;
-		const view = leaf.view as MarkdownView | undefined;
-		if (!view?.file)
-			continue;
+	app.workspace.iterateAllLeaves((leaf) => {
+		// 预览是一张卡片，不是读者打开的窗格；延迟标签页是个占位符，照着存下来的 state
+		// 回答视图的问题。
+		if (isDeferredLeaf(leaf) || isPopoverLeaf(leaf))
+			return;
+		if (!isMainAreaLeaf(app, leaf))
+			return;
 		const at = (leaf as unknown as { activeTime?: number }).activeTime ?? 0;
 		if (at > latest) {
 			latest = at;
-			best = view;
+			best = leaf.view;
 		}
-	}
+	});
 	return best;
+}
+
+// 停靠在左右侧栏里的视图不是读者「正看着的正文」（大纲、反向链接、本插件自己的列表都在
+// 那儿）。弹出窗口不算侧栏 —— 它有自己的窗口，也就不在主窗口的任何一侧。
+//
+// 这条判据只看 DOM，与 `isMainAreaLeaf` 共用同一类事实；分开写是因为「活动的那个」与
+// 「主区里最近用过的那个」问的不是同一个问题。
+function isSidebarView(app: App, view: View): boolean {
+	const ws = app.workspace as unknown as {
+		leftSplit?: { containerEl?: HTMLElement };
+		rightSplit?: { containerEl?: HTMLElement };
+	};
+	const el = view.containerEl;
+	if (!el)
+		return true;
+	return !!(ws.leftSplit?.containerEl?.contains(el) || ws.rightSplit?.containerEl?.contains(el));
+}
+
+// 第三方视图里的光标：公开 API 里唯一能拿到「那个视图的编辑器」的通道，是视图自己把它挂到
+// `workspace.activeEditor` 上（d.ts 的 `MarkdownFileInfo`；youtnote 就挂了）。
+//
+// 严格得近乎偏执，因为它动的是别人家的编辑器：
+//   · 活动视图必须**就是**这个视图 —— 读者还站在这儿，那条 activeEditor 不是上一刻的残留；
+//   · 文件必须对得上 —— 同一个文件开在两个地方时，要的不是那一个；
+//   · 它报的滚动几何必须对得上一个**在这个视图里**的正文容器 —— 这才证明这个编辑器就是我们
+//     要找的那一个。那个容器可以就是滚动的那个（markdown 式），也可以是它里面的 `.cm-scroller`
+//     （youtnote 式：编辑器随内容长高、真正滚的是外面的 notes-list）。两种都要求几何相等，
+//     所以「猜一个编辑器碰碰运气」仍然过不了这一关。
+// 任何一条不成立就返回 undefined：只滚，不动光标。
+export function editorForView(app: App, view: View, scroller: HTMLElement): Editor | undefined {
+	const active = app.workspace.activeEditor;
+	const editor = active?.editor;
+	if (!editor)
+		return undefined;
+	if (app.workspace.getActiveViewOfType(View) !== view)
+		return undefined;
+	const file = (view as unknown as { file?: { path?: string } } | null)?.file;
+	if (!file?.path || active?.file?.path !== file.path)
+		return undefined;
+	let info: { height?: number; clientHeight?: number } | undefined;
+	try {
+		info = editor.getScrollInfo() as unknown as { height?: number; clientHeight?: number };
+	} catch {
+		return undefined;
+	}
+	if (!info)
+		return undefined;
+	const sameGeometry = (el: HTMLElement) =>
+		Math.abs((info?.height ?? 0) - el.scrollHeight) <= 1
+		&& Math.abs((info?.clientHeight ?? 0) - el.clientHeight) <= 1;
+	if (sameGeometry(scroller))
+		return editor;
+	for (const inner of Array.from(scroller.querySelectorAll<HTMLElement>('.cm-scroller, .markdown-preview-view'))) {
+		if (sameGeometry(inner))
+			return editor;
+	}
+	return undefined;
 }
 
 // 取一个 leaf 的 id。这是运行期才有的字段，公开类型里没有 —— 和上面那几处是同一种 cast。

@@ -1,4 +1,4 @@
-import { MarkdownView } from 'obsidian';
+import { Editor, MarkdownView } from 'obsidian';
 import { getScroller, nextPaint } from '@/shared/wait';
 
 // 一篇笔记的两端。两端的哪一个，app 都没有命令：Ctrl+Home / Ctrl+End 是编辑器按键，
@@ -182,4 +182,26 @@ export function caretToEdge(view: MarkdownView, edge: NoteEdge): void {
 		return;
 	const line = edge === 'top' ? 0 : editor.lastLine();
 	editor.setCursor({ line, ch: edge === 'top' ? 0 : editor.getLine(line).length });
+}
+
+// 第三方视图里的两端。那里没有「笔记末尾」这回事：没有反向链接面板、没有移动端浮条，也没有
+// app 的阅读渲染器会在后面把滚动写回去 —— 底部就是容器自己滚到底，浏览器会夹住。
+//
+// 所以这一路只有「滚 + （拿得到时）光标」，没有 hold、也不记步：一条步要的是 markdown 的
+// 位置语义（行号 + 光标 + 锚点），第三方视图没有这些。
+export function scrollToEdge(scroller: HTMLElement, edge: NoteEdge): void {
+	scroller.scrollTop = scrollEdgeTarget(scroller, edge);
+}
+
+// 同一个 Editor 门面（第三方视图通过 `workspace.activeEditor` 交出来的那个）上的光标 ——
+// 与 caretToEdge 留下的是同一对位置。
+export function caretToEditorEdge(editor: Editor, edge: NoteEdge): void {
+	const line = edge === 'top' ? 0 : editor.lastLine();
+	editor.setCursor({ line, ch: edge === 'top' ? 0 : editor.getLine(line).length });
+}
+
+function scrollEdgeTarget(scroller: HTMLElement, edge: NoteEdge): number {
+	if (edge === 'top')
+		return 0;
+	return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
 }

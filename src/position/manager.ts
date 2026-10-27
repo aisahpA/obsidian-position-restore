@@ -1,4 +1,4 @@
-import { App, FileView, TAbstractFile, Platform, View, WorkspaceLeaf } from 'obsidian';
+import { App, FileView, MarkdownView, Platform, TAbstractFile, View, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings } from '@/types';
 import { CursorPositionDatabase } from './storage/database';
 import { PositionStore } from './storage/position-store';
@@ -22,8 +22,12 @@ import {
 } from '@/recent-files/browser/view';
 import { PathBookkeeper } from './path-bookkeeping';
 import { isRecordableViewType } from '@/nav/entry';
-import { isMainAreaLeaf, markdownViewInUse, viewIcon, viewLabel, viewState } from '@/shared/leaf';
-import { atEdge, caretAtEdge, caretToEdge, holdEdge, moveToEdge, NoteEdge, syncViewScroll } from './edges';
+import { isMainAreaLeaf, editorForView, viewIcon, viewLabel, viewInUse, viewState } from '@/shared/leaf';
+import { scrollContainerIn } from '@/shared/wait';
+import {
+	atEdge, caretAtEdge, caretToEdge, caretToEditorEdge, holdEdge, moveToEdge, NoteEdge,
+	scrollToEdge, syncViewScroll,
+} from './edges';
 import { readNavEntryState } from './capture/ephemeral';
 
 // 门面，扣在若干协作者之上，归插件所有；main.ts 只跟这一个类打交道。
@@ -212,6 +216,19 @@ export class PositionManager {
 			.catch(e => console.error('Position Restore: navigate forward failed:', e));
 	}
 
+	// 视图的两端。读者可能站在 markdown 笔记里，也可能站在第三方插件自己的视图里（见
+	// goToViewEdge）—— 两端问的是「读者正看着的这一屏」，与它是谁画的无关。
+	goToEdge(edge: NoteEdge): void {
+		const view = viewInUse(this.app);
+		if (!view)
+			return;
+		if (view instanceof MarkdownView) {
+			this.goToNoteEdge(view, edge);
+			return;
+		}
+		this.goToViewEdge(view, edge);
+	}
+
 	// 一篇笔记的两端，作为导航。重点就是那一步：app 自己的按键只移动视图、什么都不留下，
 	// 所以读者一要求去另一端，他原来站的那个位置就没了 —— 在手机上（那些按键根本不存在），
 	// 那个位置再也回不去了。于是把他站的地点写到他正要离开的那一步上，而这次到达自己占一步：
@@ -222,9 +239,8 @@ export class PositionManager {
 	// 笔记是从读者刚才所在的标签页读来的，而不是从**活动** leaf 读的：一个站在面板里的
 	// 控件 —— 手机上的箭头 —— 在被点的那一刻自己就是活动 leaf，`getActiveViewOfType`
 	// 会什么都答不上来。
-	goToEdge(edge: NoteEdge): void {
-		const view = markdownViewInUse(this.app);
-		if (!view?.file)
+	private goToNoteEdge(view: MarkdownView, edge: NoteEdge): void {
+		if (!view.file)
 			return;
 		// 「已经在那儿」是两个答案、不是一个：视图可能显示着顶部、而光标在 200 行以下，
 		// 而一个要求去顶部的读者想要它被移过去。当它是唯一还欠着的事时，它**不走**这趟
@@ -259,10 +275,37 @@ export class PositionManager {
 			.catch(e => console.error('Position Restore: go to edge failed:', e));
 	}
 
-	// 两端到底能不能被要求 —— 与箭头作用于同一篇笔记，这样一个变灰的按钮和一次
+	// 第三方视图的两端（youtnote 这类插件把自己的编辑器画在自己的视图里）：**只滚**，不记步。
+	//
+	// 为什么只滚：一条步要的是 markdown 的位置语义（视口顶行 + 光标 + 锚点），而第三方视图
+	// 没有；给它造第二套语义是另一件事，不是这一期。所以这一路刻意不进漏斗 —— 不留「读者原来
+	// 站在哪儿」，按了 back 也不会回到跳之前。这是选定的代价，不是漏掉的收尾。
+	//
+	// 光标那一半比滚动严格得多：只有 `workspace.activeEditor` 能证明「哪个编辑器属于这个
+	// 视图」（见 editorForView）。证明不了就只滚 —— 不猜、不动别人家的选区。
+	private goToViewEdge(view: View, edge: NoteEdge): void {
+		const scroller = scrollContainerIn(view);
+		if (!scroller)
+			return;
+		try {
+			const editor = editorForView(this.app, view, scroller);
+			if (editor)
+				caretToEditorEdge(editor, edge);
+			scrollToEdge(scroller, edge);
+		} catch (e) {
+			console.error('Position Restore: go to view edge failed:', e);
+		}
+	}
+
+	// 两端到底能不能被要求 —— 与箭头作用于同一个视图，这样一个变灰的按钮和一次
 	// 什么都不做的按下不会互相打架（见 goToEdge）。
 	canGoToEdge(): boolean {
-		return !!markdownViewInUse(this.app)?.file;
+		const view = viewInUse(this.app);
+		if (!view)
+			return false;
+		if (view instanceof MarkdownView)
+			return !!view.file;
+		return !!scrollContainerIn(view);
 	}
 
 	// 前进/后退的命令可用性（checkCallback）—— 见 NavStack.canNavigate。

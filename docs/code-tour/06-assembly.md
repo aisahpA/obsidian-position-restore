@@ -18,7 +18,7 @@
 ## 入口在哪
 
 - [`onload`](/src/main.ts#L16)。**装配顺序有讲究**，见下。
-- [`PositionManager`](/src/position/manager.ts#L34)—— 门面。安装期三个 `install*`，运行期
+- [`PositionManager`](/src/position/manager.ts#L38)—— 门面。安装期三个 `install*`，运行期
   `sampleActiveView`、`navigateBack/Forward`、`goToEdge`、`applyChangedSettings` 等。
 - [`PositionState`](/src/position/state.ts#L16)—— 所有跨阶段状态都挂在它上面。
 
@@ -86,6 +86,13 @@ places.attach({openFile→stack.openFilePlain,
 渲染 pass 重贴，表现为「闪回顶部再滑回来」，所以要 `holdEdge`（最多 2 次、400ms）。
 **移动后不许直接写 `scrollTop`**，必须走 `setEphemeralState({scroll})` 这扇门。
 底部要扣掉反向链接面板与手机底部浮层。
+
+**同一个命令也作用在第三方视图上**（youtnote 这类插件把正文画在自己的视图里）：目标由
+[`viewInUse`](/src/shared/leaf.ts#L41) 答出（活动视图在侧栏里才退回主区最近用过的那个），
+markdown 走上面那条老路；别的视图走 [`goToViewEdge`](/src/position/manager.ts#L286)：
+用 [`scrollContainerIn`](/src/shared/wait.ts#L207) 找真正在滚的元素、只滚、不记步、不 hold。
+光标只有在 [`editorForView`](/src/shared/leaf.ts#L90) 能证明「这个编辑器属于这个视图」时才动
+（`workspace.activeEditor` 那条通道），证不出来就只滚。
 
 **交给 `Tasks` 的 promise 必须 settle**（`main.ts` 的 quit）：core 是 `Promise.all` 之后才关窗口，
 一个 reject 就卡在「Saving…」退不出去。`storePositionData()` 整包 try/catch，只 log 不抛。

@@ -15,9 +15,10 @@
 //    改写。
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { App, MarkdownView } from 'obsidian';
+import { App, FileView, MarkdownView, View } from 'obsidian';
 
 import { atEdge, caretAtEdge, holdEdge, moveToEdge, syncViewScroll } from '@/position/edges';
+import { scrollContainerIn } from '@/shared/wait';
 import { PositionManager } from '@/position/manager';
 import type { NavFunnel } from '@/nav/funnel';
 import type { NavStack } from '@/nav-history/stack';
@@ -134,17 +135,22 @@ function makeView(opts: {
 	}) as MarkdownView & {
 		editor: typeof editor;
 	};
-	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1', view };
+	(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-1', view, containerEl };
 	return { view, editor };
 }
 
 function makeManager(
-	view: MarkdownView | null,
-	// 当活动的 leaf **不是**那篇笔记时会去走的那些 leaf（见 markdownViewInUse）：活动视图
-	// 就是那篇笔记的 fixture 永远到不了它们。
-	leaves: { id?: string; view: unknown }[] = [],
+	// 活动视图（markdown 或第三方视图都行）：只被 getActiveViewOfType 原样答出来。
+	view: unknown,
+	// 当活动的 leaf **不是**那篇笔记时会去走的那些 leaf（见 viewInUse）：活动视图就是那篇
+	// 笔记的 fixture 永远到不了它们。`containerEl` 让它们算作主区里的 leaf。
+	leaves: { id?: string; view: unknown; containerEl?: HTMLElement; activeTime?: number }[] = [],
 ) {
 	const db: Record<string, { scroll: number }> = {};
+	const mainLeaves = leaves.map((leaf) => ({
+		...leaf,
+		containerEl: leaf.containerEl ?? (leaf.view as { containerEl?: HTMLElement }).containerEl,
+	}));
 	const app = {
 		appId: 'test-vault',
 		vault: {
@@ -155,13 +161,18 @@ function makeManager(
 		metadataCache: { getFileCache: () => null },
 		workspace: {
 			layoutReady: true,
-			rootSplit: { containerEl: { contains: () => false } },
+			// 这些 leaf 都算主区里的（真正的判据是 DOM 包含，见 shared/leaf.ts）。
+			rootSplit: { containerEl: { contains: () => true } },
+			activeEditor: null,
 			getActiveViewOfType: () => view,
-			// ……以及**活动** leaf 是面板而不是那篇笔记时插件退而求其次的那趟遍历：立在面板里的
-			// 一个控件，在被点的那一刻就是那个 leaf（见 markdownViewInUse）。一个哪儿都没有笔记的
-			// fixture，必须能在不抛异常的前提下答出「没有可去之处」。
-			getLeavesOfType: () => leaves,
-			iterateAllLeaves: () => undefined,
+			// 活动 leaf 是面板（或没有笔记）时，插件退回**最近用过的那个主区 leaf**
+			// （见 viewInUse）。一个哪儿都没有视图的 fixture，必须能在不抛异常的前提下
+			// 答出「没有可去之处」。
+			getLeavesOfType: () => mainLeaves,
+			iterateAllLeaves: (cb: (leaf: unknown) => void) => {
+				for (const leaf of mainLeaves)
+					cb(leaf);
+			},
 			setActiveLeaf: vi.fn(),
 			getMostRecentLeaf: () => null,
 		},
@@ -176,6 +187,7 @@ function makeManager(
 	const manager = new PositionManager(app as unknown as App, database as never, settings);
 	return {
 		manager,
+		app,
 		funnel: (manager as unknown as { funnel: NavFunnel }).funnel,
 		stack: (manager as unknown as { stack: NavStack }).stack,
 	};
@@ -623,5 +635,205 @@ describe('到端点这一下算不算一步', () => {
 		expect(manager.canGoToEdge()).toBe(true);
 		manager.goToEdge('top');
 		expect(scroller.scrollTop).toBe(0);
+	});
+});
+
+// 第三方视图（youtnote 这类插件把正文画在自己的页里）。两端对它们只有「滚 + 拿得到时的
+// 光标」，没有步：见 manager.goToViewEdge。
+describe('第三方视图的两端', () => {
+	// 一个不是 markdown、但正文容器是 app 自己的 .cm-scroller 的视图。
+	function makeForeignView(scroller: HTMLElement, path = 'a.youtnote.md') {
+		const containerEl = document.createElement('div');
+		containerEl.appendChild(scroller);
+		document.body.appendChild(containerEl);
+		const view = Object.assign(Object.create(FileView.prototype), {
+			file: { path, stat: { mtime: 1 } },
+			containerEl,
+			getViewType: () => 'youtnote',
+		}) as unknown as FileView & { containerEl: HTMLElement; file: { path: string } };
+		(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-y', view, containerEl };
+		return view;
+	}
+
+	function makeForeignEditor(editor: unknown, file: unknown) {
+		return { app: {}, file, editor };
+	}
+
+	it('滚到容器自己滚到底，而不是笔记的末尾', () => {
+		const scroller = makeScroller(1000, 200, 0);
+		scroller.className = 'cm-scroller';
+		const view = makeForeignView(scroller);
+		const { manager, stack } = makeManager(view);
+
+		expect(manager.canGoToEdge()).toBe(true);
+		manager.goToEdge('bottom');
+		expect(scroller.scrollTop).toBe(800);
+		manager.goToEdge('top');
+		expect(scroller.scrollTop).toBe(0);
+
+		// 不记步：这一期只做滚动（见 manager.goToViewEdge）。
+		expect(stack.entries).toHaveLength(0);
+	});
+
+	it('拿得到编辑器时才挪光标，而且只在几何也对得上时', () => {
+		const scroller = makeScroller(1000, 200, 300);
+		scroller.className = 'cm-scroller';
+		const view = makeForeignView(scroller);
+		const setCursor = vi.fn();
+		const editor = {
+			getLine: () => 'last line',
+			lastLine: () => 9,
+			setCursor,
+			getScrollInfo: () => ({ top: 300, left: 0, height: 1000, clientHeight: 200 }),
+		};
+		const { manager, app } = makeManager(view);
+		(app.workspace as unknown as { activeEditor: unknown }).activeEditor =
+			makeForeignEditor(editor, view.file);
+
+		manager.goToEdge('bottom');
+		expect(setCursor).toHaveBeenCalledWith({ line: 9, ch: 9 });
+
+		setCursor.mockClear();
+		manager.goToEdge('top');
+		expect(setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 });
+		expect(scroller.scrollTop).toBe(0);
+	});
+
+	it('几何对不上就只滚、不动别人家的光标', () => {
+		const scroller = makeScroller(1000, 200, 300);
+		scroller.className = 'cm-scroller';
+		const view = makeForeignView(scroller);
+		const setCursor = vi.fn();
+		const editor = {
+			getLine: () => '',
+			lastLine: () => 9,
+			setCursor,
+			// 这不是我们找到的那个容器（高度不同）⇒ 证明不了它属于这个视图。
+			getScrollInfo: () => ({ top: 0, left: 0, height: 500, clientHeight: 100 }),
+		};
+		const { manager, app } = makeManager(view);
+		(app.workspace as unknown as { activeEditor: unknown }).activeEditor =
+			makeForeignEditor(editor, view.file);
+
+		manager.goToEdge('top');
+		expect(setCursor).not.toHaveBeenCalled();
+		expect(scroller.scrollTop).toBe(0);
+	});
+
+	// youtnote 的形状：真正滚的是 notes-list，编辑器自己的 `.cm-scroller` 随内容长高、不滚。
+	// 光标仍然能动 —— 只要那个内层容器的几何与编辑器报的相等（这就是「它确实在这个视图里」
+	// 的证明）。
+	it('编辑器挂在一个不滚的内层容器上时，光标仍然能动', () => {
+		const list = makeScroller(2948, 522, 0);
+		list.style.overflowY = 'auto';
+		const inner = makeScroller(2880, 2880);
+		inner.className = 'cm-scroller';
+		list.appendChild(inner);
+		const view = makeForeignView(list);
+		const setCursor = vi.fn();
+		const editor = {
+			getLine: () => 'last',
+			lastLine: () => 119,
+			setCursor,
+			getScrollInfo: () => ({ top: 0, left: 0, height: 2880, clientHeight: 2880 }),
+		};
+		const { manager, app } = makeManager(view);
+		(app.workspace as unknown as { activeEditor: unknown }).activeEditor =
+			makeForeignEditor(editor, view.file);
+
+		manager.goToEdge('bottom');
+		expect(setCursor).toHaveBeenCalledWith({ line: 119, ch: 4 });
+		expect(list.scrollTop).toBe(2426);
+	});
+
+	it('没有可滚的东西就不算能要求两端', () => {
+		const containerEl = document.createElement('div');
+		containerEl.appendChild(document.createElement('div'));
+		document.body.appendChild(containerEl);
+		const view = Object.assign(Object.create(FileView.prototype), {
+			file: { path: 'a.gallery.md', stat: { mtime: 1 } },
+			containerEl,
+			getViewType: () => 'gallery',
+		}) as unknown as FileView & { containerEl: HTMLElement; file: { path: string } };
+		(view as unknown as { leaf: unknown }).leaf = { id: 'leaf-g', view, containerEl };
+		const { manager } = makeManager(view);
+
+		expect(manager.canGoToEdge()).toBe(false);
+		manager.goToEdge('top');
+	});
+
+	it('活动的是面板时，作用在读者最后待过的那个主区视图上', () => {
+		const scroller = makeScroller(1000, 200, 300);
+		scroller.className = 'cm-scroller';
+		const view = makeForeignView(scroller);
+		const { manager } = makeManager(null, [{ id: 'leaf-y', view, activeTime: 7 }]);
+
+		expect(manager.canGoToEdge()).toBe(true);
+		manager.goToEdge('bottom');
+		expect(scroller.scrollTop).toBe(800);
+	});
+});
+
+// 视图 → 正文滚动容器的判据（见 shared/wait.ts 的 scrollContainerIn）。
+describe('给任意视图找正文滚动容器', () => {
+	function fakeView(containerEl: HTMLElement): View {
+		return { containerEl } as unknown as View;
+	}
+
+	it('优先 app 自己的正文容器，而不是页面里更大的那个', () => {
+		const root = document.createElement('div');
+		const note = makeScroller(1000, 400);
+		note.className = 'cm-scroller';
+		const list = makeScroller(2000, 800);
+		list.style.overflowY = 'auto';
+		root.append(note, list);
+
+		expect(scrollContainerIn(fakeView(root))).toBe(note);
+	});
+
+	it('没有正文容器时，退到可见高度最大的可滚元素', () => {
+		const root = document.createElement('div');
+		const small = makeScroller(500, 100);
+		small.style.overflowY = 'auto';
+		const big = makeScroller(2000, 600);
+		big.style.overflowY = 'auto';
+		root.append(small, big);
+
+		expect(scrollContainerIn(fakeView(root))).toBe(big);
+	});
+
+	// youtnote 的正文编辑器就是这种形状：`.cm-scroller` 随内容长高、自己不滚，真正滚的是外面
+	// 那个 notes-list。先认名字会拿到一个永远滚不动的元素。
+	it('正文容器自己不滚时，认真正在滚的那个外层', () => {
+		const root = document.createElement('div');
+		const cm = makeScroller(2880, 2880);
+		cm.className = 'cm-scroller';
+		const list = makeScroller(2948, 522);
+		list.style.overflowY = 'auto';
+		root.append(cm, list);
+
+		expect(scrollContainerIn(fakeView(root))).toBe(list);
+	});
+
+	// 内容还没撑出滚动条时，两端命令仍然可用（按下去什么都不用做）—— 同一篇笔记长到可滚之后
+	// 不该从「灰着」变成「可用」再变回去。
+	it('短内容还没有滚动条时，仍答得出正文容器', () => {
+		const root = document.createElement('div');
+		const cm = makeScroller(400, 400);
+		cm.className = 'cm-scroller';
+		root.append(cm);
+
+		expect(scrollContainerIn(fakeView(root))).toBe(cm);
+	});
+
+	it('overflow: hidden 与不滚的元素都不算', () => {
+		const root = document.createElement('div');
+		const hidden = makeScroller(2000, 600);
+		hidden.style.overflowY = 'hidden';
+		const short = makeScroller(500, 600);
+		short.style.overflowY = 'auto';
+		root.append(hidden, short);
+
+		expect(scrollContainerIn(fakeView(root))).toBe(null);
 	});
 });

@@ -16,7 +16,7 @@
 | `recent-files/places-store.ts` | 落盘（localStorage，版本 3） |
 | `recent-files/browser/view.ts` / `modal.ts` | 两个壳：常驻侧栏 / 对话框 |
 | `recent-files/browser/body.ts` | 两个壳共用的一切：工具栏、键盘、跳转、右键菜单 |
-| `recent-files/browser/arrows.ts` | 列表脚下那四个箭头（后退/前进 + 笔记两端） |
+| `recent-files/browser/arrows.ts` | 列表脚下那四个箭头（后退/前进 + 当前视图两端：markdown 或第三方视图） |
 | `recent-files/browser/row-preview.ts` | 一行的**悬停预览**：向 app 要 popover，并守候它的答案 |
 | `recent-files/browser/list.ts` | 真正造 DOM 的地方（文件行 + 大纲行） |
 | `recent-files/browser/listing.ts` / `model.ts` | 纯分组 / **纯过滤判据** / 纯显示 |
@@ -29,7 +29,7 @@
   [`remember`](/src/recent-files/places.ts#L294)（降级就在这里）、[`pruneExcluded`](/src/recent-files/places.ts#L515)、[`travelToHeading`](/src/recent-files/places.ts#L458)。
 - [`RecentFilesBrowser`](/src/recent-files/browser/body.ts#L92)：[`mount`](/src/recent-files/browser/body.ts#L142)、[`render`](/src/recent-files/browser/body.ts#L268)、
   [`contextRow`](/src/recent-files/browser/body.ts#L525)。
-- [`ArrowBar`](/src/recent-files/browser/arrows.ts#L61)：[`refresh`](/src/recent-files/browser/arrows.ts#L89)、[`press`](/src/recent-files/browser/arrows.ts#L99)。
+- [`ArrowBar`](/src/recent-files/browser/arrows.ts#L62)：[`refresh`](/src/recent-files/browser/arrows.ts#L90)、[`press`](/src/recent-files/browser/arrows.ts#L100)。
 - [`RowPreview`](/src/recent-files/browser/row-preview.ts#L28)：[`hoverRow`](/src/recent-files/browser/row-preview.ts#L53)、[`askFor`](/src/recent-files/browser/row-preview.ts#L126)、
   [`subpathHeading`](/src/recent-files/browser/row-preview.ts#L160)。
 - [`RecentFilesList`](/src/recent-files/browser/list.ts#L187)：[`render`](/src/recent-files/browser/list.ts#L312)、[`facts`](/src/recent-files/browser/list.ts#L418)、

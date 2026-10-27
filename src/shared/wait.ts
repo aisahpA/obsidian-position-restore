@@ -1,4 +1,4 @@
-import { FileView, MarkdownView } from 'obsidian';
+import { FileView, MarkdownView, View } from 'obsidian';
 import { EphemeralState } from '@/types';
 import { applyEphemeralState, readEphemeralState } from '@/position/capture/ephemeral';
 
@@ -168,4 +168,88 @@ export function getScroller(view: FileView): HTMLElement | null {
 export function hasPreviewScrolled(view: MarkdownView): boolean {
 	const scroller = getScroller(view);
 	return !!scroller && scroller.scrollTop > 0;
+}
+
+// app 自己的两种正文容器。第三方视图常把 app 的 MarkdownEditor 挂进自己的页面（youtnote
+// 就是这么做的），那时正文的滚动容器仍然是这一个 —— 于是「不是 markdown 视图」不等于
+// 「没有 app 的正文容器」。
+const NOTE_SCROLLERS = '.cm-scroller, .markdown-preview-view';
+
+// 视图 → 上一次的答案。命令的可用性落在热路径上（面板每重画一次就问一次），而一个视图
+// 活着的整段时间里通常是同一个元素 ⇒ 重找的代价只在第一次付。元素脱链、被换掉、或视图
+// 换了才重来。
+//
+// 「没找到」也缓存，但只缓存一秒：一次否定答案要扫整个视图的 DOM（一个画布可能几千个
+// 元素），而容器可能是异步建出来的 —— 一秒后的下一次询问就能看到它，比每次重画都扫一遍
+// 划算得多。
+interface ScrollerLookup {
+	el: HTMLElement | null;
+	at: number;
+}
+const MISS_TTL_MS = 1000;
+const scrollContainers = new WeakMap<View, ScrollerLookup>();
+
+// 任意视图里代表正文的滚动容器 —— getScroller 那两行只答 markdown 与 bases，第三方视图
+// 从来没有名字可查。
+//
+// 判据只有两条：它在滚，且**读者看得见的那块最大**。第三方视图里同时滚着的东西常常不止一个
+// （列表、缩略图条、内嵌笔记），挑最大的那块是因为「两端」问的是读者正在读的正文，不是页面
+// 里某个小控件。
+//
+// 顺序是硬的：先找**真的在滚**的 app 正文容器 → 再找**真的在滚**的其它元素 → 最后才退回
+// 「存在但没溢出的正文容器」。第三步只为了让短笔记/短内容仍然算「有这个视图的两端」（命令
+// 可用、按下去什么都不用做）；只看前两步会让同一篇笔记在长到可滚之前两端一直灰着。反过来，
+// 把第三步提到前面就错在 youtnote 身上：它的 `.cm-scroller` 是个随内容长高的块，真正滚的是
+// 外面那个 notes-list，先认名字会拿到一个永远滚不动的元素。
+//
+// 返回 null ⇒ 这个视图里没有可滚的东西。那正是两端命令该对它灰着的答案，也是面板上那两个
+// 箭头该安静下来的时刻。
+export function scrollContainerIn(view: View): HTMLElement | null {
+	const root = view.containerEl;
+	if (!root)
+		return null;
+	const cached = scrollContainers.get(view);
+	if (cached) {
+		if (cached.el && cached.el.isConnected && root.contains(cached.el))
+			return cached.el;
+		if (!cached.el && Date.now() - cached.at < MISS_TTL_MS)
+			return null;
+	}
+	const scroller = largestElement(root.querySelectorAll<HTMLElement>(NOTE_SCROLLERS), isOverflowing)
+		?? largestElement(root.querySelectorAll<HTMLElement>('*'), isScrollableElement)
+		// 内容还没撑出滚动条：正文容器仍然是这个视图的答案（按下去只是什么都不用做）。
+		?? largestElement(root.querySelectorAll<HTMLElement>(NOTE_SCROLLERS), () => true);
+	scrollContainers.set(view, { el: scroller, at: Date.now() });
+	return scroller;
+}
+
+// 可见高度最大者。没有布局信息的元素（display:none 的抽屉、还没进文档的）一律 0，自然落选。
+function largestElement(nodes: Iterable<HTMLElement>, accept: (el: HTMLElement) => boolean): HTMLElement | null {
+	let best: HTMLElement | null = null;
+	let bestHeight = 0;
+	for (const el of nodes) {
+		if (!accept(el))
+			continue;
+		const height = el.clientHeight;
+		if (height > bestHeight) {
+			bestHeight = height;
+			best = el;
+		}
+	}
+	return best;
+}
+
+// 可滚：浏览器说它是 auto/scroll，而且内容真的比视口高。overflow: hidden 的元素也能用
+// scrollTop 挪，但那是在挪读者看不见的东西 —— 不属于「两端」。
+function isScrollableElement(el: HTMLElement): boolean {
+	if (!isOverflowing(el))
+		return false;
+	const overflowY = el.ownerDocument.defaultView?.getComputedStyle(el).overflowY;
+	return overflowY === 'auto' || overflowY === 'scroll';
+}
+
+// 内容比视口高。app 自己的正文容器不查 overflow —— 那两个的滚动样式来自 app.css（测试环境
+// 里没有样式表，而它们的名字就是「在滚的那一个」）。
+function isOverflowing(el: HTMLElement): boolean {
+	return el.scrollHeight > el.clientHeight + 1;
 }

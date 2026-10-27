@@ -54,7 +54,8 @@ export interface RecentFilesBrowserArrows {
 	bottom: () => void | Promise<void>;
 	canBack: () => boolean;
 	canForward: () => boolean;
-	// 是否有一篇笔记打开着、可供那两端作用。
+	// 读者正站着的那个视图有没有可滚的内容可供那两端作用（markdown 笔记或第三方视图，
+	// 见 manager.canGoToEdge）。
 	canEdge: () => boolean;
 }
 
