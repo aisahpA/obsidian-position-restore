@@ -2,6 +2,7 @@
 *.iml
 .idea
 .workbuddy
+.agents
 .vscode
 
 # npm
