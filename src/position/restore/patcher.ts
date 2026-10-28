@@ -24,6 +24,11 @@ interface OpenViewState {
 type OpenEphemeralState = EphemeralState & {
 	match?: unknown;
 	'is-flashing'?: unknown;
+	// 第三方插件最常用的「在这一行打开」（xiaoji 的「打开原文」就是它）。core 认这个字段，
+	// 源码模式下会自己把视口落到那一行，所以它和搜索命中一样是**调用方的目标** —— 见
+	// takeOverridingOpenKind 里那条让位。Obsidian 的公开类型只有 `eState?: Record<string,
+	// unknown>`，这里只声明本插件要读的那一项。
+	line?: unknown;
 };
 
 type SetViewState = (
@@ -223,7 +228,7 @@ export class OpenPatcher {
 			return eState;
 		}
 
-		if (this.takeOverridingOpenKind(leaf, eState, isReplay)) {
+		if (this.takeOverridingOpenKind(leaf, viewState, eState, isReplay)) {
 			// 一个让了位的 open 不需要 file-open 的恢复过程 —— 把这一对记下来，
 			// 好让之后的切换与重声明去重成「只跟踪」的更新，哪怕这次 open 从未
 			// 触发 'file-open'。
@@ -300,7 +305,7 @@ export class OpenPatcher {
 	// 消费那个顶替用的 open kind（anchorLink / startPlainLink /
 	// callerTarget）：当这次 open 该让位给一个非保存的目标时返回它，并设好
 	// pendingOpenKind，好让 restoreEphemeralState 能分发。
-	private takeOverridingOpenKind(leaf: WorkspaceLeaf, eState: OpenEphemeralState | undefined, isReplay: boolean): OpenKind | undefined {
+	private takeOverridingOpenKind(leaf: WorkspaceLeaf, viewState: OpenViewState, eState: OpenEphemeralState | undefined, isReplay: boolean): OpenKind | undefined {
 		// 把这个临时的链接 kind 提升到这个 leaf 的待定条目上，然后清空槽位。
 		// 链接导航胜过保存的位置，也胜过恰好撞上的 eState 光标 / scroll ——
 		// core 的链接目标是权威。正因为如此，它先于 callerTarget 检查。
@@ -314,11 +319,14 @@ export class OpenPatcher {
 		}
 
 		// 调用方提交的目标（eState.match 里的搜索命中，或来自大纲 / 反向链接的
-		// cursor/scroll/is-flashing）：core 把它放进 ephemeral state 参数，
-		// 意思是「在这里打开」，所以在上面再叠保存的位置会把它顶掉。重放时
-		// eState 是这个 leaf **自己**缓存的状态，它裸着的光标 / scroll 就是
+		// cursor/scroll/is-flashing，以及「在这一行打开」的 line）：core 把它放进
+		// ephemeral state 参数，意思是「在这里打开」，所以在上面再叠保存的位置会把它顶掉。
+		// 重放时 eState 是这个 leaf **自己**缓存的状态，它裸着的光标 / scroll 就是
 		// 那个缓存位置 —— 那里只有那些有辨识度的标记才算数。
-		if (this.hasCallerTarget(eState, isReplay)) {
+		// 只有真的带着 line 时才去判模式（isSourceModeOpen 要读 vault 配置，没有 line 的
+		// 打开不该为它付这笔判断的成本，也不该让侧边栏视图等非 markdown 打开碰到它）。
+		const lineIsTarget = !isReplay && eState?.line != null && this.isSourceModeOpen(leaf, viewState);
+		if (this.hasCallerTarget(eState, isReplay, lineIsTarget)) {
 			this.state.pendingOpenKind.set(leaf, 'callerTarget');
 			return 'callerTarget';
 		}
@@ -326,14 +334,23 @@ export class OpenPatcher {
 		return undefined;
 	}
 
-	private hasCallerTarget(eState: OpenEphemeralState | undefined, isReplay = false): boolean {
+	private hasCallerTarget(eState: OpenEphemeralState | undefined, isReplay = false, lineIsTarget = false): boolean {
 		if (!eState)
 			return false;
 		if (eState.match || eState['is-flashing'])
 			return true;
 		if (isReplay)
 			return false;
-		return !!(eState.cursor || eState.scroll != null);
+		// `line`（第三方插件「打开原文 / 打开到第 N 行」）只在源码模式算调用方目标：core
+		// 在源码模式认它，会自己落位；阅读视图那边**不注入也不预遮**（见 injectEphemeralStateOnOpen
+		// 里对 mode 的分支），保持原有的恢复行为不动。
+		//
+		// 不让位会怎样（2026-10-28 实测，xiaoji「打开原文」）：注入的保存位置被 core 的 line
+		// 目标顶掉，视口落在 line 上；可短盖（modes.settleShortCover）盯的还是**保存那一行**
+		// 的像素，那行已经不在视口里 ⇒ 量不到真几何 ⇒ 遮罩一直盖到上界
+		// （SOURCE_COVER_MAX_MS 1000ms）才揭。保存位置与目标行同屏时 433ms 揭开、离得远时
+		// 1046ms；让位后 273ms 且遮罩从不出现，这也就是用户报的「有时快有时慢」。
+		return !!(eState.cursor || eState.scroll != null || (lineIsTarget && eState.line != null));
 	}
 
 	// 注入形式只有一个来源：保存的位置。没有记录就什么都不注入 —— 笔记按 Obsidian

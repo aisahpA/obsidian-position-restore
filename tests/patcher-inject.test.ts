@@ -436,6 +436,48 @@ describe('OpenPatcher 对「这是一次什么打开」的判定', () => {
 		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
 	});
 
+	// xiaoji 的「打开原文」：openFile(file, { eState: { line } }) 之后再补一次
+	// setEphemeralState({ line })。line 是 core 自己认的目标行，必须和搜索命中一样让位：
+	// 不让位时注入的保存位置会被它顶掉，而短盖盯着保存那一行等「量完」，遮罩于是按到上界
+	// 才揭（2026-10-28 实测 1046ms；让位后 273ms 且遮罩从不出现）。
+	it('带 eState.line（第三方插件「打开原文」）的源码打开让位，不注入不遮罩', () => {
+		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
+		const eState = { line: 42 };
+
+		const result = inject(leaf, SOURCE_OPEN_A(), eState);
+
+		expect(result).toBe(eState);
+		expect(state.cover.isCovered(leaf)).toBe(false);
+		expect(state.injectedOpenLeafIds.has('leaf-1')).toBe(false);
+		expect(state.handledLeafIdMap.get('leaf-1')).toBe('a.md');
+		expect(state.pendingOpenKind.get(leaf)).toBe('callerTarget');
+	});
+
+	it('阅读视图的 eState.line 不算调用方目标，保持原有的恢复路径', () => {
+		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
+		const eState = { line: 42 };
+
+		const result = inject(leaf, { type: 'markdown', state: { file: 'a.md', mode: 'preview' } }, eState);
+
+		// 阅读视图从不注入也不预遮，落点由 file-open 的恢复接管 —— line 不改变这一点。
+		expect(result).toBe(eState);
+		expect(state.cover.isCovered(leaf)).toBe(false);
+		expect(state.pendingOpenKind.has(leaf)).toBe(false);
+	});
+
+	it('eState.line 的回放（缓存状态再次声明）保持原生，不重新注入', () => {
+		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
+		state.handledLeafIdMap.set('leaf-1', 'a.md');
+		const eState = { line: 42 };
+
+		const result = inject(leaf, SOURCE_OPEN_A(), eState);
+
+		// 回放里裸着的 line 是缓存位置，不是调用方目标：不让位、也不重新注入（与记录不吻合）。
+		expect(result).toBe(eState);
+		expect(state.cover.isCovered(leaf)).toBe(false);
+		expect(state.pendingOpenKind.has(leaf)).toBe(false);
+	});
+
 	it('eState 与记录一致的回放，在盖布下重新注入', () => {
 		const { state, leaf, inject } = makeHarness({ 'a.md': RECORD });
 		state.handledLeafIdMap.set('leaf-1', 'a.md');

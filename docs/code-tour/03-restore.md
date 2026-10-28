@@ -20,7 +20,7 @@
 - [`RestoreModes`](/src/position/restore/modes.ts#L35)：[`maskedRestore`](/src/position/restore/modes.ts#L201)、
   [`landPreview`](/src/position/restore/modes.ts#L310)、[`restoreInjectedSource`](/src/position/restore/modes.ts#L78)、
   [`historyJumpApply`](/src/position/restore/modes.ts#L333)。
-- [`OpenPatcher`](/src/position/restore/patcher.ts#L40)：[`installPatches`](/src/position/restore/patcher.ts#L61)。
+- [`OpenPatcher`](/src/position/restore/patcher.ts#L45)：[`installPatches`](/src/position/restore/patcher.ts#L66)。
 - 触发点：`main.ts` 的 `file-open` / `active-leaf-change`，以及补丁本身。
 
 ## 数据怎么流
@@ -57,6 +57,14 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 （[`landPreview`](/src/position/restore/modes.ts#L310)）。掉到 masked 就等于「在遮罩下把同一个位置再施加一遍」：
 多一段空白和一次看不见的纠正，而这两者都没有必要。
 
+**一次「在指定行打开」（`eState.line`）也让位**（[`takeOverridingOpenKind`](/src/position/restore/patcher.ts#L308)）：
+第三方插件（xiaoji 的「打开原文」）用 `openFile(file, { active: true, eState: { line } })` 打开、再补一次
+`setEphemeralState({ line })`；`line` 和搜索命中的 `match` 一样是 core 认的目标行，会顶掉注入的保存位置。
+不让位时会白等：短盖（[`settleShortCover`](/src/position/restore/pixels.ts#L385)）量的仍是**保存那一行**的像素，
+而视口已经被 core 挪到 `line` 上 ⇒ 那行不在视口里 ⇒ 量不到可信几何 ⇒ 遮罩一路盖到上界才揭。2026-10-28
+实测（226 行笔记、目标行 146）：保存位置与目标行同屏时揭开 433ms，隔得远 1046ms；让位后遮罩从不出现、
+273~330ms 落定。只在源码模式认它 —— 阅读视图不注入也不预遮，落点仍由渲染器决定。
+
 **「注入的落点已经在 core 那一刻应用过」是假定，所以要补一次**
 （[`landingNotInSight`](/src/position/restore/pixels.ts#L321)，2026-10-10 用户在手机上报的「前进后退
 有时候回到顶部」）：注入那条流水线**自己一次都不施加位置**，而那个假定在手机上会落空 —— core 的那次
@@ -73,7 +81,7 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 **源码的注入 open 要遮，但只遮到「编辑器量完」为止**（[`restoreInjectedSource`](/src/position/restore/modes.ts#L78)，
 2026-10-08/09 用户拍板，多轮真机实测定的）：这条路上「空白 ↔ 内容自己动」只能选一个侧重 —— 编辑器
 量完行高之前画出来的帧必定被随后的一次测量推动（core 的两段式落地，实测约 85~145ms），不遮就看得见
-那几下。所以盖布（[`maybeCoverOpen`](/src/position/restore/patcher.ts#L374)）是**必须的**，可调的只有
+那几下。所以盖布（[`maybeCoverOpen`](/src/position/restore/patcher.ts#L391)）是**必须的**，可调的只有
 时长（[`settleShortCover`](/src/position/restore/pixels.ts#L385)）：判据是**两个读数**在同一个窗口里都
 **没离开过窗口起点** —— ① 保存那一行相对滚动容器顶的偏移（管「落点对不对」），② **视口里最后一条
 可见行**的同一偏移（管「眼前那条带子会不会挪」，[`bottomVisibleMeasurer`](/src/position/restore/pixels.ts#L294)）。
@@ -102,7 +110,7 @@ RestoreCue 闪一下提示（都在遮罩揭开之后才响）
 上一篇的内容闪一下」，慢慢点也一样）。而那次读盘通常**远小于短盖自己的下限**（`SOURCE_COVER_FLOOR_MS`
 150），拿它换「屏幕上绝不会出现别的笔记」是划算的。手机端本来就如此（选择文件的过程全屏盖住正文，旧
 画面没有读者）。于是 `cover()` 收一个「新内容到了吗」的判据
-（[`contentSwapGate`](/src/position/restore/patcher.ts#L412)）—— 它**不再**决定**什么时候涂**（放开了、
+（[`contentSwapGate`](/src/position/restore/patcher.ts#L429)）—— 它**不再**决定**什么时候涂**（放开了、
 涂上照跑），只借给恢复流水线当「什么时候能碰编辑器」的闸门。判据是**两层，从粗到细**：① 编辑器里的
 **文档对象**换掉了没有（[`noteArrived`](/src/position/restore/pixels.ts#L240)，挡住 core 异步读盘那几百 ms）；
 ② 按**内容**认「现在装的是不是**这一次**要打开的那篇」（`expectedContent`，拿 `vault.cachedRead(file)`
