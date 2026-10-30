@@ -17,7 +17,7 @@
 
 ## 入口在哪
 
-- [`onload`](/src/main.ts#L16)。**装配顺序有讲究**，见下。
+- [`onload`](/src/main.ts#L17)。**装配顺序有讲究**，见下。
 - [`PositionManager`](/src/position/manager.ts#L38)—— 门面。安装期三个 `install*`，运行期
   `sampleActiveView`、`navigateBack/Forward`、`goToEdge`、`applyChangedSettings` 等。
 - [`PositionState`](/src/position/state.ts#L16)—— 所有跨阶段状态都挂在它上面。
