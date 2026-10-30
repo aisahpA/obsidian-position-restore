@@ -506,11 +506,19 @@ export class NavStack implements NavFunnelSink {
 		return this.hasStep(dir);
 	}
 
+	// 「主区域里最近活跃的那个 leaf」，找不到指定 leaf 时的兜底。必须把 rootSplit 传进去：
+	// 不带参数时 getMostRecentLeaf 连弹窗窗口一起搜（见它的文档注释），而关掉最后一个标签页
+	// 之后 Obsidian 补的「新建标签页」从未被激活过、activeTime 为 0，于是任何弹窗窗口里可见的
+	// leaf 都会赢——读者看到的就是点了没反应（2026-10-30 实测）。
+	private recentMainLeaf(): WorkspaceLeaf | undefined {
+		return this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit) ?? undefined;
+	}
+
 	// 没有活跃文件视图时（侧栏拿着焦点），遍历从栈当前条目那个 leaf 起步——用户待过的最后
 	// 一个文件标签页。
 	private startLeaf(): WorkspaceLeaf | undefined {
 		return this.findLeafById(this.entries[this.index]?.leafId)
-			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
+			?? this.recentMainLeaf();
 	}
 
 	async navigate(dir: -1 | 1): Promise<void> {
@@ -562,7 +570,7 @@ export class NavStack implements NavFunnelSink {
 			return;
 		}
 		const leaf = this.findLeafById(leafId)
-			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
+			?? this.recentMainLeaf();
 		if (!leaf)
 			return;
 		if (this.app.workspace.getActiveViewOfType(FileView)?.leaf !== leaf)
@@ -659,7 +667,7 @@ export class NavStack implements NavFunnelSink {
 		// 哪儿都没有文件视图（只剩新标签页）：回落到最后一个主区域 leaf，好让遍历仍能在那里
 		// 打开它的目标。
 		const activeLeaf = activeView?.leaf
-			?? this.app.workspace.getMostRecentLeaf() ?? undefined;
+			?? this.recentMainLeaf();
 		const targetLeaf = this.findLeafById(target.leafId);
 
 		// 视图条目（一个视图标签页）：到达它意味着某个 leaf 必须「显示」那个视图。「哪一个」

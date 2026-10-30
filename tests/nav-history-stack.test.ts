@@ -1636,6 +1636,57 @@ describe('NavStack.navigate —— 侧边栏拿着焦点时', () => {
 	});
 });
 
+// 找不到记录里那个 leaf 时的兜底：只问主区域。不带参数的 getMostRecentLeaf 会把弹
+// 窗窗口一起搜（见它的文档注释），而关掉最后一个标签页之后 Obsidian 补的「新建标签
+// 页」从未被激活过、activeTime 为 0 —— 于是任何弹窗窗口里可见的 leaf 都会赢，读者点
+// 最近文件看到的就是「没反应」（2026-10-30 实测）。这三处兜底因此都把 rootSplit 传
+// 进去（见 stack.ts 的 recentMainLeaf）。
+describe('NavStack —— 兜底选叶只问主区域', () => {
+	// 记下每一次兜底问到的那个 root，应答由用例给。
+	function spyRecentLeaf(h: ReturnType<typeof makeSidebarHarness>, answer: () => unknown) {
+		const roots: unknown[] = [];
+		h.ws.getMostRecentLeaf = (root?: unknown) => {
+			roots.push(root);
+			return answer();
+		};
+		return roots;
+	}
+
+	it('navigate 的起点兜底，问的是工作区根节点', async () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-2', file: 'd.md', markdown: true }] });
+		const nav = h.nav;
+		const rootSplit = (h.ws as unknown as { rootSplit: unknown }).rootSplit;
+		const roots = spyRecentLeaf(h, () => h.leaves[0]);
+		nav.funnel.recordOpen('a.md', 'leaf-1'); // leaf-1 后来被关掉了
+		nav.funnel.recordOpen('b.md', 'leaf-1');
+
+		await nav.stack.navigate(-1);
+
+		expect(roots.length).toBeGreaterThan(0);
+		expect(roots.every((root) => root === rootSplit)).toBe(true);
+		expect(h.openFile.mock.calls[0][0]).toMatchObject({ path: 'a.md' });
+	});
+
+	it('openFilePlain 的兜底，问的也是根节点', async () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		const rootSplit = (h.ws as unknown as { rootSplit: unknown }).rootSplit;
+		const roots = spyRecentLeaf(h, () => h.leaves[0]);
+
+		await h.nav.stack.openFilePlain('b.md', 'leaf-gone');
+
+		expect(roots).toEqual([rootSplit]);
+		expect(h.openFile.mock.calls[0][0]).toMatchObject({ path: 'b.md' });
+	});
+
+	it('主区域里一个 leaf 也没有时静默收手，不抛也不开', async () => {
+		const h = makeSidebarHarness({ leaves: [{ id: 'leaf-1', file: 'a.md', markdown: true }] });
+		spyRecentLeaf(h, () => null);
+
+		await expect(h.nav.stack.openFilePlain('b.md', 'leaf-gone')).resolves.toBeUndefined();
+		expect(h.openFile).not.toHaveBeenCalled();
+	});
+});
+
 // ===== NavStack：视图标签页的步 =====
 
 function graphLeaf(id: string, containerEl: unknown = 'main'): WorkspaceLeaf {
