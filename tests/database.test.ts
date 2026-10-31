@@ -1,6 +1,7 @@
 // CursorPositionDatabase（src/database.ts）的单元测试：紧凑的落盘编解码（写入 →
-// 读回一轮）、坏数据加固（解析不了的文件被复制到旁边并上报，绝不悄悄清掉）、空记录 /
-// 墓碑的淘汰、setState 的新旧记账、带滞回的容量裁剪、文件夹排除、改名/删除记账、
+// 读回一轮）、坏数据加固（读不懂的文件先复制、再按「打捞 → 上一版 → 只读降级」恢复，
+// 绝不写空库覆盖）、原子落盘（写暂存 → 旧版进 .trash → rename 就位）与启动时的补完恢复、
+// 空记录 / 墓碑的淘汰、setState 的新旧记账、带滞回的容量裁剪、文件夹排除、改名/删除记账、
 // 外部同步的合并规则（盘上那份赢，除非该键在我们上次落盘之后被动过），以及
 // switchDbFile 的移动/采纳语义。
 
@@ -245,16 +246,72 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		expect(copies(array.files)).toHaveLength(1);
 	});
 
-	it('随后的那次落盘会替换掉这个文件，副本不动', async () => {
+	it('什么也救不回来时进入只读：这一会话不再写这个文件', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
-		const { db, files } = makeHarness({ [DB_PATH]: '{oops' });
+		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{oops' });
 		await db.readDb();
 
+		// 整份盖掉一份读不懂的文件，只会让同步工具把损坏推到别的设备 —— 所以宁可不保存。
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
-		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{"s":1,"t":' + db.db['a.md'].time + '}}}');
+		expect(files[DB_PATH]).toBe('{oops');
+		// 唯一那次写是 readDb 留下的坏字节副本；正式文件和暂存文件都没被碰过
+		expect(adapter.write.mock.calls.map(([p]) => p)).not.toContain(DB_PATH);
+		expect(adapter.write.mock.calls.map(([p]) => p)).not.toContain('.trash/position-restore/position-restore-data.json.next');
 		expect(copies(files)).toHaveLength(1);
 		expect(files[copies(files)[0]]).toBe('{oops');
+		expect(messages()).toEqual([expect.stringContaining(copies(files)[0])]);
+		expect(notices().map((n) => n.duration)).toEqual([0]);
+	});
+
+	it('外部把文件换成能读的内容之后，只读解除、落盘恢复', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{oops' });
+		await h.db.readDb();
+		h.db.setState('a.md', { scroll: 1 });
+		await h.db.writeDb();
+		expect(h.files[DB_PATH]).toBe('{oops');
+
+		h.externalWrite(DB_PATH, '{"schema":3,"lastPositions":{"b.md":{"s":2,"t":1}}}');
+		await h.db.mergeExternalChanges();
+		await h.db.writeDb();
+
+		const written = JSON.parse(h.files[DB_PATH]);
+		expect(Object.keys(written.lastPositions).sort()).toEqual(['a.md', 'b.md']);
+	});
+
+	it('截断的文件：前缀里完整的记录被救回，下一次落盘把文件补成合法 JSON', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		// 同步工具截断文件时留下的正是这种形状：前面完整、最后一条断在路径中间。
+		const h = makeHarness({ [DB_PATH]: '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11},"b.md":{"s":9' });
+		await h.db.readDb();
+
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 5, time: 11 } });
+		expect(messages()).toEqual([expect.stringContaining('1')]);
+		expect(copies(h.files)).toHaveLength(1);
+		expect(h.files[copies(h.files)[0]]).toContain('"b.md":{"s":9');
+		expect(notices().map((n) => n.duration)).toEqual([0]);
+
+		// 打捞出来的内容随下一次落盘写回文件，坏文件就此修好。
+		h.db.setState('c.md', { scroll: 1 });
+		await h.db.writeDb();
+		const written = JSON.parse(h.files[DB_PATH]);
+		expect(written.schema).toBe(3);
+		expect(Object.keys(written.lastPositions).sort()).toEqual(['a.md', 'c.md']);
+	});
+
+	it('文件坏到打捞不出记录时，退到上一版', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const previous = '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11}}}';
+		const h = makeHarness({
+			[DB_PATH]: '{oops',
+			['.trash/position-restore/position-restore-data.json.prev']: previous,
+		});
+		await h.db.readDb();
+
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 5, time: 11 } });
+		expect(messages()).toEqual([expect.stringContaining('1')]);
+		expect(copies(h.files)).toHaveLength(1);
 	});
 
 	it('每种读不出来的内容只留一份副本，不按重试次数留', async () => {
@@ -307,7 +364,7 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		});
 		await h.db.readDb();
 		expect(h.db.db).toEqual({});
-		expect(messages()).toEqual([t('dataStorage.corruptDb.noticeNoCopy')]);
+		expect(messages()).toEqual([t('dataStorage.corruptDb.readOnlyNoCopy')]);
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
@@ -348,7 +405,24 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		expect(db.db).toEqual({ 'a.md': {}, 'b.md': {} });
 	});
 
-	it('[0] 墓碑解成空记录，写回去时也仍是空记录', async () => {
+	it('落盘把上一版挪进 .trash，正式文件里永远不会出现半截内容', async () => {
+		const h = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
+		await h.db.readDb();
+
+		h.db.setState('a.md', { scroll: 6 });
+		await h.db.writeDb();
+		const first = h.files[DB_PATH];
+
+		h.db.setState('b.md', { scroll: 1 });
+		await h.db.writeDb();
+
+		expect(h.files['.trash/position-restore/position-restore-data.json.prev']).toBe(first);
+		expect(Object.keys(JSON.parse(h.files[DB_PATH]).lastPositions).sort()).toEqual(['a.md', 'b.md']);
+		// 落盘只写暂存文件一次，正式文件靠 rename 就位
+		expect(h.files['.trash/position-restore/position-restore-data.json.next']).toBeUndefined();
+	});
+
+		it('[0] 墓碑解成空记录，写回去时也仍是空记录', async () => {
 		const { db, files } = makeHarness({ [DB_PATH]: '{"a.md":[0]}' });
 		await db.readDb();
 		expect(Object.keys(db.db)).toEqual(['a.md']);
@@ -357,6 +431,78 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		db.setState('b.md', { scroll: 1 });
 		await db.writeDb();
 		expect(files[DB_PATH]).toBe('{"schema":3,"lastPositions":{"a.md":{},"b.md":{"s":1,"t":' + db.db['b.md'].time + '}}}');
+	});
+});
+
+describe('原子落盘与启动恢复', () => {
+	it('上一次落盘死在两个 rename 之间时，启动把暂存文件扶正', async () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const staged = '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11}}}';
+		const h = makeHarness({ ['.trash/position-restore/position-restore-data.json.next']: staged });
+		await h.db.readDb();
+
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 5, time: 11 } });
+		expect(h.files[DB_PATH]).toBe(staged);
+		expect(h.files['.trash/position-restore/position-restore-data.json.next']).toBeUndefined();
+	});
+
+	it('文件不在、暂存也没有时，从上一版恢复', async () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const previous = '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11}}}';
+		const h = makeHarness({ ['.trash/position-restore/position-restore-data.json.prev']: previous });
+		await h.db.readDb();
+
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 5, time: 11 } });
+		expect(h.files[DB_PATH]).toBe(previous);
+	});
+
+	it('正式文件读成功时，清掉上次落盘留下的暂存文件', async () => {
+		const h = makeHarness({
+			[DB_PATH]: '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11}}}',
+			['.trash/position-restore/position-restore-data.json.next']: 'leftover',
+		});
+		await h.db.readDb();
+		expect(h.files['.trash/position-restore/position-restore-data.json.next']).toBeUndefined();
+	});
+
+	it('暂存文件没写出来时，正式文件一个字节都不动，记录留着下次再写', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11}}}' });
+		await h.db.readDb();
+		const before = h.files[DB_PATH];
+
+		h.adapter.write.mockImplementation(async () => {
+			throw new Error('EIO');
+		});
+		h.db.setState('a.md', { scroll: 6 });
+		await h.db.writeDb();
+
+		expect(h.files[DB_PATH]).toBe(before);
+		expect(h.files['.trash/position-restore/position-restore-data.json.next']).toBeUndefined();
+
+		// 磁盘没写成，db 保持 dirty：下一次落盘重试同样的记录
+		h.adapter.write.mockImplementation(async (p: string, data: string) => {
+			h.files[p] = data;
+		});
+		await h.db.writeDb();
+		expect(JSON.parse(h.files[DB_PATH]).lastPositions['a.md'].s).toBe(6);
+	});
+
+	it('暂存目录用不了时退回整份写，别让记录一条都存不下去', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({ [DB_PATH]: '{"schema":3,"lastPositions":{"a.md":{"s":5,"t":11}}}' });
+		await h.db.readDb();
+
+		h.adapter.write.mockImplementation(async (p: string, data: string) => {
+			if (p.startsWith('.trash/'))
+				throw new Error('EPERM');
+			h.files[p] = data;
+		});
+		h.db.setState('a.md', { scroll: 7 });
+		await h.db.writeDb();
+
+		expect(JSON.parse(h.files[DB_PATH]).lastPositions['a.md'].s).toBe(7);
+		expect(h.files['.trash/position-restore/position-restore-data.json.next']).toBeUndefined();
 	});
 });
 

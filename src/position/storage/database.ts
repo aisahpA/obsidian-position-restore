@@ -13,6 +13,8 @@ import {
 	parseDb,
 	parseDbStrict,
 } from './disk-format';
+import { discardStagedFile, finishInterruptedWrite, writeFileAtomically } from './atomic-file';
+import { DatabaseRecovery } from './db-recovery';
 
 // 让数据文件无论 vault 多大都远在 100 KB 以下；修剪到上限的 3/4 引入了滞回，
 // 于是修剪不会每次写入都折腾。
@@ -54,12 +56,17 @@ export class CursorPositionDatabase {
 	// 从不被丢掉，因为跳过 writeDb() 的对账会顶掉一个更新的外来文件。
 	private mergeChain: Promise<void> = Promise.resolve();
 
-	// 读不了的内容（写了一半、同步冲突标记、外来文件）绝不无声丢掉：它会被拷到一边并报告。
-	// 按内容去重，免得重试循环每一趟合并就生成一份拷贝；内容不同就是不同的损坏。
-	// corruptCopySeq 让同一毫秒、同一路径的两份拷贝不会重名。
-	private preservedCorrupt: string | null = null;
-	private corruptNotified = false;
-	private corruptCopySeq = 0;
+	// 读不懂的文件怎么善后（留副本、打捞、退上一版、提示）由它管；这里只管把结论应用到
+	// 内存与「还写不写」上。
+	private readonly recovery: DatabaseRecovery;
+
+	// 只读降级：文件坏到打捞与上一版都救不回来时置位。这时什么都不写 —— 一份坏文件被我们
+	// 整份盖掉只会让同步工具把损坏扩散到别的设备；等外部把它换回能解析的内容，runMergePass
+	// 会自动解除降级、恢复保存。
+	private readOnly = false;
+
+	// 落盘串行化：暂存文件名是固定的，两个写者交错会让其中一个 rename 落空。
+	private writeChain: Promise<void> = Promise.resolve();
 
 	// 追踪插入顺序里的最后一个键，好让 setState() 在编辑一个文件时能跳过「删了再插」
 	// （那是把键挪到末尾、标记它为新鲜）。
@@ -78,6 +85,7 @@ export class CursorPositionDatabase {
 		this.plugin = plugin;
 		this.manifestDir = plugin.manifest.dir!;
 		this.settings = settings;
+		this.recovery = new DatabaseRecovery(this.app.vault.adapter, this.manifestDir);
 	}
 
 	get defaultDbFileName(): string {
@@ -86,14 +94,6 @@ export class CursorPositionDatabase {
 
 	private getDbPath(): string {
 		return this.settings.dbFileName || this.defaultDbFileName;
-	}
-
-	// 放在插件旁边，不是放在 db 旁边（db 通常坐在 vault 里一个同步文件夹中，那里一份残留的
-	// 拷贝会被当成内容捡起来）。让名字唯一的是序号，不是时间戳。
-	private corruptCopyPath(): string {
-		const base = this.getDbPath().split('/').pop() ?? DEFAULT_DB_FILE_NAME;
-		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-		return `${this.manifestDir}/${base.replace(/\.json$/i, '')}.corrupt-${stamp}-${++this.corruptCopySeq}.json`;
 	}
 
 	// 父文件夹建不出来时，退回默认路径并通知用户。
@@ -186,6 +186,9 @@ export class CursorPositionDatabase {
 		// 外部变更检查比的是同类的东西。
 		this.lastDiskMtime = 0;
 		await this.cacheDiskMtime();
+
+		// 用户亲手换了一个库文件：上一个文件坏不坏、救没救回来都不再管，保存照常进行。
+		this.readOnly = false;
 
 		return true;
 	}
@@ -318,8 +321,12 @@ export class CursorPositionDatabase {
 		await this.migrateDefaultDbFileName();
 
 		await this.cacheDiskMtime();
-		if (this.lastDiskMtime === 0)
+		if (this.lastDiskMtime === 0) {
+			// 文件不在：要么第一次运行，要么上一次落盘死在两个 rename 之间。后者留下的中间
+			// 文件是完整的，扶正即可，不必从空库开始。
+			await this.recoverMissingDbFile();
 			return;
+		}
 
 		let data: string;
 		try {
@@ -335,14 +342,45 @@ export class CursorPositionDatabase {
 			const { schema, db } = parseDb(data);
 			this.db = db;
 			this.noteSchema(schema, true);
+			// 正式文件是好的，上一次落盘留下的暂存文件就是残渣。
+			await discardStagedFile(this.app.vault.adapter, this.getDbPath());
 		} catch (e) {
-			// 文件存在但装的是别的东西：清掉内存里的 db 无法避免（那些记录够不着了），
-			// 但这些字节会先被拷到一边 —— 下一次落盘写出一个合法文件，这也顺带修好了
-			// 同步客户端合并出来的东西。
 			console.error("Can't read database:", e);
-			this.db = {};
-			await this.preserveUnreadableDb(data, e);
+			await this.recoverFromUnreadableDb(data, e);
 		}
+	}
+
+	// 数据库文件不在时，先把上一次落盘没走完的那一半补上：暂存文件是完整的新内容（那次
+	// 落盘其实只差最后一次 rename），上一版是完整的老内容。都读不出来才真的从空库开始。
+	private async recoverMissingDbFile(): Promise<void> {
+		const recovered = await finishInterruptedWrite(
+			this.app.vault.adapter,
+			this.getDbPath(),
+			parseDb
+		);
+		if (!recovered)
+			return;
+		this.db = recovered.value.db;
+		this.noteSchema(recovered.value.schema, true);
+		await this.cacheDiskMtime();
+		console.warn(recovered.source === 'staged'
+			? 'Position Restore: finished an interrupted database write'
+			: 'Position Restore: restored the database from its previous version');
+	}
+
+	// 文件存在但整份读不了：交给 recovery 做三级决策（打捞 → 上一版 → 无法恢复），这里只把
+	// 结论落到内存与「还写不写」上。
+	private async recoverFromUnreadableDb(data: string, reason: unknown): Promise<void> {
+		const outcome = await this.recovery.recover(this.getDbPath(), data, reason);
+		if (outcome.kind === 'unreadable') {
+			// 只读降级：整份盖掉一份坏文件，只会让同步工具把损坏扩散到别的设备。
+			this.db = {};
+			this.readOnly = true;
+			return;
+		}
+		// 救回来的内容随下一次落盘写回文件，坏文件就此修好。
+		this.db = outcome.db;
+		this.markDirty();
 	}
 
 	// 另一个插件版本写的文件仍可读 —— 未知字段被忽略 —— 但这个不匹配值得报告：我们下一次
@@ -402,36 +440,6 @@ export class CursorPositionDatabase {
 		if (!cache)
 			return undefined;
 		return cache.frontmatterPosition ? cache.frontmatterPosition.end.line + 1 : 0;
-	}
-
-	// 一次解析失败会让那些记录在本会话里够不着，而下一次落盘会用我们手头有的东西覆盖文件
-	// —— 所以这份拷贝（加上同步客户端的历史版本）是让这次丢失还能挽回的东西。拷贝在通知
-	// 之前写出，这样通知可以指向一个确实存在的文件。拷贝失败也会报告：那是记录真的没了的
-	// 唯一一种情形。两条通知都是常驻的 —— 这可能发生在用户不在场的时候，而这个结果比任何
-	// 一闪而过的提示活得久。
-	private async preserveUnreadableDb(data: string, reason: unknown): Promise<void> {
-		if (data === this.preservedCorrupt)
-			return;
-		this.preservedCorrupt = data;
-
-		const path = this.corruptCopyPath();
-		let kept = true;
-		try {
-			await this.app.vault.adapter.write(path, data);
-		} catch (e) {
-			kept = false;
-			console.error("Can't keep a copy of the unreadable database:", e);
-		}
-		console.error(kept
-			? `Position Restore: unreadable database file, kept a copy at ${path}`
-			: 'Position Restore: unreadable database file, and no copy could be written', reason);
-
-		if (this.corruptNotified)
-			return;
-		this.corruptNotified = true;
-		stickyNotice(kept
-			? t('dataStorage.corruptDb.notice', path)
-			: t('dataStorage.corruptDb.noticeNoCopy'));
 	}
 
 	private async cacheDiskMtime(): Promise<void> {
@@ -503,16 +511,32 @@ export class CursorPositionDatabase {
 			this.mergeDiskDb(db);
 			this.lastDiskMtime = mtime;
 			this.noteSchema(schema, false);
+			// 文件又能读了（修好了、换回来了、同步已经推完）：只读降级解除，保存恢复。
+			if (this.readOnly) {
+				this.readOnly = false;
+				console.warn('Position Restore: the database file is readable again, saving resumes');
+			}
 		} catch (e) {
 			// 有人把文件换成了我们解析不了的内容（下载到一半、冲突标记、推了一半）。
 			// 留住我们的记录，并留一份他们的拷贝：随后那次落盘会用我们的替换掉文件。
 			console.error("Can't merge external db changes:", e);
-			await this.preserveUnreadableDb(data, e);
+			await this.recovery.preserve(this.getDbPath(), data, e);
 		}
 	}
 
 	async writeDb() {
-		if (!this.dbDirty) return;
+		// 串行化：暂存文件名是固定的，两个写者交错会让其中一个 rename 落空。串行之后每次
+		// 落盘都基于前一次的形状，而不是两份的快照互相覆盖。
+		const pass = this.writeChain.then(() => this.writeDbPass());
+		this.writeChain = pass.catch(() => {});
+		await pass;
+	}
+
+	private async writeDbPass(): Promise<void> {
+		// 只读降级时什么都不写：一份坏文件被我们整份盖掉，只会让同步工具把损坏扩散出去。
+		// 解除降级的唯一途径是外部把文件换成能解析的内容（见 runMergePass）。
+		if (!this.dbDirty || this.readOnly)
+			return;
 
 		// 自我们上次看之后，另一台设备可能替换了文件；先合并，这样我们整份文件的写入
 		// 才不会顶掉它的记录。
@@ -537,21 +561,10 @@ export class CursorPositionDatabase {
 			encoded[key] = encodeValue(st, defaultLine);
 		}
 		const data = JSON.stringify({ schema: SCHEMA_VERSION, lastPositions: encoded });
-		const dbPath = this.getDbPath();
 
-		try {
-			// 快路径：文件夹（几乎总是）已经存在。
-			await this.app.vault.adapter.write(dbPath, data);
-		} catch {
-			// 慢路径：文件夹多半不存在 —— 确保它存在（或退回默认路径）并重试一次。
-			await this.ensureDbFolder();
-			try {
-				await this.app.vault.adapter.write(this.getDbPath(), data);
-			} catch (e2) {
-				// 什么都没落到磁盘：不动 dbDirty，好让之后的落盘重试同样的记录。
-				console.error("Can't write database:", e2);
-				return;
-			}
+		if (!await this.writeDbFile(data)) {
+			// 什么都没落到磁盘：不动 dbDirty，好让之后的落盘重试同样的记录。
+			return;
 		}
 
 		// 我们自己的写入改动了文件 —— 重新缓存它的 mtime，好让下一次外部变更检查不把
@@ -560,6 +573,24 @@ export class CursorPositionDatabase {
 		await this.cacheDiskMtime();
 		this.lastSeenSchema = SCHEMA_VERSION;
 		this.dbDirty = rev !== this.rev;
+	}
+
+	// 把整份数据换成 data：先自检，再交给 atomic-file 写盘（暂存 → 旧版进 .trash →
+	// rename 就位，三步细节在那边）。启动时 recoverMissingDbFile() 会把死在两步之间的
+	// 一次落盘补完。
+	// @returns 是否落地。
+	private async writeDbFile(data: string): Promise<boolean> {
+		// 写出去的东西必须能按同一套规则读回来，否则下一次启动就是一次「坏文件」现场。
+		try {
+			parseDb(data);
+		} catch (e) {
+			console.error('Position Restore: refusing to write a database file it cannot read back:', e);
+			return false;
+		}
+
+		// 文件夹建不出来时 ensureDbFolder 会把路径退回默认路径，所以路径要在它之后取。
+		await this.ensureDbFolder();
+		return writeFileAtomically(this.app.vault.adapter, this.getDbPath(), data);
 	}
 
 	renameFile(newPath: string, oldPath: string) {

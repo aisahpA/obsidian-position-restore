@@ -172,6 +172,35 @@ function parseSchema3(raw: Record<string, unknown>): CursorDatabase {
 	return db;
 }
 
+// 截断打捞：同步工具（坚果云这类整份回传的）会把文件从中间截断，留下的前缀通常还是一串
+// 完整记录，尾巴断成半个键。整份 parse 不了，但前缀救得回来 —— 从后往前找记录边界 `},`，
+// 补上容器与根对象的闭合括号再解析，只有这条前缀本身也是一个合法位置库时才算数。
+// 不返回 schema：它是从文件里剩下的字节推出来的残缺版本，下一次落盘反正整份写成当前版本。
+// @returns 打捞出来的记录；一条完整记录都凑不齐（或前缀根本不构成位置库）时为 null。
+export function salvageDb(data: string): CursorDatabase | null {
+	// 一次截断最多试这么多个边界：正常文件第一条就命中，只有路径里恰好带 `},` 才要多试
+	// 几次。封顶是为了不在一个几十 KB 的文件上做几十次整份解析。
+	const MAX_ATTEMPTS = 16;
+	let from = data.length;
+	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+		const cut = data.lastIndexOf('},', from - 1);
+		if (cut <= 0)
+			return null;
+		from = cut;
+		const head = data.slice(0, cut + 1);
+		// schema 2/3 是「一个容器键装整张表」，补两个括号；schema 之前的平坦表根就是那张
+		// 表，补一个。都试一遍，好让旧文件也能救。
+		for (const closer of ['}}', '}']) {
+			try {
+				return parseDb(head + closer).db;
+			} catch {
+				// 边界切在了路径字符串中间，或者前缀本身就不是位置库：往前再找一个。
+			}
+		}
+	}
+	return null;
+}
+
 // 采纳目标文件时的严格形态检查：只接受一个位置 db —— schema 3、schema 2，或 schema 之前
 // 的平坦表 —— 且它的每个键都是可记录的笔记路径（.md / .base），恰好是 writeDb 会写出的东西
 // （包括空的 `{}`）。这个键检查正是拒掉一个碰巧装着数字数组（图表序列、向量）的外来
