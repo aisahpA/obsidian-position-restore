@@ -337,7 +337,9 @@ export class CursorPositionDatabase {
 		try {
 			data = await this.app.vault.adapter.read(this.getDbPath());
 		} catch (e) {
-			await this.resetUnreadableDb(e);
+			// 连字节都没读到（权限、被锁、路上横着个文件夹）：不动那个文件，也不标脏，
+			// 免得一次瞬时失败就把可能完好的库覆盖成空库。
+			await this.resetUnreadableDb(e, false);
 			return;
 		}
 
@@ -348,7 +350,9 @@ export class CursorPositionDatabase {
 			// 正式文件是好的，上一次落盘留下的暂存文件就是残渣。
 			await discardStagedFile(this.app.vault.adapter, this.getDbPath());
 		} catch (e) {
-			await this.resetUnreadableDb(e);
+			// 内容读得懂但解析不了：这份文件确实是坏的，归零之后可以直接标脏，下一次
+			// 5 秒心跳把它整份重写成合法的空库，用户不用先滚动一下才不再看到提示。
+			await this.resetUnreadableDb(e, true);
 		}
 	}
 
@@ -372,7 +376,9 @@ export class CursorPositionDatabase {
 	// 降级，所以只做一件事：看看旁边有没有一份完整的新内容（写盘死在「删了正式文件、还没
 	// rename」之前留下的）。有就用它，没有就从空库开始；下一次落盘会把文件整份重写成能读的。
 	// 两种结果都给一条常驻提示 —— 用户应当知道这次位置被跳过了，而提示自己不会消失。
-	private async resetUnreadableDb(reason: unknown): Promise<void> {
+	// contentIsBad = 读到了字节、只是解析不了。那才说明文件确实坏了，可以立刻标脏让下一次
+	// 落盘覆盖它；读都读不了的（权限/瞬时失败）不动那个文件。
+	private async resetUnreadableDb(reason: unknown, contentIsBad: boolean): Promise<void> {
 		console.error("Can't read database:", reason);
 		const staged = await readFileIfParsable(
 			this.app.vault.adapter,
@@ -387,6 +393,8 @@ export class CursorPositionDatabase {
 			return;
 		}
 		this.db = {};
+		if (contentIsBad)
+			this.markDirty();
 		stickyNotice(t('dataStorage.corruptDb.reset'));
 	}
 

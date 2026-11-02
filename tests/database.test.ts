@@ -231,6 +231,10 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		// 被错过。
 		expect(notices().map((n) => n.duration)).toEqual([0]);
 
+		// 归零之后立刻标脏：用户什么都不用动，下一次心跳就把坏文件整份重写成合法的空库。
+		await db.writeDb();
+		expect(JSON.parse(files[DB_PATH]).lastPositions).toEqual({});
+
 		db.setState('a.md', { scroll: 1 });
 		await db.writeDb();
 		expect(Object.keys(JSON.parse(files[DB_PATH]).lastPositions)).toEqual(['a.md']);
@@ -293,6 +297,10 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		expect(h.db.db).toEqual({});
 		expect(copies(h.files)).toEqual([]);
 		expect(messages()).toEqual([t('dataStorage.corruptDb.reset')]);
+
+		// 连字节都没读到：不标脏，也不碰那个文件（瞬时失败不能当坏文件覆盖掉）。
+		await h.db.writeDb();
+		expect(h.files[DB_PATH]).toBe('{"a.md":[1]}');
 	});
 
 	it('schema 之前的数组格式仍然读得出来', async () => {
