@@ -84,14 +84,10 @@ export const en = {
 	'dataStorage.dbFileName.syncHint':
 		'Obsidian Sync takes only data.json, main.js, manifest.json and styles.css out of a community plugin folder, so the database never leaves the device it was written on while it sits in the default location. To make positions follow you between devices, point this setting at a path inside the vault — the buttons below pick or create the folder for you — and enable "Sync all other types" in Obsidian Sync on every device. Folders whose name starts with "." are never synced by Obsidian Sync, so choose an ordinary vault folder.',
 
-	'dataStorage.corruptDb.recovered':
-		'Position Restore: The database file was damaged; {0} position record(s) were recovered from it and the later part was lost. The original bytes were kept at {1}.',
-	'dataStorage.corruptDb.recoveredNoCopy':
-		'Position Restore: The database file was damaged; {0} position record(s) were recovered from it and the later part was lost. The original bytes could not be copied anywhere (see the console).',
-	'dataStorage.corruptDb.readOnly':
-		'Position Restore: The database file could not be parsed and no record could be recovered. This session will not write the file, so the damage does not spread to your other devices. The original bytes were kept at {0}.',
-	'dataStorage.corruptDb.readOnlyNoCopy':
-		'Position Restore: The database file could not be parsed and no record could be recovered. This session will not write the file, so the damage does not spread to your other devices; the original bytes could not be copied anywhere either (see the console).',
+	'dataStorage.corruptDb.recoveredFromStaging':
+		'Position Restore: the data file could not be read; {0} position record(s) were recovered from the staged copy and the rest were lost. The next save rewrites the file whole.',
+	'dataStorage.corruptDb.reset':
+		'Position Restore: the data file could not be read. This session continues with an empty database and the next save rewrites the file whole; the positions recorded in it were not kept.',
 	'dataStorage.legacyDb.notice':
 		'Position Restore: the data file is in the format an older version of the plugin wrote. Every position in it was read, and the next save writes the whole file in the current format. If another device still runs an older version, update it too: the older version cannot read the new file, treats it as empty and rewrites it whole, so only the notes opened on that device survive. While versions differ, every sync can drop a batch of positions.',
 	'dataStorage.legacyDb.noticeOverwritten':
