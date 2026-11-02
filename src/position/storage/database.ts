@@ -143,7 +143,7 @@ export class CursorPositionDatabase {
 				if (await adapter.exists(currentPath))
 					await adapter.remove(currentPath);
 
-				const adopted = this.mergeDiskDb(diskDb);
+				const { adopted } = this.mergeDiskDb(diskDb);
 				// 合并后的记录会在下一次自然写入（随后的设置保存）时到达新文件。
 				this.markDirty();
 				return adopted;
@@ -452,20 +452,25 @@ export class CursorPositionDatabase {
 	//   两边共有的键   -> **更晚**的采集赢；相等（或两边都无时间戳，也就是 `t` 出现
 	//                     之前写下的每一条记录）保留我们的，于是一次合并绝不会在没有
 	//                     理由的情况下挪动读者自己那处位置。
-	// @returns 在合并中存活下来的磁盘记录条数。
-	private mergeDiskDb(diskDb: CursorDatabase): number {
+	// @returns adopted = 在合并中存活下来的磁盘记录条数；preserved = 磁盘上没有、靠我们
+	//   留住的记录条数。后者必须让调用方把库标脏 —— 它只存在于内存里，不写就永远回不去
+	//   盘上（例如外部整份换了文件、少了这些键）。
+	private mergeDiskDb(diskDb: CursorDatabase): { adopted: number; preserved: number } {
 		let adopted = Object.keys(diskDb).length;
+		let preserved = 0;
 		for (const key of Object.keys(this.db)) {
 			const oursIsLater = (this.db[key].time ?? 0) >= (diskDb[key]?.time ?? 0);
 			if (diskDb[key] === undefined || oursIsLater) {
 				if (diskDb[key] !== undefined)
 					adopted--;
+				else
+					preserved++;
 				diskDb[key] = this.db[key];
 			}
 		}
 		this.db = diskDb;
 		this.lastKey = null;
-		return adopted;
+		return { adopted, preserved };
 	}
 
 	// 捡起一个在我们跑着的时候被外部替换掉的 db 文件：一次 stat() 的 mtime 与我们缓存的
@@ -503,9 +508,13 @@ export class CursorPositionDatabase {
 
 		try {
 			const { schema, db } = parseDb(data);
-			this.mergeDiskDb(db);
+			const { preserved } = this.mergeDiskDb(db);
 			this.lastDiskMtime = mtime;
 			this.noteSchema(schema, false);
+			// 磁盘那份少了、靠我们留住的记录只存在于内存里：必须标脏，否则下一次「自然
+			// 落盘」可能永远不来（用户只是阅读、然后退出），这些位置重启后就没了。
+			if (preserved > 0)
+				this.markDirty();
 		} catch (e) {
 			// 有人把文件换成了我们解析不了的内容（下载到一半、冲突标记、推了一半）。
 			// 留住内存里的记录，下一次落盘会用我们的替换掉它；mtime 记下来，免得同一份坏

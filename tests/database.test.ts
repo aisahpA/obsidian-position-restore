@@ -620,8 +620,8 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		expect(adapter.read).not.toHaveBeenCalled();
 	});
 
-	it('同一个键采得更晚的赢；只有盘上有的键被采纳；只有内存有的键留住', async () => {
-		const { db, externalWrite } = makeHarness();
+	it('同一个键采得更晚的赢；只有盘上有的键被采纳；只有内存有的键留住并写回盘上', async () => {
+		const { db, files, externalWrite } = makeHarness();
 		db.setState('a.md', { scroll: 1, time: 1000 });
 		db.setState('b.md', { scroll: 2 });
 		await db.writeDb();
@@ -635,7 +635,27 @@ describe('mergeExternalChanges（跨设备同步）', () => {
 		expect(db.db['a.md']).toEqual({ scroll: 9, cursor: POINT(1, 1), time: 2000 });
 		expect(db.db['b.md']).toEqual({ scroll: 2, time: expect.any(Number) });
 		expect(db.db['c.md']).toEqual({ scroll: 7, time: 2000 });
-		expect(db.dbDirty).toBe(false); // 合并从不标脏
+		// b.md 只活在内存里：必须标脏，否则用户只是阅读然后退出，它就永远回不到盘上。
+		expect(db.dbDirty).toBe(true);
+
+		// 下一次落盘（5 秒心跳或退出）把它带回磁盘，重启才看得见。
+		await db.writeDb();
+		expect(Object.keys(JSON.parse(files[DB_PATH]).lastPositions).sort()).toEqual(['a.md', 'b.md', 'c.md']);
+	});
+
+	it('合并没留住任何本地记录时保持干净，不白写一次盘', async () => {
+		const { db, externalWrite } = makeHarness();
+		db.setState('a.md', { scroll: 1, time: 1000 });
+		await db.writeDb();
+
+		// 外部那份包含我们的全部键（还多一条）：什么都没有被丢掉，不需要写回。
+		externalWrite(DB_PATH, JSON.stringify({
+			schema: 2,
+			positions: { 'a.md': { s: 9, t: 2000 }, 'c.md': { s: 7, t: 2000 } },
+		}));
+		await db.mergeExternalChanges();
+
+		expect(db.dbDirty).toBe(false);
 	});
 
 	it('外面的采集比我们更早时让位给我们 —— 过去就是这种同步把人打回页顶', async () => {
