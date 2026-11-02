@@ -85,7 +85,9 @@ export const zh: En = {
 	'dataStorage.dbFileName.mergeHint':
 		'若所选文件已存在，会先将其中的记录合并到当前数据，再移动过去；文件不存在时则直接移动。',
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
-	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
+	'dataStorage.dbFileName.messages.moveFailed': '切换数据文件失败：{0}',
+	'dataStorage.dbFileName.messages.folderFailed':
+		'Position Restore：数据文件所在的文件夹建不出来，这次先不保存：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
 	'dataStorage.dbFileName.syncLocal':
 		'位于插件目录内（默认）。Obsidian Sync 不会从插件目录带走这个文件；想让位置跟着换设备，点「更改」把路径改到仓库内。其他同步工具是否带走它，取决于它们会不会同步插件目录。',

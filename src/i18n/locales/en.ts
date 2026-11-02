@@ -74,7 +74,9 @@ export const en = {
 	'dataStorage.dbFileName.mergeHint':
 		'If the chosen file already exists, its records are merged into the current database before moving there. If it does not exist, the current database is simply moved to it.',
 	'dataStorage.dbFileName.messages.merged': 'Adopted the existing database file and merged {0} record(s) from it.',
-	'dataStorage.dbFileName.messages.moveFailed': 'Failed to move the database file: {0}',
+	'dataStorage.dbFileName.messages.moveFailed': 'Failed to switch the database file: {0}',
+	'dataStorage.dbFileName.messages.folderFailed':
+		'Position Restore: the folder for the data file could not be created, so saving is paused for now: {0}',
 	'dataStorage.dbFileName.messages.set': 'Database file set to {0}',
 	'dataStorage.dbFileName.syncLocal':
 		'Inside the plugin folder (the default). Obsidian Sync does not carry this file out of the plugin folder; to take positions to another device, click "Change" and point the path inside the vault. Whether other sync clients carry it depends on whether they sync the plugin folder.',

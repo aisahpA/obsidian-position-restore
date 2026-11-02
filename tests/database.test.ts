@@ -325,11 +325,13 @@ describe('坏数据加固（readDb / parseDb）', () => {
 		expect(db.db).toEqual({ 'a.md': { scroll: 5 } });
 	});
 
-	it('成员不是数字时给出空记录，而不是漏出脏数据', async () => {
-		// schema 1 的文件按理是一堆数组；别的东西都是读不出来的数据，也产出一条空记录。
+	it('值不是数字数组时整份判为读不懂，不按空记录吃下去', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		// schema 1 的文件按理是一堆数字数组；别的形状说明这根本不是一个位置库。
 		const { db } = makeHarness({ [DB_PATH]: '{"a.md":[1,"x",2],"b.md":{"s":5}}' });
 		await db.readDb();
-		expect(db.db).toEqual({ 'a.md': {}, 'b.md': {} });
+		expect(db.db).toEqual({});
+		expect(messages()).toEqual([t('dataStorage.corruptDb.reset')]);
 	});
 
 	it('落盘不再有上一版：正式文件靠 rename 就位，暂存不残留', async () => {
@@ -402,6 +404,23 @@ describe('原子落盘与启动恢复', () => {
 		});
 		await h.db.writeDb();
 		expect(JSON.parse(h.files[DB_PATH]).lastPositions['a.md'].s).toBe(6);
+	});
+
+	it('数据文件文件夹建不出来时：不写盘、不改用户选的路径、只提示一次', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const h = makeHarness({}, { dbFileName: 'gone/positions.json' });
+		h.adapter.exists.mockImplementation(async (p: string) => p !== 'gone' && p in h.files);
+		h.adapter.mkdir.mockImplementation(async () => {
+			throw new Error('EPERM');
+		});
+		h.db.setState('a.md', { scroll: 1 });
+		await h.db.writeDb();
+		await h.db.writeDb();
+
+		expect(h.settings.dbFileName).toBe('gone/positions.json'); // 不再静默改回默认
+		expect(h.files['gone/positions.json']).toBeUndefined();
+		expect(messages()).toEqual([t('dataStorage.dbFileName.messages.folderFailed', 'gone')]);
+		expect(notices().map((n) => n.duration)).toEqual([0]);
 	});
 
 	it('暂存目录用不了时退回整份写，别让记录一条都存不下去', async () => {
@@ -838,20 +857,39 @@ describe('switchDbFile', () => {
 		expect(await db.switchDbFile('')).toBe(true);
 	});
 
-	it('把库文件挪到新的 vault 根路径下', async () => {
+	it('把库写到新的 vault 根路径下，旧的才删', async () => {
 		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
+		await db.readDb();
 
 		expect(await db.switchDbFile('new.json')).toBe(true);
-		expect(files['new.json']).toBe('{"a.md":[5]}');
+		expect(JSON.parse(files['new.json']).lastPositions).toEqual({ 'a.md': { s: 5 } });
 		expect(DB_PATH in files).toBe(false);
-		expect(adapter.rename).toHaveBeenCalledWith(DB_PATH, 'new.json');
+		// 不再靠「把旧文件 rename 过去」：先整份写到新路径，成功之后才删旧文件。
+		expect(adapter.rename).not.toHaveBeenCalledWith(DB_PATH, 'new.json');
 	});
 
 	it('父文件夹不存在就创建，而不是拒绝', async () => {
 		const { db, files, adapter } = makeHarness({ [DB_PATH]: '{"a.md":[5]}' });
+		await db.readDb();
 		expect(await db.switchDbFile('missing/new.json')).toBe(true);
 		expect(adapter.mkdir).toHaveBeenCalledWith('missing');
-		expect(files['missing/new.json']).toBe('{"a.md":[5]}');
+		expect(JSON.parse(files['missing/new.json']).lastPositions).toEqual({ 'a.md': { s: 5 } });
+	});
+
+	it('写新库失败就中止：旧库一个字节不动，目标也不改', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { db, files, adapter } = makeHarness({
+			[DB_PATH]: '{"a.md":[5]}',
+			'new.json': '{"schema":3,"lastPositions":{"b.md":{"s":9,"t":2}}}',
+		});
+		await db.readDb();
+		adapter.write.mockImplementation(async () => {
+			throw new Error('EIO');
+		});
+
+		expect(await db.switchDbFile('new.json')).toBe(false);
+		expect(files[DB_PATH]).toBe('{"a.md":[5]}'); // 旧库还在
+		expect(files['new.json']).toBe('{"schema":3,"lastPositions":{"b.md":{"s":9,"t":2}}}');
 	});
 
 	it('目标文件已存在就采纳、删掉旧的，本地动过的记录留住', async () => {
@@ -867,7 +905,9 @@ describe('switchDbFile', () => {
 		expect(db.db['t.md']).toEqual({ scroll: 9, cursor: POINT(1, 1) }); // 被采纳
 		expect(db.db['c.md']).toEqual({ scroll: 5 }); // 留住
 		expect(db.db['local.md']).toEqual({ scroll: 3, time: expect.any(Number) }); // 本地碰过 → 赢
-		expect(db.dbDirty).toBe(true); // 采纳进来的记录在下一次写入时落盘
+		// 合并结果在切换成功之前就已经整份写到新文件上，所以这里不再脏、也不用等 5 秒。
+		expect(db.dbDirty).toBe(false);
+		expect(Object.keys(JSON.parse(files['new.json']).lastPositions).sort()).toEqual(['c.md', 'local.md', 't.md']);
 	});
 
 	it('目标已存在但不是位置库时拒绝，一处不改', async () => {
@@ -876,11 +916,14 @@ describe('switchDbFile', () => {
 			'package.json': '{"name":"x","deps":["a"]}',
 			// 数字数组能通过值的检查；只有外层「笔记路径」这一道键检查会把它拒掉。
 			'chart.json': '{"series":[1,2,3],"axis":[0]}',
+			// 键像笔记路径、值却不是记录：只查键后缀会放它进门，真库就被删了。
+			'weird.json': '{"a.md":"hello","b.md":7}',
 		});
 		await db.readDb();
 
 		expect(await db.switchDbFile('package.json')).toBe(false);
 		expect(await db.switchDbFile('chart.json')).toBe(false);
+		expect(await db.switchDbFile('weird.json')).toBe(false);
 		expect(DB_PATH in files).toBe(true); // 真正的库留住
 		expect(files['package.json']).toBe('{"name":"x","deps":["a"]}');
 		expect(db.db['a.md']).toEqual({ scroll: 5 }); // 内存里的留住
@@ -898,6 +941,13 @@ describe('switchDbFile', () => {
 });
 
 describe('schema 版本与旧文件', () => {
+	it('少了 schema 键但容器还在的文件，按容器格式读，而不是当旧平坦表读成空库', async () => {
+		const h = makeHarness({ [DB_PATH]: '{"lastPositions":{"a.md":{"s":5,"t":1}}}' });
+		await h.db.readDb();
+		expect(h.db.db).toEqual({ 'a.md': { scroll: 5, time: 1 } });
+		expect(messages()).toEqual([]);
+	});
+
 	it('写成 schema 2，读回自己的文件时不出声', async () => {
 		const h = makeHarness();
 		h.db.setState('a.md', { scroll: 5 });
