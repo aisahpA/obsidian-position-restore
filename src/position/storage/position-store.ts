@@ -248,11 +248,15 @@ export class PositionStore {
 		return records;
 	}
 
-	// overlay 的存储写入。同步，并与上一个 blob 去重。
+	// overlay 的存储写入：把 leafStates 里那些与文件记录有分歧的条目写进 localStorage。
 	//
-	// 它的节奏与数据库落盘一致（PositionManager.storePositionData：5s tick、退出、挂起），
-	// 而不只是在退出时：overlay 是「同一个文件开在两个标签页」这条分歧能活过重启的唯一地方，
-	// 所以只留给退出 / 挂起的快照，一旦崩溃、强退或被杀，而数据还只在内存里，就丢了。
+	// 同步写，并与上一次的 blob 去重：稳态下 overlay 是空的，序列化出来还是同一个 "{}"，
+	// 直接跳过 setItem。
+	//
+	// 节奏跟着数据库落盘走（manager.ts 里的 storePositionData：5s 周期 flush + 退出），
+	// 而不是只在退出时写。文件层每个路径只装得下一个位置，同文件两个标签页的第二处位置
+	// 就只活在内存和这份 overlay 里；若退到退出才落盘，崩溃、强退或被杀都不触发 quit，
+	// 那份分歧就丢了。
 	persist(): void {
 		try {
 			const serialized = JSON.stringify(this.overlayRecords());

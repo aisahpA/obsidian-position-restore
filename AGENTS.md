@@ -77,15 +77,19 @@ Obsidian 插件「位置恢复 + 前进后退 + 最近文件列表」。TS + esb
 type 用英文、scope 可用中文功能名、subject 用中文：
 
 ```
-fix(最近文件): 修正 Fractional index 加载时的越界
+fix(存储): 合并保住的本地记录要写回盘上
 
-正文写「为什么」，而不是重放 diff：现象、根因、为什么选这个修法。
-需要时引用 commit hash。
+• 现象：同步工具换掉数据文件后，只在内存里留住的记录退出时不落盘，重启丢失
+• 根因：mergeDiskDb 留住记录但从没标脏，writeDb 又按 dbDirty 短路
+• 修法：mergeDiskDb 报出留住的条数，runMergePass 见到 preserved > 0 就 markDirty
 ```
+
+正文写「为什么」，不复述 diff。正文可选；写就一条一个意思、一条占一行：行首 `• `（中文点号加一个空格），行末不加标记，不按宽度手动折行，也不用 `- ` 列表。需要时引用 commit hash。
 
 type 只用：`feat` `fix` `refactor` `perf` `docs` `test` `chore` `style`。
 一个关注点一次提交；提交前确认验收过了（§6）。
 `git status` 冒出没动过的文件，先 `git show --stat <最近提交>` 查清来历，再决定带不带。
+正文与脚注的完整细则（`BREAKING CHANGE:`、`Closes #`、提交模板）见 `~/.agents/conventions/commit.md`。
 
 ---
 

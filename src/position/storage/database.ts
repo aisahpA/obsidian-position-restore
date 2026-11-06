@@ -13,6 +13,13 @@ import {
 	parseDb,
 	parseDbStrict,
 } from './disk-format';
+import {
+	discardStagedFile,
+	finishInterruptedWrite,
+	readFileIfParsable,
+	stagedPath,
+	writeFileAtomically,
+} from './atomic-file';
 
 // 让数据文件无论 vault 多大都远在 100 KB 以下；修剪到上限的 3/4 引入了滞回，
 // 于是修剪不会每次写入都折腾。
@@ -54,12 +61,11 @@ export class CursorPositionDatabase {
 	// 从不被丢掉，因为跳过 writeDb() 的对账会顶掉一个更新的外来文件。
 	private mergeChain: Promise<void> = Promise.resolve();
 
-	// 读不了的内容（写了一半、同步冲突标记、外来文件）绝不无声丢掉：它会被拷到一边并报告。
-	// 按内容去重，免得重试循环每一趟合并就生成一份拷贝；内容不同就是不同的损坏。
-	// corruptCopySeq 让同一毫秒、同一路径的两份拷贝不会重名。
-	private preservedCorrupt: string | null = null;
-	private corruptNotified = false;
-	private corruptCopySeq = 0;
+	// 落盘串行化：暂存文件名是固定的，两个写者交错会让其中一个 rename 落空。
+	private writeChain: Promise<void> = Promise.resolve();
+
+	// 文件夹建不出来这件事只提示一次（见 ensureDbFolder）。
+	private folderFailedNotified = false;
 
 	// 追踪插入顺序里的最后一个键，好让 setState() 在编辑一个文件时能跳过「删了再插」
 	// （那是把键挪到末尾、标记它为新鲜）。
@@ -88,41 +94,50 @@ export class CursorPositionDatabase {
 		return this.settings.dbFileName || this.defaultDbFileName;
 	}
 
-	// 放在插件旁边，不是放在 db 旁边（db 通常坐在 vault 里一个同步文件夹中，那里一份残留的
-	// 拷贝会被当成内容捡起来）。让名字唯一的是序号，不是时间戳。
-	private corruptCopyPath(): string {
-		const base = this.getDbPath().split('/').pop() ?? DEFAULT_DB_FILE_NAME;
-		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-		return `${this.manifestDir}/${base.replace(/\.json$/i, '')}.corrupt-${stamp}-${++this.corruptCopySeq}.json`;
-	}
-
-	// 父文件夹建不出来时，退回默认路径并通知用户。
-	private async ensureDbFolder(): Promise<void> {
+	// 数据文件的父文件夹不在就建一个。建不出来时这次不写盘、也**不改用户选的路径**：
+	// 静默把设置改回默认，会让读者以为文件还在原处，下次启动才发现换了库。提示一次就够，
+	// 不必每 5 秒刷一条。
+	// @returns 能不能继续往下写。
+	private async ensureDbFolder(): Promise<boolean> {
 		const dbPath = this.getDbPath();
 		const parentFolder = dbPath.substring(0, dbPath.lastIndexOf("/"));
 
 		// 没有父文件夹 —— 就是根文件夹 —— 没什么要建的。
 		if (!parentFolder)
-			return;
+			return true;
 
 		try {
 			if (!(await this.app.vault.adapter.exists(parentFolder)))
 				await this.app.vault.adapter.mkdir(parentFolder);
+			return true;
 		} catch (e) {
 			console.error("Can't create db folder:", e);
-			this.settings.dbFileName = '';
-			void this.plugin.saveSettings();
+			if (!this.folderFailedNotified) {
+				this.folderFailedNotified = true;
+				stickyNotice(t('dataStorage.dbFileName.messages.folderFailed', parentFolder));
+			}
+			return false;
 		}
 	}
 
 	// 把数据库文件切到 newPath；空的 newPath 重置回默认位置，settings.dbFileName 保持为 ''。
-	// 一个裸文件名会把 db 放在 vault 根（adapter 的路径是相对 vault 的）。目标已经存在时，
-	// 那通常是从另一台设备同步来的 db，所以不拒绝，而是：解析并采纳它，用与
-	// mergeExternalChanges() 相同的冲突规则合并它的记录（磁盘赢，除非是我们在上次落盘之后
-	// 本地碰过的键），然后删掉旧文件 —— 与一次移动得到同样的终态。只有读不了的目标才会
-	// 挡住这次切换。调用方之后应当持久化设置。
+	// 一个裸文件名会把 db 放在 vault 根（adapter 的路径是相对 vault 的）。
+	//
+	// 目标已经存在时（多半是从另一台设备同步来的库）：先严格校验形态，再用与
+	// mergeExternalChanges() 相同的冲突规则把它的记录并进内存。落盘顺序固定为「先把合并
+	// 结果写到新路径，成功了才删旧文件」—— 中途失败或被杀时旧库还在，切库不会变成一次
+	// 数据丢失。整段排进 writeChain，不会和在途的 5 秒 flush 交错。
+	// 调用方之后应当持久化设置。
 	// @returns 成功时为 true（包括「本来就在用 newPath」）。
 	async switchDbFile(newPath: string): Promise<boolean> {
+		// 换库会动文件，排进写盘链：先让在途的 flush 落定，也保证期间没有另一份快照
+		// 落到别的路径上。
+		const pass = this.writeChain.then(() => this.switchDbPass(newPath));
+		this.writeChain = pass.then(() => undefined, () => undefined);
+		return pass;
+	}
+
+	private async switchDbPass(newPath: string): Promise<boolean> {
 		const targetPath = newPath === '' ? this.defaultDbFileName : newPath;
 		if (!targetPath.endsWith('.json') || targetPath.startsWith('/') || targetPath.includes('\\')
 			|| targetPath.split('/').includes('..')) {
@@ -135,58 +150,50 @@ export class CursorPositionDatabase {
 		if (targetPath === currentPath)
 			return true;
 
-		// @returns 被采纳的记录条数，目标读不了时为 null —— 那时调用方拒绝。
-		const adoptExisting = async (): Promise<number | null> => {
-			try {
-				// 先做严格的形态检查：否则一个选错的 JSON 文件（package.json、
-				// 一段代码片段）会被读成一个近乎空的 db，而下面真文件被删掉 —— 数据丢失。
-				const diskDb = parseDbStrict(await adapter.read(targetPath));
-				if (diskDb === null)
-					return null;
-				// 旧文件必须走，否则它那份过期的拷贝会窝在被采纳的那份旁边；放在改动
-				// 内存状态之前，这样这里一旦失败，整个切换干净地中止。
-				if (await adapter.exists(currentPath))
-					await adapter.remove(currentPath);
-
-				const adopted = this.mergeDiskDb(diskDb);
-				// 合并后的记录会在下一次自然写入（随后的设置保存）时到达新文件。
-				this.markDirty();
-				return adopted;
-			} catch (e) {
-				console.error("Can't adopt existing database file:", e);
-				return null;
-			}
-		};
-
+		let adopted: number | null = null;
 		try {
 			// 没有斜杠 → vault 根：adapter 直接写在那里，所以没有父文件夹要检查。
 			const slash = targetPath.lastIndexOf('/');
 			const parent = slash === -1 ? '' : targetPath.substring(0, slash);
 			if (parent && !(await adapter.exists(parent)))
 				await adapter.mkdir(parent);
+
 			if (await adapter.exists(targetPath)) {
-				const adopted = await adoptExisting();
-				if (adopted === null) {
+				// 先做严格的形态检查：否则一个选错的 JSON 文件（package.json、一段代码片段）
+				// 会被读成一个近乎空的 db，而旧文件随后被删掉 —— 数据丢失。
+				const diskDb = parseDbStrict(await adapter.read(targetPath));
+				if (diskDb === null) {
 					new Notice(t('dataStorage.dbFileName.messages.exists'));
 					return false;
 				}
-				new Notice(t('dataStorage.dbFileName.messages.merged', String(adopted)));
-			} else if (await adapter.exists(currentPath)) {
-				// 原子移动；目标存在时 rename 会失败，而这一点上面那个 adoptExisting
-				// 分支已经排除了。
-				await adapter.rename(currentPath, targetPath);
+				adopted = this.mergeDiskDb(diskDb).adopted;
 			}
+
+			// 先把合并后的整份库写到新路径。写不成就中止，旧文件一个字节都不动。
+			const rev = this.rev;
+			if (!await this.writeDbFile(this.encodeDb(), targetPath)) {
+				new Notice(t('dataStorage.dbFileName.messages.moveFailed', targetPath));
+				return false;
+			}
+			// 合并结果已经落到新文件上；期间没有新变更落下就不必再写一次。
+			this.dbDirty = rev !== this.rev;
+
+			// 新库已经落地，旧文件才可以走；删不掉只是留份旧拷贝，不影响切换。
+			if (await adapter.exists(currentPath))
+				await adapter.remove(currentPath);
 		} catch (e) {
 			console.error("Can't switch database file:", e);
 			new Notice(t('dataStorage.dbFileName.messages.moveFailed', String(e)));
 			return false;
 		}
 
+		if (adopted !== null)
+			new Notice(t('dataStorage.dbFileName.messages.merged', String(adopted)));
+
 		// lastDiskMtime 缓存的是**旧**路径的 mtime；对着新路径重新缓存，好让下一次
 		// 外部变更检查比的是同类的东西。
 		this.lastDiskMtime = 0;
 		await this.cacheDiskMtime();
-
 		return true;
 	}
 
@@ -318,16 +325,21 @@ export class CursorPositionDatabase {
 		await this.migrateDefaultDbFileName();
 
 		await this.cacheDiskMtime();
-		if (this.lastDiskMtime === 0)
+
+		// 文件不在：要么第一次运行，要么上一次落盘死在「删了正式文件、还没 rename」之间。
+		// 后者留下的暂存文件是完整的新内容，扶正即可，不必从空库开始。
+		if (this.lastDiskMtime === 0) {
+			await this.recoverMissingDbFile();
 			return;
+		}
 
 		let data: string;
 		try {
 			data = await this.app.vault.adapter.read(this.getDbPath());
 		} catch (e) {
-			// 读不了（权限、路上横着个文件夹）：没有内容要保留，也写不出任何拷贝。
-			console.error("Can't read database:", e);
-			this.db = {};
+			// 连字节都没读到（权限、被锁、路上横着个文件夹）：不动那个文件，也不标脏，
+			// 免得一次瞬时失败就把可能完好的库覆盖成空库。
+			await this.resetUnreadableDb(e, false);
 			return;
 		}
 
@@ -335,14 +347,55 @@ export class CursorPositionDatabase {
 			const { schema, db } = parseDb(data);
 			this.db = db;
 			this.noteSchema(schema, true);
+			// 正式文件是好的，上一次落盘留下的暂存文件就是残渣。
+			await discardStagedFile(this.app.vault.adapter, this.getDbPath());
 		} catch (e) {
-			// 文件存在但装的是别的东西：清掉内存里的 db 无法避免（那些记录够不着了），
-			// 但这些字节会先被拷到一边 —— 下一次落盘写出一个合法文件，这也顺带修好了
-			// 同步客户端合并出来的东西。
-			console.error("Can't read database:", e);
-			this.db = {};
-			await this.preserveUnreadableDb(data, e);
+			// 内容读得懂但解析不了：这份文件确实是坏的，归零之后可以直接标脏，下一次
+			// 5 秒心跳把它整份重写成合法的空库，用户不用先滚动一下才不再看到提示。
+			await this.resetUnreadableDb(e, true);
 		}
+	}
+
+	// 数据库文件不在时，把上一次没走完的落盘补上：暂存文件是完整的新内容（那次落盘其实
+	// 只差最后一次 rename）。读不出来就真的从空库开始。
+	private async recoverMissingDbFile(): Promise<void> {
+		const recovered = await finishInterruptedWrite(
+			this.app.vault.adapter,
+			this.getDbPath(),
+			parseDb
+		);
+		if (!recovered)
+			return;
+		this.db = recovered.db;
+		this.noteSchema(recovered.schema, true);
+		await this.cacheDiskMtime();
+		console.warn('Position Restore: finished an interrupted database write');
+	}
+
+	// 文件存在但读不懂（或读不了）：不再抢救。位置数据不值得为它养一套打捞、上一版与只读
+	// 降级，所以只做一件事：看看旁边有没有一份完整的新内容（写盘死在「删了正式文件、还没
+	// rename」之前留下的）。有就用它，没有就从空库开始；下一次落盘会把文件整份重写成能读的。
+	// 两种结果都给一条常驻提示 —— 用户应当知道这次位置被跳过了，而提示自己不会消失。
+	// contentIsBad = 读到了字节、只是解析不了。那才说明文件确实坏了，可以立刻标脏让下一次
+	// 落盘覆盖它；读都读不了的（权限/瞬时失败）不动那个文件。
+	private async resetUnreadableDb(reason: unknown, contentIsBad: boolean): Promise<void> {
+		console.error("Can't read database:", reason);
+		const staged = await readFileIfParsable(
+			this.app.vault.adapter,
+			stagedPath(this.getDbPath()),
+			parseDb
+		);
+		if (staged) {
+			this.db = staged.db;
+			this.noteSchema(staged.schema, true);
+			this.markDirty();
+			stickyNotice(t('dataStorage.corruptDb.recoveredFromStaging', String(Object.keys(staged.db).length)));
+			return;
+		}
+		this.db = {};
+		if (contentIsBad)
+			this.markDirty();
+		stickyNotice(t('dataStorage.corruptDb.reset'));
 	}
 
 	// 另一个插件版本写的文件仍可读 —— 未知字段被忽略 —— 但这个不匹配值得报告：我们下一次
@@ -404,36 +457,6 @@ export class CursorPositionDatabase {
 		return cache.frontmatterPosition ? cache.frontmatterPosition.end.line + 1 : 0;
 	}
 
-	// 一次解析失败会让那些记录在本会话里够不着，而下一次落盘会用我们手头有的东西覆盖文件
-	// —— 所以这份拷贝（加上同步客户端的历史版本）是让这次丢失还能挽回的东西。拷贝在通知
-	// 之前写出，这样通知可以指向一个确实存在的文件。拷贝失败也会报告：那是记录真的没了的
-	// 唯一一种情形。两条通知都是常驻的 —— 这可能发生在用户不在场的时候，而这个结果比任何
-	// 一闪而过的提示活得久。
-	private async preserveUnreadableDb(data: string, reason: unknown): Promise<void> {
-		if (data === this.preservedCorrupt)
-			return;
-		this.preservedCorrupt = data;
-
-		const path = this.corruptCopyPath();
-		let kept = true;
-		try {
-			await this.app.vault.adapter.write(path, data);
-		} catch (e) {
-			kept = false;
-			console.error("Can't keep a copy of the unreadable database:", e);
-		}
-		console.error(kept
-			? `Position Restore: unreadable database file, kept a copy at ${path}`
-			: 'Position Restore: unreadable database file, and no copy could be written', reason);
-
-		if (this.corruptNotified)
-			return;
-		this.corruptNotified = true;
-		stickyNotice(kept
-			? t('dataStorage.corruptDb.notice', path)
-			: t('dataStorage.corruptDb.noticeNoCopy'));
-	}
-
 	private async cacheDiskMtime(): Promise<void> {
 		try {
 			const st = await this.app.vault.adapter.stat(this.getDbPath());
@@ -449,26 +472,31 @@ export class CursorPositionDatabase {
 	//   两边共有的键   -> **更晚**的采集赢；相等（或两边都无时间戳，也就是 `t` 出现
 	//                     之前写下的每一条记录）保留我们的，于是一次合并绝不会在没有
 	//                     理由的情况下挪动读者自己那处位置。
-	// @returns 在合并中存活下来的磁盘记录条数。
-	private mergeDiskDb(diskDb: CursorDatabase): number {
+	// @returns adopted = 在合并中存活下来的磁盘记录条数；preserved = 磁盘上没有、靠我们
+	//   留住的记录条数。后者必须让调用方把库标脏 —— 它只存在于内存里，不写就永远回不去
+	//   盘上（例如外部整份换了文件、少了这些键）。
+	private mergeDiskDb(diskDb: CursorDatabase): { adopted: number; preserved: number } {
 		let adopted = Object.keys(diskDb).length;
+		let preserved = 0;
 		for (const key of Object.keys(this.db)) {
 			const oursIsLater = (this.db[key].time ?? 0) >= (diskDb[key]?.time ?? 0);
 			if (diskDb[key] === undefined || oursIsLater) {
 				if (diskDb[key] !== undefined)
 					adopted--;
+				else
+					preserved++;
 				diskDb[key] = this.db[key];
 			}
 		}
 		this.db = diskDb;
 		this.lastKey = null;
-		return adopted;
+		return { adopted, preserved };
 	}
 
 	// 捡起一个在我们跑着的时候被外部替换掉的 db 文件：一次 stat() 的 mtime 与我们缓存的
-	// 值不同，说明它在我们背后变了。从不把 db 标脏：采纳来的记录已经在磁盘上了，而保留下来的
-	// 本地记录随下一次自然落盘一起出门。一个同步到一半被撕开的文件会 JSON.parse 失败、
-	// 保留它旧的 mtime 缓存，之后重试。
+	// 值不同，说明它在我们背后变了。一个同步到一半被撕开的文件会 JSON.parse 失败：留住我们
+	// 的记录，把这次 mtime 记下来（别每 5 秒重读同一份坏内容刷日志），等它被下一份文件
+	// 替换时再合并。
 	async mergeExternalChanges(): Promise<void> {
 		const pass = this.mergeChain.then(() => this.runMergePass());
 		this.mergeChain = pass.catch(() => {});
@@ -500,19 +528,33 @@ export class CursorPositionDatabase {
 
 		try {
 			const { schema, db } = parseDb(data);
-			this.mergeDiskDb(db);
+			const { preserved } = this.mergeDiskDb(db);
 			this.lastDiskMtime = mtime;
 			this.noteSchema(schema, false);
+			// 磁盘那份少了、靠我们留住的记录只存在于内存里：必须标脏，否则下一次「自然
+			// 落盘」可能永远不来（用户只是阅读、然后退出），这些位置重启后就没了。
+			if (preserved > 0)
+				this.markDirty();
 		} catch (e) {
 			// 有人把文件换成了我们解析不了的内容（下载到一半、冲突标记、推了一半）。
-			// 留住我们的记录，并留一份他们的拷贝：随后那次落盘会用我们的替换掉文件。
+			// 留住内存里的记录，下一次落盘会用我们的替换掉它；mtime 记下来，免得同一份坏
+			// 内容每 5 秒重读一次。
 			console.error("Can't merge external db changes:", e);
-			await this.preserveUnreadableDb(data, e);
+			this.lastDiskMtime = mtime;
 		}
 	}
 
 	async writeDb() {
-		if (!this.dbDirty) return;
+		// 串行化：暂存文件名是固定的，两个写者交错会让其中一个 rename 落空。串行之后每次
+		// 落盘都基于前一次的形状，而不是两份的快照互相覆盖。
+		const pass = this.writeChain.then(() => this.writeDbPass());
+		this.writeChain = pass.catch(() => {});
+		await pass;
+	}
+
+	private async writeDbPass(): Promise<void> {
+		if (!this.dbDirty)
+			return;
 
 		// 自我们上次看之后，另一台设备可能替换了文件；先合并，这样我们整份文件的写入
 		// 才不会顶掉它的记录。
@@ -521,37 +563,18 @@ export class CursorPositionDatabase {
 		// 除非超过上限，否则是空操作。
 		this.trimToLimit();
 
+		if (!await this.ensureDbFolder())
+			return;
+
 		// 在序列化之前给修订号拍快照：这一瞬或之前发生的每一次变更都**在** `data` 里，
 		// 而下面那些 await 期间落下的任何东西，不能被这次落盘清掉 —— rev 抓住了这一点
 		// （下面的 dbDirty）。这样一条记录也自己就赢下期间任何一次合并：它的采集时间戳
 		// 比磁盘那份更晚。
 		const rev = this.rev;
 
-		// 墓碑是写出来的，不是跳过：「来过、停在顶部」是一个真实状态，它出现在记录数的
-		// 统计里，并且是容量上限优先淘汰的对象（见 trimToLimit）。
-		const encoded: { [path: string]: PositionRecord } = {};
-		for (const key of Object.keys(this.db)) {
-			const st = this.db[key];
-			// 只有「在顶部」的记录才需要这个文件的「打开默认行」。
-			const defaultLine = (st.scroll ?? 0) > 0 ? undefined : this.defaultCursorLine(key);
-			encoded[key] = encodeValue(st, defaultLine);
-		}
-		const data = JSON.stringify({ schema: SCHEMA_VERSION, lastPositions: encoded });
-		const dbPath = this.getDbPath();
-
-		try {
-			// 快路径：文件夹（几乎总是）已经存在。
-			await this.app.vault.adapter.write(dbPath, data);
-		} catch {
-			// 慢路径：文件夹多半不存在 —— 确保它存在（或退回默认路径）并重试一次。
-			await this.ensureDbFolder();
-			try {
-				await this.app.vault.adapter.write(this.getDbPath(), data);
-			} catch (e2) {
-				// 什么都没落到磁盘：不动 dbDirty，好让之后的落盘重试同样的记录。
-				console.error("Can't write database:", e2);
-				return;
-			}
+		if (!await this.writeDbFile(this.encodeDb(), this.getDbPath())) {
+			// 什么都没落到磁盘：不动 dbDirty，好让之后的落盘重试同样的记录。
+			return;
 		}
 
 		// 我们自己的写入改动了文件 —— 重新缓存它的 mtime，好让下一次外部变更检查不把
@@ -560,6 +583,36 @@ export class CursorPositionDatabase {
 		await this.cacheDiskMtime();
 		this.lastSeenSchema = SCHEMA_VERSION;
 		this.dbDirty = rev !== this.rev;
+	}
+
+	// 把内存里的库编码成磁盘格式。墓碑是写出来的，不是跳过：「来过、停在顶部」是一个真实
+	// 状态，它出现在记录数的统计里，并且是容量上限优先淘汰的对象（见 trimToLimit）。
+	private encodeDb(): string {
+		const encoded: { [path: string]: PositionRecord } = {};
+		for (const key of Object.keys(this.db)) {
+			const st = this.db[key];
+			// 只有「在顶部」的记录才需要这个文件的「打开默认行」。
+			const defaultLine = (st.scroll ?? 0) > 0 ? undefined : this.defaultCursorLine(key);
+			encoded[key] = encodeValue(st, defaultLine);
+		}
+		return JSON.stringify({ schema: SCHEMA_VERSION, lastPositions: encoded });
+	}
+
+	// 把整份数据换成 data：先自检，再交给 atomic-file 写盘（写暂存 → 删正式文件 →
+	// rename 就位，三步细节在那边）。启动时 recoverMissingDbFile() 会把死在「删了正式
+	// 文件、还没 rename」之前的一次落盘补完。
+	// 调用方负责保证 targetPath 的父文件夹存在：写盘走 ensureDbFolder，换库自己建。
+	// @returns 是否落地。
+	private async writeDbFile(data: string, targetPath: string): Promise<boolean> {
+		// 写出去的东西必须能按同一套规则读回来，否则下一次启动就是一次「坏文件」现场。
+		try {
+			parseDb(data);
+		} catch (e) {
+			console.error('Position Restore: refusing to write a database file it cannot read back:', e);
+			return false;
+		}
+
+		return writeFileAtomically(this.app.vault.adapter, targetPath, data);
 	}
 
 	renameFile(newPath: string, oldPath: string) {

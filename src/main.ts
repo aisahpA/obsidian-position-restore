@@ -33,7 +33,6 @@ export default class PositionRestorePlugin extends Plugin {
 		this.registerWorkspaceEvents();
 		this.registerPolling();
 		this.registerDbFlush();
-		this.registerSuspendFlush();
 
 		// 需要等到 layoutReady 后才能执行，因为此刻 metadataCache 还没有准备好。
 		this.app.workspace.onLayoutReady(() => {
@@ -218,30 +217,4 @@ export default class PositionRestorePlugin extends Plugin {
 			}, SAFE_DB_FLUSH_INTERVAL)
 		);
 	}
-
-	// 赶在 app 可能被挂起之前，把最后那个可见位置写下去。移动端 WebView 在退到后台后不久就把 JS
-	// 冻住，之后被杀掉时也不会给 'quit' 事件 —— 手指刚划完就锁屏，100ms 轮询和 5s 落盘都可能错过
-	// 最后那一下滚动。visibilitychange / pagehide 是最后还能指望的两个回调。
-	//
-	// 桌面上这两个事件照样会触发（切到别的标签页、最小化窗口），只是让这次落盘提早了一点，无害。
-	private registerSuspendFlush() {
-		const flushBeforeSuspend = () => {
-			// 焦点正落在搜索框里（编辑器查找、快速切换、命令面板、全局搜索都算），说明此刻看到的那处
-			// 是搜索带着走到的、不是读者自己走到的 —— 跳过采样这一步，只把已经存下的写盘，好让搜索
-			// 之前那个位置完整留存过这次挂起。
-			if (!this.manager.isSearchAnchored()) {
-				this.manager.sampleActiveView();
-				this.manager.sampleActiveViewState();
-			}
-			// 不等它，也没有东西可用来等：挂起时没有 Tasks 可托付，JS 还随时可能在写到一半时被冻住。
-			// 三个内存 store 上面已经同步写过了，这里补的是那个文件。
-			void this.manager.storePositionData();
-		};
-		this.registerDomEvent(document, 'visibilitychange', () => {
-			if (document.hidden)
-				flushBeforeSuspend();
-		});
-		this.registerDomEvent(window, 'pagehide', () => flushBeforeSuspend());
-	}
-
 }

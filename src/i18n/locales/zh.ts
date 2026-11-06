@@ -85,7 +85,9 @@ export const zh: En = {
 	'dataStorage.dbFileName.mergeHint':
 		'若所选文件已存在，会先将其中的记录合并到当前数据，再移动过去；文件不存在时则直接移动。',
 	'dataStorage.dbFileName.messages.merged': '已采用现有数据文件，并合并了其中 {0} 条记录。',
-	'dataStorage.dbFileName.messages.moveFailed': '移动数据文件失败：{0}',
+	'dataStorage.dbFileName.messages.moveFailed': '切换数据文件失败：{0}',
+	'dataStorage.dbFileName.messages.folderFailed':
+		'Position Restore：数据文件所在的文件夹建不出来，这次先不保存：{0}',
 	'dataStorage.dbFileName.messages.set': '数据文件已设为 {0}',
 	'dataStorage.dbFileName.syncLocal':
 		'位于插件目录内（默认）。Obsidian Sync 不会从插件目录带走这个文件；想让位置跟着换设备，点「更改」把路径改到仓库内。其他同步工具是否带走它，取决于它们会不会同步插件目录。',
@@ -95,10 +97,10 @@ export const zh: En = {
 	'dataStorage.dbFileName.syncHint':
 		'Obsidian Sync 只会从社区插件目录中同步 data.json、main.js、manifest.json 和 styles.css，因此数据文件留在默认位置时不会离开写入它的那台设备。想让位置在设备之间跟着你走，请把数据文件指向仓库内的路径（用下方的按钮选择或新建文件夹），并在每台设备的 Obsidian Sync 中开启“同步其他所有类型文件”。以“.”开头的文件夹永远不会被 Obsidian Sync 同步，请选择普通的仓库文件夹。',
 
-	'dataStorage.corruptDb.notice':
-		'Position Restore：数据文件无法解析（可能正被同步工具改写），已保留一份副本：{0}。本次从空数据继续，重新打开笔记会重新记录位置。',
-	'dataStorage.corruptDb.noticeNoCopy':
-		'Position Restore：数据文件无法解析（可能正被同步工具改写），且未能写出副本，其中的位置记录无法找回。本次从空数据继续，重新打开笔记会重新记录位置（详情见控制台）。',
+	'dataStorage.corruptDb.recoveredFromStaging':
+		'Position Restore：数据文件读不懂，已从暂存副本恢复 {0} 条位置记录，其余位置没能保住。下一次保存会把文件整份重写成能读的格式。',
+	'dataStorage.corruptDb.reset':
+		'Position Restore：数据文件读不懂，本次从空库继续，文件里原有的位置记录没有保留。下一次保存会把文件整份重写成能读的格式。',
 	// 常驻提示（要点一下才消失）：通知区里看不到来源，所以行首要自报插件名。
 	// 两条的时刻不同：`notice` 是启动时读到旧版文件（整份已读出）；
 	// `noticeOverwritten` 是本会话已写过新版之后，文件又变回旧版 —— 别处刚覆盖过它。

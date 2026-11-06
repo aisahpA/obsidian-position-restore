@@ -22,7 +22,7 @@
   `sampleActiveView`、`navigateBack/Forward`、`goToEdge`、`applyChangedSettings` 等。
 - [`PositionState`](/src/position/state.ts#L16)—— 所有跨阶段状态都挂在它上面。
 
-## 数据怎么流：装配顺序（[`main.ts:onload()`](/src/main.ts#L17) 起）
+## 数据怎么流：装配顺序（[`main.ts:onload()`](/src/main.ts#L16) 起）
 
 ```
 1. loadSettings()         ← Object.assign 合并进既有对象，对象身份不能换（见下）
@@ -36,9 +36,12 @@
 9. registerWorkspaceEvents()
 10. 两个轮询：位置 100ms / 视图 state 1000ms
 11. registerDbFlush()     ← 每 5 秒：先 mergeExternalChanges 再 storePositionData
-12. registerSuspendFlush()← visibilitychange + pagehide
-13. onLayoutReady 里延后两件事：prunePositions / sweepMissingHistory
-14. restoreEphemeralState()（最后一次，同步）
+12. onLayoutReady 里延后两件事：prunePositions / sweepMissingHistory
+13. restoreEphemeralState()（最后一次，同步）
+
+切后台不再单独写盘：挂起那一瞬是移动端 WebView 最可能被冻住的时刻，主动在此时写整份
+文件，只会让「写到一半被冻住」变成常态。丢的是最后一次 5 秒心跳之后的滚动（桌面上还有
+`quit` 兜底，实际接近零）。
 ```
 
 **设置对象身份不能换**（[`main.ts:loadSettings()`](/src/main.ts#L49)）：`PositionManager` 与 `NavPlaces` 在构造时就抓住这个

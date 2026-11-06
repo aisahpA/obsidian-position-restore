@@ -241,7 +241,7 @@ drift 纠正循环收尾。
 「点了多篇笔记只有一篇显示面包屑，就像完全消失了一样」）。**别再用取样点 / 已渲染范围去答「看没看见」**。
 另一道门槛是 [`breadcrumbPath()`](/src/position/ui/cue.ts#L38)：整篇只有一个标题不念、落点还没走进任何
 小节不念。**标出落点那一行是另一个开关**（[`flashLine()`](/src/position/ui/cue.ts#L110)）。前进/后退的每一步都由
-[`armLandingMark()`](/src/nav-history/stack.ts#L794) 点名一行、由 [`markLandingLine()`](/src/position/restore/modes.ts#L527)
+[`armLandingMark()`](/src/nav-history/stack.ts#L802) 点名一行、由 [`markLandingLine()`](/src/position/restore/modes.ts#L527)
 在落定后闪它 —— 但**点名一行 ≠ 要求把它摆到正中**：
 · jump（锚点标题行）与 teleport（跳跃目标行）点名的是一**行**，编辑模式下由
   [`centerNamedLine()`](/src/position/restore/modes.ts#L427) 把它摆到正中，和 app 自己的大纲同一个样子；

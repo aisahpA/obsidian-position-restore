@@ -174,7 +174,7 @@ export class PositionManager {
 		});
 	}
 
-	// 每一个持久化点（退出、挂起 flush、周期性 flush）都走这里。下面三个 store 同步写
+	// 每一个持久化点（退出、周期性 flush）都走这里。下面三个 store 同步写
 	// localStorage；只有 db 文件是异步的，所以这个 promise 就是「是不是全都到磁盘了」的
 	// 完整答案 —— 也正是它让退出处理器能交给 Obsidian 一个可等待的东西（见 main.ts 的 'quit'）。
 	//
@@ -398,7 +398,7 @@ export class PositionManager {
 		this.funnel.recordActivation(leaf);
 	}
 
-	// 搜索会话进行中时为真。main.ts 在轮询之外记录路径之前会检查它，例如挂起 flush。
+	// 搜索会话进行中时为真。main.ts 在轮询里记录路径之前会检查它。
 	isSearchAnchored() {
 		return this.state.isSearchAnchored();
 	}
